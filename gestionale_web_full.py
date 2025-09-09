@@ -57,10 +57,36 @@ class Attachment(Base):
 
 Base.metadata.create_all(engine)
 
-DEFAULT_USERS = {'ADMIN':'admin123'}
-CLIENT_USERS = set(); ADMIN_USERS = {'ADMIN'}
+# --- Utenti e ruoli ---
+DEFAULT_USERS = {
+    # Clienti
+    'DE WAVE': 'Struppa01',
+    'FINCANTIERI': 'Struppa02',
+    'DE WAVE REFITTING': 'Struppa03',
+    'SGDP': 'Struppa04',       # SAN GIORGIO DEL PORTO
+    'WINGECO': 'Struppa05',
+    'AMICO': 'Struppa06',
+    'DUFERCO': 'Struppa07',
+    'SCORZA': 'Struppa08',
+    'MARINE INTERIORS':Struppa09,
+
+    # Amministrativi/Interni
+    'OPS': '271214',
+    'CUSTOMS': 'Balleydier01',
+    'TAZIO': 'Balleydier02',
+    'DIEGO': 'Balleydier03',
+    'ADMIN': 'admin123'
+}
+
+# separiamo in due insiemi
+CLIENT_USERS = {
+    'DE WAVE','FINCANTIERI','DE WAVE REFITTING','SGDP',
+    'WINGECO','AMICO','DUFERCO','SCORZA'
+}
+ADMIN_USERS = {'OPS','CUSTOMS','TAZIO','DIEGO','ADMIN'}
 
 def get_users():
+    """Carica utenti da file oppure da DEFAULT_USERS"""
     fp = APP_DIR / "password Utenti Gestionale.txt"
     if fp.exists():
         try:
@@ -68,7 +94,7 @@ def get_users():
             pairs = re.findall(r"'([^']+)'\s*:\s*'([^']+)'", raw)
             m = {k.strip().upper(): v.strip() for k,v in pairs}
             if m: return m
-        except Exception: 
+        except Exception:
             pass
     return DEFAULT_USERS
 
