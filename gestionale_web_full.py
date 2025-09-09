@@ -1,10 +1,9 @@
-
 # -*- coding: utf-8 -*-
 import os, io, re, json, uuid
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, request, render_template_string, redirect, url_for, send_file, session, flash, abort
+from flask import Flask, request, render_template_string, redirect, url_for, send_file, session, flash, abort, Blueprint
 
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session
@@ -16,6 +15,10 @@ from reportlab.lib.units import mm, cm
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
+
+# >>> NEW: loader Jinja che combina cartella templates + template inline
+from jinja2 import ChoiceLoader, FileSystemLoader, DictLoader
+# <<<
 
 APP_DIR = Path(os.environ.get("APP_DIR", "."))
 APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -82,7 +85,7 @@ def fmt_date(d):
     except Exception: return d
 
 def calc_m2_m3(l, w, h, colli):
-    def f(x): 
+    def f(x):
         return float(str(x).replace(',','.')) if x not in (None,'') else 0.0
     try:
         l=f(l); w=f(w); h=f(h); colli=int(f(colli) or 1)
@@ -92,6 +95,7 @@ def calc_m2_m3(l, w, h, colli):
 
 app = Flask(__name__); app.secret_key=os.environ.get("SECRET_KEY","dev-secret")
 
+# ---------------- TEMPLATES INLINE ----------------
 BASE = """
 <!doctype html><html lang='it'><head>
 <meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>
@@ -183,9 +187,18 @@ PRINT_DOC="""<!doctype html><html><head><meta charset='utf-8'>
 <table class='table table-sm table-bordered'><thead><tr>{% for h in headers %}<th>{{h}}</th>{% endfor %}</tr></thead>
 <tbody>{% for row in data %}<tr>{% for v in row %}<td>{{v}}</td>{% endfor %}</tr>{% endfor %}</tbody></table></body></html>"""
 
-from flask import Blueprint
+# ---- Configura Jinja: cartella templates + template inline ----
 bp = Blueprint('bp', __name__); app.register_blueprint(bp)
-app.jinja_loader.mapping = {'base.html':BASE,'login.html':LOGIN,'home.html':HOME,'giacenze.html':GIACENZE,'edit.html':EDIT,'print_doc.html':PRINT_DOC}
+dict_loader = DictLoader({
+    'base.html': BASE,
+    'login.html': LOGIN,
+    'home.html': HOME,
+    'giacenze.html': GIACENZE,
+    'edit.html': EDIT,
+    'print_doc.html': PRINT_DOC
+})
+app.jinja_loader = ChoiceLoader([FileSystemLoader('templates'), dict_loader])
+# ---------------------------------------------------------------
 
 def login_required(fn):
     from functools import wraps
@@ -214,8 +227,8 @@ def home(): return render_template_string(app.jinja_loader.get_source(app.jinja_
 
 def filter_query(qs, args):
     if args.get('id'): qs = qs.filter(Articolo.id_articolo==args.get('id'))
-    def like(col): 
-        v=args.get(col); 
+    def like(col):
+        v=args.get(col);
         if v: qs=qs.filter(getattr(Articolo,col).ilike(f"%{v}%"))
         return qs
     for col in ['codice_articolo','descrizione','cliente','commessa','ordine','n_arrivo','stato','posizione','buono_n']:
@@ -275,7 +288,7 @@ def media(att_id):
     if not path.exists(): abort(404)
     return send_file(path, as_attachment=False)
 
-# Import/Export
+# ---------------- Import/Export ----------------
 PROFILES_PATH = APP_DIR / "import_profiles.json"
 DEFAULT_PROFILE = {
   "codice_articolo": ["Codice Articolo","Cod.Art","codice_articolo"],
@@ -292,7 +305,7 @@ DEFAULT_PROFILE = {
   "fornitore": ["Fornitore","fornitore"],
   "data_ingresso": ["Data Ingresso","data_ingresso","Data Ingr."]
 }
-def load_profile(): 
+def load_profile():
     if PROFILES_PATH.exists():
         try: return json.loads(PROFILES_PATH.read_text(encoding="utf-8"))
         except Exception: pass
@@ -304,7 +317,7 @@ def import_excel():
     profiles = load_profile(); selected = request.args.get('profile') or list(profiles.keys())[0]
     if request.method=='POST':
         selected = request.form.get('profile') or selected
-        f = request.files.get('file'); 
+        f = request.files.get('file');
         if not f: flash('Seleziona un file','warning'); return redirect(request.url)
         df = pd.read_excel(f).fillna("")
         prof = profiles[selected]
@@ -360,8 +373,11 @@ def export_excel_by_client():
         df.to_excel(w, index=False, sheet_name=(client[:31] or 'Export'))
     bio.seek(0); return send_file(bio, as_attachment=True, download_name=f'export_{client}.xlsx')
 
-# Stampa HTML
-PRINT = app.jinja_loader.get_source(app.jinja_env,'print_doc.html')[0]
+# ---------------- Stampa HTML ----------------
+# >>> FIX: usa direttamente il template inline (non da filesystem)
+PRINT = PRINT_DOC
+# <<<
+
 def _get(ids_csv):
     ids=[int(x) for x in ids_csv.split(',') if x.strip().isdigit()]
     if not ids: return []
@@ -370,7 +386,7 @@ def _get(ids_csv):
 @app.post('/crea_buono_html')
 @login_required
 def crea_buono_html():
-    rows=_get(request.form.get('ids','')); 
+    rows=_get(request.form.get('ids',''));
     hdr=['Ordine','Cod.Art.','Descrizione','Quantità','N.Arrivo']
     data=[[r.ordine or '', r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.n_arrivo or ''] for r in rows]
     return render_template_string(PRINT, title="Buono Prelievo", headers=hdr, data=data)
