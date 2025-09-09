@@ -230,16 +230,28 @@ def home():
     return render_template_string(app.jinja_loader.get_source(app.jinja_env,'home.html')[0])
 
 def filter_query(qs, args):
-    if args.get('id'): qs = qs.filter(Articolo.id_articolo==args.get('id'))
+    if args.get('id'):
+        qs = qs.filter(Articolo.id_articolo == args.get('id'))
+
     def like(col):
-        v=args.get(col)
-        if v: qs=qs.filter(getattr(Articolo,col).ilike(f"%{v}%"))
-        return qs
-    for col in ['codice_articolo','descrizione','cliente','commessa','ordine','n_arrivo','stato','posizione','buono_n']:
-        qs = like(col)
-    if args.get('data_da'): qs=qs.filter(Articolo.data_ingresso>=parse_date_ui(args.get('data_da')))
-    if args.get('data_a'): qs=qs.filter(Articolo.data_ingresso<=parse_date_ui(args.get('data_a')))
+        nonlocal qs
+        v = args.get(col)
+        if v:
+            qs = qs.filter(getattr(Articolo, col).ilike(f"%{v}%"))
+
+    for col in [
+        'codice_articolo','descrizione','cliente','commessa','ordine',
+        'n_arrivo','stato','posizione','buono_n'
+    ]:
+        like(col)
+
+    if args.get('data_da'):
+        qs = qs.filter(Articolo.data_ingresso >= parse_date_ui(args.get('data_da')))
+    if args.get('data_a'):
+        qs = qs.filter(Articolo.data_ingresso <= parse_date_ui(args.get('data_a')))
+
     return qs
+
 
 @app.get('/giacenze')
 @login_required
