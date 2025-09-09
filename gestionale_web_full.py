@@ -93,7 +93,7 @@ def calc_m2_m3(l, w, h, colli):
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY","dev-secret")
-
+app.jinja_env.globals['getattr'] = getattr
 # ---------------- TEMPLATES INLINE ----------------
 BASE = """
 <!doctype html><html lang='it'><head>
