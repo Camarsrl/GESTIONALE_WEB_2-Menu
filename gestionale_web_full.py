@@ -240,7 +240,11 @@ def login():
         p = request.form.get('pwd','')
         users = get_users()
         if u in users and users[u]==p:
-            session['user']=u
+            session['user'] = u
+            if u in ADMIN_USERS:
+                session['role'] = 'admin'
+            else:
+                session['role'] = 'client'
             return redirect(url_for('home'))
         flash('Credenziali non valide','danger')
     return render_template_string(app.jinja_loader.get_source(app.jinja_env,'login.html')[0])
@@ -249,6 +253,22 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+@app.get('/giacenze')
+@login_required
+def giacenze():
+    db = SessionLocal()
+    qs = db.query(Articolo).order_by(Articolo.id_articolo.desc())
+    
+    # Se è cliente, vede solo le sue giacenze
+    if session.get('role') == 'client':
+        qs = qs.filter(Articolo.cliente == session['user'])
+    
+    rows = filter_query(qs, request.args).all()
+    cols=["id_articolo","cliente","descrizione","peso","n_colli","posizione",
+          "n_arrivo","buono_n","stato","data_ingresso","data_uscita","n_ddt_uscita","m2","m3"]
+    return render_template_string(app.jinja_loader.get_source(app.jinja_env,'giacenze.html')[0],
+                                  rows=rows, cols=cols)
 
 @app.get('/')
 @login_required
