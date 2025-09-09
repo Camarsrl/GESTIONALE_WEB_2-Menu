@@ -1,0 +1,6 @@
+Flask
+pandas
+reportlab
+xlsxwriter
+SQLAlchemy
+PyMySQL

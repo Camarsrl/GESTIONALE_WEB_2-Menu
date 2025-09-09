@@ -1,0 +1,26 @@
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+
+# Environment
+.env
+.venv/
+env/
+venv/
+
+# Media & temp
+/media/
+/documenti_arrivo/
+/foto_arrivo/
+/ordini_buoni/
+/etichette_pdf/
+/uploads/
+
+# System files
+.DS_Store
+Thumbs.db
