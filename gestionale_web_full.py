@@ -16,9 +16,8 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 
-# >>> NEW: loader Jinja che combina cartella templates + template inline
+# Jinja loader combinato (filesystem + inline)
 from jinja2 import ChoiceLoader, FileSystemLoader, DictLoader
-# <<<
 
 APP_DIR = Path(os.environ.get("APP_DIR", "."))
 APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -58,9 +57,7 @@ class Attachment(Base):
 
 Base.metadata.create_all(engine)
 
-DEFAULT_USERS = {
-    'ADMIN':'admin123'
-}
+DEFAULT_USERS = {'ADMIN':'admin123'}
 CLIENT_USERS = set(); ADMIN_USERS = {'ADMIN'}
 
 def get_users():
@@ -71,7 +68,8 @@ def get_users():
             pairs = re.findall(r"'([^']+)'\s*:\s*'([^']+)'", raw)
             m = {k.strip().upper(): v.strip() for k,v in pairs}
             if m: return m
-        except Exception: pass
+        except Exception: 
+            pass
     return DEFAULT_USERS
 
 def parse_date_ui(d):
@@ -93,7 +91,8 @@ def calc_m2_m3(l, w, h, colli):
         l=w=h=0.0; colli=1
     return round(colli*l*w,3), round(colli*l*w*h,3)
 
-app = Flask(__name__); app.secret_key=os.environ.get("SECRET_KEY","dev-secret")
+app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY","dev-secret")
 
 # ---------------- TEMPLATES INLINE ----------------
 BASE = """
@@ -117,14 +116,14 @@ body{background:#f7f9fc}.card{border-radius:16px;box-shadow:0 6px 18px rgba(0,0,
 </body></html>
 """
 
-LOGIN="""{% extends 'base.html' %}{% block content %}
+LOGIN = """{% extends 'base.html' %}{% block content %}
 <div class='row justify-content-center'><div class='col-md-5'><div class='card p-4'>
 <h4 class='mb-3'>Login</h4>
 <form method='post'><div class='mb-3'><label class='form-label'>Utente</label><input name='user' class='form-control' required></div>
 <div class='mb-3'><label class='form-label'>Password</label><input type='password' name='pwd' class='form-control' required></div>
 <button class='btn btn-primary'>Entra</button></form></div></div></div>{% endblock %}"""
 
-HOME="""{% extends 'base.html' %}{% block content %}
+HOME = """{% extends 'base.html' %}{% block content %}
 <div class='row g-3'><div class='col-md-3'><div class='card p-3'>
 <h6>Azioni</h6><div class='d-grid gap-2'>
 <a class='btn btn-outline-primary' href='{{url_for("giacenze")}}'>Visualizza Giacenze</a>
@@ -136,7 +135,7 @@ HOME="""{% extends 'base.html' %}{% block content %}
 <h4>Benvenuto</h4><p class='text-muted'>Versione web con multi-upload, stampa da browser, profili import e MySQL opzionale.</p>
 </div></div></div>{% endblock %}"""
 
-GIACENZE="""{% extends 'base.html' %}{% block content %}
+GIACENZE = """{% extends 'base.html' %}{% block content %}
 <div class='card p-3 mb-3'><form class='row g-2' method='get'>
 {% for label,name in [('ID(=)','id'),('Cod.Art.(~=)','codice_articolo'),('Descr.(~=)','descrizione'),('Cliente(~=)','cliente'),('Commessa(~=)','commessa'),('Ordine(~=)','ordine'),('N.Arrivo(~=)','n_arrivo'),('Stato(~=)','stato'),('Posizione(~=)','posizione'),('Data Ingr. Da','data_da'),('Data Ingr. A','data_a'),('Buono N(~=)','buono_n')] %}
 <div class='col-md-2'><label class='form-label small'>{{label}}</label><input name='{{name}}' value='{{request.args.get(name,"")}}' class='form-control form-control-sm'></div>
@@ -162,7 +161,7 @@ function setIds(id){const v=[...document.querySelectorAll('.sel:checked')].map(x
 </script>
 {% endblock %}"""
 
-EDIT="""{% extends 'base.html' %}{% block content %}
+EDIT = """{% extends 'base.html' %}{% block content %}
 <div class='card p-4'><h5>Modifica Articolo #{{row.id_articolo}}</h5>
 <form method='post' enctype='multipart/form-data'><div class='row g-3'>
 {% for label,name in fields %}<div class='col-md-4'><label class='form-label'>{{label}}</label><input name='{{name}}' value='{{getattr(row,name,"") or ""}}' class='form-control'></div>{% endfor %}
@@ -179,7 +178,7 @@ dz.addEventListener('drop',e=>{e.preventDefault(); fi.files=e.dataTransfer.files
 </script>
 {% endblock %}"""
 
-PRINT_DOC="""<!doctype html><html><head><meta charset='utf-8'>
+PRINT_DOC = """<!doctype html><html><head><meta charset='utf-8'>
 <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>
 <style>@media print{.no-print{display:none}}</style></head><body class='p-4'>
 <div class='no-print mb-3'><button class='btn btn-primary' onclick='window.print()'>Stampa</button></div>
@@ -214,21 +213,26 @@ def login():
         u = request.form.get('user','').strip().upper()
         p = request.form.get('pwd','')
         users = get_users()
-        if u in users and users[u]==p: session['user']=u; return redirect(url_for('home'))
+        if u in users and users[u]==p:
+            session['user']=u
+            return redirect(url_for('home'))
         flash('Credenziali non valide','danger')
     return render_template_string(app.jinja_loader.get_source(app.jinja_env,'login.html')[0])
 
 @app.get('/logout')
-def logout(): session.clear(); return redirect(url_for('login'))
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
 
 @app.get('/')
 @login_required
-def home(): return render_template_string(app.jinja_loader.get_source(app.jinja_env,'home.html')[0])
+def home():
+    return render_template_string(app.jinja_loader.get_source(app.jinja_env,'home.html')[0])
 
 def filter_query(qs, args):
     if args.get('id'): qs = qs.filter(Articolo.id_articolo==args.get('id'))
     def like(col):
-        v=args.get(col);
+        v=args.get(col)
         if v: qs=qs.filter(getattr(Articolo,col).ilike(f"%{v}%"))
         return qs
     for col in ['codice_articolo','descrizione','cliente','commessa','ordine','n_arrivo','stato','posizione','buono_n']:
@@ -243,7 +247,11 @@ def giacenze():
     db=SessionLocal()
     rows=filter_query(db.query(Articolo).order_by(Articolo.id_articolo.desc()), request.args).all()
     cols=["id_articolo","cliente","descrizione","peso","n_colli","posizione","n_arrivo","buono_n","stato","data_ingresso","data_uscita","n_ddt_uscita","m2","m3"]
-    return render_template_string(app.jinja_loader.get_source(app.jinja_env,'giacenze.html')[0], rows=rows, cols=cols)
+    # >>> PASSO getattr AL TEMPLATE
+    return render_template_string(
+        app.jinja_loader.get_source(app.jinja_env,'giacenze.html')[0],
+        rows=rows, cols=cols, getattr=getattr
+    )
 
 @app.route('/edit/<int:id>', methods=['GET','POST'])
 @login_required
@@ -265,7 +273,11 @@ def edit_row(id):
                 f.save(str(folder/name)); db.add(Attachment(articolo_id=id,kind=kind,filename=name))
         db.commit(); flash('Riga aggiornata','success'); return redirect(url_for('giacenze'))
     fields=[('Codice Articolo','codice_articolo'),('Descrizione','descrizione'),('Cliente','cliente'),('Commessa','commessa'),('Ordine','ordine'),('Peso','peso'),('N Colli','n_colli'),('Posizione','posizione'),('Stato','stato'),('N.Arrivo','n_arrivo'),('Buono N','buono_n'),('Protocollo','protocollo'),('Fornitore','fornitore'),('Data Ingresso (GG/MM/AAAA)','data_ingresso'),('Data Uscita (GG/MM/AAAA)','data_uscita'),('N DDT Ingresso','n_ddt_ingresso'),('N DDT Uscita','n_ddt_uscita'),('Larghezza (m)','larghezza'),('Lunghezza (m)','lunghezza'),('Altezza (m)','altezza'),('Serial Number','serial_number'),('NS Rif','ns_rif'),('Mezzi in Uscita','mezzi_in_uscita'),('Note','note')]
-    return render_template_string(app.jinja_loader.get_source(app.jinja_env,'edit.html')[0], row=row, fields=fields)
+    # >>> PASSO getattr AL TEMPLATE
+    return render_template_string(
+        app.jinja_loader.get_source(app.jinja_env,'edit.html')[0],
+        row=row, fields=fields, getattr=getattr
+    )
 
 @app.get('/attachment/<int:att_id>/delete')
 @login_required
@@ -275,7 +287,8 @@ def delete_attachment(att_id):
         path=(DOCS_DIR if att.kind=='doc' else PHOTOS_DIR)/att.filename
         try:
             if path.exists(): path.unlink()
-        except Exception: pass
+        except Exception: 
+            pass
         db.delete(att); db.commit(); flash('Allegato eliminato','success')
     return redirect(url_for('giacenze'))
 
@@ -308,7 +321,8 @@ DEFAULT_PROFILE = {
 def load_profile():
     if PROFILES_PATH.exists():
         try: return json.loads(PROFILES_PATH.read_text(encoding="utf-8"))
-        except Exception: pass
+        except Exception: 
+            pass
     return {"Generico": DEFAULT_PROFILE}
 
 @app.route('/import', methods=['GET','POST'])
@@ -317,8 +331,10 @@ def import_excel():
     profiles = load_profile(); selected = request.args.get('profile') or list(profiles.keys())[0]
     if request.method=='POST':
         selected = request.form.get('profile') or selected
-        f = request.files.get('file');
-        if not f: flash('Seleziona un file','warning'); return redirect(request.url)
+        f = request.files.get('file')
+        if not f: 
+            flash('Seleziona un file','warning'); 
+            return redirect(request.url)
         df = pd.read_excel(f).fillna("")
         prof = profiles[selected]
         def getv(row, alts):
@@ -365,8 +381,10 @@ def export_excel_by_client():
         clients=[c[0] or "Senza Cliente" for c in db.query(Articolo.cliente).distinct().all()]
         html="<h5>Seleziona Cliente</h5><ul>"+"".join([f"<li><a href='{url_for('export_excel_by_client')}?cliente={c}'>{c}</a></li>" for c in clients])+"</ul>"
         return html
-    if client=="Senza Cliente": rows=db.query(Articolo).filter((Articolo.cliente==None)|(Articolo.cliente=="")).all()
-    else: rows=db.query(Articolo).filter(Articolo.cliente==client).all()
+    if client=="Senza Cliente":
+        rows=db.query(Articolo).filter((Articolo.cliente==None)|(Articolo.cliente=="")).all()
+    else:
+        rows=db.query(Articolo).filter(Articolo.cliente==client).all()
     df = pd.DataFrame([{k:v for k,v in r.__dict__.items() if not k.startswith('_') and k!='attachments'} for r in rows])
     bio=io.BytesIO()
     with pd.ExcelWriter(bio, engine='xlsxwriter') as w:
@@ -374,9 +392,7 @@ def export_excel_by_client():
     bio.seek(0); return send_file(bio, as_attachment=True, download_name=f'export_{client}.xlsx')
 
 # ---------------- Stampa HTML ----------------
-# >>> FIX: usa direttamente il template inline (non da filesystem)
 PRINT = PRINT_DOC
-# <<<
 
 def _get(ids_csv):
     ids=[int(x) for x in ids_csv.split(',') if x.strip().isdigit()]
@@ -386,7 +402,7 @@ def _get(ids_csv):
 @app.post('/crea_buono_html')
 @login_required
 def crea_buono_html():
-    rows=_get(request.form.get('ids',''));
+    rows=_get(request.form.get('ids',''))
     hdr=['Ordine','Cod.Art.','Descrizione','Quantità','N.Arrivo']
     data=[[r.ordine or '', r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.n_arrivo or ''] for r in rows]
     return render_template_string(PRINT, title="Buono Prelievo", headers=hdr, data=data)
@@ -418,7 +434,10 @@ def crea_etichetta_html():
     return "".join(html)
 
 @app.get('/health')
-def health(): return {'ok':True}
+def health():
+    return {'ok':True}
 
 if __name__=='__main__':
-    port=int(os.environ.get('PORT',8000)); app.run(host='0.0.0.0', port=port)
+    port=int(os.environ.get('PORT',8000))
+    app.run(host='0.0.0.0', port=port)
+
