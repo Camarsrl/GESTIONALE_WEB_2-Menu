@@ -57,33 +57,31 @@ class Attachment(Base):
 
 Base.metadata.create_all(engine)
 
-# --- Utenti e ruoli ---
+# Utenti e password (stringhe!)
 DEFAULT_USERS = {
     # Clienti
     'DE WAVE': 'Struppa01',
     'FINCANTIERI': 'Struppa02',
     'DE WAVE REFITTING': 'Struppa03',
-    'SGDP': 'Struppa04',       # SAN GIORGIO DEL PORTO
+    'SGDP': 'Struppa04',
     'WINGECO': 'Struppa05',
     'AMICO': 'Struppa06',
     'DUFERCO': 'Struppa07',
     'SCORZA': 'Struppa08',
-    'MARINE INTERIORS':Struppa09,
+    'MARINE INTERIORS': 'Struppa09',
 
-    # Amministrativi/Interni
+    # Amministrativi / interni
     'OPS': '271214',
     'CUSTOMS': 'Balleydier01',
     'TAZIO': 'Balleydier02',
     'DIEGO': 'Balleydier03',
-    'ADMIN': 'admin123'
+    'ADMIN': 'admin123',   # admin generico
 }
 
-# separiamo in due insiemi
-CLIENT_USERS = {
-    'DE WAVE','FINCANTIERI','DE WAVE REFITTING','SGDP',
-    'WINGECO','AMICO','DUFERCO','SCORZA'
-}
-ADMIN_USERS = {'OPS','CUSTOMS','TAZIO','DIEGO','ADMIN'}
+# Gruppi (ruoli)
+ADMIN_USERS = {'ADMIN', 'OPS', 'CUSTOMS', 'TAZIO', 'DIEGO'}
+CLIENT_USERS = set(DEFAULT_USERS.keys()) - ADMIN_USERS
+
 
 def get_users():
     """Carica utenti da file oppure da DEFAULT_USERS"""
