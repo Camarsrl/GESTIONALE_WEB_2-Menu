@@ -386,37 +386,135 @@ def load_profile():
 @app.route('/import', methods=['GET','POST'])
 @login_required
 def import_excel():
-    profiles = load_profile(); selected = request.args.get('profile') or list(profiles.keys())[0]
-    if request.method=='POST':
+    # 1) Carica mapping JSON stile "header_row + column_map"
+    PROFILES_PATH = APP_DIR / "import_profiles.json"  # rinomina il tuo mappe.json così
+    profiles = {}
+    if PROFILES_PATH.exists():
+        try:
+            profiles = json.loads(PROFILES_PATH.read_text(encoding="utf-8"))
+        except Exception as e:
+            flash(f"Mappe JSON non valide: {e}", "danger")
+            profiles = {}
+    if not profiles:
+        # fallback: un profilo minimo
+        profiles = {"Generico": {"header_row": 0, "column_map": {
+            "CODICE ARTICOLO":"codice_articolo","DESCRIZIONE":"descrizione","CLIENTE":"cliente"}}}
+
+    selected = request.args.get('profile') or next(iter(profiles.keys()))
+
+    # util: normalizza target (campi modello)
+    def norm_target(t: str) -> str | None:
+        if not t: return None
+        t0 = t.strip()
+        # mapping sinonimi -> campi modello
+        aliases = {
+            "ID": "id_articolo",
+            "Ordine": "ordine",
+            "M2": "m2",
+            "M3": "m3",
+            "Notes": "note",
+            "NS RIF": "ns_rif",
+            "NS.RIF": "ns_rif",
+            "MEZZO IN USCITA": "mezzi_in_uscita",
+            "Mezzo_in _uscita": "mezzi_in_uscita",
+            "TRUCKER": None,           # non esiste nel modello -> ignora
+            "DESTINATARI": None,       # non esiste -> ignora
+            "TIPO DI IMBALLO": None    # non esiste -> ignora
+        }
+        # se è un alias noto
+        if t0 in aliases: 
+            return aliases[t0]
+        # altrimenti prova lowercase standard
+        return t0.lower()
+
+    if request.method == 'POST':
         selected = request.form.get('profile') or selected
-        f = request.files.get('file')
-        if not f: 
-            flash('Seleziona un file','warning'); 
+        if selected not in profiles:
+            flash("Profilo non trovato.", "danger")
             return redirect(request.url)
-        df = pd.read_excel(f).fillna("")
+
+        f = request.files.get('file')
+        if not f or not f.filename:
+            flash('Seleziona un file .xlsx', 'warning'); return redirect(request.url)
+
         prof = profiles[selected]
-        def getv(row, alts):
-            if isinstance(alts,str): alts=[alts]
-            for a in alts:
-                if a in row: return row[a]
-            return ""
-        db=SessionLocal()
-        for _,row in df.iterrows():
-            a=Articolo()
-            for k,alts in prof.items():
-                v=getv(row,alts); setattr(a,k, v if v!="" else None)
-            db.add(a)
-        db.commit(); flash('Import completato','success'); return redirect(url_for('giacenze'))
+        header_row = int(prof.get("header_row", 0))
+        colmap: dict = prof.get("column_map", {})
+
+        try:
+            # header è 0-based: se le intestazioni sono alla riga 3, header_row=2
+            df = pd.read_excel(f, header=header_row).fillna("")
+        except Exception as e:
+            flash(f"Errore lettura Excel: {e}", "danger")
+            return redirect(request.url)
+
+        # dizionario colonne Excel normalizzate per match case-insensitive
+        excel_cols = {c.strip().upper(): c for c in df.columns if isinstance(c, str)}
+
+        db = SessionLocal()
+        added = 0
+        try:
+            for _, row in df.iterrows():
+                a = Articolo()
+                for excel_name, target in colmap.items():
+                    if not isinstance(excel_name, str) or not isinstance(target, str):
+                        continue
+                    # trova la colonna nell'Excel (case-insensitive)
+                    key = excel_cols.get(excel_name.strip().upper())
+                    if not key: 
+                        continue
+                    value = row.get(key, None)
+                    if value == "": 
+                        value = None
+
+                    # normalizza target
+                    field = norm_target(target)
+                    if not field:
+                        continue
+                    # scarta se il campo non esiste nel modello
+                    if not hasattr(Articolo, field):
+                        continue
+
+                    # date: prova normalizzazione gg/mm/aaaa
+                    if field in ("data_ingresso","data_uscita"):
+                        if isinstance(value, (pd.Timestamp, datetime)):
+                            value = value.strftime("%Y-%m-%d")
+                        elif isinstance(value, str):
+                            value = parse_date_ui(value)
+
+                    setattr(a, field, value)
+                db.add(a); added += 1
+            db.commit()
+            flash(f'Import completato ({added} righe)', 'success')
+            return redirect(url_for('giacenze'))
+        except Exception as e:
+            db.rollback()
+            flash(f"Errore import: {e}", "danger")
+            return redirect(request.url)
+
+    # GET -> form
     html = """
     {% extends 'base.html' %}{% block content %}
-    <div class='card p-4'><h5>Importa da Excel</h5>
-    <form method='post' enctype='multipart/form-data'>
-      <div class='row g-3'>
-        <div class='col-md-6'><label class='form-label'>File Excel</label><input type='file' name='file' accept='.xlsx,.xlsm' class='form-control' required></div>
-        <div class='col-md-6'><label class='form-label'>Profilo</label><select class='form-select' name='profile'>{% for k in profiles.keys() %}<option value='{{k}}' {% if k==selected %}selected{% endif %}>{{k}}</option>{% endfor %}</select></div>
-      </div>
-      <button class='btn btn-primary mt-3'>Importa</button>
-    </form></div>
+    <div class='card p-4'>
+      <h5>Importa da Excel</h5>
+      <form method='post' enctype='multipart/form-data'>
+        <div class='row g-3'>
+          <div class='col-md-6'>
+            <label class='form-label'>File Excel (.xlsx)</label>
+            <input type='file' name='file' accept='.xlsx,.xlsm' class='form-control' required>
+          </div>
+          <div class='col-md-6'>
+            <label class='form-label'>Profilo</label>
+            <select class='form-select' name='profile'>
+              {% for k in profiles.keys() %}
+                <option value='{{k}}' {% if k==selected %}selected{% endif %}>{{k}}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <button class='btn btn-primary mt-3'>Importa</button>
+      </form>
+    </div>
     {% endblock %}
     """
     return render_template_string(html, profiles=profiles, selected=selected)
