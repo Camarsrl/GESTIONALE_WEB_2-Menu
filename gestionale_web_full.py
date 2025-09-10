@@ -1,23 +1,18 @@
 # -*- coding: utf-8 -*-
-import os, io, re, json, uuid
-from datetime import datetime, date
+import os, io, re, json, uuid, base64
+from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, request, render_template_string, redirect, url_for, send_file, session, flash, abort, Blueprint
+from flask import (
+    Flask, request, render_template_string, redirect,
+    url_for, send_file, session, flash, abort, Blueprint
+)
 
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session
 
 import pandas as pd
 
-# ReportLab (PDF)
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import mm
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet
-
-# Jinja loader combinato (filesystem + inline)
 from jinja2 import ChoiceLoader, FileSystemLoader, DictLoader
 
 APP_DIR = Path(os.environ.get("APP_DIR", "."))
@@ -34,51 +29,35 @@ engine = create_engine(DATABASE_URL, future=True)
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 Base = declarative_base()
 
-# ---------- MODELLI ----------
+# ------------------------- MODELLI -------------------------
 class Articolo(Base):
     __tablename__ = "articoli"
     id_articolo = Column(Integer, primary_key=True, autoincrement=True)
     codice_articolo = Column(String(255))
     pezzo = Column(String(255))
-    larghezza = Column(Float)
-    lunghezza = Column(Float)
-    altezza = Column(Float)
-    m2 = Column(Float)
-    m3 = Column(Float)
-    protocollo = Column(String(255))
-    ordine = Column(String(255))
-    commessa = Column(String(255))
-    magazzino = Column(String(255))
-    fornitore = Column(String(255))
-    data_ingresso = Column(String(32))
-    n_ddt_ingresso = Column(String(255))
-    cliente = Column(String(255))
-    descrizione = Column(Text)
-    peso = Column(Float)
-    n_colli = Column(Integer)
-    posizione = Column(String(255))
-    n_arrivo = Column(String(255))
-    buono_n = Column(String(255))
-    note = Column(Text)
+    larghezza = Column(Float); lunghezza = Column(Float); altezza = Column(Float)
+    m2 = Column(Float); m3 = Column(Float)
+    protocollo = Column(String(255)); ordine = Column(String(255)); commessa = Column(String(255))
+    magazzino = Column(String(255)); fornitore = Column(String(255))
+    data_ingresso = Column(String(32)); n_ddt_ingresso = Column(String(255))
+    cliente = Column(String(255)); descrizione = Column(Text); peso = Column(Float); n_colli = Column(Integer)
+    posizione = Column(String(255)); n_arrivo = Column(String(255)); buono_n = Column(String(255)); note = Column(Text)
     serial_number = Column(String(255))
-    data_uscita = Column(String(32))
-    n_ddt_uscita = Column(String(255))
-    ns_rif = Column(String(255))
-    stato = Column(String(255))
-    mezzi_in_uscita = Column(String(255))
+    data_uscita = Column(String(32)); n_ddt_uscita = Column(String(255)); ns_rif = Column(String(255))
+    stato = Column(String(255)); mezzi_in_uscita = Column(String(255))
     attachments = relationship("Attachment", back_populates="articolo", cascade="all, delete-orphan")
 
 class Attachment(Base):
     __tablename__ = "attachments"
     id = Column(Integer, primary_key=True, autoincrement=True)
     articolo_id = Column(Integer, ForeignKey("articoli.id_articolo"))
-    kind = Column(String(10))   # doc/foto
+    kind = Column(String(10)) # doc/foto
     filename = Column(String(512))
     articolo = relationship("Articolo", back_populates="attachments")
 
 Base.metadata.create_all(engine)
 
-# ---------- UTENTI ----------
+# ------------------------- UTENTI -------------------------
 DEFAULT_USERS = {
     # Clienti
     'DE WAVE': 'Struppa01',
@@ -90,89 +69,84 @@ DEFAULT_USERS = {
     'DUFERCO': 'Struppa07',
     'SCORZA': 'Struppa08',
     'MARINE INTERIORS': 'Struppa09',
+
     # Amministrativi / interni
     'OPS': '271214',
     'CUSTOMS': 'Balleydier01',
     'TAZIO': 'Balleydier02',
     'DIEGO': 'Balleydier03',
-    'ADMIN': 'admin123'
+    'ADMIN': 'admin123',
 }
 ADMIN_USERS = {'ADMIN', 'OPS', 'CUSTOMS', 'TAZIO', 'DIEGO'}
 CLIENT_USERS = set(DEFAULT_USERS.keys()) - ADMIN_USERS
 
 def get_users():
-    """Carica utenti da file oppure da DEFAULT_USERS."""
     fp = APP_DIR / "password Utenti Gestionale.txt"
     if fp.exists():
         try:
             raw = fp.read_text(encoding="utf-8", errors="ignore")
             pairs = re.findall(r"'([^']+)'\s*:\s*'([^']+)'", raw)
-            m = {k.strip().upper(): v.strip() for k, v in pairs}
-            if m:
-                return m
+            m = {k.strip().upper(): v.strip() for k,v in pairs}
+            if m: return m
         except Exception:
             pass
     return DEFAULT_USERS
 
-# ---------- UTILS ----------
-def to_float_eu(v):
-    """Converte '1,23' -> 1.23, gestisce '', None -> None."""
-    if v is None:
-        return None
-    if isinstance(v, (int, float)):
-        return float(v)
-    s = str(v).strip()
-    if not s:
-        return None
-    s = s.replace(',', '.')
-    try:
-        return float(s)
-    except Exception:
-        return None
-
-def to_int_eu(v):
-    """Converte anche '3', '3.0', '3,0' -> 3; '', None -> None."""
-    f = to_float_eu(v)
-    if f is None:
-        return None
-    try:
-        return int(round(f))
-    except Exception:
-        return None
-
+# ------------------------- UTILS -------------------------
 def parse_date_ui(d):
-    if not d:
-        return None
+    if not d: return None
     try:
         return datetime.strptime(d, "%d/%m/%Y").strftime("%Y-%m-%d")
     except Exception:
         return d
 
 def fmt_date(d):
-    if not d:
-        return ""
+    if not d: return ""
     try:
         return datetime.strptime(d, "%Y-%m-%d").strftime("%d/%m/%Y")
     except Exception:
         return d
 
-def calc_m2_m3(l, w, h, colli):
-    def f(x):
-        return float(str(x).replace(",", ".")) if x not in (None, "") else 0.0
+def to_float_eu(val):
+    if val is None or val == "": return None
+    if isinstance(val, (int, float)): return float(val)
+    s = str(val).strip().replace(" ", "")
+    # gestisci 1.234,56 e 1,234.56: prendo l'ultimo separatore come decimale
+    if "," in s and "." in s:
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            s = s.replace(",", "")
+    else:
+        s = s.replace(",", ".")
     try:
-        l = f(l)
-        w = f(w)
-        h = f(h)
-        colli = int(f(colli) or 1)
+        return float(s)
     except Exception:
-        l = w = h = 0.0
-        colli = 1
-    return round(colli * l * w, 3), round(colli * l * w * h, 3)
+        return None
 
-# ---------- APP/Temi ----------
-app = Flask(__name__)
+def to_int_eu(val):
+    f = to_float_eu(val)
+    return int(f) if f is not None else None
+
+def calc_m2_m3(l, w, h, colli):
+    l = to_float_eu(l) or 0.0
+    w = to_float_eu(w) or 0.0
+    h = to_float_eu(h) or 0.0
+    c = to_int_eu(colli) or 1
+    return round(c*l*w, 3), round(c*l*w*h, 3)
+
+# ------------------------- APP & TEMPLATES -------------------------
+app = Flask(__name__, static_folder="static")
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
-app.jinja_env.globals['getattr'] = getattr  # utile nei template
+app.jinja_env.globals['getattr'] = getattr
+
+# Base64 (fallback) se non c'è static/logo.png
+def _logo_src():
+    path = Path(app.static_folder or "static") / "logo.png"
+    if path.exists():
+        return url_for('static', filename='logo.png')
+    # fallback trasparente 1x1
+    return "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc`\x00\x00\x00\x02\x00\x01\xe2!\xbc3\x00\x00\x00\x00IEND\xaeB`\x82").decode()
 
 BASE = """
 <!doctype html><html lang='it'><head>
@@ -186,268 +160,192 @@ body{background:#f7f9fc}.card{border-radius:16px;box-shadow:0 6px 18px rgba(0,0,
 @media print{.no-print{display:none!important}}
 </style></head><body>
 <nav class='navbar bg-white shadow-sm'><div class='container-fluid'>
-<a class='navbar-brand' href='{{url_for("home")}}'>Camar • Gestionale</a>
-<div class='ms-auto'>
-  {% if session.get('user') %}
-    <span class='me-3'>Utente: <b>{{session['user']}}</b></span>
-    <a class='btn btn-outline-secondary btn-sm' href='{{url_for("logout")}}'>Logout</a>
-  {% endif %}
-</div>
+<a class='navbar-brand d-flex align-items-center gap-2' href='{{url_for("home")}}'>
+  <img src='{{logo_url}}' height='28' alt='logo'>
+  <span>Camar • Gestionale</span>
+</a>
+<div class='ms-auto'>{% if session.get('user') %}<span class='me-3'>Utente: <b>{{session['user']}}</b></span><a class='btn btn-outline-secondary btn-sm' href='{{url_for("logout")}}'>Logout</a>{% endif %}</div>
 </div></nav>
-<div class='container my-4'>
-  {% with m=get_flashed_messages(with_categories=true) %}
-    {% for c,t in m %}<div class='alert alert-{{c}} alert-dismissible fade show'>{{t}}<button class='btn-close' data-bs-dismiss='alert'></button></div>{% endfor %}
-  {% endwith %}
-  {% block content %}{% endblock %}
-</div>
+<div class='container my-4'>{% with m=get_flashed_messages(with_categories=true) %}{% for c,t in m %}<div class='alert alert-{{c}} alert-dismissible fade show'>{{t}}<button class='btn-close' data-bs-dismiss='alert'></button></div>{% endfor %}{% endwith %}
+{% block content %}{% endblock %}</div>
 <script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js'></script>
 </body></html>
 """
 
 LOGIN = """{% extends 'base.html' %}{% block content %}
-<div class='row justify-content-center'>
-  <div class='col-md-5'>
-    <div class='card p-4'>
-      <h4 class='mb-3'>Login</h4>
-      <form method='post'>
-        <div class='mb-3'>
-          <label class='form-label'>Utente</label>
-          <input name='user' class='form-control' required>
-        </div>
-        <div class='mb-3'>
-          <label class='form-label'>Password</label>
-          <input type='password' name='pwd' class='form-control' required>
-        </div>
-        <button class='btn btn-primary'>Entra</button>
-      </form>
-    </div>
-  </div>
-</div>
-{% endblock %}"""
+<div class='row justify-content-center'><div class='col-md-5'><div class='card p-4'>
+<h4 class='mb-3'>Login</h4>
+<form method='post'><div class='mb-3'><label class='form-label'>Utente</label><input name='user' class='form-control' required></div>
+<div class='mb-3'><label class='form-label'>Password</label><input type='password' name='pwd' class='form-control' required></div>
+<button class='btn btn-primary'>Entra</button></form></div></div></div>{% endblock %}"""
 
 HOME = """{% extends 'base.html' %}{% block content %}
-<div class='row g-3'>
-  <div class='col-md-3'>
-    <div class='card p-3'>
-      <h6>Azioni</h6>
-      <div class='d-grid gap-2'>
-        <a class='btn btn-outline-primary' href='{{url_for("giacenze")}}'>Visualizza Giacenze</a>
-        <a class='btn btn-outline-primary' href='{{url_for("import_excel")}}'>Import da Excel</a>
-        <a class='btn btn-outline-primary' href='{{url_for("export_excel")}}'>Export Excel</a>
-        <a class='btn btn-outline-primary' href='{{url_for("export_excel_by_client")}}'>Export per Cliente</a>
-        <a class='btn btn-outline-success' href='{{url_for("new_row")}}'>Nuovo Articolo</a>
-      </div>
-    </div>
-  </div>
-  <div class='col-md-9'>
-    <div class='card p-4'>
-      <h4>Benvenuto</h4>
-      <p class='text-muted'>Versione web con multi-upload, stampa HTML e PDF, profili import e progressivo DDT.</p>
-    </div>
-  </div>
-</div>
-{% endblock %}"""
+<div class='row g-3'><div class='col-md-3'><div class='card p-3'>
+<h6>Azioni</h6><div class='d-grid gap-2'>
+<a class='btn btn-outline-primary' href='{{url_for("giacenze")}}'>Visualizza Giacenze</a>
+<a class='btn btn-outline-primary' href='{{url_for("import_excel")}}'>Import da Excel</a>
+<a class='btn btn-outline-primary' href='{{url_for("export_excel")}}'>Export Excel</a>
+<a class='btn btn-outline-primary' href='{{url_for("export_excel_by_client")}}'>Export per Cliente</a>
+</div></div></div>
+<div class='col-md-9'><div class='card p-4'>
+<h4>Benvenuto</h4><p class='text-muted'>Versione web con multi-upload, stampa da browser, profili import e MySQL opzionale.</p>
+</div></div></div>{% endblock %}"""
 
 GIACENZE = """{% extends 'base.html' %}{% block content %}
-<div class='card p-3 mb-3'>
-  <form class='row g-2' method='get'>
-    {% for label,name in [('ID(=)','id'),('Cod.Art.(~=)','codice_articolo'),('Descr.(~=)','descrizione'),('Cliente(~=)','cliente'),
-      ('Commessa(~=)','commessa'),('Ordine(~=)','ordine'),('N.Arrivo(~=)','n_arrivo'),('Stato(~=)','stato'),
-      ('Posizione(~=)','posizione'),('Data Ingr. Da','data_da'),('Data Ingr. A','data_a'),('Buono N(~=)','buono_n')] %}
-      <div class='col-md-2'><label class='form-label small'>{{label}}</label>
-        <input name='{{name}}' value='{{request.args.get(name,"")}}' class='form-control form-control-sm'>
-      </div>
-    {% endfor %}
-    <div class='col-md-2 d-grid'><button class='btn btn-primary btn-sm mt-4'>Filtra</button></div>
+<div class='card p-3 mb-3'><form class='row g-2' method='get'>
+{% for label,name in [('ID(=)','id'),('Cod.Art.(~=)','codice_articolo'),('Descr.(~=)','descrizione'),('Cliente(~=)','cliente'),('Commessa(~=)','commessa'),('Ordine(~=)','ordine'),('N.Arrivo(~=)','n_arrivo'),('Stato(~=)','stato'),('Posizione(~=)','posizione'),('Data Ingr. Da','data_da'),('Data Ingr. A','data_a'),('Buono N(~=)','buono_n')] %}
+<div class='col-md-2'><label class='form-label small'>{{label}}</label><input name='{{name}}' value='{{request.args.get(name,"")}}' class='form-control form-control-sm'></div>
+{% endfor %}
+<div class='col-md-2 d-grid'><button class='btn btn-primary btn-sm mt-4'>Filtra</button></div></form></div>
+<div class='card p-3'>
+<div class='d-flex gap-2 mb-2 no-print'>
+  <form method='post' action='{{url_for("crea_buono_html")}}' target='_blank'>
+    <input type='hidden' name='ids' id='ids-b1'>
+    <button class='btn btn-outline-secondary btn-sm'>Buono (Stampa)</button>
+  </form>
+  <form method='get' action='{{url_for("ddt_prepare")}}' target='_blank'>
+    <input type='hidden' name='ids' id='ids-dform'>
+    <button class='btn btn-outline-primary btn-sm'>DDT (Compila)</button>
+  </form>
+  <form method='post' action='{{url_for("crea_ddt_html")}}' target='_blank'>
+    <input type='hidden' name='ids' id='ids-d1'>
+    <button class='btn btn-outline-secondary btn-sm'>DDT (Stampa)</button>
+  </form>
+  <form method='post' action='{{url_for("crea_etichetta_html")}}' target='_blank'>
+    <input type='hidden' name='ids' id='ids-e1'>
+    <button class='btn btn-outline-secondary btn-sm'>Etichette (Stampa)</button>
   </form>
 </div>
-
-<div class='card p-3'>
-  <div class='d-flex flex-wrap gap-2 mb-2 no-print'>
-    <form method='post' action='{{url_for("crea_buono_html")}}' target='_blank'>
-      <input type='hidden' name='ids' id='ids-b1'><button class='btn btn-outline-secondary btn-sm'>Buono (Stampa)</button>
-    </form>
-    <form method='post' action='{{url_for("crea_ddt_html")}}' target='_blank'>
-      <input type='hidden' name='ids' id='ids-d1'><button class='btn btn-outline-secondary btn-sm'>DDT (Stampa)</button>
-    </form>
-    <form method='post' action='{{url_for("crea_etichetta_html")}}' target='_blank'>
-      <input type='hidden' name='ids' id='ids-e1'><button class='btn btn-outline-secondary btn-sm'>Etichette (Stampa)</button>
-    </form>
-
-    <!-- PDF -->
-    <form method='post' action='{{url_for("pdf_buono")}}' target='_blank'>
-      <input type='hidden' name='ids' id='ids-bp'><button class='btn btn-outline-primary btn-sm'>Buono (PDF)</button>
-    </form>
-    <form method='post' action='{{url_for("pdf_ddt")}}' target='_blank'>
-      <input type='hidden' name='ids' id='ids-dp'><button class='btn btn-outline-primary btn-sm'>DDT (PDF)</button>
-    </form>
-    <form method='post' action='{{url_for("pdf_etichette")}}' target='_blank'>
-      <input type='hidden' name='ids' id='ids-ep'><button class='btn btn-outline-primary btn-sm'>Etichette (PDF)</button>
-    </form>
-
-    <!-- Scarico + DDT -->
-    {% if session.get('role') == 'admin' %}
-    <form method='post' action='{{url_for("scarico_ddt")}}' target='_blank'>
-      <input type='hidden' name='ids' id='ids-scarico'>
-      <button class='btn btn-success btn-sm'>Scarico + DDT (PDF)</button>
-    </form>
-    {% endif %}
-  </div>
-
-  <div class='table-responsive' style='max-height:60vh'>
-    <table class='table table-sm table-hover align-middle'>
-      <thead>
-        <tr>
-          <th><input type='checkbox' id='checkall'></th>
-          {% for c in cols %}<th>{{c}}</th>{% endfor %}
-          <th>Allegati</th><th>Azione</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in rows %}
-        <tr>
-          <td><input type='checkbox' class='sel' value='{{r.id_articolo}}'></td>
-          {% for c in cols %}<td>{{getattr(r,c)}}</td>{% endfor %}
-          <td>{% for a in r.attachments %}<a class='badge text-bg-light' href='{{url_for("media",att_id=a.id)}}' target='_blank'>{{a.kind}}</a> {% endfor %}</td>
-          <td><a class='btn btn-sm btn-outline-primary' href='{{url_for("edit_row",id=r.id_articolo)}}'>Modifica</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-
+<div class='table-responsive' style='max-height:60vh'><table class='table table-sm table-hover align-middle'>
+<thead><tr><th><input type='checkbox' id='checkall'></th>{% for c in cols %}<th>{{c}}</th>{% endfor %}<th>Allegati</th><th>Azione</th></tr></thead>
+<tbody>{% for r in rows %}<tr>
+<td><input type='checkbox' class='sel' value='{{r.id_articolo}}'></td>
+{% for c in cols %}<td>{{ (getattr(r,c) or '') }}</td>{% endfor %}
+<td>{% for a in r.attachments %}<a class='badge text-bg-light' href='{{url_for("media",att_id=a.id)}}' target='_blank'>{{a.kind}}</a> {% endfor %}</td>
+<td><a class='btn btn-sm btn-outline-primary' href='{{url_for("edit_row",id=r.id_articolo)}}'>Modifica</a></td>
+</tr>{% endfor %}</tbody></table></div></div>
 <script>
 const all=document.getElementById('checkall');
 all&&all.addEventListener('change',e=>document.querySelectorAll('.sel').forEach(cb=>cb.checked=all.checked));
-function setIds(id){const v=[...document.querySelectorAll('.sel:checked')].map(x=>x.value).join(','); const el=document.getElementById(id); if(el) el.value=v;}
-['ids-b1','ids-d1','ids-e1','ids-bp','ids-dp','ids-ep','ids-scarico'].forEach(n=>{
-  const f=document.getElementById(n)?.closest('form'); f&&f.addEventListener('submit',()=>setIds(n));
-});
+function setIds(id){const v=[...document.querySelectorAll('.sel:checked')].map(x=>x.value).join(','); document.getElementById(id).value=v;}
+['ids-b1','ids-d1','ids-e1','ids-dform'].forEach(n=>{const f=document.getElementById(n)?.closest('form'); f&&f.addEventListener('submit',()=>setIds(n));});
 </script>
-{% endblock %}
-"""
+{% endblock %}"""
 
 EDIT = """{% extends 'base.html' %}{% block content %}
-<div class='card p-4'>
-  <h5>{{ 'Modifica' if row.id_articolo else 'Nuovo' }} Articolo {% if row.id_articolo %}#{{row.id_articolo}}{% endif %}</h5>
-  <form method='post' enctype='multipart/form-data'>
-    <div class='row g-3'>
-      {% for label,name in fields %}
-        <div class='col-md-4'>
-          <label class='form-label'>{{label}}</label>
-          <input name='{{name}}' value='{{getattr(row,name,"") or ""}}' class='form-control'>
-        </div>
-      {% endfor %}
-      {% if row.id_articolo %}
-      <div class='col-12'>
-        <label class='form-label'>Allega Documenti/Foto</label>
-        <div class='dropzone' id='dz'>Trascina qui (o clicca) per caricare più file (PDF, JPG, PNG)</div>
-        <input type='file' id='fi' name='files' multiple class='form-control mt-2' style='display:none' accept='application/pdf,image/*'>
-      </div>
-      {% endif %}
-    </div>
-    <div class='mt-3 d-flex gap-2'>
-      <button class='btn btn-primary'>Salva</button>
-      <a class='btn btn-secondary' href='{{url_for("giacenze")}}'>Indietro</a>
-    </div>
-  </form>
-
-  {% if row.id_articolo %}
-  <hr>
-  <h6>Allegati</h6>
-  <ul class='list-group'>
-    {% for a in row.attachments %}
-      <li class='list-group-item d-flex justify-content-between'>
-        <div><span class='badge text-bg-light me-2'>{{a.kind}}</span><a href='{{url_for("media",att_id=a.id)}}' target='_blank'>{{a.filename}}</a></div>
-        <a class='btn btn-sm btn-outline-danger' href='{{url_for("delete_attachment",att_id=a.id)}}'>Elimina</a>
-      </li>
-    {% else %}
-      <li class='list-group-item'>Nessun allegato</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-</div>
-
+<div class='card p-4'><h5>Modifica Articolo #{{row.id_articolo}}</h5>
+<form method='post' enctype='multipart/form-data'><div class='row g-3'>
+{% for label,name in fields %}<div class='col-md-4'><label class='form-label'>{{label}}</label><input name='{{name}}' value='{{getattr(row,name,"") or ""}}' class='form-control'></div>{% endfor %}
+<div class='col-12'><label class='form-label'>Allega Documenti/Foto</label><div class='dropzone' id='dz'>Trascina qui (o clicca) per caricare più file (PDF, JPG, PNG)</div>
+<input type='file' id='fi' name='files' multiple class='form-control mt-2' style='display:none' accept='application/pdf,image/*'></div>
+</div><div class='mt-3 d-flex gap-2'><button class='btn btn-primary'>Salva</button><a class='btn btn-secondary' href='{{url_for("giacenze")}}'>Indietro</a></div></form>
+<hr><h6>Allegati</h6><ul class='list-group'>{% for a in row.attachments %}<li class='list-group-item d-flex justify-content-between'>
+<div><span class='badge text-bg-light me-2'>{{a.kind}}</span><a href='{{url_for("media",att_id=a.id)}}' target='_blank'>{{a.filename}}</a></div>
+<a class='btn btn-sm btn-outline-danger' href='{{url_for("delete_attachment",att_id=a.id,back=row.id_articolo)}}'>Elimina</a></li>{% else %}<li class='list-group-item'>Nessun allegato</li>{% endfor %}</ul></div>
 <script>
-const dz=document.getElementById('dz'),fi=document.getElementById('fi');
-dz && dz.addEventListener('click',()=>fi.click());
-dz && dz.addEventListener('dragover',e=>{e.preventDefault(); dz.style.opacity=.8});
-dz && dz.addEventListener('dragleave',()=>dz.style.opacity=1);
-dz && dz.addEventListener('drop',e=>{e.preventDefault(); fi.files=e.dataTransfer.files; dz.style.opacity=1});
+const dz=document.getElementById('dz'),fi=document.getElementById('fi'); dz.addEventListener('click',()=>fi.click());
+dz.addEventListener('dragover',e=>{e.preventDefault(); dz.style.opacity=.8}); dz.addEventListener('dragleave',()=>dz.style.opacity=1);
+dz.addEventListener('drop',e=>{e.preventDefault(); fi.files=e.dataTransfer.files; dz.style.opacity=1});
 </script>
-{% endblock %}
-"""
+{% endblock %}"""
 
 PRINT_DOC = """<!doctype html><html><head><meta charset='utf-8'>
 <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>
 <style>@media print{.no-print{display:none}}</style></head><body class='p-4'>
-<div class='no-print mb-3'><button class='btn btn-primary' onclick='window.print()'>Stampa</button></div>
-<h3 class='mb-3'>{{title}}</h3>
+<div class='d-flex align-items-center justify-content-between mb-3'>
+  <div class='d-flex align-items-center gap-2'>
+    <img src='{{logo_url}}' height='60' alt='logo'>
+    <h3 class='m-0'>{{title}}</h3>
+  </div>
+  <button class='btn btn-primary no-print' onclick='window.print()'>Stampa</button>
+</div>
 <table class='table table-sm table-bordered'><thead><tr>{% for h in headers %}<th>{{h}}</th>{% endfor %}</tr></thead>
 <tbody>{% for row in data %}<tr>{% for v in row %}<td>{{v}}</td>{% endfor %}</tr>{% endfor %}</tbody></table></body></html>"""
 
-bp = Blueprint('bp', __name__)
-app.register_blueprint(bp)
+DDT_FORM = """{% extends 'base.html' %}{% block content %}
+<div class='card p-4'>
+  <h5>Compila DDT</h5>
+  <form method='post' action='{{url_for("crea_ddt_html")}}' target='_blank'>
+    <input type='hidden' name='ids' value='{{ids}}'>
+    <div class='row g-3'>
+      <div class='col-md-6'><label class='form-label'>Destinatario</label><input name='dest_ragione' class='form-control' required></div>
+      <div class='col-md-6'><label class='form-label'>Indirizzo</label><input name='dest_indirizzo' class='form-control'></div>
+      <div class='col-md-4'><label class='form-label'>CAP</label><input name='dest_cap' class='form-control'></div>
+      <div class='col-md-4'><label class='form-label'>Città</label><input name='dest_citta' class='form-control'></div>
+      <div class='col-md-4'><label class='form-label'>Provincia</label><input name='dest_prov' class='form-control'></div>
+      <div class='col-md-4'><label class='form-label'>P.IVA/C.F.</label><input name='dest_piva' class='form-control'></div>
+      <div class='col-md-4'><label class='form-label'>Data DDT</label><input name='ddt_data' type='date' class='form-control' value='{{today}}'></div>
+      <div class='col-md-4'><label class='form-label'>Causale</label><input name='ddt_causale' class='form-control' placeholder='conto lavorazione / reso / ...'></div>
+      <div class='col-md-4'><label class='form-label'>Porto</label><input name='ddt_porto' class='form-control' placeholder='franco / assegnato'></div>
+      <div class='col-md-4'><label class='form-label'>Aspetto beni</label><input name='ddt_aspetto' class='form-control' placeholder='colli / bancali / ...'></div>
+      <div class='col-md-4'><label class='form-label'>Vettore</label><input name='ddt_vettore' class='form-control'></div>
+      <div class='col-md-4'><label class='form-label'>Mezzo</label><input name='ddt_mezzo' class='form-control'></div>
+      <div class='col-12'><label class='form-label'>Note</label><input name='ddt_note' class='form-control'></div>
+    </div>
+    <button class='btn btn-primary mt-3'>Crea DDT</button>
+  </form>
+</div>
+{% endblock %}"""
+
+# loader
+bp = Blueprint('bp', __name__); app.register_blueprint(bp)
 dict_loader = DictLoader({
     'base.html': BASE,
     'login.html': LOGIN,
     'home.html': HOME,
     'giacenze.html': GIACENZE,
     'edit.html': EDIT,
-    'print_doc.html': PRINT_DOC
+    'print_doc.html': PRINT_DOC,
+    'ddt_form.html': DDT_FORM,
 })
 app.jinja_loader = ChoiceLoader([FileSystemLoader('templates'), dict_loader])
 
-# ---------- AUTH ----------
+# ------------------------- AUTH -------------------------
 def login_required(fn):
     from functools import wraps
     @wraps(fn)
     def w(*a, **k):
-        if not session.get('user'):
-            return redirect(url_for('login'))
+        if not session.get('user'): return redirect(url_for('login'))
         return fn(*a, **k)
     return w
 
-@app.route('/login', methods=['GET', 'POST'])
+@app.route('/login', methods=['GET','POST'])
 def login():
-    if request.method == 'POST':
-        u = request.form.get('user', '').strip().upper()
-        p = request.form.get('pwd', '')
+    if request.method=='POST':
+        u = request.form.get('user','').strip().upper()
+        p = request.form.get('pwd','')
         users = get_users()
-        if u in users and users[u] == p:
+        if u in users and users[u]==p:
             session['user'] = u
             session['role'] = 'admin' if u in ADMIN_USERS else 'client'
             return redirect(url_for('home'))
-        flash('Credenziali non valide', 'danger')
-    return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'login.html')[0])
+        flash('Credenziali non valide','danger')
+    return render_template_string(app.jinja_loader.get_source(app.jinja_env,'login.html')[0],
+                                  logo_url=_logo_src())
 
 @app.get('/logout')
 def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# ---------- HOME ----------
+# ------------------------- VISTE -------------------------
 @app.get('/')
 @login_required
 def home():
-    return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'home.html')[0])
+    return render_template_string(app.jinja_loader.get_source(app.jinja_env,'home.html')[0],
+                                  logo_url=_logo_src())
 
-# ---------- LISTA / FILTRI ----------
 def filter_query(qs, args):
     if args.get('id'):
         qs = qs.filter(Articolo.id_articolo == args.get('id'))
-
     def like(col):
         nonlocal qs
         v = args.get(col)
         if v:
             qs = qs.filter(getattr(Articolo, col).ilike(f"%{v}%"))
-
-    for col in ['codice_articolo', 'descrizione', 'cliente', 'commessa', 'ordine',
-                'n_arrivo', 'stato', 'posizione', 'buono_n']:
+    for col in ['codice_articolo','descrizione','cliente','commessa','ordine',
+                'n_arrivo','stato','posizione','buono_n']:
         like(col)
-
     if args.get('data_da'):
         qs = qs.filter(Articolo.data_ingresso >= parse_date_ui(args.get('data_da')))
     if args.get('data_a'):
@@ -459,149 +357,96 @@ def filter_query(qs, args):
 def giacenze():
     db = SessionLocal()
     qs = db.query(Articolo).order_by(Articolo.id_articolo.desc())
+    # clienti vedono solo le proprie righe
     if session.get('role') == 'client':
         qs = qs.filter(Articolo.cliente == session['user'])
     rows = filter_query(qs, request.args).all()
-    cols = ["id_articolo", "cliente", "descrizione", "peso", "n_colli", "posizione",
-            "n_arrivo", "buono_n", "stato", "data_ingresso", "data_uscita", "n_ddt_uscita", "m2", "m3"]
+    cols=["id_articolo","cliente","descrizione","peso","n_colli","posizione",
+          "n_arrivo","buono_n","stato","data_ingresso","data_uscita","n_ddt_uscita","m2","m3"]
     return render_template_string(
-        app.jinja_loader.get_source(app.jinja_env, 'giacenze.html')[0],
-        rows=rows, cols=cols
+        app.jinja_loader.get_source(app.jinja_env,'giacenze.html')[0],
+        rows=rows, cols=cols, logo_url=_logo_src()
     )
 
-# ---------- NUOVO ----------
-@app.get('/new')
-@login_required
-def new_row():
-    """Crea un nuovo articolo vuoto e apre la pagina di modifica."""
-    db = SessionLocal()
-    a = Articolo(data_ingresso=datetime.today().strftime("%Y-%m-%d"))
-    db.add(a); db.commit()
-    return redirect(url_for('edit_row', id=a.id_articolo))
-
-# ---------- EDIT ----------
-@app.route('/edit/<int:id>', methods=['GET', 'POST'])
+@app.route('/edit/<int:id>', methods=['GET','POST'])
 @login_required
 def edit_row(id):
-    db = SessionLocal()
-    row = db.get(Articolo, id)
-    if not row:
-        abort(404)
-    if request.method == 'POST':
-        fields = ['codice_articolo', 'pezzo', 'larghezza', 'lunghezza', 'altezza', 'protocollo',
-                  'ordine', 'commessa', 'magazzino', 'fornitore', 'data_ingresso', 'n_ddt_ingresso',
-                  'cliente', 'descrizione', 'peso', 'n_colli', 'posizione', 'n_arrivo', 'buono_n',
-                  'note', 'serial_number', 'data_uscita', 'n_ddt_uscita', 'ns_rif', 'stato',
-                  'mezzi_in_uscita']
-        for f in fields:
-            v = request.form.get(f) or None
-            if f in ('data_ingresso', 'data_uscita'):
-                v = parse_date_ui(v) if v else None
-            setattr(row, f, v)
-        m2, m3 = calc_m2_m3(row.lunghezza, row.larghezza, row.altezza, row.n_colli)
-        row.m2, row.m3 = m2, m3
-
-        if 'files' in request.files:
-            for f in request.files.getlist('files'):
-                if not f or not f.filename:
-                    continue
-                name = f"{id}_{uuid.uuid4().hex}_{f.filename.replace(' ', '_')}"
-                ext = os.path.splitext(name)[1].lower()
-                kind = 'doc' if ext == '.pdf' else 'foto'
-                folder = DOCS_DIR if kind == 'doc' else PHOTOS_DIR
-                f.save(str(folder / name))
-                db.add(Attachment(articolo_id=id, kind=kind, filename=name))
-
-        db.commit()
-        flash('Riga salvata', 'success')
-        return redirect(url_for('giacenze'))
-
-            fields = ['codice_articolo','pezzo','larghezza','lunghezza','altezza','protocollo','ordine','commessa',
-                  'magazzino','fornitore','data_ingresso','n_ddt_ingresso','cliente','descrizione','peso',
-                  'n_colli','posizione','n_arrivo','buono_n','note','serial_number','data_uscita',
-                  'n_ddt_uscita','ns_rif','stato','mezzi_in_uscita']
-
+    db=SessionLocal(); row=db.get(Articolo,id)
+    if not row: abort(404)
+    if request.method=='POST':
+        fields=['codice_articolo','pezzo','larghezza','lunghezza','altezza','protocollo','ordine',
+                'commessa','magazzino','fornitore','data_ingresso','n_ddt_ingresso','cliente',
+                'descrizione','peso','n_colli','posizione','n_arrivo','buono_n','note',
+                'serial_number','data_uscita','n_ddt_uscita','ns_rif','stato','mezzi_in_uscita']
         numeric_float = {'larghezza','lunghezza','altezza','peso','m2','m3'}
-        numeric_int   = {'n_colli'}
-
+        numeric_int = {'n_colli'}
         for f in fields:
-            v = request.form.get(f) or None
-
-            # date
+            v = request.form.get(f)
+            if v == "": v = None
             if f in ('data_ingresso','data_uscita'):
                 v = parse_date_ui(v) if v else None
-
-            # numeri
             elif f in numeric_float:
                 v = to_float_eu(v)
             elif f in numeric_int:
                 v = to_int_eu(v)
-
             setattr(row, f, v)
 
-        # ricalcolo m2/m3 sempre, indipendentemente da ciò che arriva dal form
-        m2, m3 = calc_m2_m3(row.lunghezza, row.larghezza, row.altezza, row.n_colli)
-        row.m2, row.m3 = m2, m3
+        # ricalcolo m2/m3
+        row.m2, row.m3 = calc_m2_m3(row.lunghezza, row.larghezza, row.altezza, row.n_colli)
 
+        if 'files' in request.files:
+            for f in request.files.getlist('files'):
+                if not f or not f.filename: continue
+                name=f"{id}_{uuid.uuid4().hex}_{f.filename.replace(' ','_')}"
+                ext=os.path.splitext(name)[1].lower()
+                kind='doc' if ext=='.pdf' else 'foto'
+                folder = DOCS_DIR if kind=='doc' else PHOTOS_DIR
+                f.save(str(folder / name))
+                db.add(Attachment(articolo_id=id,kind=kind,filename=name))
+        db.commit(); flash('Riga aggiornata','success'); return redirect(url_for('giacenze'))
+    fields=[('Codice Articolo','codice_articolo'),('Descrizione','descrizione'),('Cliente','cliente'),
+            ('Commessa','commessa'),('Ordine','ordine'),('Peso','peso'),('N Colli','n_colli'),
+            ('Posizione','posizione'),('Stato','stato'),('N.Arrivo','n_arrivo'),('Buono N','buono_n'),
+            ('Protocollo','protocollo'),('Fornitore','fornitore'),
+            ('Data Ingresso (GG/MM/AAAA)','data_ingresso'),('Data Uscita (GG/MM/AAAA)','data_uscita'),
+            ('N DDT Ingresso','n_ddt_ingresso'),('N DDT Uscita','n_ddt_uscita'),
+            ('Larghezza (m)','larghezza'),('Lunghezza (m)','lunghezza'),('Altezza (m)','altezza'),
+            ('Serial Number','serial_number'),('NS Rif','ns_rif'),
+            ('Mezzi in Uscita','mezzi_in_uscita'),('Note','note')]
+    return render_template_string(
+        app.jinja_loader.get_source(app.jinja_env,'edit.html')[0],
+        row=row, fields=fields, logo_url=_logo_src()
+    )
 
-# ---------- ALLEGATI ----------
 @app.get('/attachment/<int:att_id>/delete')
 @login_required
 def delete_attachment(att_id):
-    db = SessionLocal()
-    att = db.get(Attachment, att_id)
+    db=SessionLocal(); att=db.get(Attachment,att_id)
     if att:
-        path = (DOCS_DIR if att.kind == 'doc' else PHOTOS_DIR) / att.filename
+        path=(DOCS_DIR if att.kind=='doc' else PHOTOS_DIR)/att.filename
         try:
-            if path.exists():
-                path.unlink()
+            if path.exists(): path.unlink()
         except Exception:
             pass
-        db.delete(att)
-        db.commit()
-        flash('Allegato eliminato', 'success')
+        db.delete(att); db.commit(); flash('Allegato eliminato','success')
     return redirect(url_for('giacenze'))
 
 @app.get('/media/<int:att_id>')
 @login_required
 def media(att_id):
-    db = SessionLocal()
-    att = db.get(Attachment, att_id)
-    if not att:
-        abort(404)
-    path = (DOCS_DIR if att.kind == 'doc' else PHOTOS_DIR) / att.filename
-    if not path.exists():
-        abort(404)
+    db=SessionLocal(); att=db.get(Attachment,att_id)
+    if not att: abort(404)
+    path=(DOCS_DIR if att.kind=='doc' else PHOTOS_DIR)/att.filename
+    if not path.exists(): abort(404)
     return send_file(path, as_attachment=False)
 
-# ---------- IMPORT / EXPORT ----------
+# ---------------- Import/Export ----------------
 PROFILES_PATH = APP_DIR / "import_profiles.json"
-DEFAULT_PROFILE = {
-    "codice_articolo": ["Codice Articolo", "Cod.Art", "codice_articolo"],
-    "descrizione": ["Descrizione", "descrizione"],
-    "cliente": ["Cliente", "cliente"],
-    "commessa": ["Commessa", "commessa"],
-    "ordine": ["Ordine", "ordine"],
-    "peso": ["Peso", "peso"],
-    "n_colli": ["N Colli", "n_colli", "Colli"],
-    "posizione": ["Posizione", "posizione"],
-    "n_arrivo": ["N Arrivo", "n_arrivo"],
-    "buono_n": ["Buono N", "buono_n"],
-    "protocollo": ["Protocollo", "protocollo"],
-    "fornitore": ["Fornitore", "fornitore"],
-    "data_ingresso": ["Data Ingresso", "data_ingresso", "Data Ingr."]
-}
-def load_profile():
-    if PROFILES_PATH.exists():
-        try:
-            return json.loads(PROFILES_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {"Generico": DEFAULT_PROFILE}
 
-@app.route('/import', methods=['GET', 'POST'])
+@app.route('/import', methods=['GET','POST'])
 @login_required
 def import_excel():
+    # carica mappe stile {"Profilo": {"header_row": 2, "column_map": {...}}}
     profiles = {}
     if PROFILES_PATH.exists():
         try:
@@ -611,23 +456,18 @@ def import_excel():
             profiles = {}
     if not profiles:
         profiles = {"Generico": {"header_row": 0, "column_map": {
-            "CODICE ARTICOLO": "codice_articolo", "DESCRIZIONE": "descrizione", "CLIENTE": "cliente"}}}
-
+            "CODICE ARTICOLO":"codice_articolo","DESCRIZIONE":"descrizione","CLIENTE":"cliente"}}}
     selected = request.args.get('profile') or next(iter(profiles.keys()))
 
+    aliases = {
+        "ID": "id_articolo", "Ordine": "ordine", "M2": "m2", "M3": "m3",
+        "Notes": "note", "NS RIF": "ns_rif", "NS.RIF": "ns_rif",
+        "MEZZO IN USCITA": "mezzi_in_uscita", "Mezzo_in _uscita": "mezzi_in_uscita",
+        "TRUCKER": None, "DESTINATARI": None, "TIPO DI IMBALLO": None
+    }
     def norm_target(t: str) -> str | None:
-        if not t:
-            return None
-        t0 = t.strip()
-        aliases = {
-            "ID": "id_articolo", "Ordine": "ordine", "M2": "m2", "M3": "m3",
-            "Notes": "note", "NS RIF": "ns_rif", "NS.RIF": "ns_rif",
-            "MEZZO IN USCITA": "mezzi_in_uscita", "Mezzo_in _uscita": "mezzi_in_uscita",
-            "TRUCKER": None, "DESTINATARI": None, "TIPO DI IMBALLO": None
-        }
-        if t0 in aliases:
-            return aliases[t0]
-        return t0.lower()
+        if not t: return None
+        return aliases.get(t.strip(), t.strip().lower())
 
     if request.method == 'POST':
         selected = request.form.get('profile') or selected
@@ -637,8 +477,7 @@ def import_excel():
 
         f = request.files.get('file')
         if not f or not f.filename:
-            flash('Seleziona un file .xlsx', 'warning')
-            return redirect(request.url)
+            flash('Seleziona un file .xlsx', 'warning'); return redirect(request.url)
 
         prof = profiles[selected]
         header_row = int(prof.get("header_row", 0))
@@ -661,25 +500,33 @@ def import_excel():
                     if not isinstance(excel_name, str) or not isinstance(target, str):
                         continue
                     key = excel_cols.get(excel_name.strip().upper())
-                    if not key:
+                    if not key: 
                         continue
                     value = row.get(key, None)
-                    if value == "":
-                        value = None
+                    if value == "": value = None
 
                     field = norm_target(target)
                     if not field or not hasattr(Articolo, field):
                         continue
 
-                    if field in ("data_ingresso", "data_uscita"):
+                    # normalizzazione
+                    if field in ("data_ingresso","data_uscita"):
                         if isinstance(value, (pd.Timestamp, datetime)):
                             value = value.strftime("%Y-%m-%d")
                         elif isinstance(value, str):
                             value = parse_date_ui(value)
+                    elif field in {"larghezza","lunghezza","altezza","peso","m2","m3"}:
+                        value = to_float_eu(value)
+                    elif field in {"n_colli"}:
+                        value = to_int_eu(value)
 
                     setattr(a, field, value)
-                db.add(a)
-                added += 1
+
+                # calcolo automatico se mancano m2/m3
+                if a.m2 is None or a.m3 is None:
+                    a.m2, a.m3 = calc_m2_m3(a.lunghezza, a.larghezza, a.altezza, a.n_colli)
+
+                db.add(a); added += 1
             db.commit()
             flash(f'Import completato ({added} righe)', 'success')
             return redirect(url_for('giacenze'))
@@ -712,73 +559,112 @@ def import_excel():
     </div>
     {% endblock %}
     """
-    return render_template_string(html, profiles=profiles, selected=selected)
+    return render_template_string(html, profiles=profiles, selected=selected, logo_url=_logo_src())
 
 @app.get('/export')
 @login_required
 def export_excel():
-    db = SessionLocal()
-    rows = db.query(Articolo).all()
-    df = pd.DataFrame([{k: v for k, v in r.__dict__.items() if not k.startswith('_') and k != 'attachments'} for r in rows])
-    bio = io.BytesIO()
+    db=SessionLocal(); rows=db.query(Articolo).all()
+    df = pd.DataFrame([{k:v for k,v in r.__dict__.items() if not k.startswith('_') and k!='attachments'} for r in rows])
+    bio=io.BytesIO()
     with pd.ExcelWriter(bio, engine='xlsxwriter') as w:
         df.to_excel(w, index=False, sheet_name='Giacenze')
-    bio.seek(0)
-    return send_file(bio, as_attachment=True, download_name='giacenze_export.xlsx')
+    bio.seek(0); return send_file(bio, as_attachment=True, download_name='giacenze_export.xlsx')
 
 @app.get('/export_by_client')
 @login_required
 def export_excel_by_client():
-    db = SessionLocal()
-    client = request.args.get('cliente')
+    db=SessionLocal(); client=request.args.get('cliente')
     if not client:
-        clients = [c[0] or "Senza Cliente" for c in db.query(Articolo.cliente).distinct().all()]
-        html = "<h5>Seleziona Cliente</h5><ul>" + "".join(
-            [f"<li><a href='{url_for('export_excel_by_client')}?cliente={c}'>{c}</a></li>" for c in clients]) + "</ul>"
+        clients=[c[0] or "Senza Cliente" for c in db.query(Articolo.cliente).distinct().all()]
+        html="<h5>Seleziona Cliente</h5><ul>"+"".join([f"<li><a href='{url_for('export_excel_by_client')}?cliente={c}'>{c}</a></li>" for c in clients])+"</ul>"
         return html
-    if client == "Senza Cliente":
-        rows = db.query(Articolo).filter((Articolo.cliente == None) | (Articolo.cliente == "")).all()
+    if client=="Senza Cliente":
+        rows=db.query(Articolo).filter((Articolo.cliente==None)|(Articolo.cliente=="")).all()
     else:
-        rows = db.query(Articolo).filter(Articolo.cliente == client).all()
-    df = pd.DataFrame([{k: v for k, v in r.__dict__.items() if not k.startswith('_') and k != 'attachments'} for r in rows])
-    bio = io.BytesIO()
+        rows=db.query(Articolo).filter(Articolo.cliente==client).all()
+    df = pd.DataFrame([{k:v for k,v in r.__dict__.items() if not k.startswith('_') and k!='attachments'} for r in rows])
+    bio=io.BytesIO()
     with pd.ExcelWriter(bio, engine='xlsxwriter') as w:
         df.to_excel(w, index=False, sheet_name=(client[:31] or 'Export'))
-    bio.seek(0)
-    return send_file(bio, as_attachment=True, download_name=f'export_{client}.xlsx')
+    bio.seek(0); return send_file(bio, as_attachment=True, download_name=f'export_{client}.xlsx')
 
-# ---------- STAMPE HTML (già presenti) ----------
+# ---------------- Stampa HTML ----------------
 PRINT = PRINT_DOC
 
 def _get(ids_csv):
-    ids = [int(x) for x in ids_csv.split(',') if x.strip().isdigit()]
-    if not ids:
-        return []
-    db = SessionLocal()
-    return db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+    ids=[int(x) for x in (ids_csv or "").split(',') if x.strip().isdigit()]
+    if not ids: return []
+    db=SessionLocal(); return db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+
+# Schermata compilazione DDT
+@app.get('/ddt_prepare')
+@login_required
+def ddt_prepare():
+    ids = request.args.get('ids','')
+    return render_template_string(
+        app.jinja_loader.get_source(app.jinja_env,'ddt_form.html')[0],
+        ids=ids, today=datetime.today().strftime('%Y-%m-%d'),
+        logo_url=_logo_src()
+    )
 
 @app.post('/crea_buono_html')
 @login_required
 def crea_buono_html():
-    rows = _get(request.form.get('ids', ''))
-    hdr = ['Ordine', 'Cod.Art.', 'Descrizione', 'Quantità', 'N.Arrivo']
-    data = [[r.ordine or '', r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.n_arrivo or ''] for r in rows]
-    return render_template_string(PRINT, title="Buono Prelievo", headers=hdr, data=data)
+    rows=_get(request.form.get('ids',''))
+    hdr=['Ordine','Cod.Art.','Descrizione','Quantità','N.Arrivo']
+    data=[[r.ordine or '', r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.n_arrivo or ''] for r in rows]
+    return render_template_string(PRINT, title="Buono Prelievo", headers=hdr, data=data, logo_url=_logo_src())
 
-@app.post('/crea_ddt_html')
+@app.route('/crea_ddt_html', methods=['GET','POST'])
 @login_required
 def crea_ddt_html():
-    rows = _get(request.form.get('ids', ''))
-    hdr = ['ID', 'Cod.Art.', 'Descrizione', 'Colli', 'Peso', 'Commessa', 'Ordine']
-    data = [[r.id_articolo, r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.peso or '', r.commessa or '', r.ordine or ''] for r in rows]
-    return render_template_string(PRINT, title="Documento di Trasporto (DDT)", headers=hdr, data=data)
+    ids = request.values.get('ids','')
+    rows=_get(ids)
+    # intestazione (se proveniamo dal form)
+    head = {
+        'dest_ragione': request.values.get('dest_ragione',''),
+        'dest_indirizzo': request.values.get('dest_indirizzo',''),
+        'dest_cap': request.values.get('dest_cap',''),
+        'dest_citta': request.values.get('dest_citta',''),
+        'dest_prov': request.values.get('dest_prov',''),
+        'dest_piva': request.values.get('dest_piva',''),
+        'ddt_data': request.values.get('ddt_data',''),
+        'ddt_causale': request.values.get('ddt_causale',''),
+        'ddt_porto': request.values.get('ddt_porto',''),
+        'ddt_aspetto': request.values.get('ddt_aspetto',''),
+        'ddt_vettore': request.values.get('ddt_vettore',''),
+        'ddt_mezzo': request.values.get('ddt_mezzo',''),
+        'ddt_note': request.values.get('ddt_note',''),
+    }
+    hdr=['ID','Cod.Art.','Descrizione','Colli','Peso','Commessa','Ordine']
+    data=[[r.id_articolo, r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.peso or '', r.commessa or '', r.ordine or ''] for r in rows]
+
+    # piccolo header extra per il DDT sotto al titolo
+    sub = f"""
+    <div class='mb-3'>
+      <div><b>Destinatario:</b> {head['dest_ragione']} — {head['dest_indirizzo']} {head['dest_cap']} {head['dest_citta']} ({head['dest_prov']})</div>
+      <div><b>P.IVA/C.F.:</b> {head['dest_piva']} &nbsp; <b>Data:</b> {head['ddt_data']} &nbsp; <b>Causale:</b> {head['ddt_causale']}</div>
+      <div><b>Porto:</b> {head['ddt_porto']} &nbsp; <b>Aspetto beni:</b> {head['ddt_aspetto']} &nbsp; <b>Vettore:</b> {head['ddt_vettore']} &nbsp; <b>Mezzo:</b> {head['ddt_mezzo']}</div>
+      <div><b>Note:</b> {head['ddt_note']}</div>
+    </div>
+    """
+    html = render_template_string(PRINT, title="Documento di Trasporto (DDT)", headers=hdr, data=data, logo_url=_logo_src())
+    # inserisco il blocco sub dopo il titolo
+    html = html.replace("</div>\n<table", f"</div>{sub}<table", 1)
+    return html
 
 @app.post('/crea_etichetta_html')
 @login_required
 def crea_etichetta_html():
-    rows = _get(request.form.get('ids', ''))
-    html = ["<!doctype html><html><head><meta charset='utf-8'><style>@media print{.no-print{display:none}} .lbl{border:1px solid #aaa; padding:8px; width:420px; height:260px; margin:6px; float:left; font-family:sans-serif} .k{font-weight:bold}</style></head><body>"]
-    html.append("<div class='no-print'><button onclick='window.print()'>Stampa</button></div>")
+    rows=_get(request.form.get('ids',''))
+    html=["""<!doctype html><html><head><meta charset='utf-8'>
+<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>
+<style>@media print{.no-print{display:none}}
+.lbl{border:1px solid #aaa; padding:8px; width:420px; height:260px; margin:6px; float:left; font-family:sans-serif}
+.k{font-weight:bold}
+</style></head><body class='p-4'>"""]
+    html.append("<div class='no-print mb-3'><button class='btn btn-primary' onclick='window.print()'>Stampa</button></div>")
     for r in rows:
         html.append("<div class='lbl'>")
         html.append(f"<div class='k'>Cliente:</div> {r.cliente or ''}<br>")
@@ -791,112 +677,11 @@ def crea_etichetta_html():
     html.append("</body></html>")
     return "".join(html)
 
-# ---------- PROGRESSIVO DDT ----------
-PROG_FILE = APP_DIR / "progressivi_ddt.json"
+@app.get('/health')
+def health():
+    return {'ok':True}
 
-def _load_prog():
-    if PROG_FILE.exists():
-        try:
-            return json.loads(PROG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {}
+if __name__=='__main__':
+    port=int(os.environ.get('PORT',8000))
+    app.run(host='0.0.0.0', port=port)
 
-def _save_prog(data):
-    PROG_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-def next_ddt_number():
-    """
-    Restituisce prossimo progressivo DDT per l'anno corrente, formato: 001/2025
-    """
-    y = str(date.today().year)
-    prog = _load_prog()
-    n = int(prog.get(y, 0)) + 1
-    prog[y] = n
-    _save_prog(prog)
-    return f"{n:03d}/{y}"
-
-# ---------- PDF (ReportLab) ----------
-_styles = getSampleStyleSheet()
-
-def _pdf_table(data, col_widths=None, header=True, hAlign='LEFT'):
-    t = Table(data, colWidths=col_widths, hAlign=hAlign)
-    style = [
-        ('FONT', (0,0), (-1,-1), 'Helvetica', 9),
-        ('GRID', (0,0), (-1,-1), 0.25, colors.grey),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-    ]
-    if header and data:
-        style += [
-            ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
-            ('FONT', (0,0), (-1,0), 'Helvetica-Bold', 9),
-        ]
-    t.setStyle(TableStyle(style))
-    return t
-
-def _pdf_doc(title):
-    bio = io.BytesIO()
-    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm, topMargin=12*mm, bottomMargin=12*mm)
-    story = [Paragraph(title, _styles['Heading2']), Spacer(1, 6)]
-    return doc, story, bio
-
-@app.post('/pdf/buono')
-@login_required
-def pdf_buono():
-    rows = _get(request.form.get('ids',''))
-    doc, story, bio = _pdf_doc("Buono di Prelievo")
-    data = [['Ordine', 'Cod.Art.', 'Descrizione', 'Quantità', 'N.Arrivo']]
-    for r in rows:
-        data.append([r.ordine or '', r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.n_arrivo or ''])
-    story.append(_pdf_table(data, col_widths=[25*mm, 25*mm, 80*mm, 20*mm, 25*mm]))
-    doc.build(story)
-    bio.seek(0)
-    return send_file(bio, as_attachment=True, download_name='buono.pdf')
-
-@app.post('/pdf/ddt')
-@login_required
-def pdf_ddt():
-    rows = _get(request.form.get('ids',''))
-    doc, story, bio = _pdf_doc("Documento di Trasporto (DDT)")
-    data = [['ID', 'Cod.Art.', 'Descrizione', 'Colli', 'Peso', 'Commessa', 'Ordine']]
-    for r in rows:
-        data.append([r.id_articolo, r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.peso or '', r.commessa or '', r.ordine or ''])
-    story.append(_pdf_table(data, col_widths=[15*mm, 25*mm, 80*mm, 15*mm, 20*mm, 30*mm, 25*mm]))
-    doc.build(story)
-    bio.seek(0)
-    return send_file(bio, as_attachment=True, download_name='ddt.pdf')
-
-@app.post('/pdf/etichette')
-@login_required
-def pdf_etichette():
-    rows = _get(request.form.get('ids',''))
-    doc, story, bio = _pdf_doc("Etichette")
-    data = [['Cliente', 'Commessa', 'Ordine/Arrivo', 'Cod.Art.', 'Descrizione', 'Colli/Peso']]
-    for r in rows:
-        data.append([
-            r.cliente or '', r.commessa or '',
-            f"{r.ordine or ''} / {r.n_arrivo or ''}",
-            r.codice_articolo or '',
-            (r.descrizione or '')[:100],
-            f"{r.n_colli or 1} / {r.peso or ''}"
-        ])
-    story.append(_pdf_table(data, col_widths=[30*mm, 25*mm, 35*mm, 25*mm, 65*mm, 25*mm]))
-    doc.build(story)
-    bio.seek(0)
-    return send_file(bio, as_attachment=True, download_name='etichette.pdf')
-
-# ---------- SCARICO + DDT ----------
-@app.post('/scarico_ddt')
-@login_required
-def scarico_ddt():
-    if session.get('role') != 'admin':
-        abort(403)
-    ids_csv = request.form.get('ids', '')
-    rows = _get(ids_csv)
-    if not rows:
-        flash("Nessuna riga selezionata", "warning")
-        return redirect(url_for('giacenze'))
-
-    # Genera numero DDT e aggiorna le righe selezionate
-    n_ddt = next_ddt_number()
-    oggi = datetime.today().strftime("%Y-%m
