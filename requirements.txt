@@ -1,15 +1,8 @@
-# Evita compilazioni C: usa wheel precompilate
 Flask==3.0.3
-SQLAlchemy==2.0.30
-Jinja2==3.1.4
-
-# Excel
+SQLAlchemy==2.0.32
 pandas==2.2.2
 numpy==1.26.4
 openpyxl==3.1.5
 XlsxWriter==3.2.0
-
-# Varie
-reportlab==4.2.0
-python-dateutil==2.9.0.post0
-tzdata==2024.1
+reportlab==4.2.2
+Jinja2==3.1.4
