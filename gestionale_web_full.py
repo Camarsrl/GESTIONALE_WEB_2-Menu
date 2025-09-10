@@ -115,6 +115,31 @@ def get_users():
     return DEFAULT_USERS
 
 # ---------- UTILS ----------
+def to_float_eu(v):
+    """Converte '1,23' -> 1.23, gestisce '', None -> None."""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip()
+    if not s:
+        return None
+    s = s.replace(',', '.')
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+def to_int_eu(v):
+    """Converte anche '3', '3.0', '3,0' -> 3; '', None -> None."""
+    f = to_float_eu(v)
+    if f is None:
+        return None
+    try:
+        return int(round(f))
+    except Exception:
+        return None
+
 def parse_date_ui(d):
     if not d:
         return None
@@ -491,19 +516,33 @@ def edit_row(id):
         flash('Riga salvata', 'success')
         return redirect(url_for('giacenze'))
 
-    fields = [
-        ('Codice Articolo', 'codice_articolo'), ('Descrizione', 'descrizione'), ('Cliente', 'cliente'),
-        ('Commessa', 'commessa'), ('Ordine', 'ordine'), ('Peso', 'peso'), ('N Colli', 'n_colli'),
-        ('Posizione', 'posizione'), ('Stato', 'stato'), ('N.Arrivo', 'n_arrivo'), ('Buono N', 'buono_n'),
-        ('Protocollo', 'protocollo'), ('Fornitore', 'fornitore'),
-        ('Data Ingresso (GG/MM/AAAA)', 'data_ingresso'), ('Data Uscita (GG/MM/AAAA)', 'data_uscita'),
-        ('N DDT Ingresso', 'n_ddt_ingresso'), ('N DDT Uscita', 'n_ddt_uscita'),
-        ('Larghezza (m)', 'larghezza'), ('Lunghezza (m)', 'lunghezza'), ('Altezza (m)', 'altezza'),
-        ('Serial Number', 'serial_number'), ('NS Rif', 'ns_rif'),
-        ('Mezzi in Uscita', 'mezzi_in_uscita'), ('Note', 'note')
-    ]
-    return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'edit.html')[0],
-                                  row=row, fields=fields)
+            fields = ['codice_articolo','pezzo','larghezza','lunghezza','altezza','protocollo','ordine','commessa',
+                  'magazzino','fornitore','data_ingresso','n_ddt_ingresso','cliente','descrizione','peso',
+                  'n_colli','posizione','n_arrivo','buono_n','note','serial_number','data_uscita',
+                  'n_ddt_uscita','ns_rif','stato','mezzi_in_uscita']
+
+        numeric_float = {'larghezza','lunghezza','altezza','peso','m2','m3'}
+        numeric_int   = {'n_colli'}
+
+        for f in fields:
+            v = request.form.get(f) or None
+
+            # date
+            if f in ('data_ingresso','data_uscita'):
+                v = parse_date_ui(v) if v else None
+
+            # numeri
+            elif f in numeric_float:
+                v = to_float_eu(v)
+            elif f in numeric_int:
+                v = to_int_eu(v)
+
+            setattr(row, f, v)
+
+        # ricalcolo m2/m3 sempre, indipendentemente da ciò che arriva dal form
+        m2, m3 = calc_m2_m3(row.lunghezza, row.larghezza, row.altezza, row.n_colli)
+        row.m2, row.m3 = m2, m3
+
 
 # ---------- ALLEGATI ----------
 @app.get('/attachment/<int:att_id>/delete')
