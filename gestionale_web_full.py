@@ -49,7 +49,7 @@ engine = create_engine(DATABASE_URL, future=True)
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 Base = declarative_base()
 
-LOGO_PATH = os.environ.get("LOGO_PATH") or str(STATIC_DIR / "logo.png")
+LOGO_PATH = os.environ.get("LOGO_PATH") or str(STATIC_DIR / "logo camar.jpg")
 
 DESTINATARI_JSON = APP_DIR / "destinatari_saved.json"   # <-- caricato nella maschera DDT
 PROG_FILE = APP_DIR / "progressivi_ddt.json"
@@ -548,8 +548,7 @@ def media(att_id):
     return send_file(path, as_attachment=False)
 
 # ------------------- IMPORT / EXPORT -------------------
-# ------------------- IMPORT / EXPORT -------------------
-PROFILES_PATH = APP_DIR / "import_profiles.json"
+PROFILES_PATH = APP_DIR / "mappe_excel.json"
 
 # Profilo di default nel formato atteso: { "header_row": int, "column_map": { "ColonnaExcel": "campo_db", ... } }
 DEFAULT_PROFILE = {
