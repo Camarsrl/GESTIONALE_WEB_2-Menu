@@ -1,0 +1,72 @@
+% extends "layout.html" %}
+{% block content %}
+<div class="card">
+    <div class="card-body p-4">
+        <h2 class="card-title mb-4">{{ title }}</h2>
+        <form method="post" enctype="multipart/form-data">
+            <div class="row g-3">
+                <!-- Dati Principali -->
+                <div class="col-md-4"><label class="form-label">Codice Articolo</label><input name="codice_articolo" value="{{ articolo.codice_articolo or '' }}" class="form-control"></div>
+                <div class="col-md-8"><label class="form-label">Descrizione</label><input name="descrizione" value="{{ articolo.descrizione or '' }}" class="form-control"></div>
+                <div class="col-md-4"><label class="form-label">Cliente</label><input name="cliente" value="{{ articolo.cliente or '' }}" class="form-control"></div>
+                <div class="col-md-4"><label class="form-label">Fornitore</label><input name="fornitore" value="{{ articolo.fornitore or '' }}" class="form-control"></div>
+                <div class="col-md-4"><label class="form-label">Stato</label><input name="stato" value="{{ articolo.stato or 'In giacenza' }}" class="form-control"></div>
+                
+                <!-- Dati Ingresso -->
+                <h5 class="mt-4">Dati di Ingresso</h5>
+                <div class="col-md-4"><label class="form-label">Data Ingresso</label><input type="date" name="data_ingresso" value="{{ articolo.data_ingresso.strftime('%Y-%m-%d') if articolo and articolo.data_ingresso else '' }}" class="form-control"></div>
+                <div class="col-md-4"><label class="form-label">DDT Ingresso</label><input name="n_ddt_ingresso" value="{{ articolo.n_ddt_ingresso or '' }}" class="form-control"></div>
+                <div class="col-md-4"><label class="form-label">N. Arrivo</label><input name="n_arrivo" value="{{ articolo.n_arrivo or '' }}" class="form-control"></div>
+
+                <!-- Dimensioni e Misure -->
+                <h5 class="mt-4">Dimensioni e Misure</h5>
+                <div class="col-md-2"><label class="form-label">N. Colli</label><input type="number" name="n_colli" value="{{ articolo.n_colli or '' }}" class="form-control"></div>
+                <div class="col-md-2"><label class="form-label">Peso (kg)</label><input name="peso" value="{{ articolo.peso or '' }}" class="form-control"></div>
+                <div class="col-md-2"><label class="form-label">Larghezza (m)</label><input name="larghezza" value="{{ articolo.larghezza or '' }}" class="form-control"></div>
+                <div class="col-md-2"><label class="form-label">Lunghezza (m)</label><input name="lunghezza" value="{{ articolo.lunghezza or '' }}" class="form-control"></div>
+                <div class="col-md-2"><label class="form-label">Altezza (m)</label><input name="altezza" value="{{ articolo.altezza or '' }}" class="form-control"></div>
+
+                <!-- Altri Dati -->
+                <h5 class="mt-4">Altri Dati</h5>
+                <div class="col-md-4"><label class="form-label">Commessa</label><input name="commessa" value="{{ articolo.commessa or '' }}" class="form-control"></div>
+                <div class="col-md-4"><label class="form-label">Ordine</label><input name="ordine" value="{{ articolo.ordine or '' }}" class="form-control"></div>
+                <div class="col-md-4"><label class="form-label">Posizione</label><input name="posizione" value="{{ articolo.posizione or '' }}" class="form-control"></div>
+                <div class="col-12"><label class="form-label">Note</label><textarea name="note" class="form-control">{{ articolo.note or '' }}</textarea></div>
+                
+                {% if session.role == 'admin' %}
+                <h5 class="mt-4">Allegati</h5>
+                <div class="col-12">
+                    <label for="files" class="form-label">Carica nuovi file (PDF, JPG, PNG)</label>
+                    <input class="form-control" type="file" name="files" multiple>
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="mt-4">
+                <button type="submit" class="btn btn-primary">Salva Modifiche</button>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary">Annulla</a>
+            </div>
+        </form>
+
+        {% if articolo and articolo.allegati %}
+        <hr class="my-4">
+        <h5>Allegati Esistenti</h5>
+        <ul class="list-group">
+            {% for allegato in articolo.allegati %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <div>
+                    <span class="badge bg-secondary me-2">{{ allegato.tipo }}</span>
+                    <a href="{{ url_for('uploaded_file', filename=allegato.filename) }}" target="_blank">{{ allegato.filename }}</a>
+                </div>
+                {% if session.role == 'admin' %}
+                <form action="{{ url_for('delete_attachment', id=allegato.id) }}" method="post" onsubmit="return confirm('Sei sicuro?');">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Elimina</button>
+                </form>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
