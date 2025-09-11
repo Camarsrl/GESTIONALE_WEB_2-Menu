@@ -548,25 +548,38 @@ def media(att_id):
     return send_file(path, as_attachment=False)
 
 # ------------------- IMPORT / EXPORT -------------------
+# ------------------- IMPORT / EXPORT -------------------
 PROFILES_PATH = APP_DIR / "import_profiles.json"
+
+# Profilo di default nel formato atteso: { "header_row": int, "column_map": { "ColonnaExcel": "campo_db", ... } }
 DEFAULT_PROFILE = {
-  "codice_articolo":["Codice Articolo","Cod.Art","codice_articolo"],
-  "descrizione":["Descrizione","descrizione"],
-  "cliente":["Cliente","cliente"],
-  "protocollo":["Protocollo","protocollo"],
-  "ordine":["Ordine","ordine"],
-  "peso":["Peso","peso"],
-  "n_colli":["N Colli","n_colli","Colli"],
-  "posizione":["Posizione","posizione"],
-  "n_arrivo":["N Arrivo","n_arrivo"],
-  "buono_n":["Buono N","buono_n"],
-  "fornitore":["Fornitore","fornitore"],
-  "data_ingresso":["Data Ingresso","data_ingresso","Data Ingr."]
+    "header_row": 0,
+    "column_map": {
+        "Codice Articolo": "codice_articolo",
+        "Cod.Art": "codice_articolo",
+        "Descrizione": "descrizione",
+        "Cliente": "cliente",
+        "Protocollo": "protocollo",
+        "Ordine": "ordine",
+        "Peso": "peso",
+        "N Colli": "n_colli",
+        "Colli": "n_colli",
+        "Posizione": "posizione",
+        "N Arrivo": "n_arrivo",
+        "Buono N": "buono_n",
+        "Fornitore": "fornitore",
+        "Data Ingresso": "data_ingresso",
+        "Data Ingr.": "data_ingresso",
+    }
 }
+
 def load_profile():
+    """Carica i profili da file; se mancano uso un 'Generico' di default."""
     if PROFILES_PATH.exists():
-        try: return json.loads(PROFILES_PATH.read_text(encoding="utf-8"))
-        except Exception: pass
+        try:
+            return json.loads(PROFILES_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
     return {"Generico": DEFAULT_PROFILE}
 
 @app.route('/import', methods=['GET','POST'])
@@ -574,44 +587,109 @@ def load_profile():
 def import_excel():
     profiles = load_profile()
     selected = request.args.get('profile') or next(iter(profiles.keys()))
-    def norm_target(t:str)->str|None:
-        if not t: return None
-        t0=t.strip()
-        aliases={"ID":"id_articolo","M2":"m2","M3":"m3","Notes":"note","NS RIF":"ns_rif","NS.RIF":"ns_rif",
-                 "MEZZO IN USCITA":"mezzi_in_uscita","Mezzo_in _uscita":"mezzi_in_uscita","TRUCKER":None,"DESTINATARI":None,"TIPO DI IMBALLO":None}
+
+    # alias/normalizzazioni di destinazione
+    def norm_target(t: str) -> str | None:
+        if not t:
+            return None
+        t0 = t.strip()
+        aliases = {
+            "ID": "id_articolo", "M2": "m2", "M3": "m3", "Notes": "note",
+            "NS RIF": "ns_rif", "NS.RIF": "ns_rif",
+            "MEZZO IN USCITA": "mezzi_in_uscita", "Mezzo_in _uscita": "mezzi_in_uscita",
+            # colonne da ignorare
+            "TRUCKER": None, "DESTINATARI": None, "TIPO DI IMBALLO": None
+        }
         return aliases.get(t0, t0.lower())
-    if request.method=='POST':
+
+    if request.method == 'POST':
         selected = request.form.get('profile') or selected
         prof = profiles.get(selected)
-        if not prof: flash("Profilo non trovato","danger"); return redirect(request.url)
+        if not prof:
+            flash("Profilo non trovato", "danger")
+            return redirect(request.url)
+
+        # Rende compatibile anche profili "vecchi" senza column_map
+        header_row = int(prof.get("header_row", 0))
+        column_map: dict[str, str] = prof.get("column_map", {})
+        if not column_map:
+            # vecchio formato {campo_db: [alias...]} -> trasformo in {alias: campo_db}
+            tmp = {}
+            for target, aliases in prof.items():
+                if target in ("header_row", "column_map"):
+                    continue
+                if isinstance(aliases, list):
+                    for alias in aliases:
+                        if isinstance(alias, str):
+                            tmp[alias] = target
+            if tmp:
+                column_map = tmp
+
         f = request.files.get('file')
-        if not f or not f.filename: flash('Seleziona un file .xlsx','warning'); return redirect(request.url)
+        if not f or not f.filename:
+            flash('Seleziona un file .xlsx', 'warning')
+            return redirect(request.url)
+
         try:
-            df=pd.read_excel(f, header=int(prof.get("header_row",0))).fillna("")
+            df = pd.read_excel(f, header=header_row).fillna("")
         except Exception as e:
-            flash(f"Errore lettura Excel: {e}", "danger"); return redirect(request.url)
-        excel_cols={c.strip().upper():c for c in df.columns if isinstance(c,str)}
-        db=SessionLocal(); added=0
-        numeric_float={'larghezza','lunghezza','altezza','peso','m2','m3'}
-        numeric_int={'n_colli'}
-        for _,r in df.iterrows():
-            a=Articolo()
-            for excel_name,target in prof.get("column_map",{}).items():
-                if not isinstance(excel_name,str) or not isinstance(target,str): continue
-                key=excel_cols.get(excel_name.strip().upper()); 
-                if not key: continue
-                value=r.get(key,None); value=None if value=="" else value
-                field=norm_target(target)
-                if not field or not hasattr(Articolo,field): continue
-                if field in ("data_ingresso","data_uscita"):
-                    if isinstance(value,(pd.Timestamp,datetime)): value=value.strftime("%Y-%m-%d")
-                    elif isinstance(value,str): value=parse_date_ui(value)
-                elif field in numeric_float: value=to_float_eu(value)
-                elif field in numeric_int: value=to_int_eu(value)
-                setattr(a,field,value)
-            db.add(a); added+=1
-        db.commit(); flash(f"Import completato ({added} righe)","success")
+            flash(f"Errore lettura Excel: {e}", "danger")
+            return redirect(request.url)
+
+        # mappa 'NOME COLONNA UPPER' -> nome originale
+        excel_cols = {c.strip().upper(): c for c in df.columns if isinstance(c, str)}
+
+        db = SessionLocal()
+        added = 0
+        num_float = {'larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3'}
+        num_int = {'n_colli'}
+
+        for _, r in df.iterrows():
+            a = Articolo()
+            any_value = False
+
+            # Scorro le colonne Excel definite nel profilo
+            for excel_name, target in column_map.items():
+                if not isinstance(excel_name, str) or not isinstance(target, str):
+                    continue
+                key = excel_cols.get(excel_name.strip().upper())
+                if not key:
+                    continue
+
+                value = r.get(key, None)
+                value = None if (isinstance(value, str) and value.strip() == "") else value
+
+                field = norm_target(target)
+                if not field or not hasattr(Articolo, field):
+                    continue
+
+                if field in ("data_ingresso", "data_uscita"):
+                    if isinstance(value, (pd.Timestamp, datetime)):
+                        value = value.strftime("%Y-%m-%d")
+                    elif isinstance(value, str):
+                        value = parse_date_ui(value)
+                elif field in num_float:
+                    value = to_float_eu(value)
+                elif field in num_int:
+                    value = to_int_eu(value)
+
+                if value not in (None, ""):
+                    any_value = True
+                setattr(a, field, value)
+
+            # Se non ho riempito nulla, salto la riga
+            if not any_value:
+                continue
+
+            # calcolo m2/m3 se ho misure
+            a.m2, a.m3 = calc_m2_m3(a.lunghezza, a.larghezza, a.altezza, a.n_colli)
+            db.add(a)
+            added += 1
+
+        db.commit()
+        flash(f"Import completato ({added} righe)", "success")
         return redirect(url_for('giacenze'))
+
     html = """
     {% extends 'base.html' %}{% block content %}
     <div class='card p-4'><h5>Importa da Excel</h5>
@@ -624,6 +702,7 @@ def import_excel():
       </div><button class='btn btn-primary mt-3'>Importa</button></form></div>{% endblock %}
     """
     return render_template_string(html, profiles=profiles, selected=selected, logo_url=logo_url())
+
 
 @app.get('/export')
 @login_required
