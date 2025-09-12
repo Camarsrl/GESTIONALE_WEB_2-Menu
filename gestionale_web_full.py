@@ -648,11 +648,13 @@ def import_excel():
             flash('Seleziona un file .xlsx', 'warning')
             return redirect(request.url)
 
-        try:
-            df = pd.read_excel(f, header=header_row).fillna("")
-        except Exception as e:
-            flash(f"Errore lettura Excel: {e}", "danger")
-            return redirect(request.url)
+      try:
+    # lettura più tollerante → non riempiamo subito i NaN con stringhe
+        df = pd.read_excel(f, header=int(prof.get("header_row", 0)), keep_default_na=True)
+    except Exception as e:
+        flash(f"Errore lettura Excel: {e}", "danger"); return redirect(request.url)
+
+
 
         # mappa 'NOME COLONNA UPPER' -> nome originale
         excel_cols = {c.strip().upper(): c for c in df.columns if isinstance(c, str)}
