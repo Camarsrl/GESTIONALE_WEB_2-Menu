@@ -11,6 +11,18 @@ from email.message import EmailMessage
 from datetime import datetime, date
 from pathlib import Path
 
+import pandas as pd
+
+def is_blank(v):
+    # True per None, "", spazi, NaN, NaT
+    try:
+        if pd.isna(v):
+            return True
+    except Exception:
+        pass
+    return (v is None) or (isinstance(v, str) and not v.strip())
+
+
 from flask import (
     Flask, request, render_template_string, redirect, url_for,
     send_file, session, flash, abort, Blueprint
@@ -49,7 +61,14 @@ engine = create_engine(DATABASE_URL, future=True)
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 Base = declarative_base()
 
-LOGO_PATH = os.environ.get("LOGO_PATH") or str(STATIC_DIR / "logo camar.jpg")
+LOGO_PATH = os.environ.get("LOGO_PATH") or str(STATIC_DIR / "logo.png")
+if not Path(LOGO_PATH).exists():
+    for alt in ("logo camar.jpg", "logo.jpg", "logo.jpeg", "logo.png"):
+        p = STATIC_DIR / alt
+        if p.exists():
+            LOGO_PATH = str(p)
+            break
+
 
 DESTINATARI_JSON = APP_DIR / "destinatari_saved.json"   # <-- caricato nella maschera DDT
 PROG_FILE = APP_DIR / "progressivi_ddt.json"
@@ -662,15 +681,26 @@ def import_excel():
                 if not field or not hasattr(Articolo, field):
                     continue
 
-                if field in ("data_ingresso", "data_uscita"):
-                    if isinstance(value, (pd.Timestamp, datetime)):
-                        value = value.strftime("%Y-%m-%d")
-                    elif isinstance(value, str):
-                        value = parse_date_ui(value)
-                elif field in num_float:
-                    value = to_float_eu(value)
-                elif field in num_int:
-                    value = to_int_eu(value)
+              if field in ("data_ingresso", "data_uscita"):
+                  if is_blank(value):
+                      value = None
+                  elif isinstance(value, (pd.Timestamp, datetime, date)):
+                      # Evita NaT: pd.isna(value) sarebbe già intercettato da is_blank
+                      value = value.strftime("%Y-%m-%d")
+                  elif isinstance(value, str):
+                      value = parse_date_ui(value)
+                  else:
+                      # qualunque altro tipo (numero excel, ecc.)
+                      try:
+                          value = pd.to_datetime(value).strftime("%Y-%m-%d")
+                      except Exception:
+                          value = parse_date_ui(str(value))
+              elif field in numeric_float:
+                  value = None if is_blank(value) else to_float_eu(value)
+              elif field in numeric_int:
+                  value = None if is_blank(value) else to_int_eu(value)
+
+
 
                 if value not in (None, ""):
                     any_value = True
