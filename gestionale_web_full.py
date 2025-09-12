@@ -438,15 +438,35 @@ def login_required(fn):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        u = request.form.get('user', '').strip().upper()
-        p = request.form.get('pwd', '')
-        users = get_users()
-        if u in users and users[u] == p:
+        # Leggi campi come inviati dal form
+        u_raw = request.form.get('user', '')
+        p_raw = request.form.get('pwd', '')
+
+        # Normalizzazioni
+        u = (u_raw or '').strip().upper()
+        p = (p_raw or '').strip()
+
+        # Carica utenti (chiavi maiuscole)
+        users_src = get_users() or {}
+        users = {str(k).upper(): str(v) for k, v in users_src.items()}
+
+        # DEBUG: stampa in log (password oscurata)
+        print(f"[LOGIN] user_in='{u_raw}' -> norm='{u}', pass_len={len(p)}; known_users={list(users.keys())}")
+
+        if u in users and p == users[u]:
             session['user'] = u
             session['role'] = 'admin' if u in ADMIN_USERS else 'client'
+            # Successo → redirect alla home
             return redirect(url_for('home'))
+
         flash('Credenziali non valide', 'danger')
-    return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'login.html')[0], logo_url=logo_url())
+
+    # GET o POST fallito → ripresenta la pagina di login
+    return render_template_string(
+        app.jinja_loader.get_source(app.jinja_env, 'login.html')[0],
+        logo_url=logo_url()
+    )
+
 
 @app.get('/logout')
 def logout():
