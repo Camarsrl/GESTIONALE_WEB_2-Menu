@@ -600,25 +600,42 @@ def load_profile():
             pass
     return {"Generico": DEFAULT_PROFILE}
 
-@app.route('/import', methods=['GET','POST'])
+@app.route('/import', methods=['GET', 'POST'])
 @login_required
 def import_excel():
     profiles = load_profile()
     selected = request.args.get('profile') or next(iter(profiles.keys()))
 
-    # alias/normalizzazioni di destinazione
+    # Alias/normalizzazioni della destinazione
     def norm_target(t: str) -> str | None:
         if not t:
             return None
         t0 = t.strip()
         aliases = {
-            "ID": "id_articolo", "M2": "m2", "M3": "m3", "Notes": "note",
-            "NS RIF": "ns_rif", "NS.RIF": "ns_rif",
-            "MEZZO IN USCITA": "mezzi_in_uscita", "Mezzo_in _uscita": "mezzi_in_uscita",
+            "ID": "id_articolo",
+            "M2": "m2",
+            "M3": "m3",
+            "Notes": "note",
+            "NS RIF": "ns_rif",
+            "NS.RIF": "ns_rif",
+            "MEZZO IN USCITA": "mezzi_in_uscita",
+            "Mezzo_in _uscita": "mezzi_in_uscita",
             # colonne da ignorare
-            "TRUCKER": None, "DESTINATARI": None, "TIPO DI IMBALLO": None
+            "TRUCKER": None,
+            "DESTINATARI": None,
+            "TIPO DI IMBALLO": None,
         }
         return aliases.get(t0, t0.lower())
+
+    # Helper per verificare celle vuote/NaN/NaT/stringhe vuote
+    def is_blank(v) -> bool:
+        try:
+            import pandas as _pd  # già importato sopra, ma così evitiamo linting
+            if _pd.isna(v):
+                return True
+        except Exception:
+            pass
+        return (v is None) or (isinstance(v, str) and v.strip() == "")
 
     if request.method == 'POST':
         selected = request.form.get('profile') or selected
@@ -627,11 +644,10 @@ def import_excel():
             flash("Profilo non trovato", "danger")
             return redirect(request.url)
 
-        # Rende compatibile anche profili "vecchi" senza column_map
+        # Rende compatibili anche profili “vecchi” senza column_map
         header_row = int(prof.get("header_row", 0))
         column_map: dict[str, str] = prof.get("column_map", {})
         if not column_map:
-            # vecchio formato {campo_db: [alias...]} -> trasformo in {alias: campo_db}
             tmp = {}
             for target, aliases in prof.items():
                 if target in ("header_row", "column_map"):
@@ -648,21 +664,20 @@ def import_excel():
             flash('Seleziona un file .xlsx', 'warning')
             return redirect(request.url)
 
-      try:
-    # lettura più tollerante → non riempiamo subito i NaN con stringhe
-        df = pd.read_excel(f, header=int(prof.get("header_row", 0)), keep_default_na=True)
-    except Exception as e:
-        flash(f"Errore lettura Excel: {e}", "danger"); return redirect(request.url)
-
-
+        try:
+            # Lettura più tollerante → non trasformiamo subito NaN/NaT in stringhe
+            df = pd.read_excel(f, header=header_row, keep_default_na=True)
+        except Exception as e:
+            flash(f"Errore lettura Excel: {e}", "danger")
+            return redirect(request.url)
 
         # mappa 'NOME COLONNA UPPER' -> nome originale
         excel_cols = {c.strip().upper(): c for c in df.columns if isinstance(c, str)}
 
         db = SessionLocal()
         added = 0
-        num_float = {'larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3'}
-        num_int = {'n_colli'}
+        numeric_float = {'larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3'}
+        numeric_int = {'n_colli'}
 
         for _, r in df.iterrows():
             a = Articolo()
@@ -677,32 +692,31 @@ def import_excel():
                     continue
 
                 value = r.get(key, None)
-                value = None if (isinstance(value, str) and value.strip() == "") else value
+                if is_blank(value):
+                    value = None
 
                 field = norm_target(target)
                 if not field or not hasattr(Articolo, field):
                     continue
 
-              if field in ("data_ingresso", "data_uscita"):
-                  if is_blank(value):
-                      value = None
-                  elif isinstance(value, (pd.Timestamp, datetime, date)):
-                      # Evita NaT: pd.isna(value) sarebbe già intercettato da is_blank
-                      value = value.strftime("%Y-%m-%d")
-                  elif isinstance(value, str):
-                      value = parse_date_ui(value)
-                  else:
-                      # qualunque altro tipo (numero excel, ecc.)
-                      try:
-                          value = pd.to_datetime(value).strftime("%Y-%m-%d")
-                      except Exception:
-                          value = parse_date_ui(str(value))
-              elif field in numeric_float:
-                  value = None if is_blank(value) else to_float_eu(value)
-              elif field in numeric_int:
-                  value = None if is_blank(value) else to_int_eu(value)
-
-
+                if field in ("data_ingresso", "data_uscita"):
+                    if is_blank(value):
+                        value = None
+                    elif isinstance(value, (pd.Timestamp, datetime, date)):
+                        # Evita NaT: pd.isna(value) già intercettato da is_blank
+                        value = value.strftime("%Y-%m-%d")
+                    elif isinstance(value, str):
+                        value = parse_date_ui(value)
+                    else:
+                        # numeri Excel o altri tipi
+                        try:
+                            value = pd.to_datetime(value).strftime("%Y-%m-%d")
+                        except Exception:
+                            value = parse_date_ui(str(value))
+                elif field in numeric_float:
+                    value = None if is_blank(value) else to_float_eu(value)
+                elif field in numeric_int:
+                    value = None if is_blank(value) else to_int_eu(value)
 
                 if value not in (None, ""):
                     any_value = True
@@ -721,6 +735,7 @@ def import_excel():
         flash(f"Import completato ({added} righe)", "success")
         return redirect(url_for('giacenze'))
 
+    # GET: form caricamento
     html = """
     {% extends 'base.html' %}{% block content %}
     <div class='card p-4'><h5>Importa da Excel</h5>
@@ -729,11 +744,14 @@ def import_excel():
         <div class='col-md-6'><label class='form-label'>File Excel (.xlsx)</label>
           <input type='file' name='file' accept='.xlsx,.xlsm' class='form-control' required></div>
         <div class='col-md-6'><label class='form-label'>Profilo</label>
-          <select class='form-select' name='profile'>{% for k in profiles.keys() %}<option value='{{k}}' {% if k==selected %}selected{% endif %}>{{k}}</option>{% endfor %}</select></div>
+          <select class='form-select' name='profile'>
+            {% for k in profiles.keys() %}
+              <option value='{{k}}' {% if k==selected %}selected{% endif %}>{{k}}</option>
+            {% endfor %}
+          </select></div>
       </div><button class='btn btn-primary mt-3'>Importa</button></form></div>{% endblock %}
     """
     return render_template_string(html, profiles=profiles, selected=selected, logo_url=logo_url())
-
 
 @app.get('/export')
 @login_required
