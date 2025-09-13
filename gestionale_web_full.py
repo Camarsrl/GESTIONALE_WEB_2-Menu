@@ -22,7 +22,6 @@ def is_blank(v):
         pass
     return (v is None) or (isinstance(v, str) and not v.strip())
 
-
 from flask import (
     Flask, request, render_template_string, redirect, url_for,
     send_file, session, flash, abort, Blueprint
@@ -30,8 +29,6 @@ from flask import (
 
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session
-
-import pandas as pd
 
 # ReportLab (PDF)
 from reportlab.lib.pagesizes import A4
@@ -69,7 +66,6 @@ if not Path(LOGO_PATH).exists():
             LOGO_PATH = str(p)
             break
 
-
 DESTINATARI_JSON = APP_DIR / "destinatari_saved.json"   # <-- caricato nella maschera DDT
 PROG_FILE = APP_DIR / "progressivi_ddt.json"
 
@@ -99,6 +95,29 @@ class Attachment(Base):
     filename = Column(String(512))
     articolo = relationship("Articolo", back_populates="attachments")
 
+# --- NUOVO MODELLO ETICHETTE ---
+class Etichetta(Base):
+    __tablename__ = "etichette"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # campi stampati
+    cliente = Column(String(255))
+    protocollo = Column(String(255))
+    ordine = Column(String(255))
+    n_arrivo = Column(String(255))
+    codice_articolo = Column(String(255))
+    descrizione = Column(Text)
+    n_colli = Column(Integer)
+    peso = Column(Float)
+
+    # impostazioni di stampa
+    width_mm  = Column(Float, default=100.0)  # 100mm
+    height_mm = Column(Float, default=62.0)   # 62mm
+    font_pt   = Column(Integer, default=10)
+    copie     = Column(Integer, default=1)
+    mostra_logo = Column(Integer, default=1)  # 1 sì, 0 no
+
+# crea tabelle
 Base.metadata.create_all(engine)
 
 # ------------------- UTENTI -------------------
@@ -246,6 +265,7 @@ HOME = """{% extends 'base.html' %}{% block content %}
   <div class='col-md-3'>
     <div class='card p-3'>
       <h6>Azioni</h6><div class='d-grid gap-2'>
+        <a class='btn btn-outline-primary' href='{{url_for("labels_list")}}'>Etichette (nuovo modulo)</a>
         <a class='btn btn-outline-primary' href='{{url_for("giacenze")}}'>Visualizza Giacenze</a>
         <a class='btn btn-outline-primary' href='{{url_for("import_excel")}}'>Import da Excel</a>
         <a class='btn btn-outline-primary' href='{{url_for("export_excel")}}'>Export Excel</a>
@@ -256,7 +276,7 @@ HOME = """{% extends 'base.html' %}{% block content %}
   </div>
   <div class='col-md-9'><div class='card p-4'>
     <h4>Benvenuto</h4>
-    <p class='text-muted'>Stampe HTML e PDF (con logo), profili import, progressivo DDT, etichette 62×100 mm, invio e-mail.</p>
+    <p class='text-muted'>Stampe HTML e PDF (con logo), profili import, progressivo DDT, <b>etichette 62×100 mm</b>, invio e-mail.</p>
   </div></div>
 </div>
 {% endblock %}"""
@@ -413,12 +433,87 @@ DDT_SETUP = """{% extends 'base.html' %}{% block content %}
 {% endblock %}
 """
 
+# --- LISTA / FORM ETICHETTE (template inline) ---
+LABELS_LIST = """{% extends 'base.html' %}{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5>Etichette</h5>
+  <a class="btn btn-primary" href="{{ url_for('label_new') }}">Nuova etichetta</a>
+</div>
+<div class="card p-3">
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead><tr>
+        <th>ID</th><th>Cliente</th><th>Descrizione</th><th>Colli/Peso</th>
+        <th>Formato</th><th>Copie</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for e in rows %}
+        <tr>
+          <td>{{e.id}}</td>
+          <td>{{e.cliente}}</td>
+          <td>{{(e.descrizione or '')[:60]}}</td>
+          <td>{{e.n_colli or 1}} / {{e.peso or ''}}</td>
+          <td>{{e.width_mm|int}}×{{e.height_mm|int}} mm</td>
+          <td>{{e.copie or 1}}</td>
+          <td class="text-nowrap">
+            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('label_edit', id=e.id) }}">Modifica</a>
+            <a class="btn btn-sm btn-outline-success" target="_blank" href="{{ url_for('label_pdf', id=e.id) }}">PDF</a>
+            <a class="btn btn-sm btn-outline-danger" href="{{ url_for('label_delete', id=e.id) }}" onclick="return confirm('Eliminare l\\'etichetta?')">Elimina</a>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="text-center text-muted">Nessuna etichetta</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}"""
+
+LABEL_FORM = """{% extends 'base.html' %}{% block content %}
+<div class="card p-4">
+  <h5>{{ 'Modifica' if row.id else 'Nuova' }} etichetta</h5>
+  <form method="post">
+    <div class="row g-3">
+      <div class="col-md-4"><label class="form-label">Cliente</label><input name="cliente" class="form-control" value="{{row.cliente or ''}}"></div>
+      <div class="col-md-4"><label class="form-label">Protocollo</label><input name="protocollo" class="form-control" value="{{row.protocollo or ''}}"></div>
+      <div class="col-md-4"><label class="form-label">Ordine</label><input name="ordine" class="form-control" value="{{row.ordine or ''}}"></div>
+      <div class="col-md-4"><label class="form-label">N. Arrivo</label><input name="n_arrivo" class="form-control" value="{{row.n_arrivo or ''}}"></div>
+      <div class="col-md-4"><label class="form-label">Codice Articolo</label><input name="codice_articolo" class="form-control" value="{{row.codice_articolo or ''}}"></div>
+      <div class="col-md-8"><label class="form-label">Descrizione</label><input name="descrizione" class="form-control" value="{{row.descrizione or ''}}"></div>
+      <div class="col-md-2"><label class="form-label">Colli</label><input name="n_colli" type="number" class="form-control" value="{{row.n_colli or 1}}"></div>
+      <div class="col-md-2"><label class="form-label">Peso</label><input name="peso" class="form-control" value="{{row.peso or ''}}"></div>
+
+      <div class="col-md-2"><label class="form-label">Larghezza (mm)</label><input name="width_mm" type="number" class="form-control" value="{{row.width_mm or 100}}"></div>
+      <div class="col-md-2"><label class="form-label">Altezza (mm)</label><input name="height_mm" type="number" class="form-control" value="{{row.height_mm or 62}}"></div>
+      <div class="col-md-2"><label class="form-label">Font (pt)</label><input name="font_pt" type="number" class="form-control" value="{{row.font_pt or 10}}"></div>
+      <div class="col-md-2"><label class="form-label">Copie</label><input name="copie" type="number" min="1" class="form-control" value="{{row.copie or 1}}"></div>
+      <div class="col-md-2"><label class="form-label d-block">Logo</label>
+        <select name="mostra_logo" class="form-select">
+          <option value="1" {% if (row.mostra_logo or 1)==1 %}selected{% endif %}>Mostra</option>
+          <option value="0" {% if (row.mostra_logo or 1)==0 %}selected{% endif %}>Nascondi</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="mt-3 d-flex gap-2">
+      <button class="btn btn-primary">Salva</button>
+      {% if row.id %}<a class="btn btn-success" target="_blank" href="{{ url_for('label_pdf', id=row.id) }}">Apri PDF</a>{% endif %}
+      <a class="btn btn-secondary" href="{{ url_for('labels_list') }}">Indietro</a>
+    </div>
+    <p class="text-muted mt-2">Formato predefinito: 62×100 mm. Ogni pagina = 1 etichetta.</p>
+  </form>
+</div>
+{% endblock %}"""
+
 bp = Blueprint('bp', __name__)
 app.register_blueprint(bp)
 dict_loader = DictLoader({
     'base.html': BASE, 'login.html': LOGIN, 'home.html': HOME,
     'giacenze.html': GIACENZE, 'edit.html': EDIT, 'print_doc.html': PRINT_DOC,
-    'ddt_setup.html': DDT_SETUP
+    'ddt_setup.html': DDT_SETUP,
+    'labels_list.html': LABELS_LIST,
+    'label_form.html': LABEL_FORM
 })
 app.jinja_loader = ChoiceLoader([FileSystemLoader('templates'), dict_loader])
 
@@ -438,35 +533,23 @@ def login_required(fn):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        # Leggi campi come inviati dal form
         u_raw = request.form.get('user', '')
         p_raw = request.form.get('pwd', '')
-
-        # Normalizzazioni
         u = (u_raw or '').strip().upper()
         p = (p_raw or '').strip()
-
-        # Carica utenti (chiavi maiuscole)
         users_src = get_users() or {}
         users = {str(k).upper(): str(v) for k, v in users_src.items()}
-
-        # DEBUG: stampa in log (password oscurata)
         print(f"[LOGIN] user_in='{u_raw}' -> norm='{u}', pass_len={len(p)}; known_users={list(users.keys())}")
-
         if u in users and p == users[u]:
             session['user'] = u
             session['role'] = 'admin' if u in ADMIN_USERS else 'client'
-            # Successo → redirect alla home
             return redirect(url_for('home'))
-
         flash('Credenziali non valide', 'danger')
 
-    # GET o POST fallito → ripresenta la pagina di login
     return render_template_string(
         app.jinja_loader.get_source(app.jinja_env, 'login.html')[0],
         logo_url=logo_url()
     )
-
 
 @app.get('/logout')
 def logout():
@@ -589,7 +672,6 @@ def media(att_id):
 # ------------------- IMPORT / EXPORT -------------------
 PROFILES_PATH = APP_DIR / "mappe_excel.json"
 
-# Profilo di default nel formato atteso: { "header_row": int, "column_map": { "ColonnaExcel": "campo_db", ... } }
 DEFAULT_PROFILE = {
     "header_row": 0,
     "column_map": {
@@ -612,7 +694,6 @@ DEFAULT_PROFILE = {
 }
 
 def load_profile():
-    """Carica i profili da file; se mancano uso un 'Generico' di default."""
     if PROFILES_PATH.exists():
         try:
             return json.loads(PROFILES_PATH.read_text(encoding="utf-8"))
@@ -626,33 +707,21 @@ def import_excel():
     profiles = load_profile()
     selected = request.args.get('profile') or next(iter(profiles.keys()))
 
-    # Alias/normalizzazioni della destinazione
     def norm_target(t: str) -> str | None:
         if not t:
             return None
         t0 = t.strip()
         aliases = {
-            "ID": "id_articolo",
-            "M2": "m2",
-            "M3": "m3",
-            "Notes": "note",
-            "NS RIF": "ns_rif",
-            "NS.RIF": "ns_rif",
-            "MEZZO IN USCITA": "mezzi_in_uscita",
-            "Mezzo_in _uscita": "mezzi_in_uscita",
-            # colonne da ignorare
-            "TRUCKER": None,
-            "DESTINATARI": None,
-            "TIPO DI IMBALLO": None,
+            "ID": "id_articolo", "M2": "m2", "M3": "m3", "Notes": "note",
+            "NS RIF": "ns_rif", "NS.RIF": "ns_rif",
+            "MEZZO IN USCITA": "mezzi_in_uscita", "Mezzo_in _uscita": "mezzi_in_uscita",
+            "TRUCKER": None, "DESTINATARI": None, "TIPO DI IMBALLO": None,
         }
         return aliases.get(t0, t0.lower())
 
-    # Helper per verificare celle vuote/NaN/NaT/stringhe vuote
-    def is_blank(v) -> bool:
+    def _is_blank(v) -> bool:
         try:
-            import pandas as _pd  # già importato sopra, ma così evitiamo linting
-            if _pd.isna(v):
-                return True
+            if pd.isna(v): return True
         except Exception:
             pass
         return (v is None) or (isinstance(v, str) and v.strip() == "")
@@ -661,101 +730,73 @@ def import_excel():
         selected = request.form.get('profile') or selected
         prof = profiles.get(selected)
         if not prof:
-            flash("Profilo non trovato", "danger")
-            return redirect(request.url)
+            flash("Profilo non trovato", "danger"); return redirect(request.url)
 
-        # Rende compatibili anche profili “vecchi” senza column_map
         header_row = int(prof.get("header_row", 0))
         column_map: dict[str, str] = prof.get("column_map", {})
         if not column_map:
             tmp = {}
             for target, aliases in prof.items():
-                if target in ("header_row", "column_map"):
-                    continue
+                if target in ("header_row", "column_map"): continue
                 if isinstance(aliases, list):
                     for alias in aliases:
-                        if isinstance(alias, str):
-                            tmp[alias] = target
-            if tmp:
-                column_map = tmp
+                        if isinstance(alias, str): tmp[alias] = target
+            if tmp: column_map = tmp
 
         f = request.files.get('file')
         if not f or not f.filename:
-            flash('Seleziona un file .xlsx', 'warning')
-            return redirect(request.url)
+            flash('Seleziona un file .xlsx', 'warning'); return redirect(request.url)
 
         try:
-            # Lettura più tollerante → non trasformiamo subito NaN/NaT in stringhe
             df = pd.read_excel(f, header=header_row, keep_default_na=True)
         except Exception as e:
-            flash(f"Errore lettura Excel: {e}", "danger")
-            return redirect(request.url)
+            flash(f"Errore lettura Excel: {e}", "danger"); return redirect(request.url)
 
-        # mappa 'NOME COLONNA UPPER' -> nome originale
         excel_cols = {c.strip().upper(): c for c in df.columns if isinstance(c, str)}
 
-        db = SessionLocal()
-        added = 0
+        db = SessionLocal(); added = 0
         numeric_float = {'larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3'}
         numeric_int = {'n_colli'}
 
         for _, r in df.iterrows():
-            a = Articolo()
-            any_value = False
-
-            # Scorro le colonne Excel definite nel profilo
+            a = Articolo(); any_value = False
             for excel_name, target in column_map.items():
-                if not isinstance(excel_name, str) or not isinstance(target, str):
-                    continue
+                if not isinstance(excel_name, str) or not isinstance(target, str): continue
                 key = excel_cols.get(excel_name.strip().upper())
-                if not key:
-                    continue
+                if not key: continue
 
                 value = r.get(key, None)
-                if is_blank(value):
-                    value = None
+                if _is_blank(value): value = None
 
                 field = norm_target(target)
-                if not field or not hasattr(Articolo, field):
-                    continue
+                if not field or not hasattr(Articolo, field): continue
 
                 if field in ("data_ingresso", "data_uscita"):
-                    if is_blank(value):
+                    if _is_blank(value):
                         value = None
                     elif isinstance(value, (pd.Timestamp, datetime, date)):
-                        # Evita NaT: pd.isna(value) già intercettato da is_blank
                         value = value.strftime("%Y-%m-%d")
                     elif isinstance(value, str):
                         value = parse_date_ui(value)
                     else:
-                        # numeri Excel o altri tipi
-                        try:
-                            value = pd.to_datetime(value).strftime("%Y-%m-%d")
-                        except Exception:
-                            value = parse_date_ui(str(value))
+                        try: value = pd.to_datetime(value).strftime("%Y-%m-%d")
+                        except Exception: value = parse_date_ui(str(value))
                 elif field in numeric_float:
-                    value = None if is_blank(value) else to_float_eu(value)
+                    value = None if _is_blank(value) else to_float_eu(value)
                 elif field in numeric_int:
-                    value = None if is_blank(value) else to_int_eu(value)
+                    value = None if _is_blank(value) else to_int_eu(value)
 
-                if value not in (None, ""):
-                    any_value = True
+                if value not in (None, ""): any_value = True
                 setattr(a, field, value)
 
-            # Se non ho riempito nulla, salto la riga
-            if not any_value:
-                continue
-
-            # calcolo m2/m3 se ho misure
+            if not any_value: continue
             a.m2, a.m3 = calc_m2_m3(a.lunghezza, a.larghezza, a.altezza, a.n_colli)
-            db.add(a)
-            added += 1
+            db.add(a); added += 1
 
         db.commit()
         flash(f"Import completato ({added} righe)", "success")
         return redirect(url_for('giacenze'))
 
-    # GET: form caricamento
     html = """
     {% extends 'base.html' %}{% block content %}
     <div class='card p-4'><h5>Importa da Excel</h5>
@@ -881,7 +922,6 @@ def pdf_ddt():
 @login_required
 def pdf_etichette():
     # 62mm x 100mm (w x h) — una etichetta per pagina
-    from reportlab.lib.pagesizes import landscape
     label_size = (100*mm, 62*mm)
     rows=_get(request.form.get('ids',''))
     bio=io.BytesIO()
@@ -900,9 +940,116 @@ def pdf_etichette():
             Paragraph(f"<b>Colli/Peso:</b> {(r.n_colli or 1)} / {(r.peso or '')}", _styles['Normal']),
         ]
         doc.build(story)
-        if i < len(rows)-1:
-            pass  # successive pagine nello stesso stream non sono immediate; generiamo singoli file? qui una pagina per output
     bio.seek(0); return send_file(bio, as_attachment=True, download_name='etichette.pdf')
+
+# ------------------- MODULO ETICHETTE (CRUD + PDF 62×100mm) -------------------
+@app.get('/labels')
+@login_required
+def labels_list():
+    db = SessionLocal()
+    rows = db.query(Etichetta).order_by(Etichetta.id.desc()).all()
+    return render_template_string(
+        app.jinja_loader.get_source(app.jinja_env, 'labels_list.html')[0],
+        rows=rows, logo_url=logo_url()
+    )
+
+@app.get('/labels/new')
+@login_required
+def label_new():
+    dummy = Etichetta(width_mm=100.0, height_mm=62.0, font_pt=10, copie=1, mostra_logo=1, n_colli=1)
+    return render_template_string(
+        app.jinja_loader.get_source(app.jinja_env, 'label_form.html')[0],
+        row=dummy, logo_url=logo_url()
+    )
+
+@app.route('/labels/new', methods=['POST'])
+@login_required
+def label_create():
+    db = SessionLocal()
+    e = Etichetta()
+    for f in ['cliente','protocollo','ordine','n_arrivo','codice_articolo','descrizione']:
+        setattr(e, f, request.form.get(f) or None)
+    e.n_colli = to_int_eu(request.form.get('n_colli'))
+    e.peso    = to_float_eu(request.form.get('peso'))
+    e.width_mm  = to_float_eu(request.form.get('width_mm'))  or 100.0
+    e.height_mm = to_float_eu(request.form.get('height_mm')) or 62.0
+    e.font_pt   = to_int_eu(request.form.get('font_pt'))     or 10
+    e.copie     = max(1, to_int_eu(request.form.get('copie')) or 1)
+    e.mostra_logo = 1 if (request.form.get('mostra_logo') in ('1','true','True','on')) else 0
+    db.add(e); db.commit()
+    flash('Etichetta creata','success')
+    return redirect(url_for('label_edit', id=e.id))
+
+@app.route('/labels/<int:id>/edit', methods=['GET','POST'])
+@login_required
+def label_edit(id):
+    db = SessionLocal()
+    e = db.get(Etichetta, id)
+    if not e: abort(404)
+    if request.method == 'POST':
+        for f in ['cliente','protocollo','ordine','n_arrivo','codice_articolo','descrizione']:
+            setattr(e, f, request.form.get(f) or None)
+        e.n_colli = to_int_eu(request.form.get('n_colli'))
+        e.peso    = to_float_eu(request.form.get('peso'))
+        e.width_mm  = to_float_eu(request.form.get('width_mm'))  or e.width_mm
+        e.height_mm = to_float_eu(request.form.get('height_mm')) or e.height_mm
+        e.font_pt   = to_int_eu(request.form.get('font_pt'))     or e.font_pt
+        e.copie     = max(1, to_int_eu(request.form.get('copie')) or e.copie)
+        e.mostra_logo = 1 if (request.form.get('mostra_logo') in ('1','true','True','on','1')) else 0
+        db.commit(); flash('Etichetta salvata','success')
+        return redirect(url_for('labels_list'))
+    return render_template_string(
+        app.jinja_loader.get_source(app.jinja_env, 'label_form.html')[0],
+        row=e, logo_url=logo_url()
+    )
+
+@app.get('/labels/<int:id>/delete')
+@login_required
+def label_delete(id):
+    db = SessionLocal()
+    e = db.get(Etichetta, id)
+    if e:
+        db.delete(e); db.commit()
+        flash('Etichetta eliminata','success')
+    return redirect(url_for('labels_list'))
+
+@app.get('/labels/<int:id>/pdf')
+@login_required
+def label_pdf(id):
+    db = SessionLocal()
+    e = db.get(Etichetta, id)
+    if not e: abort(404)
+
+    w = (e.width_mm or 100.0) * mm
+    h = (e.height_mm or 62.0) * mm
+    bio = io.BytesIO()
+
+    for i in range(e.copie or 1):
+        stream = bio if i == (e.copie - 1) else io.BytesIO()
+        doc = SimpleDocTemplate(stream, pagesize=(w, h), leftMargin=5*mm, rightMargin=5*mm, topMargin=5*mm, bottomMargin=5*mm)
+        story = []
+
+        if e.mostra_logo and Path(LOGO_PATH).exists():
+            story.append(Image(LOGO_PATH, width=40*mm, height=12*mm))
+            story.append(Spacer(1, 2))
+
+        font = max(8, int(e.font_pt or 10))
+        style = _styles['Normal']; style.fontSize = font
+        def P(txt): return Paragraph(txt, style)
+
+        story += [
+            P(f"<b>Cliente:</b> {e.cliente or ''}"),
+            P(f"<b>Protocollo:</b> {e.protocollo or ''}"),
+            P(f"<b>Ordine/Arrivo:</b> {(e.ordine or '')} / {(e.n_arrivo or '')}"),
+            P(f"<b>Cod.Art:</b> {e.codice_articolo or ''}"),
+            P(f"<b>Descr.:</b> {(e.descrizione or '')[:200]}"),
+            P(f"<b>Colli/Peso:</b> {(e.n_colli or 1)} / {(e.peso or '')}"),
+        ]
+        doc.build(story)
+
+    bio.seek(0)
+    name = f"etichetta_{e.id}.pdf"
+    return send_file(bio, as_attachment=True, download_name=name)
 
 # ------------------- SCARICO + DDT (con impostazioni) -------------------
 @app.get('/ddt_setup')
@@ -931,7 +1078,6 @@ def ddt_setup_post():
     data_ddt = request.form.get('data_ddt') or date.today().isoformat()
     email_to = request.form.get('email_to','').strip()
 
-    # assegna numero DDT e scarica
     n_ddt = next_ddt_number()
     db=SessionLocal()
     for r in rows:
@@ -939,9 +1085,7 @@ def ddt_setup_post():
         r.data_uscita = data_ddt
     db.commit()
 
-    # PDF DDT con intestazione, destinatario e "firma vettore"
     doc, story, bio = _doc_with_header(f"DDT n. {n_ddt} del {datetime.strptime(data_ddt,'%Y-%m-%d').strftime('%d/%m/%Y')}")
-    # intestazione destinatario
     info = [
         ["Destinatario", destinatari.get("ragione_sociale","")],
         ["Indirizzo", destinatari.get("indirizzo","")],
@@ -950,7 +1094,7 @@ def ddt_setup_post():
         ["Tipologia merce", tipo_merce],
         ["Causale", causale],
         ["Aspetto", aspetto],
-        ["Firma vettore", ""],  # spazio per firma
+        ["Firma vettore", ""],
     ]
     story.append(_pdf_table(info, col_widths=[35*mm, None], header=False)); story.append(Spacer(1,6))
 
@@ -962,7 +1106,6 @@ def ddt_setup_post():
     doc.build(story)
     bio.seek(0)
 
-    # invio e-mail (opzionale)
     if email_to:
         try:
             _send_email(email_to, f"DDT {n_ddt}", "In allegato il DDT.", [("ddt.pdf", bio.getvalue(), "application/pdf")])
@@ -999,7 +1142,6 @@ def health():
 
 # ------------------- RUN -------------------
 if __name__=='__main__':
-    # copia logo se è stato messo in percorso diverso
     if Path(LOGO_PATH).exists() and not (STATIC_DIR/"logo.png").exists():
         try:
             (STATIC_DIR/"logo.png").write_bytes(Path(LOGO_PATH).read_bytes())
@@ -1007,3 +1149,4 @@ if __name__=='__main__':
             pass
     port=int(os.environ.get('PORT',8000))
     app.run(host='0.0.0.0', port=port)
+
