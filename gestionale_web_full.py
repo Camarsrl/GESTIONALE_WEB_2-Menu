@@ -1,9 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-Impostazioni SMTP per invio email (facoltative):
-  SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_TLS (default: '1'), FROM_EMAIL
-Logo:
-  Metti il file in static/logo.png oppure imposta LOGO_PATH env.
+Gestionale Camar – versione con:
+- Supporto MySQL (o SQLite di default) tramite SQLAlchemy.
+- Nuovo modulo Etichette 62×100 mm (senza cod.art, descrizione, peso).
+- Import/Export Excel, DDT con progressivo, allegati (PDF/JPG/PNG), logo.
+
+ENV utili:
+  DATABASE_URL   -> es. mysql+pymysql://user:pass@host:3306/dbname
+  APP_DIR        -> cartella persistente per file (es. /var/camar su Render)
+  LOGO_PATH      -> percorso file logo; se non c'è, cerca in static/logo.png
+  SECRET_KEY     -> chiave Flask (default dev)
+  SMTP_*         -> opzionali per invio email DDT
 """
 
 import os, io, re, json, uuid, smtplib
@@ -16,18 +23,21 @@ from flask import (
     Flask, request, render_template_string, redirect, url_for,
     send_file, session, flash, abort, Blueprint
 )
+
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session
 
-# ReportLab (PDF)
+# PDF (ReportLab)
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet
+
+# Jinja loaders
 from jinja2 import ChoiceLoader, FileSystemLoader, DictLoader
 
-# ------------------- PATH / DB -------------------
+# ------------------- PATH / FILE -------------------
 APP_DIR = Path(os.environ.get("APP_DIR", "."))
 APP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -40,26 +50,33 @@ PHOTOS_DIR = MEDIA_DIR / "photos"
 for d in (DOCS_DIR, PHOTOS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
+# ------------------- DB -------------------
+# Se non imposti DATABASE_URL, usa SQLite locale persistito in APP_DIR
 DATABASE_URL = os.environ.get("DATABASE_URL") or f"sqlite:///{APP_DIR / 'magazzino.db'}"
-engine = create_engine(DATABASE_URL, future=True)
+engine = create_engine(DATABASE_URL, future=True, pool_pre_ping=True)
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 Base = declarative_base()
 
+# ------------------- LOGO -------------------
 LOGO_PATH = os.environ.get("LOGO_PATH") or str(STATIC_DIR / "logo.png")
 if not Path(LOGO_PATH).exists():
-    for alt in ("logo camar.jpg", "logo.jpg", "logo.jpeg", "logo.png"):
+    # nomi di file tipici
+    for alt in ("logo camar.jpg", "logo_camar.jpg", "logo.jpg", "logo.jpeg", "logo.png"):
         p = STATIC_DIR / alt
         if p.exists():
             LOGO_PATH = str(p)
             break
 
+# ------------------- FILE DI SUPPORTO -------------------
 DESTINATARI_JSON = APP_DIR / "destinatari_saved.json"
-PROG_FILE = APP_DIR / "progressivi_ddt.json"
+PROG_FILE        = APP_DIR / "progressivi_ddt.json"
+PROFILES_PATH    = APP_DIR / "mappe_excel.json"
 
 # ------------------- MODELLI -------------------
 class Articolo(Base):
     __tablename__ = "articoli"
     id_articolo = Column(Integer, primary_key=True, autoincrement=True)
+
     codice_articolo = Column(String(255))
     pezzo = Column(String(255))
     larghezza = Column(Float); lunghezza = Column(Float); altezza = Column(Float)
@@ -110,18 +127,21 @@ def get_users():
     return DEFAULT_USERS
 
 # ------------------- UTILS -------------------
-def to_float_eu(v):
-    if v is None:
-        return None
-    if isinstance(v, (int, float)):
-        return float(v)
-    s = str(v).strip().replace(",", ".")
-    if not s:
-        return None
+def is_blank(v):
     try:
-        return float(s)
+        if pd.isna(v):
+            return True
     except Exception:
-        return None
+        pass
+    return (v is None) or (isinstance(v, str) and not v.strip())
+
+def to_float_eu(v):
+    if v is None: return None
+    if isinstance(v, (int, float)): return float(v)
+    s = str(v).strip().replace(",", ".")
+    if not s: return None
+    try: return float(s)
+    except Exception: return None
 
 def to_int_eu(v):
     f = to_float_eu(v)
@@ -143,14 +163,6 @@ def calc_m2_m3(l, w, h, colli):
     h = to_float_eu(h) or 0.0
     c = to_int_eu(colli) or 1
     return round(c * l * w, 3), round(c * l * w * h, 3)
-
-def is_blank(v):
-    try:
-        if pd.isna(v):
-            return True
-    except Exception:
-        pass
-    return (v is None) or (isinstance(v, str) and not v.strip())
 
 def load_destinatari():
     if DESTINATARI_JSON.exists():
@@ -184,7 +196,7 @@ def next_ddt_number():
 # ------------------- APP / TEMPLATES -------------------
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
-app.jinja_env.globals['getattr'] = getattr
+app.jinja_env.globals['getattr'] = getattr  # utile nei template
 
 BASE = """
 <!doctype html><html lang='it'><head>
@@ -266,10 +278,8 @@ GIACENZE = """{% extends 'base.html' %}{% block content %}
   <div class='d-flex flex-wrap gap-2 mb-2 no-print'>
     <form method='post' action='{{url_for("crea_buono_html")}}' target='_blank'><input type='hidden' name='ids' id='ids-b1'><button class='btn btn-outline-secondary btn-sm'>Buono (Stampa)</button></form>
     <form method='post' action='{{url_for("crea_ddt_html")}}' target='_blank'><input type='hidden' name='ids' id='ids-d1'><button class='btn btn-outline-secondary btn-sm'>DDT (Stampa)</button></form>
-    <form method='post' action='{{url_for("crea_etichetta_html")}}' target='_blank'><input type='hidden' name='ids' id='ids-e1'><button class='btn btn-outline-secondary btn-sm'>Etichette (Stampa)</button></form>
     <form method='post' action='{{url_for("pdf_buono")}}' target='_blank'><input type='hidden' name='ids' id='ids-bp'><button class='btn btn-outline-primary btn-sm'>Buono (PDF)</button></form>
     <form method='post' action='{{url_for("pdf_ddt")}}' target='_blank'><input type='hidden' name='ids' id='ids-dp'><button class='btn btn-outline-primary btn-sm'>DDT (PDF)</button></form>
-    <form method='post' action='{{url_for("pdf_etichette")}}' target='_blank'><input type='hidden' name='ids' id='ids-ep'><button class='btn btn-outline-primary btn-sm'>Etichette (PDF)</button></form>
     {% if session.get('role') == 'admin' %}
       <a class='btn btn-success btn-sm' href='{{url_for("ddt_setup")}}?ids=' id='btn-scarico'>Scarico + DDT (PDF)</a>
     {% endif %}
@@ -303,101 +313,63 @@ function setIds(id){
   const el=document.getElementById(id); if(el) el.value=v;
   const l=document.getElementById('btn-scarico'); if(l) l.href='{{url_for("ddt_setup")}}?ids='+encodeURIComponent(v);
 }
-['ids-b1','ids-d1','ids-e1','ids-bp','ids-dp','ids-ep'].forEach(n=>{
+['ids-b1','ids-d1','ids-bp','ids-dp'].forEach(n=>{
   const f=document.getElementById(n)?.closest('form'); f&&f.addEventListener('submit',()=>setIds(n));
 });
 </script>
 {% endblock %}
 """
 
-EDIT = """{% extends 'base.html' %}{% block content %}
-<div class='card p-4'><h5>{{ 'Modifica' if row.id_articolo else 'Nuovo' }} Articolo {% if row.id_articolo %}#{{row.id_articolo}}{% endif %}</h5>
-<form method='post' enctype='multipart/form-data'>
-  <div class='row g-3'>
-    {% for label,name in fields %}
-      <div class='col-md-4'><label class='form-label'>{{label}}</label>
-        <input name='{{name}}' value='{{getattr(row,name,"") or ""}}' class='form-control'></div>
-    {% endfor %}
-    {% if row.id_articolo %}
-    <div class='col-12'><label class='form-label'>Allega Documenti/Foto</label>
-      <div class='dropzone' id='dz'>Trascina qui (o clicca) per caricare più file (PDF, JPG, PNG)</div>
-      <input type='file' id='fi' name='files' multiple class='form-control mt-2' style='display:none' accept='application/pdf,image/*'>
-    </div>{% endif %}
-  </div>
-  <div class='mt-3 d-flex gap-2'><button class='btn btn-primary'>Salva</button>
-  <a class='btn btn-secondary' href='{{url_for("giacenze")}}'>Indietro</a></div>
-</form>
-{% if row.id_articolo %}
-<hr><h6>Allegati</h6><ul class='list-group'>
-  {% for a in row.attachments %}
-  <li class='list-group-item d-flex justify-content-between'>
-    <div><span class='badge text-bg-light me-2'>{{a.kind}}</span><a href='{{url_for("media",att_id=a.id)}}' target='_blank'>{{a.filename}}</a></div>
-    <a class='btn btn-sm btn-outline-danger' href='{{url_for("delete_attachment",att_id=a.id)}}'>Elimina</a>
-  </li>
-  {% else %}<li class='list-group-item'>Nessun allegato</li>{% endfor %}
-</ul>{% endif %}
-<script>
-const dz=document.getElementById('dz'),fi=document.getElementById('fi');
-dz && dz.addEventListener('click',()=>fi.click());
-dz && dz.addEventListener('dragover',e=>{e.preventDefault(); dz.style.opacity=.8});
-dz && dz.addEventListener('dragleave',()=>dz.style.opacity=1);
-dz && dz.addEventListener('drop',e=>{e.preventDefault(); fi.files=e.dataTransfer.files; dz.style.opacity=1});
-</script>
-{% endblock %}
-"""
-
-PRINT_DOC = """<!doctype html><html><head><meta charset='utf-8'>
-<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>
-<style>@media print{.no-print{display:none}} .logo{height:40px;margin-right:10px}</style></head><body class='p-4'>
-<div class='no-print mb-3'><button class='btn btn-primary' onclick='window.print()'>Stampa</button></div>
-<div class='d-flex align-items-center mb-3'>{% if logo_url %}<img src='{{logo_url}}' class='logo'>{% endif %}<h3 class='m-0'>{{title}}</h3></div>
-<table class='table table-sm table-bordered'><thead><tr>{% for h in headers %}<th>{{h}}</th>{% endfor %}</tr></thead>
-<tbody>{% for row in data %}<tr>{% for v in row %}<td>{{v}}</td>{% endfor %}</tr>{% endfor %}</tbody></table></body></html>"""
-
-# --------- NUOVO MODULO ETICHETTE (form + preview + pdf) ----------
+# --------- Nuovo modulo ETICHETTE (senza cod.art/descr/peso) ----------
 LABELS_FORM = """{% extends 'base.html' %}{% block content %}
 <div class='card p-4'>
-  <h5>Nuova Etichetta (62×100 mm)</h5>
-  <form method='post' action='{{url_for("labels_preview")}}' target='_blank' class='row g-3'>
-    {% for label,name in [
-      ('Cliente','cliente'),('Fornitore','fornitore'),('Ordine','ordine'),('Commessa','commessa'),
-      ('DDT Ingresso','ddt_ing'),('Data Ingresso (GG/MM/AAAA)','data_ingr'),
-      ('Arrivo (es. 01/24)','arrivo'),('N. Colli','n_colli'),('Posizione','posizione'),
-      ('Protocollo','protocollo'),('Cod.Art.','codice_articolo'),('Descrizione','descrizione'),('Peso (kg)','peso')
-    ] %}
-    <div class='col-md-4'><label class='form-label'>{{label}}</label><input name='{{name}}' class='form-control'></div>
-    {% endfor %}
-    <div class='col-12 d-flex gap-2'>
+  <h4>Nuova Etichetta (62×100 mm)</h4>
+  <form method='post' action='{{url_for("labels_preview")}}' target='_blank'>
+    <div class='row g-3'>
+      <div class='col-md-4'><label class='form-label'>Cliente</label><input name='cliente' class='form-control'></div>
+      <div class='col-md-4'><label class='form-label'>Fornitore</label><input name='fornitore' class='form-control'></div>
+      <div class='col-md-4'><label class='form-label'>Ordine</label><input name='ordine' class='form-control'></div>
+
+      <div class='col-md-4'><label class='form-label'>Commessa</label><input name='commessa' class='form-control'></div>
+      <div class='col-md-4'><label class='form-label'>DDT Ingresso</label><input name='ddt_ingresso' class='form-control'></div>
+      <div class='col-md-4'><label class='form-label'>Data Ingresso (GG/MM/AAAA)</label><input name='data_ingresso' class='form-control' placeholder='es. 12/09/2025'></div>
+
+      <div class='col-md-4'><label class='form-label'>Arrivo (es. 01/24)</label><input name='arrivo' class='form-control'></div>
+      <div class='col-md-4'><label class='form-label'>N. Colli</label><input name='n_colli' class='form-control'></div>
+      <div class='col-md-4'><label class='form-label'>Posizione</label><input name='posizione' class='form-control'></div>
+
+      <div class='col-md-4'><label class='form-label'>Protocollo</label><input name='protocollo' class='form-control'></div>
+    </div>
+    <div class='mt-3 d-flex gap-2'>
       <button class='btn btn-primary'>Anteprima / Stampa</button>
-      <button class='btn btn-outline-primary' formaction='{{url_for("labels_pdf")}}' formtarget='_blank'>Crea PDF</button>
+      <button class='btn btn-outline-primary' formaction='{{url_for("labels_pdf")}}'>Crea PDF</button>
     </div>
   </form>
 </div>
 {% endblock %}"""
 
-# HTML 100×62 mm con logo
-LABEL_HTML = """<!doctype html><html><head><meta charset="utf-8">
+LABELS_HTML = """<!doctype html><html><head><meta charset='utf-8'>
+<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>
 <style>
-  @page { size: 100mm 62mm; margin: 6mm; }
-  body{ margin:0; font-family: Arial, Helvetica, sans-serif; }
-  .logo{ height: 12mm; margin-bottom: 4mm; }
-  .lbl b{font-size: 16pt}
-  .lbl{font-size:14pt; line-height:1.15}
+@page{margin:0}
+body{padding:8mm;font-family:Arial,Helvetica,sans-serif}
+.box{width:420px;height:260px;border:1px solid #bbb;padding:8px}
+.k{font-weight:700}
+.logo{height:26px;margin-bottom:6px}
 </style></head><body>
-<div class="no-print"><button onclick="window.print()">Stampa</button></div>
-{% if logo_url %}<img src="{{logo_url}}" class="logo">{% endif %}
-<div class="lbl">
-  <div><b>Cliente:</b> {{ cliente }}</div>
-  <div><b>Fornitore:</b> {{ fornitore }}</div>
-  <div><b>Ordine/Arrivo:</b> {{ ordine }}{% if arrivo %} / ARRIVO {{ arrivo }}{% endif %}</div>
-  <div><b>Cod.Art:</b> {{ codice_articolo }}</div>
-  <div><b>Descr.:</b> {{ descrizione }}</div>
-  <div><b>Colli/Peso:</b> {{ n_colli or 1 }}{% if peso %} / {{ peso }}{% endif %}</div>
-  <div><b>Protocollo:</b> {{ protocollo }}</div>
-  <div><b>DDT:</b> {{ ddt_ing }}</div>
-  <div><b>Data Ingresso:</b> {{ data_ingr }}</div>
-  <div><b>Commessa:</b> {{ commessa }}</div>
-  <div><b>Posizione:</b> {{ posizione }}</div>
+<div class='no-print mb-2'><button class='btn btn-primary' onclick='window.print()'>Stampa</button></div>
+<div class='box'>
+  {% if logo_url %}<img class='logo' src='{{logo_url}}'>{% endif %}
+  <div class='k'>Cliente:</div> {{cliente}}<br>
+  <div class='k'>Fornitore:</div> {{fornitore}}<br>
+  <div class='k'>Ordine:</div> {{ordine}}<br>
+  <div class='k'>Commessa:</div> {{commessa}}<br>
+  <div class='k'>DDT Ingresso:</div> {{ddt_ingresso}}<br>
+  <div class='k'>Data Ingresso:</div> {{data_ingresso}}<br>
+  <div class='k'>Arrivo:</div> {{arrivo}}<br>
+  <div class='k'>N. Colli:</div> {{n_colli}}<br>
+  <div class='k'>Posizione:</div> {{posizione}}<br>
+  <div class='k'>Protocollo:</div> {{protocollo}}<br>
 </div>
 </body></html>"""
 
@@ -405,13 +377,19 @@ bp = Blueprint('bp', __name__)
 app.register_blueprint(bp)
 dict_loader = DictLoader({
     'base.html': BASE, 'login.html': LOGIN, 'home.html': HOME,
-    'giacenze.html': GIACENZE, 'edit.html': EDIT, 'print_doc.html': PRINT_DOC,
-    'labels_form.html': LABELS_FORM, 'label.html': LABEL_HTML
+    'giacenze.html': GIACENZE, 'labels_form.html': LABELS_FORM, 'labels.html': LABELS_HTML
 })
 app.jinja_loader = ChoiceLoader([FileSystemLoader('templates'), dict_loader])
 
 def logo_url():
-    return url_for('static', filename='logo.png') if Path(LOGO_PATH).exists() else None
+    # se il file esiste copio in /static/logo.png (servibile da Flask)
+    sp = STATIC_DIR / "logo.png"
+    try:
+        if Path(LOGO_PATH).exists() and not sp.exists():
+            sp.write_bytes(Path(LOGO_PATH).read_bytes())
+    except Exception:
+        pass
+    return url_for('static', filename='logo.png') if sp.exists() else None
 
 # ------------------- AUTH -------------------
 def login_required(fn):
@@ -430,18 +408,17 @@ def login():
         p_raw = request.form.get('pwd', '')
         u = (u_raw or '').strip().upper()
         p = (p_raw or '').strip()
+
         users_src = get_users() or {}
         users = {str(k).upper(): str(v) for k, v in users_src.items()}
-        print(f"[LOGIN] user_in='{u_raw}' -> norm='{u}', pass_len={len(p)}; known_users={list(users.keys())}")
+
         if u in users and p == users[u]:
             session['user'] = u
             session['role'] = 'admin' if u in ADMIN_USERS else 'client'
             return redirect(url_for('home'))
         flash('Credenziali non valide', 'danger')
-    return render_template_string(
-        app.jinja_loader.get_source(app.jinja_env, 'login.html')[0],
-        logo_url=logo_url()
-    )
+
+    return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'login.html')[0], logo_url=logo_url())
 
 @app.get('/logout')
 def logout():
@@ -453,54 +430,6 @@ def logout():
 @login_required
 def home():
     return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'home.html')[0], logo_url=logo_url())
-
-# ------------------- ETICHETTE (nuovo modulo) -------------------
-@app.get('/labels')
-@login_required
-def labels_form():
-    return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'labels_form.html')[0], logo_url=logo_url())
-
-@app.post('/labels/preview')
-@login_required
-def labels_preview():
-    data = {k: (request.form.get(k) or "").strip() for k in request.form.keys()}
-    # normalizza data ingresso se arriva in formato GG/MM/AAAA
-    if data.get("data_ingr"):
-        data["data_ingr"] = data["data_ingr"]
-    return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'label.html')[0],
-                                  **data, logo_url=logo_url())
-
-@app.post('/labels/pdf')
-@login_required
-def labels_pdf():
-    # PDF 100×62 mm
-    label_size = (100*mm, 62*mm)
-    d = {k: (request.form.get(k) or "").strip() for k in request.form.keys()}
-    bio = io.BytesIO()
-    doc = SimpleDocTemplate(bio, pagesize=label_size, leftMargin=6*mm, rightMargin=6*mm, topMargin=6*mm, bottomMargin=6*mm)
-    styles = getSampleStyleSheet()
-    story = []
-    if Path(LOGO_PATH).exists():
-        story.append(Image(LOGO_PATH, width=40*mm, height=12*mm))
-        story.append(Spacer(1,2))
-    def P(txt): return Paragraph(txt, styles['Normal'])
-    big = styles['Normal']; big.fontName='Helvetica'; big.fontSize=12
-    story += [
-        Paragraph(f"<b>Cliente:</b> {d.get('cliente','')}", big),
-        Paragraph(f"<b>Fornitore:</b> {d.get('fornitore','')}", big),
-        Paragraph(f"<b>Ordine/Arrivo:</b> {d.get('ordine','')}{' / ARRIVO '+d.get('arrivo','') if d.get('arrivo') else ''}", big),
-        Paragraph(f"<b>Cod.Art:</b> {d.get('codice_articolo','')}", big),
-        Paragraph(f"<b>Descr.:</b> {d.get('descrizione','')}", big),
-        Paragraph(f"<b>Colli/Peso:</b> {d.get('n_colli') or '1'}{(' / '+d.get('peso')) if d.get('peso') else ''}", big),
-        Paragraph(f"<b>Protocollo:</b> {d.get('protocollo','')}", big),
-        Paragraph(f"<b>DDT:</b> {d.get('ddt_ing','')}", big),
-        Paragraph(f"<b>Data Ingresso:</b> {d.get('data_ingr','')}", big),
-        Paragraph(f"<b>Commessa:</b> {d.get('commessa','')}", big),
-        Paragraph(f"<b>Posizione:</b> {d.get('posizione','')}", big),
-    ]
-    doc.build(story)
-    bio.seek(0)
-    return send_file(bio, as_attachment=True, download_name='etichetta.pdf')
 
 # ------------------- LISTA / FILTRI -------------------
 def filter_query(qs, args):
@@ -527,10 +456,8 @@ def giacenze():
         qs = qs.filter(Articolo.cliente == session['user'])
     rows = filter_query(qs, request.args).all()
     cols = ["id_articolo","cliente","descrizione","peso","n_colli","posizione","n_arrivo","buono_n","stato","data_ingresso","data_uscita","n_ddt_uscita","m2","m3"]
-    return render_template_string(
-        app.jinja_loader.get_source(app.jinja_env, 'giacenze.html')[0],
-        rows=rows, cols=cols, logo_url=logo_url()
-    )
+    return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'giacenze.html')[0],
+                                  rows=rows, cols=cols, logo_url=logo_url())
 
 # ------------------- NUOVO / EDIT -------------------
 @app.get('/new')
@@ -583,7 +510,40 @@ def edit_row(id):
             ('Larghezza (m)','larghezza'),('Lunghezza (m)','lunghezza'),('Altezza (m)','altezza'),
             ('Serial Number','serial_number'),('NS Rif','ns_rif'),('Mezzi in Uscita','mezzi_in_uscita'),('Note','note')]
     return render_template_string(
-        app.jinja_loader.get_source(app.jinja_env,'edit.html')[0],
+        """{% extends 'base.html' %}{% block content %}
+        <div class='card p-4'><h5>{{ 'Modifica' if row.id_articolo else 'Nuovo' }} Articolo {% if row.id_articolo %}#{{row.id_articolo}}{% endif %}</h5>
+        <form method='post' enctype='multipart/form-data'>
+          <div class='row g-3'>
+            {% for label,name in fields %}
+              <div class='col-md-4'><label class='form-label'>{{label}}</label>
+                <input name='{{name}}' value='{{getattr(row,name,"") or ""}}' class='form-control'></div>
+            {% endfor %}
+            {% if row.id_articolo %}
+            <div class='col-12'><label class='form-label'>Allega Documenti/Foto</label>
+              <div class='dropzone' id='dz'>Trascina qui (o clicca) per caricare più file (PDF, JPG, PNG)</div>
+              <input type='file' id='fi' name='files' multiple class='form-control mt-2' style='display:none' accept='application/pdf,image/*'>
+            </div>{% endif %}
+          </div>
+          <div class='mt-3 d-flex gap-2'><button class='btn btn-primary'>Salva</button>
+          <a class='btn btn-secondary' href='{{url_for("giacenze")}}'>Indietro</a></div>
+        </form>
+        {% if row.id_articolo %}
+        <hr><h6>Allegati</h6><ul class='list-group'>
+          {% for a in row.attachments %}
+          <li class='list-group-item d-flex justify-content-between'>
+            <div><span class='badge text-bg-light me-2'>{{a.kind}}</span><a href='{{url_for("media",att_id=a.id)}}' target='_blank'>{{a.filename}}</a></div>
+            <a class='btn btn-sm btn-outline-danger' href='{{url_for("delete_attachment",att_id=a.id)}}'>Elimina</a>
+          </li>
+          {% else %}<li class='list-group-item'>Nessun allegato</li>{% endfor %}
+        </ul>{% endif %}
+        <script>
+        const dz=document.getElementById('dz'),fi=document.getElementById('fi');
+        dz && dz.addEventListener('click',()=>fi.click());
+        dz && dz.addEventListener('dragover',e=>{e.preventDefault(); dz.style.opacity=.8});
+        dz && dz.addEventListener('dragleave',()=>dz.style.opacity=1);
+        dz && dz.addEventListener('drop',e=>{e.preventDefault(); fi.files=e.dataTransfer.files; dz.style.opacity=1});
+        </script>
+        {% endblock %}""",
         row=row, fields=fields, logo_url=logo_url()
     )
 
@@ -609,9 +569,7 @@ def media(att_id):
     if not path.exists(): abort(404)
     return send_file(path, as_attachment=False)
 
-# ------------------- IMPORT / EXPORT -------------------
-PROFILES_PATH = APP_DIR / "mappe_excel.json"
-
+# ------------------- IMPORT / EXPORT EXCEL -------------------
 DEFAULT_PROFILE = {
     "header_row": 0,
     "column_map": {
@@ -648,43 +606,28 @@ def import_excel():
     selected = request.args.get('profile') or next(iter(profiles.keys()))
 
     def norm_target(t: str) -> str | None:
-        if not t:
-            return None
+        if not t: return None
         t0 = t.strip()
         aliases = {
-            "ID": "id_articolo",
-            "M2": "m2",
-            "M3": "m3",
-            "Notes": "note",
-            "NS RIF": "ns_rif",
-            "NS.RIF": "ns_rif",
-            "MEZZO IN USCITA": "mezzi_in_uscita",
-            "Mezzo_in _uscita": "mezzi_in_uscita",
+            "ID": "id_articolo", "M2": "m2", "M3": "m3", "Notes": "note",
+            "NS RIF": "ns_rif", "NS.RIF": "ns_rif",
+            "MEZZO IN USCITA": "mezzi_in_uscita", "Mezzo_in _uscita": "mezzi_in_uscita",
             "TRUCKER": None, "DESTINATARI": None, "TIPO DI IMBALLO": None,
         }
         return aliases.get(t0, t0.lower())
-
-    def _is_blank(v) -> bool:
-        try:
-            if pd.isna(v): return True
-        except Exception:
-            pass
-        return (v is None) or (isinstance(v, str) and v.strip() == "")
 
     if request.method == 'POST':
         selected = request.form.get('profile') or selected
         prof = profiles.get(selected)
         if not prof:
-            flash("Profilo non trovato", "danger")
-            return redirect(request.url)
+            flash("Profilo non trovato", "danger"); return redirect(request.url)
 
         header_row = int(prof.get("header_row", 0))
         column_map: dict[str, str] = prof.get("column_map", {})
         if not column_map:
             tmp = {}
             for target, aliases in prof.items():
-                if target in ("header_row", "column_map"):
-                    continue
+                if target in ("header_row", "column_map"): continue
                 if isinstance(aliases, list):
                     for alias in aliases:
                         if isinstance(alias, str):
@@ -693,14 +636,12 @@ def import_excel():
 
         f = request.files.get('file')
         if not f or not f.filename:
-            flash('Seleziona un file .xlsx', 'warning')
-            return redirect(request.url)
+            flash('Seleziona un file .xlsx', 'warning'); return redirect(request.url)
 
         try:
             df = pd.read_excel(f, header=header_row, keep_default_na=True)
         except Exception as e:
-            flash(f"Errore lettura Excel: {e}", "danger")
-            return redirect(request.url)
+            flash(f"Errore lettura Excel: {e}", "danger"); return redirect(request.url)
 
         excel_cols = {c.strip().upper(): c for c in df.columns if isinstance(c, str)}
 
@@ -710,19 +651,19 @@ def import_excel():
         numeric_int = {'n_colli'}
 
         for _, r in df.iterrows():
-            a = Articolo()
-            any_value = False
+            a = Articolo(); any_value = False
             for excel_name, target in column_map.items():
-                if not isinstance(excel_name, str) or not isinstance(target, str): continue
-                key = excel_cols.get(excel_name.strip().upper())
-                if not key: continue
+                if not (isinstance(excel_name, str) and isinstance(target, str)): continue
+                key = excel_cols.get(excel_name.strip().upper()); if not key: continue
+
                 value = r.get(key, None)
-                if _is_blank(value): value = None
+                if is_blank(value): value = None
+
                 field = norm_target(target)
                 if not field or not hasattr(Articolo, field): continue
 
                 if field in ("data_ingresso", "data_uscita"):
-                    if _is_blank(value):
+                    if is_blank(value):
                         value = None
                     elif isinstance(value, (pd.Timestamp, datetime, date)):
                         value = value.strftime("%Y-%m-%d")
@@ -734,9 +675,9 @@ def import_excel():
                         except Exception:
                             value = parse_date_ui(str(value))
                 elif field in numeric_float:
-                    value = None if _is_blank(value) else to_float_eu(value)
+                    value = None if is_blank(value) else to_float_eu(value)
                 elif field in numeric_int:
-                    value = None if _is_blank(value) else to_int_eu(value)
+                    value = None if is_blank(value) else to_int_eu(value)
 
                 if value not in (None, ""): any_value = True
                 setattr(a, field, value)
@@ -788,8 +729,16 @@ def export_excel_by_client():
     with pd.ExcelWriter(bio, engine='xlsxwriter') as w: df.to_excel(w, index=False, sheet_name=(client[:31] or 'Export'))
     bio.seek(0); return send_file(bio, as_attachment=True, download_name=f'export_{client}.xlsx')
 
-# ------------------- STAMPE HTML da GIACENZE -------------------
+# ------------------- STAMPE HTML BUONO/DDT -------------------
+PRINT_DOC = """<!doctype html><html><head><meta charset='utf-8'>
+<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>
+<style>@media print{.no-print{display:none}} .logo{height:40px;margin-right:10px}</style></head><body class='p-4'>
+<div class='no-print mb-3'><button class='btn btn-primary' onclick='window.print()'>Stampa</button></div>
+<div class='d-flex align-items-center mb-3'>{% if logo_url %}<img src='{{logo_url}}' class='logo'>{% endif %}<h3 class='m-0'>{{title}}</h3></div>
+<table class='table table-sm table-bordered'><thead><tr>{% for h in headers %}<th>{{h}}</th>{% endfor %}</tr></thead>
+<tbody>{% for row in data %}<tr>{% for v in row %}<td>{{v}}</td>{% endfor %}</tr>{% endfor %}</tbody></table></body></html>"""
 PRINT = PRINT_DOC
+
 def _get(ids_csv):
     ids=[int(x) for x in ids_csv.split(',') if x.strip().isdigit()]
     if not ids: return []
@@ -811,24 +760,6 @@ def crea_ddt_html():
     data=[[r.id_articolo, r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.peso or '', r.protocollo or '', r.ordine or ''] for r in rows]
     return render_template_string(PRINT, title="Documento di Trasporto (DDT)", headers=hdr, data=data, logo_url=logo_url())
 
-@app.post('/crea_etichetta_html')
-@login_required
-def crea_etichetta_html():
-    rows=_get(request.form.get('ids',''))
-    html=["<!doctype html><html><head><meta charset='utf-8'><style>@media print{.no-print{display:none}} .lbl{border:1px solid #aaa;padding:8px;width:420px;height:260px;margin:6px;float:left;font-family:sans-serif} .k{font-weight:bold}</style></head><body>"]
-    html.append("<div class='no-print'><button onclick='window.print()'>Stampa</button></div>")
-    for r in rows:
-        html.append("<div class='lbl'>")
-        html.append(f"<div class='k'>Cliente:</div> {r.cliente or ''}<br>")
-        html.append(f"<div class='k'>Protocollo:</div> {r.protocollo or ''}<br>")
-        html.append(f"<div class='k'>Ordine/Arrivo:</div> {(r.ordine or '')} / {(r.n_arrivo or '')}<br>")
-        html.append(f"<div class='k'>Cod.Art:</div> {r.codice_articolo or ''}<br>")
-        html.append(f"<div class='k'>Descr.:</div> {(r.descrizione or '')[:80]}<br>")
-        html.append(f"<div class='k'>Colli/Peso:</div> {(r.n_colli or 1)} / {(r.peso or '')}")
-        html.append("</div>")
-    html.append("</body></html>")
-    return "".join(html)
-
 # ------------------- PDF HELPERS -------------------
 _styles = getSampleStyleSheet()
 def _pdf_table(data, col_widths=None, header=True, hAlign='LEFT'):
@@ -846,7 +777,7 @@ def _doc_with_header(title, pagesize=A4):
     story.append(Paragraph(title, _styles['Heading2'])); story.append(Spacer(1,6))
     return doc, story, bio
 
-# ------------------- PDF BUONO / DDT / ETICHETTE -------------------
+# ------------------- PDF BUONO / DDT -------------------
 @app.post('/pdf/buono')
 @login_required
 def pdf_buono():
@@ -869,28 +800,53 @@ def pdf_ddt():
     story.append(_pdf_table(data, col_widths=[15*mm, 25*mm, 80*mm, 15*mm, 20*mm, 30*mm, 25*mm])); doc.build(story)
     bio.seek(0); return send_file(bio, as_attachment=True, download_name='ddt.pdf')
 
-@app.post('/pdf/etichette')
+# ------------------- NUOVO MODULO ETICHETTE -------------------
+@app.get('/labels')
 @login_required
-def pdf_etichette():
-    label_size = (100*mm, 62*mm)
-    rows=_get(request.form.get('ids',''))
-    bio=io.BytesIO()
-    for i, r in enumerate(rows):
-        doc=SimpleDocTemplate(bio if i==len(rows)-1 else io.BytesIO(),
-                              pagesize=label_size, leftMargin=5*mm, rightMargin=5*mm, topMargin=5*mm, bottomMargin=5*mm)
-        story=[]
-        if Path(LOGO_PATH).exists():
-            story.append(Image(LOGO_PATH, width=40*mm, height=12*mm))
-        story += [
-            Paragraph(f"<b>Cliente:</b> {r.cliente or ''}", _styles['Normal']),
-            Paragraph(f"<b>Protocollo:</b> {r.protocollo or ''}", _styles['Normal']),
-            Paragraph(f"<b>Ordine/Arrivo:</b> {(r.ordine or '')} / {(r.n_arrivo or '')}", _styles['Normal']),
-            Paragraph(f"<b>Cod.Art:</b> {r.codice_articolo or ''}", _styles['Normal']),
-            Paragraph(f"<b>Descr.:</b> {(r.descrizione or '')[:120]}", _styles['Normal']),
-            Paragraph(f"<b>Colli/Peso:</b> {(r.n_colli or 1)} / {(r.peso or '')}", _styles['Normal']),
-        ]
-        doc.build(story)
-    bio.seek(0); return send_file(bio, as_attachment=True, download_name='etichette.pdf')
+def labels_form():
+    return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'labels_form.html')[0], logo_url=logo_url())
+
+def _labels_pdf_story(vals):
+    from reportlab.lib.pagesizes import landscape
+    size = (100*mm, 62*mm)  # 100×62
+    bio = io.BytesIO()
+    doc = SimpleDocTemplate(bio, pagesize=size, leftMargin=5*mm, rightMargin=5*mm, topMargin=5*mm, bottomMargin=5*mm)
+    story=[]
+    if Path(LOGO_PATH).exists():
+        story.append(Image(LOGO_PATH, width=40*mm, height=12*mm))
+    normal=_styles['Normal']; bold=_styles['Heading4']; bold.fontSize=12; normal.fontSize=11
+    def P(lbl, val): story.append(Paragraph(f"<b>{lbl}:</b> {val or ''}", normal))
+    P("Cliente",    vals.get("cliente"))
+    P("Fornitore",  vals.get("fornitore"))
+    P("Ordine",     vals.get("ordine"))
+    P("Commessa",   vals.get("commessa"))
+    P("DDT Ingresso", vals.get("ddt_ingresso"))
+    P("Data Ingresso", vals.get("data_ingresso"))
+    P("Arrivo",     vals.get("arrivo"))
+    P("N. Colli",   vals.get("n_colli"))
+    P("Posizione",  vals.get("posizione"))
+    P("Protocollo", vals.get("protocollo"))
+    doc.build(story)
+    bio.seek(0)
+    return bio
+
+@app.post('/labels/preview')
+@login_required
+def labels_preview():
+    vals = {k: (request.form.get(k) or '') for k in
+            ("cliente","fornitore","ordine","commessa","ddt_ingresso","data_ingresso","arrivo","n_colli","posizione","protocollo")}
+    # preview HTML semplice nei 62×100
+    return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'labels.html')[0], logo_url=logo_url(), **vals)
+
+@app.post('/labels/pdf')
+@login_required
+def labels_pdf():
+    vals = {k: (request.form.get(k) or '') for k in
+            ("cliente","fornitore","ordine","commessa","ddt_ingresso","data_ingresso","arrivo","n_colli","posizione","protocollo")}
+    # Normalizzo la data
+    if vals.get("data_ingresso"): vals["data_ingresso"]=fmt_date(parse_date_ui(vals["data_ingresso"]) or vals["data_ingresso"])
+    bio = _labels_pdf_story(vals)
+    return send_file(bio, as_attachment=True, download_name='etichetta.pdf')
 
 # ------------------- SCARICO + DDT -------------------
 DDT_SETUP = """{% extends 'base.html' %}{% block content %}
@@ -912,14 +868,19 @@ DDT_SETUP = """{% extends 'base.html' %}{% block content %}
       <div class='col-md-3'><label class='form-label'>Causale trasporto</label><input name='causale' class='form-control' value='Conto lavoro'></div>
       <div class='col-md-3'><label class='form-label'>Aspetto esteriore</label><input name='aspetto' class='form-control' value='Colli'></div>
       <div class='col-md-3'><label class='form-label'>Data DDT</label><input name='data_ddt' type='date' class='form-control' value='{{oggi}}'></div>
-      <div class='col-md-3'><label class='form-label'>Email invio (opz.)</label><input name='email_to' type='email' class='form-control' placeholder='destinatario@dominio'></div>
+      <div class='col-md-3'><label class='form-label'>Email invio (opz.)</label><input name='email_to' type='email' class='form-control'></div>
     </div>
-    <div class='mt-3 d-flex gap-2'><button class='btn btn-success'>Genera DDT & Scarico</button><a class='btn btn-secondary' href='{{url_for("giacenze")}}'>Annulla</a></div>
-    <p class='text-muted mt-3'>Sotto la tipologia merce, nel PDF, è presente lo spazio “Firma Vettore”.</p>
+    <div class='mt-3 d-flex gap-2'>
+      <button class='btn btn-success'>Genera DDT & Scarico</button>
+      <a class='btn btn-secondary' href='{{url_for("giacenze")}}'>Annulla</a>
+    </div>
+    <p class='text-muted mt-3'>Sotto la tipologia merce è presente lo spazio “Firma Vettore”.</p>
   </form>
 </div>
 {% endblock %}
 """
+
+app.jinja_loader.loaders[1].mapping['ddt_setup.html'] = DDT_SETUP
 
 @app.get('/ddt_setup')
 @login_required
@@ -928,7 +889,8 @@ def ddt_setup():
     ids = request.args.get('ids','')
     if not ids: flash("Seleziona almeno una riga", "warning"); return redirect(url_for('giacenze'))
     destinatari = load_destinatari()
-    return render_template_string(DDT_SETUP, ids=ids, destinatari=destinatari, oggi=date.today().isoformat(), logo_url=logo_url())
+    return render_template_string(app.jinja_loader.get_source(app.jinja_env,'ddt_setup.html')[0],
+                                  ids=ids, destinatari=destinatari, oggi=date.today().isoformat(), logo_url=logo_url())
 
 @app.post('/ddt_setup')
 @login_required
@@ -1010,11 +972,10 @@ def health():
 
 # ------------------- RUN -------------------
 if __name__=='__main__':
-    # assicura il logo in /static/logo.png per l'HTML
-    if Path(LOGO_PATH).exists() and not (STATIC_DIR/"logo.png").exists():
-        try:
-            (STATIC_DIR/"logo.png").write_bytes(Path(LOGO_PATH).read_bytes())
-        except Exception:
-            pass
+    # copia logo in static se serve
+    sp = STATIC_DIR/"logo.png"
+    if Path(LOGO_PATH).exists() and not sp.exists():
+        try: sp.write_bytes(Path(LOGO_PATH).read_bytes())
+        except Exception: pass
     port=int(os.environ.get('PORT',8000))
     app.run(host='0.0.0.0', port=port)
