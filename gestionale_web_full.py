@@ -652,15 +652,20 @@ def import_excel():
 
         for _, r in df.iterrows():
             a = Articolo(); any_value = False
-            for excel_name, target in column_map.items():
-                if not (isinstance(excel_name, str) and isinstance(target, str)): continue
-                key = excel_cols.get(excel_name.strip().upper()); if not key: continue
-
-                value = r.get(key, None)
-                if is_blank(value): value = None
-
-                field = norm_target(target)
-                if not field or not hasattr(Articolo, field): continue
+        for excel_name, target in column_map.items():
+          if not isinstance(excel_name, str) or not isinstance(target, str):
+              continue
+          key = excel_cols.get(excel_name.strip().upper())
+          if not key:
+              continue
+      
+          value = r.get(key, None)
+          if is_blank(value):
+              value = None
+      
+          field = norm_target(target)
+          if not field or not hasattr(Articolo, field):
+              continue
 
                 if field in ("data_ingresso", "data_uscita"):
                     if is_blank(value):
