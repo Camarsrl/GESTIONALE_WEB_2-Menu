@@ -919,42 +919,6 @@ def pdf_ddt():
     story.append(_pdf_table(data, col_widths=[15*mm, 25*mm, 80*mm, 15*mm, 20*mm, 30*mm, 25*mm])); doc.build(story)
     bio.seek(0); return send_file(bio, as_attachment=True, download_name='ddt.pdf')
 
-
-# ------------------- NUOVO: ETICHETTE 62×100 (PDF) -------------------
-@app.get('/labels')
-@login_required
-def labels_form():
-    return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'labels_form.html')[0], logo_url=logo_url())
-
-
-def _labels_clean(form):
-    def g(k): return (form.get(k) or "").strip()
-    d = {
-        "cliente": g("cliente"),
-        "fornitore": g("fornitore"),
-        "ordine": g("ordine"),
-        "commessa": g("commessa"),
-        "ddt_ingresso": g("ddt_ingresso"),
-        "data_ingresso": g("data_ingresso"),
-        "arrivo": g("arrivo"),
-        "n_colli": g("n_colli"),
-        "posizione": g("posizione"),
-        "protocollo": g("protocollo"),
-    }
-    return d
-
-
-@app.post('/labels/preview')
-@login_required
-def labels_preview():
-    d = _labels_clean(request.form)
-    return render_template_string(LABELS_HTML, d=d, logo_url=logo_url())
-
-
-@app.post('/labels/pdf')
-@login_required
-
-
 # ------------------- NUOVO: ETICHETTE 62×100 (PDF) -------------------
 @app.get('/labels')
 @login_required
