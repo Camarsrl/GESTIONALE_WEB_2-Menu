@@ -1,11 +1,129 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-  <meta charset="UTF-8">
-  <title>Home - Gestionale</title>
-</head>
-<body>
-  <h1>Benvenuto nel gestionale!</h1>
-  <p>Questa è la homepage della versione web.</p>
-</body>
-</html>
+{% extends "layout.html" %}
+{% block content %}
+<div class="card">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="card-title mb-0">Giacenze Magazzino</h2>
+            {% if session.role == 'admin' %}
+            <div class="d-flex gap-2">
+                <a href="{{ url_for('add_articolo') }}" class="btn btn-success">Aggiungi Articolo</a>
+                <a href="{{ url_for('import_excel') }}" class="btn btn-info">Importa da Excel</a>
+                <a href="{{ url_for('etichetta_manuale') }}" class="btn btn-secondary">Crea Etichetta</a>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="d-flex flex-wrap gap-2 mb-3 border-top pt-3">
+            <a href="#" id="buono-btn" class="btn btn-sm btn-outline-primary">Crea Buono di Prelievo</a>
+            <a href="#" id="ddt-btn" class="btn btn-sm btn-outline-secondary">Crea DDT di Uscita</a>
+            <a href="#" id="edit-selected" class="btn btn-sm btn-outline-info">Modifica Selezionati</a>
+            <a href="#" id="export-selected" class="btn btn-sm btn-outline-warning text-dark">Esporta Selez.</a>
+            <a href="{{ url_for('export_excel') }}" class="btn btn-sm btn-outline-dark">Esporta Tutto</a>
+            {% if session.role == 'admin' %}
+            <form method="POST" action="{{ url_for('bulk_delete') }}" id="delete-form" class="ms-auto">
+                 <input type="hidden" name="selected_ids" id="delete-ids">
+                 <button type="submit" onclick="return confirm('Sei sicuro di voler eliminare definitivamente gli articoli selezionati?');" class="btn btn-sm btn-outline-danger">Elimina Selez.</button>
+            </form>
+            {% endif %}
+        </div>
+
+        <div class="table-responsive" style="max-height: 70vh;">
+            <table class="table table-hover table-sm table-bordered">
+                <thead class="table-light" style="position: sticky; top: 0;">
+                    <tr>
+                        <th style="width: 3%;"><input type="checkbox" id="select-all"></th>
+                        <th>ID</th><th>Codice Articolo</th><th>Descrizione</th><th>Cliente</th><th>Commessa</th><th>Ordine</th>
+                        <th>Fornitore</th><th>Data Ingresso</th><th>N. Colli</th><th>Peso</th><th>Posizione</th>
+                        <th>Larghezza</th><th>Lunghezza</th><th>Altezza</th>
+                        <th>M²/M³</th><th>Data Uscita</th><th>N. DDT Uscita</th><th>Stato</th>
+                        <th style="width: 8%;">Azioni</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for art in articoli %}
+                    <tr>
+                        <td><input type="checkbox" name="selected_ids" value="{{ art.id }}" class="item-checkbox"></td>
+                        <td>{{ art.id }}</td>
+                        <td>{{ art.codice_articolo or '' }}</td>
+                        <td>{{ (art.descrizione or '') | truncate(30) }}</td>
+                        <td>{{ art.cliente or '' }}</td>
+                        <td>{{ art.commessa or '' }}</td>
+                        <td>{{ art.ordine or '' }}</td>
+                        <td>{{ art.fornitore or '' }}</td>
+                        <td>{{ art.data_ingresso.strftime('%d/%m/%Y') if art.data_ingresso else '' }}</td>
+                        <td>{{ art.n_colli or '' }}</td>
+                        <td>{{ art.peso or '' }}</td>
+                        <td>{{ art.posizione or '' }}</td>
+                        <td>{{ art.larghezza or '' }}</td>
+                        <td>{{ art.lunghezza or '' }}</td>
+                        <td>{{ art.altezza or '' }}</td>
+                        <td>{{ art.m2 or '' }} / {{ art.m3 or '' }}</td>
+                        <td>{{ art.data_uscita.strftime('%d/%m/%Y') if art.data_uscita else '' }}</td>
+                        <td>{{ art.n_ddt_uscita or '' }}</td>
+                        <td><span class="badge {% if art.n_ddt_uscita %}bg-secondary{% else %}bg-success{% endif %}">{{ 'Uscito' if art.n_ddt_uscita else art.stato or 'In giacenza' }}</span></td>
+                        <td><a href="{{ url_for('edit_articolo', id=art.id) }}" class="btn btn-sm btn-outline-primary">Dettagli</a></td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="19" class="text-center p-4">Nessun articolo trovato. Clicca su "Importa da Excel" per caricare i dati.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+         <div class="mt-3 pt-3 border-top d-flex flex-wrap gap-4">
+            <strong>Totali (in giacenza):</strong>
+            <span><strong>Colli:</strong> {{ "%.0f"|format(totali.colli) }}</span>
+            <span><strong>Peso:</strong> {{ "%.3f"|format(totali.peso) }} kg</span>
+            <span><strong>M²:</strong> {{ "%.3f"|format(totali.m2) }}</span>
+            <span><strong>M³:</strong> {{ "%.3f"|format(totali.m3) }}</span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function getSelectedIds() {
+        return Array.from(document.querySelectorAll('.item-checkbox:checked')).map(cb => cb.value).join(',');
+    }
+
+    document.getElementById('select-all').addEventListener('change', e => {
+        document.querySelectorAll('.item-checkbox').forEach(cb => cb.checked = e.target.checked);
+    });
+
+    function setupActionButton(buttonId, urlTemplate) {
+        const button = document.getElementById(buttonId);
+        if (button) {
+            button.addEventListener('click', e => {
+                e.preventDefault();
+                const ids = getSelectedIds();
+                if (!ids) {
+                    alert('Seleziona almeno un articolo.');
+                    return;
+                }
+                window.location.href = `${urlTemplate}?ids=${ids}`;
+            });
+        }
+    }
+
+    setupActionButton('export-selected', "{{ url_for('export_excel') }}");
+    setupActionButton('ddt-btn', "{{ url_for('ddt_setup') }}");
+    setupActionButton('buono-btn', "{{ url_for('buono_setup') }}");
+    setupActionButton('edit-selected', "{{ url_for('edit_multiple') }}");
+    
+    const deleteForm = document.getElementById('delete-form');
+    if(deleteForm) {
+        deleteForm.addEventListener('submit', e => {
+            const ids = getSelectedIds();
+            if (!ids) {
+                alert('Seleziona almeno un articolo da eliminare.');
+                e.preventDefault();
+                return;
+            }
+            document.getElementById('delete-ids').value = ids;
+        });
+    }
+</script>
+{% endblock %}
+
