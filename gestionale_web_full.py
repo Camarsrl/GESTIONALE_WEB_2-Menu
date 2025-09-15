@@ -54,15 +54,30 @@ if not Path(LOGO_PATH).exists():
             break
 
 
-# ------------------- DATABASE (MySQL obbligatorio) -------------------
 # ------------------- DATABASE (MySQL o SQLite) -------------------
+# Nota: su Render imposta DATABASE_URL senza segnaposto (es. mysql+pymysql://user:pass@host:3306/dbname)
 DB_URL = (os.environ.get("DATABASE_URL") or "").strip()
 
+def _normalize_db_url(u: str) -> str:
+    """Converte mysql:// in mysql+pymysql:// e blocca eventuali segnaposto tipo <PORT>."""
+    if not u:
+        return u
+    # converti schema generico MySQL
+    if u.startswith("mysql://"):
+        u = "mysql+pymysql://" + u[len("mysql://"):]
+    # blocca segnaposto comuni
+    if any(tok in u for tok in ("<PORT>", "<HOST>", "<USER>", "<PASSWORD>", "<DBNAME>", "<DATABASE>")) or re.search(r"<[^>]+>", u):
+        raise ValueError(
+            "DATABASE_URL contiene segnaposto (es. <PORT>). "
+            "Sostituiscili con valori reali oppure rimuovi DATABASE_URL per usare SQLite in locale."
+        )
+    return u
+
 if DB_URL:
-    # usa MySQL (o qualsiasi DB specificato in DATABASE_URL)
+    DB_URL = _normalize_db_url(DB_URL)
     engine = create_engine(DB_URL, future=True, pool_pre_ping=True)
 else:
-    # fallback a SQLite persistente
+    # fallback a SQLite persistente in locale
     APP_DIR = Path(os.environ.get("APP_DIR", Path(__file__).parent))
     APP_DIR.mkdir(parents=True, exist_ok=True)
     sqlite_path = APP_DIR / "magazzino.db"
@@ -967,7 +982,8 @@ def labels_pdf():
     ]
     doc.build(story)
     bio.seek(0)
-    return send_file(bio, as_attachment=True, download_name='etichetta.pdf')
+    return send_file(bio, as_attachment=True, download_name
+
 
 
 # ------------------- SCARICO + DDT -------------------
