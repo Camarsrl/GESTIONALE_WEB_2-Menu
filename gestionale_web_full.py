@@ -1017,7 +1017,7 @@ def labels_pdf():
     ]
     doc.build(story)
     bio.seek(0)
-    return send_file(bio, as_attachment=True, download_name)
+    return send_file(bio, as_attachment=True, download_name="nome_file.pdf")
 
 
 
