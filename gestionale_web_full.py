@@ -55,16 +55,23 @@ if not Path(LOGO_PATH).exists():
 
 
 # ------------------- DATABASE (MySQL obbligatorio) -------------------
-DB_URL = os.environ.get("DATABASE_URL", "").strip()
-if not DB_URL:
-    raise RuntimeError(
-        "DATABASE_URL non impostata. Esempio:"
-        " mysql+pymysql://utente:password@host:3306/camar_db"
-    )
+# ------------------- DATABASE (MySQL o SQLite) -------------------
+DB_URL = (os.environ.get("DATABASE_URL") or "").strip()
 
-engine = create_engine(DB_URL, future=True, pool_pre_ping=True)
+if DB_URL:
+    # usa MySQL (o qualsiasi DB specificato in DATABASE_URL)
+    engine = create_engine(DB_URL, future=True, pool_pre_ping=True)
+else:
+    # fallback a SQLite persistente
+    APP_DIR = Path(os.environ.get("APP_DIR", Path(__file__).parent))
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    sqlite_path = APP_DIR / "magazzino.db"
+    DB_URL = f"sqlite:///{sqlite_path}"
+    engine = create_engine(DB_URL, future=True)
+
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 Base = declarative_base()
+
 
 DESTINATARI_JSON = APP_DIR / "destinatari_saved.json"
 PROG_FILE = APP_DIR / "progressivi_ddt.json"
