@@ -2,8 +2,10 @@
 """
 Gestionale Camar – versione con:
 - Persistenza su MySQL (usa env DATABASE_URL)
-- Modulo NUOVO etichette 62×100 mm (senza cod.art, descrizione, peso)
+- Modulo etichette 99,82×61,98 mm
+- Stile PDF per DDT e Buono (barra blu, box dati, firme)
 - Logo automatico da static/logo.png (o variabile LOGO_PATH)
+- Copyright su tutti i PDF
 """
 
 import os, io, re, json, uuid, smtplib
@@ -62,10 +64,8 @@ def _normalize_db_url(u: str) -> str:
     """Converte mysql:// in mysql+pymysql:// e blocca eventuali segnaposto tipo <PORT>."""
     if not u:
         return u
-    # converti schema generico MySQL
     if u.startswith("mysql://"):
         u = "mysql+pymysql://" + u[len("mysql://"):]
-    # blocca segnaposto comuni
     if any(tok in u for tok in ("<PORT>", "<HOST>", "<USER>", "<PASSWORD>", "<DBNAME>", "<DATABASE>")) or re.search(r"<[^>]+>", u):
         raise ValueError(
             "DATABASE_URL contiene segnaposto (es. <PORT>). "
@@ -77,7 +77,6 @@ if DB_URL:
     DB_URL = _normalize_db_url(DB_URL)
     engine = create_engine(DB_URL, future=True, pool_pre_ping=True)
 else:
-    # fallback a SQLite persistente in locale
     APP_DIR = Path(os.environ.get("APP_DIR", Path(__file__).parent))
     APP_DIR.mkdir(parents=True, exist_ok=True)
     sqlite_path = APP_DIR / "magazzino.db"
@@ -152,7 +151,6 @@ def get_users():
 
 # ------------------- UTILS -------------------
 def is_blank(v):
-    # True per None, "", spazi, NaN, NaT
     try:
         if pd.isna(v):
             return True
@@ -212,7 +210,6 @@ def load_destinatari():
             return json.loads(DESTINATARI_JSON.read_text(encoding="utf-8"))
         except Exception:
             pass
-    # fallback esempio
     data = {
         "Sede Cliente": {
             "ragione_sociale": "Cliente S.p.A.",
@@ -304,14 +301,14 @@ HOME = """{% extends 'base.html' %}{% block content %}
   </div>
   <div class='col-md-9'><div class='card p-4'>
     <h4>Benvenuto</h4>
-    <p class='text-muted'>Stampe HTML e PDF (con logo), profili import, progressivo DDT, <b>etichette 62×100 mm</b>, invio e-mail.</p>
+    <p class='text-muted'>Stampe HTML e PDF (con logo), profili import, progressivo DDT, <b>etichette 100×62 mm</b>, invio e-mail.</p>
   </div></div>
 </div>
 {% endblock %}"""
 
 # Nuovo modulo ETICHETTE – form SEMPLIFICATO
 LABELS_FORM = """{% extends 'base.html' %}{% block content %}
-<h3>Nuova Etichetta (62×100 mm)</h3>
+<h3>Nuova Etichetta (99,82×61,98 mm)</h3>
 <form class="card p-3" method="post" action="{{url_for('labels_preview')}}">
   <div class="row g-3">
     <div class="col-md-4"><label class="form-label">Cliente</label><input name="cliente" class="form-control"></div>
@@ -348,7 +345,7 @@ h1,h2,h3,h4{font-weight:800;letter-spacing:.5px}
 <a class='btn btn-outline-secondary' href='{{url_for("labels_form")}}'>Indietro</a></div>
 <div class='wrap'>
   <div class='d-flex align-items-center mb-4'>{% if logo_url %}<img src='{{logo_url}}' class='logo'>{% endif %}
-    <h2 class='m-0'>Etichetta 62×100 mm</h2></div>
+    <h2 class='m-0'>Etichetta 99,82×61,98 mm</h2></div>
   <div class='row-line'><span class='key'>CLIENTE:</span> {{d.cliente}}</div>
   <div class='row-line'><span class='key'>FORNITORE:</span> {{d.fornitore}}</div>
   <div class='row-line'><span class='key'>ORDINE:</span> {{d.ordine}}</div>
@@ -411,11 +408,9 @@ const all=document.getElementById('checkall');
 all && all.addEventListener('change', e => {
   document.querySelectorAll('.sel').forEach(cb => cb.checked = all.checked);
 });
-
 function collectIds(){
   return [...document.querySelectorAll('.sel:checked')].map(x=>x.value).join(',');
 }
-
 function setIds(hiddenId){
   const v = collectIds();
   const el = document.getElementById(hiddenId);
@@ -423,7 +418,6 @@ function setIds(hiddenId){
   const l = document.getElementById('btn-scarico');
   if (l) l.href = '{{url_for("ddt_setup")}}?ids=' + encodeURIComponent(v);
 }
-
 ['ids-b1','ids-d1','ids-bp','ids-dp'].forEach(n=>{
   const f = document.getElementById(n)?.closest('form');
   f && f.addEventListener('submit', ()=>{
@@ -432,8 +426,6 @@ function setIds(hiddenId){
     if(!v){ alert('Seleziona almeno una riga'); }
   });
 });
-
-// gestisci click sul link "Scarico + DDT (PDF)"
 const linkScarico = document.getElementById('btn-scarico');
 linkScarico && linkScarico.addEventListener('click', (e)=>{
   const v = collectIds();
@@ -909,26 +901,52 @@ def crea_ddt_html():
 # ------------------- PDF HELPERS -------------------
 _styles = getSampleStyleSheet()
 
+# Stili grafici
+PRIMARY = colors.HexColor("#1f6fb2")  # blu
+BORDER  = colors.HexColor("#aeb6bf")
+
 def _pdf_table(data, col_widths=None, header=True, hAlign='LEFT'):
     t=Table(data, colWidths=col_widths, hAlign=hAlign)
     style=[('FONT',(0,0),(-1,-1),'Helvetica',9),('GRID',(0,0),(-1,-1),0.25,colors.grey),('VALIGN',(0,0),(-1,-1),'MIDDLE')]
     if header and data: style += [('BACKGROUND',(0,0),(-1,0),colors.whitesmoke),('FONT',(0,0),(-1,0),'Helvetica-Bold',9)]
     t.setStyle(TableStyle(style)); return t
 
+def _logo_file():
+    lf = Path(LOGO_PATH)
+    if lf.exists():
+        return str(lf)
+    alt = STATIC_DIR / "logo.png"
+    return str(alt) if alt.exists() else None
+
+def _copyright_para():
+    tiny = _styles['Normal'].clone('copyright')
+    tiny.fontSize = 7
+    tiny.textColor = colors.grey
+    tiny.alignment = 1
+    return Paragraph("© Camar srl — Ships clearance • A simple but ingenious company", tiny)
+
+def _sp(h=6):
+    return Spacer(1, h)
 
 def _doc_with_header(title, pagesize=A4):
     bio=io.BytesIO()
     doc=SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=15*mm, rightMargin=15*mm, topMargin=12*mm, bottomMargin=12*mm)
     story=[]
-    # logo: usa LOGO_PATH se esiste, altrimenti static/logo.png
-    logo_file = Path(LOGO_PATH)
-    if not logo_file.exists():
-        alt = STATIC_DIR / "logo.png"
-        if alt.exists():
-            logo_file = alt
-    if logo_file.exists():
-        story.append(Image(str(logo_file), width=40*mm, height=15*mm))
-    story.append(Paragraph(title, _styles['Heading2'])); story.append(Spacer(1,6))
+    lf = _logo_file()
+    if lf:
+        story.append(Image(lf, width=40*mm, height=15*mm))
+        story.append(_sp(4))
+    title_style = _styles['Heading2'].clone('title_bar')
+    title_style.textColor = colors.white
+    title_style.alignment = 1
+    title_tbl = Table([[Paragraph(title, title_style)]], colWidths=[doc.width],
+                      style=[('BACKGROUND',(0,0),(-1,-1),PRIMARY),
+                             ('BOX',(0,0),(-1,-1),0.25,PRIMARY),
+                             ('LEFTPADDING',(0,0),(-1,-1),8),
+                             ('RIGHTPADDING',(0,0),(-1,-1),8),
+                             ('TOPPADDING',(0,0),(-1,-1),6),
+                             ('BOTTOMPADDING',(0,0),(-1,-1),6)])
+    story += [title_tbl, _sp(8)]
     return doc, story, bio
 
 
@@ -937,11 +955,36 @@ def _doc_with_header(title, pagesize=A4):
 @login_required
 def pdf_buono():
     rows=_get(request.form.get('ids',''))
-    doc, story, bio = _doc_with_header("Buono di Prelievo")
-    data=[['Ordine','Cod.Art.','Descrizione','Quantità','N.Arrivo']]
+    doc, story, bio = _doc_with_header("BUONO PRELIEVO")
+
+    d_row = rows[0] if rows else None
+    meta = [
+        ["Data Emissione", datetime.today().strftime("%d/%m/%Y")],
+        ["Commessa", (d_row.commessa or "") if d_row else ""],
+        ["Fornitore", (d_row.fornitore or "") if d_row else ""],
+        ["Protocollo", (d_row.protocollo or "") if d_row else ""]
+    ]
+    meta_tbl = _pdf_table(meta, [35*mm, None], header=False)
+    meta_tbl.setStyle(TableStyle([
+        ('FONT',(0,0),(-1,-1),'Helvetica',9),
+        ('BOX',(0,0),(-1,-1),0.5,BORDER),
+        ('INNERGRID',(0,0),(-1,-1),0.25,BORDER),
+        ('BACKGROUND',(0,0),(-1,0),colors.whitesmoke),
+    ]))
+
+    big = _styles['Heading3'].clone('big')
+    big.fontName = 'Helvetica-Bold'
+    story += [Paragraph(f"{(d_row.cliente or '').upper()} - Commessa {(d_row.commessa or '').upper()}" if d_row else "", big),
+              _sp(6), meta_tbl, _sp(8)]
+
+    data=[['Ordine','Codice Articolo','Descrizione','Quantità','N.Arrivo']]
     for r in rows:
-        data.append([r.ordine or '', r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.n_arrivo or ''])
-    story.append(_pdf_table(data, col_widths=[25*mm, 25*mm, 80*mm, 20*mm, 25*mm]))
+        data.append([r.ordine or '—', r.codice_articolo or '', r.descrizione or '', (r.n_colli or 1), r.n_arrivo or ''])
+    story.append(_pdf_table(data, col_widths=[25*mm, 45*mm, None, 20*mm, 25*mm]))
+    story += [_sp(16),
+              Table([["Firma Magazzino: ______________________", "Firma Cliente: ______________________"]],
+                    colWidths=[doc.width/2 - 4*mm, doc.width/2 - 4*mm]),
+              _sp(6), _copyright_para()]
     doc.build(story)
     bio.seek(0)
     return send_file(bio, as_attachment=True, download_name='buono.pdf')
@@ -951,17 +994,74 @@ def pdf_buono():
 @login_required
 def pdf_ddt():
     rows=_get(request.form.get('ids',''))
-    doc, story, bio = _doc_with_header("Documento di Trasporto (DDT)")
-    data=[['ID','Cod.Art.','Descrizione','Colli','Peso','Protocollo','Ordine']]
+    doc, story, bio = _doc_with_header("DOCUMENTO DI TRASPORTO (DDT)")
+
+    # Box mittente e destinatario (vuoto se non generato da /ddt_setup)
+    mitt = [["Mittente", "Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)"]]
+    mitt_tbl = _pdf_table(mitt, [35*mm, None], header=False)
+    mitt_tbl.setStyle(TableStyle([('FONT',(0,0),(-1,-1),'Helvetica',9), ('BOX',(0,0),(-1,-1),0.5,BORDER)]))
+
+    dest_tbl = _pdf_table([["Destinatario", ""]], [35*mm, None], header=False)
+    dest_tbl.setStyle(TableStyle([('FONT',(0,0),(-1,-1),'Helvetica',9), ('BOX',(0,0),(-1,-1),0.5,BORDER)]))
+
+    d_row = rows[0] if rows else None
+    today = datetime.today().strftime("%d/%m/%Y")
+    dati_sx = [
+        ["Dati Aggiuntivi",""],
+        ["Commessa", (d_row.commessa or "") if d_row else ""],
+        ["Ordine",   (d_row.ordine or "") if d_row else ""],
+        ["Buono",    (d_row.buono_n or "") if d_row else ""],
+        ["Protocollo",(d_row.protocollo or "") if d_row else ""]
+    ]
+    dati_dx = [
+        ["Dati Documento",""],
+        ["N. DDT", (d_row.n_ddt_uscita or "") if d_row else ""],
+        ["Data Uscita", fmt_date(d_row.data_uscita) if (d_row and d_row.data_uscita) else today],
+        ["Targa", (d_row.mezzi_in_uscita or "") if d_row else ""]
+    ]
+    box_style = TableStyle([
+        ('FONT',(0,0),(-1,-1),'Helvetica',9),
+        ('BACKGROUND',(0,0),(-1,0),colors.whitesmoke),
+        ('BOX',(0,0),(-1,-1),0.5,BORDER),
+        ('INNERGRID',(0,0),(-1,-1),0.25,BORDER),
+        ('VALIGN',(0,0),(-1,-1),'TOP'),
+    ])
+    dati_tbl = Table([[Table(dati_sx, hAlign='LEFT', style=box_style),
+                       Table(dati_dx, hAlign='LEFT', style=box_style)]],
+                     colWidths=[doc.width/2 - 3*mm, doc.width/2 - 3*mm],
+                     style=[('VALIGN',(0,0),(-1,-1),'TOP')])
+
+    grid_top = Table([[mitt_tbl, dest_tbl],[dati_tbl, '']],
+                     colWidths=[doc.width/2 - 3*mm, doc.width/2 - 3*mm],
+                     style=[('VALIGN',(0,0),(-1,-1),'TOP'), ('SPAN',(0,1),(1,1))])
+    story += [grid_top, _sp(10)]
+
+    data=[['ID','Cod.Art.','Descrizione','Pezzi','Colli','Peso','N.Arrivo']]
+    tot_colli = 0; tot_peso = 0.0
     for r in rows:
-        data.append([r.id_articolo, r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.peso or '', r.protocollo or '', r.ordine or ''])
-    story.append(_pdf_table(data, col_widths=[15*mm, 25*mm, 80*mm, 15*mm, 20*mm, 30*mm, 25*mm]))
+        data.append([r.id_articolo, r.codice_articolo or '', r.descrizione or '',
+                     r.n_colli or 1, r.n_colli or 1, (r.peso or 0), r.n_arrivo or ''])
+        tot_colli += (r.n_colli or 1)
+        tot_peso  += float(r.peso or 0)
+    story.append(_pdf_table(data, col_widths=[16*mm, 38*mm, None, 16*mm, 16*mm, 18*mm, 22*mm]))
+    story += [_sp(8)]
+    info2 = [["Causale", "TRASFERIMENTO"], ["Porto", "FRANCO"], ["Aspetto", "A VISTA"]]
+    box2 = _pdf_table(info2, col_widths=[25*mm, None], header=False)
+    box2.setStyle(TableStyle([('FONT',(0,0),(-1,-1),'Helvetica',9), ('BOX',(0,0),(-1,-1),0.5,BORDER),
+                              ('INNERGRID',(0,0),(-1,-1),0.25,BORDER)]))
+    story += [box2, _sp(8)]
+    tot_tbl = Table([[f"Totale Colli: {tot_colli}",
+                      f"Totale Peso: {int(tot_peso) if tot_peso.is_integer() else tot_peso}",
+                      "Firma Vettore: __________________"]],
+                    colWidths=[doc.width*0.33, doc.width*0.33, doc.width*0.34],
+                    style=[('FONT',(0,0),(-1,-1),'Helvetica-Bold',10)])
+    story += [tot_tbl, _sp(6), _copyright_para()]
     doc.build(story)
     bio.seek(0)
     return send_file(bio, as_attachment=True, download_name='ddt.pdf')
 
 
-# ------------------- NUOVO: ETICHETTE 62×100 (PDF) -------------------
+# ------------------- NUOVO: ETICHETTE 99,82×61,98 (PDF) -------------------
 @app.get('/labels')
 @login_required
 def labels_form():
@@ -996,32 +1096,33 @@ def labels_preview():
 @login_required
 def labels_pdf():
     d = _labels_clean(request.form)
-    # 62mm x 100mm (w x h) — 1 etichetta per pagina
-    pagesize = (100*mm, 62*mm)
+    # 99,82 x 61,98 mm (orizzontale)
+    pagesize = (99.82*mm, 61.98*mm)
     bio=io.BytesIO()
-    doc=SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=6*mm, rightMargin=6*mm, topMargin=6*mm, bottomMargin=6*mm)
+    doc=SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=5*mm, rightMargin=5*mm, topMargin=4*mm, bottomMargin=4*mm)
     story=[]
-    # logo: usa static/logo.png se esiste
-    logo_file = STATIC_DIR / "logo.png"
-    if logo_file.exists():
-        story.append(Image(str(logo_file), width=40*mm, height=12*mm))
-        story.append(Spacer(1, 4))
+    lf = _logo_file()
+    if lf:
+        story.append(Image(lf, width=28*mm, height=9*mm))
+        story.append(Spacer(1, 2))
 
-    row = _styles['Normal']; row.fontName='Helvetica-Bold'; row.fontSize=14
+    row = _styles['Normal'].clone('label_line')
+    row.fontName='Helvetica-Bold'; row.fontSize=13; row.leading=15
     def P(label, value):
-        return Paragraph(f"<b>{label}</b> {value}", row)
+        return Paragraph(f"{label}: <b>{value or ''}</b>", row)
 
     story += [
-        P("CLIENTE:", d['cliente']),
-        P("FORNITORE:", d['fornitore']),
-        P("ORDINE:", d['ordine']),
-        P("COMMESSA:", d['commessa']),
-        P("DDT:", d['ddt_ingresso']),
-        P("DATA INGRESSO:", d['data_ingresso']),
-        P("ARRIVO:", d['arrivo']),
-        P("POSIZIONE:", d['posizione']),
-        P("COLLI:", d['n_colli']),
+        P("CLIENTE", d['cliente']),
+        P("FORNITORE", d['fornitore']),
+        P("ORDINE", d['ordine']),
+        P("COMMESSA", d['commessa']),
+        P("DDT", d['ddt_ingresso']),
+        P("DATA INGRESSO", d['data_ingresso']),
+        P("ARRIVO", d['arrivo']),
+        P("POSIZIONE", d['posizione']),
+        P("COLLI", d['n_colli']),
     ]
+    story += [Spacer(1,2), _copyright_para()]
     doc.build(story)
     bio.seek(0)
     return send_file(bio, as_attachment=True, download_name='etichetta.pdf')
@@ -1084,7 +1185,6 @@ def bulk_edit_post():
         if n_colli_val is not None: r.n_colli = n_colli_val
         if data_uscita_val: r.data_uscita = data_uscita_val
         if n_ddt_uscita: r.n_ddt_uscita = n_ddt_uscita
-        # ricalcola M2/M3 se cambiano colli (o altro)
         r.m2, r.m3 = calc_m2_m3(r.lunghezza, r.larghezza, r.altezza, r.n_colli)
     db.commit()
 
@@ -1149,6 +1249,7 @@ def ddt_setup_post():
         data.append([r.id_articolo, r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.peso or '',
                      r.protocollo or '', r.ordine or ''])
     story.append(_pdf_table(data, col_widths=[15*mm, 25*mm, 80*mm, 15*mm, 20*mm, 30*mm, 25*mm]))
+    story += [_sp(6), _copyright_para()]
     doc.build(story)
     bio.seek(0)
 
@@ -1199,3 +1300,4 @@ if __name__=='__main__':
         pass
     port=int(os.environ.get('PORT',8000))
     app.run(host='0.0.0.0', port=port)
+
