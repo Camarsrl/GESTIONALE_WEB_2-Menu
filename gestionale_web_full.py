@@ -2,10 +2,9 @@
 """
 Gestionale Camar – versione con:
 - Persistenza su MySQL (usa env DATABASE_URL)
-- Modulo etichette 99,82×61,98 mm
-- Stile PDF per DDT e Buono (barra blu, box dati, firme)
+- Modulo etichette 99,82×61,98 mm (logo, testo ridotto, senza copyright e senza titolo)
+- Stile PDF per DDT e Buono (barra blu, box dati, firme) con copyright
 - Logo automatico da static/logo.png (o variabile LOGO_PATH)
-- Copyright su tutti i PDF
 """
 
 import os, io, re, json, uuid, smtplib
@@ -57,7 +56,6 @@ if not Path(LOGO_PATH).exists():
 
 
 # ------------------- DATABASE (MySQL o SQLite) -------------------
-# Nota: su Render imposta DATABASE_URL senza segnaposto (es. mysql+pymysql://user:pass@host:3306/dbname)
 DB_URL = (os.environ.get("DATABASE_URL") or "").strip()
 
 def _normalize_db_url(u: str) -> str:
@@ -67,10 +65,7 @@ def _normalize_db_url(u: str) -> str:
     if u.startswith("mysql://"):
         u = "mysql+pymysql://" + u[len("mysql://"):]
     if any(tok in u for tok in ("<PORT>", "<HOST>", "<USER>", "<PASSWORD>", "<DBNAME>", "<DATABASE>")) or re.search(r"<[^>]+>", u):
-        raise ValueError(
-            "DATABASE_URL contiene segnaposto (es. <PORT>). "
-            "Sostituiscili con valori reali oppure rimuovi DATABASE_URL per usare SQLite in locale."
-        )
+        raise ValueError("DATABASE_URL contiene segnaposto (es. <PORT>). Sostituiscili con valori reali oppure rimuovi DATABASE_URL per usare SQLite in locale.")
     return u
 
 if DB_URL:
@@ -85,7 +80,6 @@ else:
 
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 Base = declarative_base()
-
 
 DESTINATARI_JSON = APP_DIR / "destinatari_saved.json"
 PROG_FILE = APP_DIR / "progressivi_ddt.json"
@@ -109,7 +103,6 @@ class Articolo(Base):
     stato = Column(String(255)); mezzi_in_uscita = Column(String(255))
     attachments = relationship("Attachment", back_populates="articolo", cascade="all, delete-orphan")
 
-
 class Attachment(Base):
     __tablename__ = "attachments"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -117,7 +110,6 @@ class Attachment(Base):
     kind = Column(String(10))  # doc/foto
     filename = Column(String(512))
     articolo = relationship("Articolo", back_populates="attachments")
-
 
 Base.metadata.create_all(engine)
 
@@ -133,7 +125,6 @@ DEFAULT_USERS = {
     'DIEGO': 'Balleydier03', 'ADMIN': 'admin123',
 }
 ADMIN_USERS = {'ADMIN', 'OPS', 'CUSTOMS', 'TAZIO', 'DIEGO'}
-
 
 def get_users():
     fp = APP_DIR / "password Utenti Gestionale.txt"
@@ -158,7 +149,6 @@ def is_blank(v):
         pass
     return (v is None) or (isinstance(v, str) and not v.strip())
 
-
 def to_float_eu(v):
     if v is None:
         return None
@@ -172,11 +162,9 @@ def to_float_eu(v):
     except Exception:
         return None
 
-
 def to_int_eu(v):
     f = to_float_eu(v)
     return None if f is None else int(round(f))
-
 
 def parse_date_ui(d):
     if not d:
@@ -186,7 +174,6 @@ def parse_date_ui(d):
     except Exception:
         return d
 
-
 def fmt_date(d):
     if not d:
         return ""
@@ -195,14 +182,12 @@ def fmt_date(d):
     except Exception:
         return d
 
-
 def calc_m2_m3(l, w, h, colli):
     l = to_float_eu(l) or 0.0
     w = to_float_eu(w) or 0.0
     h = to_float_eu(h) or 0.0
     c = to_int_eu(colli) or 1
     return round(c * l * w, 3), round(c * l * w * h, 3)
-
 
 def load_destinatari():
     if DESTINATARI_JSON.exists():
@@ -219,7 +204,6 @@ def load_destinatari():
     }
     DESTINATARI_JSON.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return data
-
 
 def next_ddt_number():
     y = str(date.today().year)
@@ -290,7 +274,7 @@ HOME = """{% extends 'base.html' %}{% block content %}
   <div class='col-md-3'>
     <div class='card p-3'>
       <h6>Azioni</h6><div class='d-grid gap-2'>
-        <a class='btn btn-outline-primary' href='{{url_for("labels_form")}}'>Etichette (nuovo modulo)</a>
+        <a class='btn btn-outline-primary' href='{{url_for("labels_form")}}'>Etichette</a>
         <a class='btn btn-outline-primary' href='{{url_for("giacenze")}}'>Visualizza Giacenze</a>
         <a class='btn btn-outline-primary' href='{{url_for("import_excel")}}'>Import da Excel</a>
         <a class='btn btn-outline-primary' href='{{url_for("export_excel")}}'>Export Excel</a>
@@ -301,12 +285,12 @@ HOME = """{% extends 'base.html' %}{% block content %}
   </div>
   <div class='col-md-9'><div class='card p-4'>
     <h4>Benvenuto</h4>
-    <p class='text-muted'>Stampe HTML e PDF (con logo), profili import, progressivo DDT, <b>etichette 100×62 mm</b>, invio e-mail.</p>
+    <p class='text-muted'>Stampe HTML e PDF (con logo), profili import, progressivo DDT, etichette 99,82×61,98 mm, invio e-mail.</p>
   </div></div>
 </div>
 {% endblock %}"""
 
-# Nuovo modulo ETICHETTE – form SEMPLIFICATO
+# ------------------- ETICHETTE -------------------
 LABELS_FORM = """{% extends 'base.html' %}{% block content %}
 <h3>Nuova Etichetta (99,82×61,98 mm)</h3>
 <form class="card p-3" method="post" action="{{url_for('labels_preview')}}">
@@ -332,20 +316,19 @@ LABELS_FORM = """{% extends 'base.html' %}{% block content %}
 </form>
 {% endblock %}"""
 
-# Anteprima etichette HTML (stile grande e leggibile)
+# Anteprima etichette HTML (senza titolo "Etichetta ...")
 LABELS_HTML = """<!doctype html><html><head><meta charset='utf-8'>
 <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>
-<style>@media print{.no-print{display:none}} .logo{height:40px;margin-right:10px}
+<style>@media print{.no-print{display:none}} .logo{height:36px;margin-right:10px}
 .wrap{width:1000px;height:620px;border:1px solid #aaa;padding:24px}
 h1,h2,h3,h4{font-weight:800;letter-spacing:.5px}
-.row-line{font-size:48px;line-height:1.2;margin:10px 0}
+.row-line{font-size:36px;line-height:1.15;margin:8px 0}
 .key{font-weight:800}
 </style></head><body class='p-4'>
 <div class='no-print mb-3'><button class='btn btn-primary' onclick='window.print()'>Stampa</button>
 <a class='btn btn-outline-secondary' href='{{url_for("labels_form")}}'>Indietro</a></div>
 <div class='wrap'>
-  <div class='d-flex align-items-center mb-4'>{% if logo_url %}<img src='{{logo_url}}' class='logo'>{% endif %}
-    <h2 class='m-0'>Etichetta 99,82×61,98 mm</h2></div>
+  <div class='d-flex align-items-center mb-3'>{% if logo_url %}<img src='{{logo_url}}' class='logo'>{% endif %}</div>
   <div class='row-line'><span class='key'>CLIENTE:</span> {{d.cliente}}</div>
   <div class='row-line'><span class='key'>FORNITORE:</span> {{d.fornitore}}</div>
   <div class='row-line'><span class='key'>ORDINE:</span> {{d.ordine}}</div>
@@ -358,6 +341,7 @@ h1,h2,h3,h4{font-weight:800;letter-spacing:.5px}
 </div>
 </body></html>"""
 
+# ------------------- GIACENZE -------------------
 GIACENZE = """{% extends 'base.html' %}{% block content %}
 <div class='card p-3 mb-3'><form class='row g-2' method='get'>
   {% for label,name in [('ID(=)','id'),('Cod.Art.(~=)','codice_articolo'),('Descr.(~=)','descrizione'),('Cliente(~=)','cliente'),
@@ -370,8 +354,8 @@ GIACENZE = """{% extends 'base.html' %}{% block content %}
 
 <div class='card p-3'>
   <div class='d-flex flex-wrap gap-2 mb-2 no-print'>
-    <form method='post' action='{{url_for("crea_buono_html")}}' target='_blank'><input type='hidden' name='ids' id='ids-b1'><button class='btn btn-outline-secondary btn-sm'>Buono (Stampa)</button></form>
-    <form method='post' action='{{url_for("crea_ddt_html")}}' target='_blank'><input type='hidden' name='ids' id='ids-d1'><button class='btn btn-outline-secondary btn-sm'>DDT (Stampa)</button></form>
+    <form method='post' action='{{url_for("crea_buono_html")}}' target='_blank'><input type='hidden' name='ids' id='ids-b1'><button class='btn btn-outline-secondary btn-sm'>Buono (Anteprima)</button></form>
+    <form method='post' action='{{url_for("crea_ddt_html")}}' target='_blank'><input type='hidden' name='ids' id='ids-d1'><button class='btn btn-outline-secondary btn-sm'>DDT (Anteprima)</button></form>
     <form method='post' action='{{url_for("pdf_buono")}}' target='_blank'><input type='hidden' name='ids' id='ids-bp'><button class='btn btn-outline-primary btn-sm'>Buono (PDF)</button></form>
     <form method='post' action='{{url_for("pdf_ddt")}}' target='_blank'><input type='hidden' name='ids' id='ids-dp'><button class='btn btn-outline-primary btn-sm'>DDT (PDF)</button></form>
     {% if session.get('role') == 'admin' %}
@@ -394,7 +378,7 @@ GIACENZE = """{% extends 'base.html' %}{% block content %}
         {% for r in rows %}
         <tr>
           <td><input type='checkbox' class='sel' value='{{r.id_articolo}}'></td>
-          {% for c in cols %}<td>{{getattr(r,c)}}</td>{% endfor %}
+          {% for c in cols %}<td>{{ getattr(r,c) or '' }}</td>{% endfor %}
           <td>{% for a in r.attachments %}<a class='badge text-bg-light' href='{{url_for("media",att_id=a.id)}}' target='_blank'>{{a.kind}}</a> {% endfor %}</td>
           <td><a class='btn btn-sm btn-outline-primary' href='{{url_for("edit_row",id=r.id_articolo)}}'>Modifica</a></td>
         </tr>{% endfor %}
@@ -408,9 +392,7 @@ const all=document.getElementById('checkall');
 all && all.addEventListener('change', e => {
   document.querySelectorAll('.sel').forEach(cb => cb.checked = all.checked);
 });
-function collectIds(){
-  return [...document.querySelectorAll('.sel:checked')].map(x=>x.value).join(',');
-}
+function collectIds(){ return [...document.querySelectorAll('.sel:checked')].map(x=>x.value).join(','); }
 function setIds(hiddenId){
   const v = collectIds();
   const el = document.getElementById(hiddenId);
@@ -429,11 +411,7 @@ function setIds(hiddenId){
 const linkScarico = document.getElementById('btn-scarico');
 linkScarico && linkScarico.addEventListener('click', (e)=>{
   const v = collectIds();
-  if(!v){
-    e.preventDefault();
-    alert('Seleziona almeno una riga');
-    return;
-  }
+  if(!v){ e.preventDefault(); alert('Seleziona almeno una riga'); return; }
   linkScarico.href = '{{url_for("ddt_setup")}}?ids=' + encodeURIComponent(v);
 });
 </script>
@@ -519,10 +497,9 @@ app.register_blueprint(bp)
 dict_loader = DictLoader({
     'base.html': BASE, 'login.html': LOGIN, 'home.html': HOME,
     'giacenze.html': GIACENZE, 'edit.html': EDIT, 'print_doc.html': PRINT_DOC,
-    'ddt_setup.html': DDT_SETUP, 'labels_form.html': LABELS_FORM
+    'ddt_setup.html': DDT_SETUP, 'labels_form.html': LABELS_FORM, 'labels_preview.html': LABELS_HTML
 })
 app.jinja_loader = ChoiceLoader([FileSystemLoader('templates'), dict_loader])
-
 
 def logo_url():
     return url_for('static', filename='logo.png') if Path(LOGO_PATH).exists() else None
@@ -537,7 +514,6 @@ def login_required(fn):
             return redirect(url_for('login'))
         return fn(*a, **k)
     return w
-
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -554,7 +530,6 @@ def login():
             return redirect(url_for('home'))
         flash('Credenziali non valide', 'danger')
     return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'login.html')[0], logo_url=logo_url())
-
 
 @app.get('/logout')
 def logout():
@@ -586,7 +561,6 @@ def filter_query(qs, args):
         qs = qs.filter(Articolo.data_ingresso <= parse_date_ui(args.get('data_a')))
     return qs
 
-
 @app.get('/giacenze')
 @login_required
 def giacenze():
@@ -595,7 +569,8 @@ def giacenze():
     if session.get('role') == 'client':
         qs = qs.filter(Articolo.cliente == session['user'])
     rows = filter_query(qs, request.args).all()
-    cols = ["id_articolo","cliente","descrizione","peso","n_colli","posizione","n_arrivo","buono_n","stato","data_ingresso","data_uscita","n_ddt_uscita","m2","m3"]
+    # Colonne dinamiche (tutte)
+    cols = [c.name for c in Articolo.__table__.columns]
     return render_template_string(
         app.jinja_loader.get_source(app.jinja_env, 'giacenze.html')[0],
         rows=rows, cols=cols, logo_url=logo_url()
@@ -610,7 +585,6 @@ def new_row():
     a = Articolo(data_ingresso=datetime.today().strftime("%Y-%m-%d"))
     db.add(a); db.commit()
     return redirect(url_for('edit_row', id=a.id_articolo))
-
 
 @app.route('/edit/<int:id>', methods=['GET','POST'])
 @login_required
@@ -635,7 +609,7 @@ def edit_row(id):
         row.m2, row.m3 = calc_m2_m3(row.lunghezza, row.larghezza, row.altezza, row.n_colli)
         if 'files' in request.files:
             for f in request.files.getlist('files'):
-                if not f or not f.filename: 
+                if not f or not f.filename:
                     continue
                 name=f"{id}_{uuid.uuid4().hex}_{f.filename.replace(' ','_')}"
                 ext=os.path.splitext(name)[1].lower()
@@ -669,11 +643,10 @@ def delete_attachment(att_id):
         path=(DOCS_DIR if att.kind=='doc' else PHOTOS_DIR)/att.filename
         try:
             if path.exists(): path.unlink()
-        except Exception: 
+        except Exception:
             pass
         db.delete(att); db.commit(); flash('Allegato eliminato','success')
     return redirect(url_for('giacenze'))
-
 
 @app.get('/media/<int:att_id>')
 @login_required
@@ -716,7 +689,6 @@ def load_profile():
         except Exception:
             pass
     return {"Generico": DEFAULT_PROFILE}
-
 
 @app.route('/import', methods=['GET', 'POST'])
 @login_required
@@ -843,18 +815,16 @@ def import_excel():
     """
     return render_template_string(html, profiles=profiles, selected=selected, logo_url=logo_url())
 
-
 @app.get('/export')
 @login_required
 def export_excel():
     db=SessionLocal(); rows=db.query(Articolo).all()
     df=pd.DataFrame([{k:v for k,v in r.__dict__.items() if not k.startswith('_') and k!='attachments'} for r in rows])
     bio=io.BytesIO()
-    with pd.ExcelWriter(bio, engine='xlsxwriter') as w: 
+    with pd.ExcelWriter(bio, engine='xlsxwriter') as w:
         df.to_excel(w, index=False, sheet_name='Giacenze')
     bio.seek(0)
     return send_file(bio, as_attachment=True, download_name='giacenze_export.xlsx')
-
 
 @app.get('/export_by_client')
 @login_required
@@ -866,7 +836,7 @@ def export_excel_by_client():
     rows = db.query(Articolo).filter((Articolo.cliente==client) if client!="Senza Cliente" else ((Articolo.cliente==None)|(Articolo.cliente==""))).all()
     df=pd.DataFrame([{k:v for k,v in r.__dict__.items() if not k.startswith('_') and k!='attachments'} for r in rows])
     bio=io.BytesIO()
-    with pd.ExcelWriter(bio, engine='xlsxwriter') as w: 
+    with pd.ExcelWriter(bio, engine='xlsxwriter') as w:
         df.to_excel(w, index=False, sheet_name=(client[:31] or 'Export'))
     bio.seek(0)
     return send_file(bio, as_attachment=True, download_name=f'export_{client}.xlsx')
@@ -879,7 +849,6 @@ def _get(ids_csv):
     if not ids: return []
     db=SessionLocal(); return db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
 
-
 @app.post('/crea_buono_html')
 @login_required
 def crea_buono_html():
@@ -887,7 +856,6 @@ def crea_buono_html():
     hdr=['Ordine','Cod.Art.','Descrizione','Quantità','N.Arrivo']
     data=[[r.ordine or '', r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.n_arrivo or ''] for r in rows]
     return render_template_string(PRINT, title="Buono Prelievo", headers=hdr, data=data, logo_url=logo_url())
-
 
 @app.post('/crea_ddt_html')
 @login_required
@@ -900,9 +868,7 @@ def crea_ddt_html():
 
 # ------------------- PDF HELPERS -------------------
 _styles = getSampleStyleSheet()
-
-# Stili grafici
-PRIMARY = colors.HexColor("#1f6fb2")  # blu
+PRIMARY = colors.HexColor("#1f6fb2")
 BORDER  = colors.HexColor("#aeb6bf")
 
 def _pdf_table(data, col_widths=None, header=True, hAlign='LEFT'):
@@ -989,14 +955,12 @@ def pdf_buono():
     bio.seek(0)
     return send_file(bio, as_attachment=True, download_name='buono.pdf')
 
-
 @app.post('/pdf/ddt')
 @login_required
 def pdf_ddt():
     rows=_get(request.form.get('ids',''))
     doc, story, bio = _doc_with_header("DOCUMENTO DI TRASPORTO (DDT)")
 
-    # Box mittente e destinatario (vuoto se non generato da /ddt_setup)
     mitt = [["Mittente", "Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)"]]
     mitt_tbl = _pdf_table(mitt, [35*mm, None], header=False)
     mitt_tbl.setStyle(TableStyle([('FONT',(0,0),(-1,-1),'Helvetica',9), ('BOX',(0,0),(-1,-1),0.5,BORDER)]))
@@ -1067,7 +1031,6 @@ def pdf_ddt():
 def labels_form():
     return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'labels_form.html')[0], logo_url=logo_url())
 
-
 def _labels_clean(form):
     def g(k): return (form.get(k) or "").strip()
     d = {
@@ -1084,13 +1047,11 @@ def _labels_clean(form):
     }
     return d
 
-
 @app.post('/labels/preview')
 @login_required
 def labels_preview():
     d = _labels_clean(request.form)
-    return render_template_string(LABELS_HTML, d=d, logo_url=logo_url())
-
+    return render_template_string(app.jinja_loader.get_source(app.jinja_env, 'labels_preview.html')[0], d=d, logo_url=logo_url())
 
 @app.post('/labels/pdf')
 @login_required
@@ -1122,7 +1083,7 @@ def labels_pdf():
         P("POSIZIONE", d['posizione']),
         P("COLLI", d['n_colli']),
     ]
-    story += [Spacer(1,2), _copyright_para()]
+    # NIENTE copyright sull'etichetta
     doc.build(story)
     bio.seek(0)
     return send_file(bio, as_attachment=True, download_name='etichetta.pdf')
@@ -1168,7 +1129,6 @@ def bulk_edit_post():
         flash('Nessuna riga valida', 'warning')
         return redirect(url_for('giacenze'))
 
-    # campi ammessi
     stato = (request.form.get('stato') or '').strip()
     posizione = (request.form.get('posizione') or '').strip()
     n_colli = request.form.get('n_colli')
@@ -1198,13 +1158,12 @@ def bulk_edit_post():
 def ddt_setup():
     if session.get('role') != 'admin': abort(403)
     ids = request.args.get('ids','')
-    if not ids: 
+    if not ids:
         flash("Seleziona almeno una riga", "warning")
         return redirect(url_for('giacenze'))
     destinatari = load_destinatari()
     return render_template_string(app.jinja_loader.get_source(app.jinja_env,'ddt_setup.html')[0],
                                   ids=ids, destinatari=destinatari, oggi=date.today().isoformat(), logo_url=logo_url())
-
 
 @app.post('/ddt_setup')
 @login_required
@@ -1212,7 +1171,7 @@ def ddt_setup_post():
     if session.get('role') != 'admin': abort(403)
     ids = request.form.get('ids','')
     rows = _get(ids)
-    if not rows: 
+    if not rows:
         flash("Nessuna riga selezionata","warning")
         return redirect(url_for('giacenze'))
     dest_key = request.form.get('dest')
@@ -1249,7 +1208,7 @@ def ddt_setup_post():
         data.append([r.id_articolo, r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.peso or '',
                      r.protocollo or '', r.ordine or ''])
     story.append(_pdf_table(data, col_widths=[15*mm, 25*mm, 80*mm, 15*mm, 20*mm, 30*mm, 25*mm]))
-    story += [_sp(6), _copyright_para()]
+    story += [Spacer(1,6), Paragraph("© Camar srl — Ships clearance • A simple but ingenious company", _styles['Normal'])]
     doc.build(story)
     bio.seek(0)
 
@@ -1300,3 +1259,4 @@ if __name__=='__main__':
         pass
     port=int(os.environ.get('PORT',8000))
     app.run(host='0.0.0.0', port=port)
+
