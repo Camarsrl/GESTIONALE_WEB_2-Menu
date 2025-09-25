@@ -380,6 +380,10 @@ GIACENZE = """{% extends 'base.html' %}{% block content %}
     {% if session.get('role') == 'admin' %}
       <a class='btn btn-success btn-sm' href='{{url_for("ddt_setup")}}?ids=' id='btn-scarico'>Scarico + DDT (PDF)</a>
     {% endif %}
+    <form method='get' action='{{url_for("bulk_edit")}}'>
+      <input type='hidden' name='ids' id='ids-bulk'>
+      <button class='btn btn-warning btn-sm' onclick="const v=collectIds(); if(!v){alert('Seleziona almeno una riga'); return false;} document.getElementById('ids-bulk').value=v;">Modifica multipla</button>
+    </form>
   </div>
 
   <div class='table-responsive' style='max-height:60vh'>
@@ -404,14 +408,41 @@ GIACENZE = """{% extends 'base.html' %}{% block content %}
 
 <script>
 const all=document.getElementById('checkall');
-all&&all.addEventListener('change',e=>document.querySelectorAll('.sel').forEach(cb=>cb.checked=all.checked));
-function setIds(id){
-  const v=[...document.querySelectorAll('.sel:checked')].map(x=>x.value).join(',');
-  const el=document.getElementById(id); if(el) el.value=v;
-  const l=document.getElementById('btn-scarico'); if(l) l.href='{{url_for("ddt_setup")}}?ids='+encodeURIComponent(v);
+all && all.addEventListener('change', e => {
+  document.querySelectorAll('.sel').forEach(cb => cb.checked = all.checked);
+});
+
+function collectIds(){
+  return [...document.querySelectorAll('.sel:checked')].map(x=>x.value).join(',');
 }
+
+function setIds(hiddenId){
+  const v = collectIds();
+  const el = document.getElementById(hiddenId);
+  if (el) el.value = v;
+  const l = document.getElementById('btn-scarico');
+  if (l) l.href = '{{url_for("ddt_setup")}}?ids=' + encodeURIComponent(v);
+}
+
 ['ids-b1','ids-d1','ids-bp','ids-dp'].forEach(n=>{
-  const f=document.getElementById(n)?.closest('form'); f&&f.addEventListener('submit',()=>setIds(n));
+  const f = document.getElementById(n)?.closest('form');
+  f && f.addEventListener('submit', ()=>{
+    setIds(n);
+    const v = collectIds();
+    if(!v){ alert('Seleziona almeno una riga'); }
+  });
+});
+
+// gestisci click sul link "Scarico + DDT (PDF)"
+const linkScarico = document.getElementById('btn-scarico');
+linkScarico && linkScarico.addEventListener('click', (e)=>{
+  const v = collectIds();
+  if(!v){
+    e.preventDefault();
+    alert('Seleziona almeno una riga');
+    return;
+  }
+  linkScarico.href = '{{url_for("ddt_setup")}}?ids=' + encodeURIComponent(v);
 });
 </script>
 {% endblock %}
@@ -889,8 +920,14 @@ def _doc_with_header(title, pagesize=A4):
     bio=io.BytesIO()
     doc=SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=15*mm, rightMargin=15*mm, topMargin=12*mm, bottomMargin=12*mm)
     story=[]
-    if Path(LOGO_PATH).exists():
-        story.append(Image(LOGO_PATH, width=40*mm, height=15*mm))
+    # logo: usa LOGO_PATH se esiste, altrimenti static/logo.png
+    logo_file = Path(LOGO_PATH)
+    if not logo_file.exists():
+        alt = STATIC_DIR / "logo.png"
+        if alt.exists():
+            logo_file = alt
+    if logo_file.exists():
+        story.append(Image(str(logo_file), width=40*mm, height=15*mm))
     story.append(Paragraph(title, _styles['Heading2'])); story.append(Spacer(1,6))
     return doc, story, bio
 
@@ -904,8 +941,10 @@ def pdf_buono():
     data=[['Ordine','Cod.Art.','Descrizione','Quantità','N.Arrivo']]
     for r in rows:
         data.append([r.ordine or '', r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.n_arrivo or ''])
-    story.append(_pdf_table(data, col_widths=[25*mm, 25*mm, 80*mm, 20*mm, 25*mm])); doc.build(story)
-    bio.seek(0); return send_file(bio, as_attachment=True, download_name='buono.pdf')
+    story.append(_pdf_table(data, col_widths=[25*mm, 25*mm, 80*mm, 20*mm, 25*mm]))
+    doc.build(story)
+    bio.seek(0)
+    return send_file(bio, as_attachment=True, download_name='buono.pdf')
 
 
 @app.post('/pdf/ddt')
@@ -916,8 +955,11 @@ def pdf_ddt():
     data=[['ID','Cod.Art.','Descrizione','Colli','Peso','Protocollo','Ordine']]
     for r in rows:
         data.append([r.id_articolo, r.codice_articolo or '', r.descrizione or '', r.n_colli or 1, r.peso or '', r.protocollo or '', r.ordine or ''])
-    story.append(_pdf_table(data, col_widths=[15*mm, 25*mm, 80*mm, 15*mm, 20*mm, 30*mm, 25*mm])); doc.build(story)
-    bio.seek(0); return send_file(bio, as_attachment=True, download_name='ddt.pdf')
+    story.append(_pdf_table(data, col_widths=[15*mm, 25*mm, 80*mm, 15*mm, 20*mm, 30*mm, 25*mm]))
+    doc.build(story)
+    bio.seek(0)
+    return send_file(bio, as_attachment=True, download_name='ddt.pdf')
+
 
 # ------------------- NUOVO: ETICHETTE 62×100 (PDF) -------------------
 @app.get('/labels')
@@ -959,12 +1001,13 @@ def labels_pdf():
     bio=io.BytesIO()
     doc=SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=6*mm, rightMargin=6*mm, topMargin=6*mm, bottomMargin=6*mm)
     story=[]
-    if Path(LOGO_PATH).exists():
-        story.append(Image(LOGO_PATH, width=40*mm, height=12*mm))
+    # logo: usa static/logo.png se esiste
+    logo_file = STATIC_DIR / "logo.png"
+    if logo_file.exists():
+        story.append(Image(str(logo_file), width=40*mm, height=12*mm))
         story.append(Spacer(1, 4))
-    big = _styles['Heading2']; big.fontName='Helvetica-Bold'; big.fontSize=16
-    row = _styles['Normal']; row.fontName='Helvetica-Bold'; row.fontSize=14
 
+    row = _styles['Normal']; row.fontName='Helvetica-Bold'; row.fontSize=14
     def P(label, value):
         return Paragraph(f"<b>{label}</b> {value}", row)
 
@@ -981,8 +1024,72 @@ def labels_pdf():
     ]
     doc.build(story)
     bio.seek(0)
-    return send_file(bio, as_attachment=True, download_name="nome_file.pdf")
+    return send_file(bio, as_attachment=True, download_name='etichetta.pdf')
 
+
+# ------------------- MODIFICA MULTIPLA -------------------
+BULK_EDIT_HTML = """{% extends 'base.html' %}{% block content %}
+<div class='card p-4'>
+  <h5>Modifica multipla</h5>
+  <p class='text-muted'>ID selezionati: {{ids}}</p>
+  <form method='post'>
+    <input type='hidden' name='ids' value='{{ids}}'>
+    <div class='row g-3'>
+      <div class='col-md-3'><label class='form-label'>Stato</label><input name='stato' class='form-control' placeholder='(lascia vuoto per non cambiare)'></div>
+      <div class='col-md-3'><label class='form-label'>Posizione</label><input name='posizione' class='form-control' placeholder=''></div>
+      <div class='col-md-3'><label class='form-label'>N. Colli</label><input name='n_colli' class='form-control' placeholder=''></div>
+      <div class='col-md-3'><label class='form-label'>Data Uscita (GG/MM/AAAA)</label><input name='data_uscita' class='form-control' placeholder=''></div>
+      <div class='col-md-3'><label class='form-label'>N DDT Uscita</label><input name='n_ddt_uscita' class='form-control' placeholder=''></div>
+    </div>
+    <div class='mt-3 d-flex gap-2'>
+      <button class='btn btn-primary'>Applica a tutte</button>
+      <a class='btn btn-secondary' href='{{url_for("giacenze")}}'>Annulla</a>
+    </div>
+  </form>
+</div>
+{% endblock %}"""
+
+@app.get('/bulk_edit')
+@login_required
+def bulk_edit():
+    ids = (request.args.get('ids') or '').strip()
+    if not ids:
+        flash('Nessuna riga selezionata', 'warning')
+        return redirect(url_for('giacenze'))
+    return render_template_string(BULK_EDIT_HTML, ids=ids, logo_url=logo_url())
+
+@app.post('/bulk_edit')
+@login_required
+def bulk_edit_post():
+    ids_csv = request.form.get('ids','')
+    rows = _get(ids_csv)
+    if not rows:
+        flash('Nessuna riga valida', 'warning')
+        return redirect(url_for('giacenze'))
+
+    # campi ammessi
+    stato = (request.form.get('stato') or '').strip()
+    posizione = (request.form.get('posizione') or '').strip()
+    n_colli = request.form.get('n_colli')
+    data_uscita = (request.form.get('data_uscita') or '').strip()
+    n_ddt_uscita = (request.form.get('n_ddt_uscita') or '').strip()
+
+    n_colli_val = to_int_eu(n_colli) if n_colli not in (None, '') else None
+    data_uscita_val = parse_date_ui(data_uscita) if data_uscita else None
+
+    db = SessionLocal()
+    for r in rows:
+        if stato: r.stato = stato
+        if posizione: r.posizione = posizione
+        if n_colli_val is not None: r.n_colli = n_colli_val
+        if data_uscita_val: r.data_uscita = data_uscita_val
+        if n_ddt_uscita: r.n_ddt_uscita = n_ddt_uscita
+        # ricalcola M2/M3 se cambiano colli (o altro)
+        r.m2, r.m3 = calc_m2_m3(r.lunghezza, r.larghezza, r.altezza, r.n_colli)
+    db.commit()
+
+    flash('Modifica multipla applicata', 'success')
+    return redirect(url_for('giacenze'))
 
 
 # ------------------- SCARICO + DDT -------------------
