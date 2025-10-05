@@ -28,6 +28,21 @@ from reportlab.lib.styles import getSampleStyleSheet
 # Jinja loader
 from jinja2 import ChoiceLoader, FileSystemLoader, DictLoader
 
+
+# ------------------- AUTH -------------------
+from functools import wraps
+from flask import session, redirect, url_for, flash
+
+def login_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not session.get('user'):
+            flash("Effettua il login per accedere", "warning")
+            return redirect(url_for("login"))
+        return fn(*args, **kwargs)
+    return wrapper
+
+
 # ------------------- PATH / LOGO -------------------
 APP_DIR = Path(os.environ.get("APP_DIR", "."))
 APP_DIR.mkdir(parents=True, exist_ok=True)
