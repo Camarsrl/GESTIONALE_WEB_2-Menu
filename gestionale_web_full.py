@@ -247,6 +247,14 @@ def logo_url():
     except Exception:
         return None
 
+
+# ------------------- ROUTE HOME -------------------
+@app.route('/')
+def index():
+    if not session.get('user'):
+        return redirect(url_for('login'))
+    return redirect(url_for('home'))
+
 # ------------------- TEMPLATE BASE -------------------
 BASE = """
 <!doctype html><html lang='it'><head>
