@@ -360,6 +360,15 @@ HOME = """{% extends 'base.html' %}{% block content %}
   </div>
 </div>
 {% endblock %}"""
+
+
+# ------------------- IMPORT EXCEL (PLACEHOLDER) -------------------
+@app.route('/import_excel')
+@login_required
+def import_excel():
+    flash("Funzione di import Excel non ancora attiva su questa versione web.", "info")
+    return redirect(url_for('home'))
+
 # ------------------- VISUALIZZA GIACENZE -------------------
 GIACENZE = """{% extends 'base.html' %}{% block content %}
 <div class='card p-3 mb-3'>
