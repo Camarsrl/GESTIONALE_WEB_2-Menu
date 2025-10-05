@@ -296,7 +296,23 @@ body{background:#f7f9fc}
 <script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js'></script>
 </body></html>
 """
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        user = (request.form.get('user') or '').strip().upper()
+        pwd = request.form.get('pwd') or ''
+        users = get_users()
 
+        if user in users and users[user] == pwd:
+            session['user'] = user
+            session['role'] = 'admin' if user in ADMIN_USERS else 'client'
+            flash(f"Benvenuto {user}", "success")
+            return redirect(url_for('home'))
+        else:
+            flash("Credenziali non valide", "danger")
+            return redirect(url_for('login'))
+
+    return render_template_string(LOGIN, logo_url=logo_url())
 # ------------------- LOGIN -------------------
 LOGIN = """{% extends 'base.html' %}{% block content %}
 <div class='row justify-content-center'>
@@ -313,7 +329,10 @@ LOGIN = """{% extends 'base.html' %}{% block content %}
   </div>
 </div>
 {% endblock %}"""
-
+@app.route('/home')
+@login_required
+def home():
+    return render_template_string(HOME, logo_url=logo_url())
 # ------------------- HOME -------------------
 HOME = """{% extends 'base.html' %}{% block content %}
 <div class='row g-3'>
