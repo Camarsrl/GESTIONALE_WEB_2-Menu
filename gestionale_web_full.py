@@ -436,6 +436,17 @@ GIACENZE_HTML = """
         const form = document.getElementById('selection-form');
         form.action = actionUrl;
         form.method = method;
+        
+        // Per le richieste GET, dobbiamo creare input nascosti
+        if (method.toLowerCase() === 'get') {
+            // Rimuovi eventuali vecchi input
+            form.querySelectorAll('input[name="ids_get"]').forEach(el => el.remove());
+            const hiddenInput = document.createElement('input');
+            hiddenInput.type = 'hidden';
+            hiddenInput.name = 'ids';
+            hiddenInput.value = ids.join(',');
+            form.appendChild(hiddenInput);
+        }
         form.submit();
     }
     
@@ -561,6 +572,44 @@ BULK_EDIT_HTML = """
 {% endblock %}
 """
 
+BUONO_PREVIEW_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<form method="post" action="{{ url_for('pdf_buono') }}" target="_blank" class="card p-3">
+    <input type="hidden" name="ids" value="{{ ids }}">
+    <div class="d-flex align-items-center gap-3 mb-3">
+        {% if logo_url %}<img src="{{ logo_url }}" style="height:40px">{% endif %}
+        <h5 class="flex-grow-1 text-center m-0">BUONO DI PRELIEVO (ANTEPRIMA)</h5>
+        <button class="btn btn-primary"><i class="bi bi-printer"></i> Stampa / Genera PDF</button>
+    </div>
+    <div class="row g-3">
+        <div class="col-md-3"><label class="form-label">N. Buono</label><input name="buono_n" class="form-control" value="{{ meta.buono_n }}"></div>
+        <div class="col-md-3"><label class="form-label">Data Emissione</label><input name="data_em" class="form-control" value="{{ meta.data_em }}"></div>
+        <div class="col-md-3"><label class="form-label">Commessa</label><input name="commessa" class="form-control" value="{{ meta.commessa }}"></div>
+        <div class="col-md-3"><label class="form-label">Fornitore</label><input name="fornitore" class="form-control" value="{{ meta.fornitore }}"></div>
+        <div class="col-md-3"><label class="form-label">Protocollo</label><input name="protocollo" class="form-control" value="{{ meta.protocollo }}"></div>
+    </div>
+    <hr>
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered">
+            <thead><tr><th>Ordine</th><th>Codice Articolo</th><th>Descrizione</th><th>Quantità</th><th>N.Arrivo</th></tr></thead>
+            <tbody>
+                {% for r in rows %}
+                <tr>
+                    <td>{{ r.ordine or '' }}</td>
+                    <td>{{ r.codice_articolo or '' }}</td>
+                    <td>{{ r.descrizione or '' }}</td>
+                    <td><input name="q_{{ r.id_articolo }}" class="form-control form-control-sm" value="{{ r.n_colli or 1 }}"></td>
+                    <td>{{ r.n_arrivo or '' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</form>
+{% endblock %}
+"""
+
 DDT_PREVIEW_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -630,6 +679,45 @@ document.getElementById('get-next-ddt').addEventListener('click', function() {
             document.getElementById('n_ddt_input').value = data.next_ddt;
         })
         .catch(error => console.error('Error fetching next DDT number:', error));
+});
+
+// Gestione del reindirizzamento dopo il download per il form di finalizzazione
+document.getElementById('ddt-form').addEventListener('submit', function(e) {
+    if (this.action.endsWith('{{ url_for('ddt_finalize') }}')) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        
+        fetch(this.action, {
+            method: 'POST',
+            body: formData
+        })
+        .then(resp => {
+            if (resp.ok) {
+                const redirectUrl = resp.headers.get('X-Redirect');
+                const contentDisposition = resp.headers.get('content-disposition');
+                let filename = "download.pdf";
+                if (contentDisposition) {
+                    const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+                    if (filenameMatch.length > 1) {
+                        filename = filenameMatch[1];
+                    }
+                }
+                resp.blob().then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    if (redirectUrl) {
+                        window.location.href = redirectUrl;
+                    }
+                });
+            }
+        }).catch(err => console.error('Error:', err));
+    }
 });
 </script>
 {% endblock %}
@@ -924,20 +1012,19 @@ def giacenze():
 def bulk_edit():
     db = SessionLocal()
     if request.method == 'POST':
-        ids = [int(i) for i in request.form.getlist('ids')]
+        ids_csv = request.form.get('ids', '')
+        ids = [int(i) for i in ids_csv.split(',') if i.isdigit()]
         new_posizione = request.form.get('posizione', '').strip()
         new_stato = request.form.get('stato', '').strip()
         
-        if not new_posizione and not new_stato:
-            flash("Nessuna modifica inserita. Specificare almeno un nuovo valore.", "warning")
-            return redirect(url_for('giacenze'))
+        if not (new_posizione or new_stato):
+            flash("Nessuna modifica inserita.", "warning")
+            return redirect(url_for('bulk_edit', ids=ids_csv))
 
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
         for art in articoli:
-            if new_posizione:
-                art.posizione = new_posizione
-            if new_stato:
-                art.stato = new_stato
+            if new_posizione: art.posizione = new_posizione
+            if new_stato: art.stato = new_stato
         db.commit()
         flash(f"{len(articoli)} articoli aggiornati con successo.", "success")
         return redirect(url_for('giacenze'))
@@ -955,7 +1042,7 @@ def bulk_edit():
 @app.post('/bulk/delete')
 @login_required
 def bulk_delete():
-    ids = [int(i) for i in request.form.getlist('ids')]
+    ids = [int(i) for i in request.form.getlist('ids') if i.isdigit()]
     if not ids:
         flash("Nessun articolo selezionato per l'eliminazione.", "warning")
         return redirect(url_for('giacenze'))
@@ -975,7 +1062,8 @@ def _get_rows_from_ids(ids_list):
 @app.post('/buono/preview')
 @login_required
 def buono_preview():
-    ids = [int(i) for i in request.form.getlist('ids')]
+    ids_str_list = request.form.getlist('ids')
+    ids = [int(i) for i in ids_str_list if i.isdigit()]
     rows = _get_rows_from_ids(ids)
     first = rows[0] if rows else None
     meta = {
@@ -988,7 +1076,8 @@ def buono_preview():
 @app.post('/ddt/preview')
 @login_required
 def ddt_preview():
-    ids = [int(i) for i in request.form.getlist('ids')]
+    ids_str_list = request.form.getlist('ids')
+    ids = [int(i) for i in ids_str_list if i.isdigit()]
     rows = _get_rows_from_ids(ids)
     return render_template('ddt_preview.html',
                            rows=rows, ids=",".join(map(str, ids)), destinatari=load_destinatari(),
@@ -1036,7 +1125,7 @@ def _doc_with_header(title, pagesize=A4):
     story.extend([title_tbl, Spacer(1, 8)])
     return doc, story, bio
 
-def _generate_ddt_pdf(n_ddt, data_ddt, targa, note, dest, rows):
+def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows):
     doc, story, bio = _doc_with_header("DOCUMENTO DI TRASPORTO (DDT)")
     mitt_text = "<b>Camar S.r.l.</b><br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)<br/>P.IVA 024 Camar Srl"
     mitt_tbl = _pdf_table([["Mittente", Paragraph(mitt_text, _styles['Normal'])]], [25*mm, None], header=False)
@@ -1053,7 +1142,7 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, note, dest, rows):
     data = [['ID','Cod.Art.','Descrizione','Colli','Peso (Kg)','N.Arrivo']]
     tot_colli, tot_peso = 0, 0.0
     for r in rows:
-        colli, peso = (r.n_colli or 1), (r.peso or 0)
+        colli, peso = (to_int_eu(request.form.get(f"colli_{r.id_articolo}", r.n_colli)) or 1), (to_float_eu(request.form.get(f"peso_{r.id_articolo}", r.peso)) or 0)
         data.append([r.id_articolo, r.codice_articolo or '', r.descrizione or '', colli, peso, r.n_arrivo or ''])
         tot_colli += colli; tot_peso += float(peso)
     story.append(_pdf_table(data, col_widths=[16*mm, 38*mm, None, 20*mm, 20*mm, 22*mm]))
@@ -1064,14 +1153,58 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, note, dest, rows):
     bio.seek(0)
     return bio
 
+@app.post('/pdf/buono')
+@login_required
+def pdf_buono():
+    ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
+    rows = _get_rows_from_ids(ids)
+    buono_n = (request.form.get('buono_n') or '').strip()
+    db = SessionLocal()
+    for r in rows:
+        if buono_n:
+            r.buono_n = buono_n
+        q_val = request.form.get(f"q_{r.id_articolo}")
+        if q_val is not None:
+            r.n_colli = to_int_eu(q_val) or 1
+    db.commit()
+
+    doc, story, bio = _doc_with_header("BUONO PRELIEVO")
+    d_row = rows[0] if rows else None
+    meta = [
+        ["Data Emissione", datetime.today().strftime("%d/%m/%Y")],
+        ["Commessa", (d_row.commessa or "") if d_row else ""],
+        ["Fornitore", (d_row.fornitore or "") if d_row else ""],
+        ["Protocollo", (d_row.protocollo or "") if d_row else ""],
+        ["N. Buono", (d_row.buono_n or "") if d_row else (buono_n or "")]
+    ]
+    story.append(_pdf_table(meta, [35*mm, None], header=False))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(f"<b>Cliente:</b> {(d_row.cliente or '').upper()}", _styles['Normal']))
+    story.append(Spacer(1, 8))
+    data = [['Ordine','Codice Articolo','Descrizione','Quantità','N.Arrivo']]
+    for r in rows:
+        data.append([r.ordine or '', r.codice_articolo or '', r.descrizione or '', (r.n_colli or 1), r.n_arrivo or ''])
+    story.append(_pdf_table(data, col_widths=[25*mm, 45*mm, None, 20*mm, 25*mm]))
+    story.extend([
+        Spacer(1, 16),
+        Table([["Firma Magazzino:", "Firma Cliente:"]],
+              colWidths=[doc.width/2 - 4*mm, doc.width/2 - 4*mm], style=[('GRID', (0,0), (-1,-1), 0, colors.white)]),
+        Spacer(1, 6), _copyright_para()
+    ])
+    doc.build(story)
+    bio.seek(0)
+    return send_file(bio, as_attachment=False, download_name='buono.pdf', mimetype='application/pdf')
+
+
 @app.post('/pdf/ddt')
 @login_required
 def pdf_ddt():
-    rows = _get_rows_from_ids([int(i) for i in request.form.get('ids','').split(',')])
+    ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
+    rows = _get_rows_from_ids(ids)
     dest = load_destinatari().get(request.form.get('dest_key'), {})
     pdf_bio = _generate_ddt_pdf(
         n_ddt=request.form.get('n_ddt', ''), data_ddt=request.form.get('data_ddt'), targa=request.form.get('targa'),
-        note=request.form.get('note'), dest=dest, rows=rows
+        dest=dest, rows=rows
     )
     return send_file(pdf_bio, as_attachment=False, download_name='DDT_Anteprima.pdf', mimetype='application/pdf')
 
@@ -1088,12 +1221,16 @@ def ddt_finalize():
         art.data_uscita = data_ddt
         art.n_ddt_uscita = n_ddt
         art.stato = 'USCITO'
+        colli = request.form.get(f"colli_{art.id_articolo}", art.n_colli)
+        peso = request.form.get(f"peso_{art.id_articolo}", art.peso)
+        art.n_colli = to_int_eu(colli) or 1
+        art.peso = to_float_eu(peso) or 0
     db.commit()
     
     dest = load_destinatari().get(request.form.get('dest_key'), {})
     pdf_bio = _generate_ddt_pdf(
         n_ddt=n_ddt, data_ddt=data_ddt, targa=request.form.get('targa'),
-        note=request.form.get('note'), dest=dest, rows=articoli
+        dest=dest, rows=articoli
     )
     
     flash(f"{len(articoli)} articoli scaricati con successo. DDT N.{n_ddt} generato.", "success")
@@ -1101,7 +1238,6 @@ def ddt_finalize():
     download_name = f"DDT_{n_ddt.replace('/', '-')}_{data_ddt}.pdf"
     response = send_file(pdf_bio, as_attachment=True, download_name=download_name, mimetype='application/pdf')
     
-    # Questo è un trucco per reindirizzare dopo il download
     response.headers['X-Redirect'] = url_for('giacenze')
     return response
 
@@ -1154,7 +1290,6 @@ if __name__ == '__main__':
     # debug=True è utile in sviluppo, ma va impostato a False in produzione
     print(f"✅ Avvio Gestionale Camar Web Edition su http://127.0.0.1:{port}")
     app.run(host='0.0.0.0', port=port, debug=True)
-
 
 
 
