@@ -181,6 +181,9 @@ def fmt_date(d):
     if not d:
         return ""
     try:
+        # Gestisce sia datetime che stringhe
+        if isinstance(d, (datetime, date)):
+            return d.strftime("%d/%m/%Y")
         return datetime.strptime(d, "%Y-%m-%d").strftime("%d/%m/%Y")
     except Exception:
         return d
@@ -244,12 +247,11 @@ BASE_HTML = """
         .table thead th { position: sticky; top: 0; background: #fff; z-index: 2; }
         .dropzone { border: 2px dashed #7aa2ff; background: #eef4ff; padding: 20px; border-radius: 12px; text-align: center; color: #2c4a9a; cursor: pointer; }
         .logo { height: 40px; }
-        .table-compact th, .table-compact td { font-size: 0.85rem; padding: 0.3rem 0.4rem; }
+        .table-compact th, .table-compact td { font-size: 0.85rem; padding: 0.3rem 0.4rem; white-space: nowrap; }
         @media print { .no-print { display: none !important; } }
     </style>
 </head>
 <body>
-
 <nav class="navbar bg-white shadow-sm">
     <div class="container-fluid">
         <div class="d-flex align-items-center gap-2">
@@ -264,7 +266,6 @@ BASE_HTML = """
         </div>
     </div>
 </nav>
-
 <main class="container-fluid my-4">
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
@@ -276,14 +277,11 @@ BASE_HTML = """
             {% endfor %}
         {% endif %}
     {% endwith %}
-    
     {% block content %}{% endblock %}
 </main>
-
 <footer class="text-center text-muted py-3 small">
     © Alessia Moncalvo – Gestionale Camar Web Edition • Tutti i diritti riservati.
 </footer>
-
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 {% block extra_js %}{% endblock %}
 </body>
@@ -353,20 +351,30 @@ GIACENZE_HTML = """
     <h4 class="m-0">📦 Visualizza Giacenze</h4>
     <a href="{{ url_for('new_row') }}" class="btn btn-success no-print"><i class="bi bi-plus-circle"></i> Aggiungi Articolo</a>
 </div>
-
 <div class="card p-3 mb-3 no-print">
     <form class="row g-2 align-items-end" method="get">
-        <div class="col-md-1"><label class="form-label small">ID</label><input name="id" value="{{ request.args.get('id', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-md-2"><label class="form-label small">Cod.Art.</label><input name="codice_articolo" value="{{ request.args.get('codice_articolo', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-md-2"><label class="form-label small">Cliente</label><input name="cliente" value="{{ request.args.get('cliente', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-md-2"><label class="form-label small">Commessa</label><input name="commessa" value="{{ request.args.get('commessa', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-md-2"><label class="form-label small">Posizione</label><input name="posizione" value="{{ request.args.get('posizione', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-md-2"><label class="form-label small">Stato</label><input name="stato" value="{{ request.args.get('stato', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-md-2 d-grid"><button class="btn btn-primary btn-sm mt-3">Filtra</button></div>
-        <div class="col-md-2 d-grid"><a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm mt-3">Pulisci Filtri</a></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">Cliente</label><input name="cliente" value="{{ request.args.get('cliente', '') }}" class="form-control form-control-sm"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">Fornitore</label><input name="fornitore" value="{{ request.args.get('fornitore', '') }}" class="form-control form-control-sm"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">Commessa</label><input name="commessa" value="{{ request.args.get('commessa', '') }}" class="form-control form-control-sm"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">Descrizione</label><input name="descrizione" value="{{ request.args.get('descrizione', '') }}" class="form-control form-control-sm"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">Posizione</label><input name="posizione" value="{{ request.args.get('posizione', '') }}" class="form-control form-control-sm"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">Stato</label><input name="stato" value="{{ request.args.get('stato', '') }}" class="form-control form-control-sm"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">Protocollo</label><input name="protocollo" value="{{ request.args.get('protocollo', '') }}" class="form-control form-control-sm"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">N. DDT Ingresso</label><input name="n_ddt_ingresso" value="{{ request.args.get('n_ddt_ingresso', '') }}" class="form-control form-control-sm"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">N. DDT Uscita</label><input name="n_ddt_uscita" value="{{ request.args.get('n_ddt_uscita', '') }}" class="form-control form-control-sm"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">N. Arrivo</label><input name="n_arrivo" value="{{ request.args.get('n_arrivo', '') }}" class="form-control form-control-sm"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">N. Buono</label><input name="buono_n" value="{{ request.args.get('buono_n', '') }}" class="form-control form-control-sm"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">NS Rif.</label><input name="ns_rif" value="{{ request.args.get('ns_rif', '') }}" class="form-control form-control-sm"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">Serial Number</label><input name="serial_number" value="{{ request.args.get('serial_number', '') }}" class="form-control form-control-sm"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">Mezzo Uscito</label><input name="mezzi_in_uscita" value="{{ request.args.get('mezzi_in_uscita', '') }}" class="form-control form-control-sm"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">Ingresso Da</label><input name="data_ingresso_da" value="{{ request.args.get('data_ingresso_da', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">Ingresso A</label><input name="data_ingresso_a" value="{{ request.args.get('data_ingresso_a', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">Uscita Da</label><input name="data_uscita_da" value="{{ request.args.get('data_uscita_da', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
+        <div class="col-lg-2 col-md-4"><label class="form-label small">Uscita A</label><input name="data_uscita_a" value="{{ request.args.get('data_uscita_a', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
+        <div class="col-lg-2 col-md-4 d-grid"><button class="btn btn-primary btn-sm mt-3">Filtra</button></div>
+        <div class="col-lg-2 col-md-4 d-grid"><a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm mt-3">Pulisci Filtri</a></div>
     </form>
 </div>
-
 <div class="card p-3">
     <div class="d-flex flex-wrap gap-2 mb-3 no-print border-bottom pb-3">
         <button class="btn btn-outline-secondary btn-sm" onclick="submitForm('{{ url_for('buono_preview') }}', 'post')"><i class="bi bi-receipt"></i> Crea Buono</button>
@@ -376,9 +384,8 @@ GIACENZE_HTML = """
         <button class="btn btn-danger btn-sm" onclick="submitDeleteForm()"><i class="bi bi-trash"></i> Elimina Selezionati</button>
         {% endif %}
     </div>
-
     <form id="selection-form" method="post">
-        <div class="table-responsive" style="max-height:70vh">
+        <div class="table-responsive">
             <table class="table table-sm table-hover table-compact align-middle">
                 <thead class="table-light">
                     <tr>
@@ -399,7 +406,7 @@ GIACENZE_HTML = """
                         <td>
                             {% for a in r.attachments %}
                             <a class="badge text-bg-secondary text-decoration-none" href="{{ url_for('media', att_id=a.id) }}" target="_blank">
-                                <i class="bi {% if a.kind == 'doc' %}bi-file-pdf{% else %}bi-image{% endif %}"></i> {{ a.kind }}
+                                <i class="bi {% if a.kind == 'doc' %}bi-file-pdf{% else %}bi-image{% endif %}"></i>
                             </a>
                             {% endfor %}
                         </td>
@@ -407,7 +414,7 @@ GIACENZE_HTML = """
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="{{ cols|length + 3 }}" class="text-center text-muted">Nessun articolo trovato.</td>
+                        <td colspan="{{ cols|length + 3 }}" class="text-center text-muted">Nessun articolo trovato con i filtri attuali.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -416,17 +423,14 @@ GIACENZE_HTML = """
     </form>
 </div>
 {% endblock %}
-
 {% block extra_js %}
 <script>
     document.getElementById('checkall').addEventListener('change', e => {
         document.querySelectorAll('.sel').forEach(cb => cb.checked = e.target.checked);
     });
-
     function getSelectedIds() {
         return [...document.querySelectorAll('.sel:checked')].map(x => x.value);
     }
-
     function submitForm(actionUrl, method) {
         const ids = getSelectedIds();
         if (ids.length === 0) {
@@ -436,11 +440,7 @@ GIACENZE_HTML = """
         const form = document.getElementById('selection-form');
         form.action = actionUrl;
         form.method = method;
-        
-        // Per le richieste GET, dobbiamo creare input nascosti
         if (method.toLowerCase() === 'get') {
-            // Rimuovi eventuali vecchi input
-            form.querySelectorAll('input[name="ids_get"]').forEach(el => el.remove());
             const hiddenInput = document.createElement('input');
             hiddenInput.type = 'hidden';
             hiddenInput.name = 'ids';
@@ -449,7 +449,6 @@ GIACENZE_HTML = """
         }
         form.submit();
     }
-    
     function submitDeleteForm() {
         const ids = getSelectedIds();
         if (ids.length === 0) {
@@ -457,7 +456,7 @@ GIACENZE_HTML = """
             return;
         }
         if (confirm(`Sei sicuro di voler eliminare definitivamente ${ids.length} articoli selezionati? L'azione è irreversibile.`)) {
-            submitForm('{{ url_for('bulk_delete') }}', 'post');
+            submitForm('{{ url_for("bulk_delete") }}', 'post');
         }
     }
 </script>
@@ -485,7 +484,6 @@ EDIT_HTML = """
         </div>
     </form>
 </div>
-
 {% if row.id_articolo %}
 <div class="card p-4 mt-4">
     <h6><i class="bi bi-paperclip"></i> Allegati</h6>
@@ -513,7 +511,6 @@ EDIT_HTML = """
 </div>
 {% endif %}
 {% endblock %}
-
 {% block extra_js %}
 <script>
 const dz = document.getElementById('dz'), fi = document.getElementById('fi');
@@ -680,13 +677,11 @@ document.getElementById('get-next-ddt').addEventListener('click', function() {
         })
         .catch(error => console.error('Error fetching next DDT number:', error));
 });
-
 // Gestione del reindirizzamento dopo il download per il form di finalizzazione
 document.getElementById('ddt-form').addEventListener('submit', function(e) {
     if (this.action.endsWith('{{ url_for('ddt_finalize') }}')) {
         e.preventDefault();
         const formData = new FormData(this);
-        
         fetch(this.action, {
             method: 'POST',
             body: formData
@@ -797,6 +792,34 @@ LABELS_PREVIEW_HTML = """
 </html>
 """
 
+IMPORT_EXCEL_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="card p-4">
+            <h3><i class="bi bi-file-earmark-arrow-up"></i> Importa Articoli da Excel</h3>
+            <hr>
+            <p class="text-muted">Carica un file Excel (.xlsx, .xls) per aggiungere nuovi articoli in blocco. Assicurati che il file abbia una riga di intestazione con i nomi delle colonne corretti.</p>
+            <form method="post" enctype="multipart/form-data">
+                <div class="mb-3">
+                    <label for="excel_file" class="form-label">Seleziona il file Excel</label>
+                    <input class="form-control" type="file" id="excel_file" name="excel_file" accept=".xlsx, .xls" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Carica e Importa</button>
+                <a href="{{ url_for('home') }}" class="btn btn-secondary">Annulla</a>
+            </form>
+            <div class="alert alert-info mt-4">
+                <strong>Nomi colonne richiesti:</strong><br>
+                <small><code>Codice Articolo, Pezzo, Larghezza, Lunghezza, Altezza, Protocollo, Ordine, Commessa, Magazzino, Fornitore, Data Ingresso, N. DDT Ingresso, Cliente, Descrizione, Peso, N. Colli, Posizione, N. Arrivo, Buono N., Note, Serial Number, Stato, Mezzi in Uscita, NS Rif</code></small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+"""
+
+
 # Dizionario dei template per il loader di Jinja
 templates = {
     'base.html': BASE_HTML,
@@ -809,6 +832,7 @@ templates = {
     'ddt_preview.html': DDT_PREVIEW_HTML,
     'labels_form.html': LABELS_FORM_HTML,
     'labels_preview.html': LABELS_PREVIEW_HTML,
+    'import_excel.html': IMPORT_EXCEL_HTML
 }
 
 # --- APP FLASK ---
@@ -872,19 +896,76 @@ def logout():
 def home():
     return render_template('home.html')
 
-# --- FUNZIONI PLACEHOLDER ---
-@app.route('/import_excel')
+# --- IMPORTAZIONE EXCEL ---
+@app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
 def import_excel():
-    flash("Funzione di import Excel non ancora attiva.", "info")
-    return redirect(url_for('home'))
+    if request.method == 'POST':
+        if 'excel_file' not in request.files:
+            flash('Nessun file selezionato', 'warning')
+            return redirect(request.url)
+        file = request.files['excel_file']
+        if file.filename == '':
+            flash('Nessun file selezionato', 'warning')
+            return redirect(request.url)
+        if file and (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
+            try:
+                db = SessionLocal()
+                df = pd.read_excel(file, engine='openpyxl')
+                
+                # Normalizza i nomi delle colonne (Rimuovi spazi, metti in minuscolo)
+                df.columns = [c.strip().lower().replace(' ', '_').replace('.', '').replace('°', '') for c in df.columns]
+
+                # Mappatura da nome colonna normalizzato a attributo del modello
+                column_map = {
+                    'codice_articolo': 'codice_articolo', 'pezzo': 'pezzo', 'larghezza': 'larghezza', 'lunghezza': 'lunghezza',
+                    'altezza': 'altezza', 'protocollo': 'protocollo', 'ordine': 'ordine', 'commessa': 'commessa', 'magazzino': 'magazzino',
+                    'fornitore': 'fornitore', 'data_ingresso': 'data_ingresso', 'n_ddt_ingresso': 'n_ddt_ingresso', 'cliente': 'cliente',
+                    'descrizione': 'descrizione', 'peso': 'peso', 'n_colli': 'n_colli', 'posizione': 'posizione', 'n_arrivo': 'n_arrivo',
+                    'buono_n': 'buono_n', 'note': 'note', 'serial_number': 'serial_number', 'stato': 'stato',
+                    'mezzi_in_uscita': 'mezzi_in_uscita', 'ns_rif': 'ns_rif'
+                }
+
+                imported_count = 0
+                for _, row in df.iterrows():
+                    new_art = Articolo()
+                    for col_name, attr_name in column_map.items():
+                        if col_name in row and not pd.isna(row[col_name]):
+                            val = row[col_name]
+                            if attr_name in ['larghezza', 'lunghezza', 'altezza', 'peso']:
+                                val = to_float_eu(val)
+                            elif attr_name == 'n_colli':
+                                val = to_int_eu(val)
+                            elif attr_name == 'data_ingresso':
+                                # Pandas spesso converte le date in datetime, gestiamolo
+                                val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
+                            setattr(new_art, attr_name, val)
+                    
+                    # Calcola m2 e m3
+                    new_art.m2, new_art.m3 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)
+
+                    db.add(new_art)
+                    imported_count += 1
+                
+                db.commit()
+                flash(f'{imported_count} articoli importati con successo dal file Excel.', 'success')
+                return redirect(url_for('giacenze'))
+
+            except Exception as e:
+                flash(f"Errore durante l'importazione del file Excel: {e}", 'danger')
+                return redirect(request.url)
+        else:
+            flash('Formato file non supportato. Usare .xlsx o .xls', 'warning')
+            return redirect(request.url)
+
+    return render_template('import_excel.html')
 
 # --- GESTIONE ARTICOLI (CRUD) ---
 @app.get('/new')
 @login_required
 def new_row():
     db = SessionLocal()
-    a = Articolo(data_ingresso=datetime.today().strftime("%Y-%m-%d"))
+    a = Articolo(data_ingresso=date.today().strftime("%Y-%m-%d"))
     db.add(a)
     db.commit()
     flash('Articolo vuoto creato. Ora puoi compilare i campi.', 'info')
@@ -905,16 +986,13 @@ def edit_row(id):
             'posizione','n_arrivo','buono_n','note','serial_number','data_uscita','n_ddt_uscita','ns_rif',
             'stato','mezzi_in_uscita'
         ]
-        numeric_float = {'larghezza','lunghezza','altezza','peso','m2','m3'}
-        numeric_int   = {'n_colli'}
-
         for f in fields_to_update:
             v = request.form.get(f) or None
             if f in ('data_ingresso','data_uscita'):
                 v = parse_date_ui(v) if v else None
-            elif f in numeric_float:
+            elif f in ('larghezza','lunghezza','altezza','peso'):
                 v = to_float_eu(v)
-            elif f in numeric_int:
+            elif f == 'n_colli':
                 v = to_int_eu(v)
             setattr(row, f, v)
 
@@ -987,18 +1065,35 @@ def giacenze():
     qs = db.query(Articolo).order_by(Articolo.id_articolo.desc())
     if session.get('role') == 'client':
         qs = qs.filter(Articolo.cliente == session['user'])
-    
+
     # Filtri di ricerca
-    like_cols = ['codice_articolo','cliente','fornitore','commessa','posizione', 'stato']
+    like_cols = [
+        'codice_articolo', 'cliente', 'fornitore', 'commessa', 'descrizione', 'posizione', 'stato', 
+        'protocollo', 'n_ddt_ingresso', 'n_ddt_uscita', 'n_arrivo', 'buono_n', 'ns_rif', 
+        'serial_number', 'mezzi_in_uscita'
+    ]
     if request.args.get('id'):
         try:
             qs = qs.filter(Articolo.id_articolo == int(request.args.get('id')))
-        except ValueError:
-            pass
+        except ValueError: pass
+    
     for col in like_cols:
         v = request.args.get(col)
         if v:
             qs = qs.filter(getattr(Articolo, col).ilike(f"%{v}%"))
+            
+    # Filtri data
+    date_filters = {
+        'data_ingresso_da': (Articolo.data_ingresso, '>='), 'data_ingresso_a': (Articolo.data_ingresso, '<='),
+        'data_uscita_da': (Articolo.data_uscita, '>='), 'data_uscita_a': (Articolo.data_uscita, '<=')
+    }
+    for arg, (col, op) in date_filters.items():
+        val = request.args.get(arg)
+        if val:
+            date_sql = parse_date_ui(val)
+            if date_sql:
+                if op == '>=': qs = qs.filter(col >= date_sql)
+                else: qs = qs.filter(col <= date_sql)
 
     rows = qs.all()
     cols = ["id_articolo","codice_articolo","descrizione","cliente","fornitore","protocollo","ordine",
@@ -1087,7 +1182,6 @@ def ddt_preview():
 @login_required
 def get_next_ddt_number():
     return jsonify({'next_ddt': next_ddt_number()})
-
 
 # --- PDF E FINALIZZAZIONE DDT ---
 _styles = getSampleStyleSheet()
@@ -1290,6 +1384,3 @@ if __name__ == '__main__':
     # debug=True è utile in sviluppo, ma va impostato a False in produzione
     print(f"✅ Avvio Gestionale Camar Web Edition su http://127.0.0.1:{port}")
     app.run(host='0.0.0.0', port=port, debug=True)
-
-
-
