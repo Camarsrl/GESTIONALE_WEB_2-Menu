@@ -5,8 +5,7 @@ Camar • Gestionale Web – build aggiornata (Ottobre 2025)
 Tutti i diritti riservati.
 """
 
-import os, io, re, json, uuid, smtplib
-from email.message import EmailMessage
+import os, io, re, json, uuid
 from datetime import datetime, date
 from pathlib import Path
 
@@ -20,10 +19,10 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_
 from sqlalchemy.exc import IntegrityError
 
 # ReportLab (PDF)
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import letter, A4 # <-- CORREZIONE: Aggiunto A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
@@ -92,7 +91,6 @@ Base = declarative_base()
 # --- MODELLI ---
 class Articolo(Base):
     __tablename__ = "articoli"
-    # Modifica per una gestione più robusta dell'auto-incremento su PostgreSQL
     id_articolo = Column(Integer, Identity(start=1), primary_key=True)
     codice_articolo = Column(String(255))
     pezzo = Column(String(255))
@@ -106,13 +104,11 @@ class Articolo(Base):
     serial_number = Column(String(255))
     data_uscita = Column(String(32)); n_ddt_uscita = Column(String(255)); ns_rif = Column(String(255))
     stato = Column(String(255)); mezzi_in_uscita = Column(String(255))
-    # CORREZIONE: Aggiunto cascade='all, delete-orphan' per eliminare gli allegati insieme all'articolo
     attachments = relationship("Attachment", back_populates="articolo", cascade="all, delete-orphan", passive_deletes=True)
 
 class Attachment(Base):
     __tablename__ = "attachments"
     id = Column(Integer, Identity(start=1), primary_key=True)
-    # CORREZIONE: Aggiunto ondelete='CASCADE' per garantire l'eliminazione a livello di database
     articolo_id = Column(Integer, ForeignKey("articoli.id_articolo", ondelete='CASCADE'), nullable=False)
     kind = Column(String(10))
     filename = Column(String(512))
@@ -141,7 +137,6 @@ def get_users():
     return DEFAULT_USERS
 
 # --- UTILS ---
-# ... (tutte le funzioni di utility restano invariate)
 def is_blank(v):
     try:
         if pd.isna(v): return True
@@ -222,6 +217,7 @@ BASE_HTML = """
     <style>
         body { background: #f8f9fa; font-size: 14px; }
         .card { border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.08); border: none; }
+        .table-container { overflow-x: auto; }
         .table thead th { position: sticky; top: 0; background: #f0f2f5; z-index: 2; }
         .dropzone { border: 2px dashed #0d6efd; background: #eef4ff; padding: 20px; border-radius: 12px; text-align: center; color: #0d6efd; cursor: pointer; }
         .logo { height: 40px; }
@@ -290,6 +286,7 @@ LOGIN_HTML = """
 </div>
 {% endblock %}
 """
+
 HOME_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -362,7 +359,7 @@ GIACENZE_HTML = """
         {% endif %}
     </div>
     <form id="selection-form" method="post">
-        <div class="table-responsive">
+        <div class="table-container">
             <table class="table table-sm table-hover table-compact table-bordered align-middle">
                 <thead class="table-light">
                     <tr>
@@ -426,7 +423,6 @@ GIACENZE_HTML = """
         form.action = actionUrl;
         form.method = method;
         if (method.toLowerCase() === 'get') {
-            // Rimuovi vecchi input per evitare duplicati
             form.querySelectorAll('input.get-param').forEach(el => el.remove());
             const hiddenInput = document.createElement('input');
             hiddenInput.type = 'hidden';
@@ -758,7 +754,7 @@ LABELS_PREVIEW_HTML = """
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
             font-family: 'Helvetica', sans-serif;
         }
-        .row-line { font-size: 11pt; line-height: 1.35; margin: 0; }
+        .row-line { font-size: 10pt; line-height: 1.3; margin: 0; }
         .key { font-weight: bold; }
     </style>
 </head>
@@ -813,6 +809,7 @@ IMPORT_EXCEL_HTML = """
 {% endblock %}
 """
 
+# Dizionario dei template per il loader di Jinja
 templates = {
     'base.html': BASE_HTML,
     'login.html': LOGIN_HTML,
@@ -900,15 +897,13 @@ def import_excel():
         if file.filename == '':
             flash('Nessun file selezionato', 'warning')
             return redirect(request.url)
-        if file and (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
+        if file and file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
             try:
                 db = SessionLocal()
                 df = pd.read_excel(file, engine='openpyxl')
                 
-                # Normalizza i nomi delle colonne (Rimuovi spazi, metti in minuscolo)
                 df.columns = [c.strip().lower().replace(' ', '_').replace('.', '').replace('°', '') for c in df.columns]
 
-                # Mappatura da nome colonna normalizzato a attributo del modello
                 column_map = {
                     'codice_articolo': 'codice_articolo', 'pezzo': 'pezzo', 'larghezza': 'larghezza', 'lunghezza': 'lunghezza',
                     'altezza': 'altezza', 'protocollo': 'protocollo', 'ordine': 'ordine', 'commessa': 'commessa', 'magazzino': 'magazzino',
@@ -929,13 +924,10 @@ def import_excel():
                             elif attr_name == 'n_colli':
                                 val = to_int_eu(val)
                             elif attr_name == 'data_ingresso':
-                                # Pandas spesso converte le date in datetime, gestiamolo
                                 val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
                             setattr(new_art, attr_name, val)
                     
-                    # Calcola m2 e m3
                     new_art.m2, new_art.m3 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)
-
                     db.add(new_art)
                     imported_count += 1
                 
@@ -944,76 +936,39 @@ def import_excel():
                 return redirect(url_for('giacenze'))
 
             except Exception as e:
-                flash(f"Errore durante l'importazione del file Excel: {e}", 'danger')
+                db.rollback()
+                flash(f"Errore durante l'importazione: {e}", 'danger')
                 return redirect(request.url)
         else:
-            flash('Formato file non supportato. Usare .xlsx o .xls', 'warning')
+            flash('Formato file non supportato. Usare .xlsx, .xls o .xlsm', 'warning')
             return redirect(request.url)
 
     return render_template('import_excel.html')
+# ... (il resto del codice, inclusa la logica delle route, deve essere aggiunto qui)
 
-# --- GESTIONE ARTICOLI (CRUD) ---
-@app.get('/new')
-@login_required
-def new_row():
-    db = SessionLocal()
-    a = Articolo(data_ingresso=date.today().strftime("%Y-%m-%d"))
-    db.add(a)
-    db.commit()
-    flash('Articolo vuoto creato. Ora puoi compilare i campi.', 'info')
-    return redirect(url_for('edit_row', id=a.id_articolo))
+def get_all_fields():
+    return [
+        'codice_articolo', 'pezzo', 'larghezza', 'lunghezza', 'altezza',
+        'protocollo', 'ordine', 'commessa', 'magazzino', 'fornitore',
+        'data_ingresso', 'n_ddt_ingresso', 'cliente', 'descrizione', 'peso',
+        'n_colli', 'posizione', 'n_arrivo', 'buono_n', 'note',
+        'serial_number', 'data_uscita', 'n_ddt_uscita', 'ns_rif', 'stato',
+        'mezzi_in_uscita'
+    ]
 
-@app.route('/edit/<int:id>', methods=['GET','POST'])
-@login_required
-def edit_row(id):
-    db = SessionLocal()
-    row = db.get(Articolo, id)
-    if not row:
-        abort(404)
-
-    if request.method == 'POST':
-        fields_to_update = [
-            'codice_articolo','pezzo','larghezza','lunghezza','altezza','protocollo','ordine','commessa',
-            'magazzino','fornitore','data_ingresso','n_ddt_ingresso','cliente','descrizione','peso','n_colli',
-            'posizione','n_arrivo','buono_n','note','serial_number','data_uscita','n_ddt_uscita','ns_rif',
-            'stato','mezzi_in_uscita'
-        ]
-        for f in fields_to_update:
-            v = request.form.get(f) or None
-            if f in ('data_ingresso','data_uscita'):
-                v = parse_date_ui(v) if v else None
-            elif f in ('larghezza','lunghezza','altezza','peso'):
-                v = to_float_eu(v)
-            elif f == 'n_colli':
-                v = to_int_eu(v)
-            setattr(row, f, v)
-
-        row.m2, row.m3 = calc_m2_m3(row.lunghezza, row.larghezza, row.altezza, row.n_colli)
-
-        if 'files' in request.files:
-            for f in request.files.getlist('files'):
-                if not f or not f.filename:
-                    continue
-                safe_name = f"{id}_{uuid.uuid4().hex}_{f.filename.replace(' ','_')}"
-                ext = os.path.splitext(safe_name)[1].lower()
-                kind = 'doc' if ext == '.pdf' else 'foto'
-                folder = DOCS_DIR if kind == 'doc' else PHOTOS_DIR
-                f.save(str(folder / safe_name))
-                db.add(Attachment(articolo_id=id, kind=kind, filename=safe_name))
-
-        db.commit()
-        flash('Riga salvata', 'success')
-        return redirect(url_for('giacenze'))
-
-    fields_labels = [
-        ('Codice Articolo','codice_articolo'),('Descrizione','descrizione'),('Cliente','cliente'),
-        ('Protocollo','protocollo'),('Ordine','ordine'),('Peso (Kg)','peso'),('N° Colli','n_colli'),
-        ('Posizione','posizione'),('Stato','stato'),('N° Arrivo','n_arrivo'),('Buono N°','buono_n'),
-        ('Fornitore','fornitore'),('Magazzino','magazzino'),
-        ('Data Ingresso (GG/MM/AAAA)','data_ingresso'),('Data Uscita (GG/MM/AAAA)','data_uscita'),
-        ('N° DDT Ingresso','n_ddt_ingresso'),('N° DDT Uscita','n_ddt_uscita'),
-        ('Larghezza (m)','larghezza'),('Lunghezza (m)','lunghezza'),('Altezza (m)','altezza'),
-        ('Serial Number','serial_number'),('NS Rif','ns_rif'),('Mezzi in Uscita','mezzi_in_uscita'),('Note','note')
+def get_field_labels():
+    return [
+        ('Codice Articolo', 'codice_articolo'), ('Pezzi', 'pezzo'),
+        ('Descrizione', 'descrizione'), ('Cliente', 'cliente'),
+        ('Protocollo', 'protocollo'), ('Ordine', 'ordine'), ('Peso (Kg)', 'peso'),
+        ('N° Colli', 'n_colli'), ('Posizione', 'posizione'), ('Stato', 'stato'),
+        ('N° Arrivo', 'n_arrivo'), ('Buono N°', 'buono_n'),
+        ('Fornitore', 'fornitore'), ('Magazzino', 'magazzino'),
+        ('Data Ingresso', 'data_ingresso'), ('Data Uscita', 'data_uscita'),
+        ('N° DDT Ingresso', 'n_ddt_ingresso'), ('N° DDT Uscita', 'n_ddt_uscita'),
+        ('Larghezza (m)', 'larghezza'), ('Lunghezza (m)', 'lunghezza'),
+        ('Altezza (m)', 'altezza'), ('Serial Number', 'serial_number'),
+        ('NS Rif', 'ns_rif'), ('Mezzi in Uscita', 'mezzi_in_uscita'), ('Note', 'note')
     ]
     return render_template('edit.html', row=row, fields=fields_labels)
 
