@@ -266,7 +266,30 @@ BASE_HTML = """
 </html>
 """
 
-# ... (tutti gli altri template HTML da HOME_HTML a LABELS_PREVIEW_HTML restano identici a prima)
+LOGIN_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-5 col-lg-4">
+        <div class="card p-4 text-center">
+            {% if logo_url %}<img src="{{ logo_url }}" class="mb-3 mx-auto" style="height:56px; width: auto;">{% endif %}
+            <h4 class="mb-3">Login al gestionale</h4>
+            <form method="post" class="text-start">
+                <div class="mb-3">
+                    <label class="form-label">Utente</label>
+                    <input name="user" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Password</label>
+                    <input type="password" name="pwd" class="form-control" required>
+                </div>
+                <button class="btn btn-primary w-100">Accedi</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+"""
 HOME_HTML = """
 {% extends 'base.html' %}
 {% block content %}
