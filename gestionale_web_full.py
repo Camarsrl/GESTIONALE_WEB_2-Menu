@@ -137,7 +137,6 @@ def get_users():
     return DEFAULT_USERS
 
 # --- UTILS ---
-# ... (tutte le funzioni di utility restano invariate)
 def is_blank(v):
     try:
         if pd.isna(v): return True
@@ -1142,6 +1141,7 @@ def bulk_delete():
         return redirect(url_for('giacenze'))
     
     db = SessionLocal()
+    # Prima elimina i file fisici degli allegati
     articoli_da_eliminare = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
     for art in articoli_da_eliminare:
         for att in art.attachments:
@@ -1150,6 +1150,7 @@ def bulk_delete():
                 if path.exists(): path.unlink()
             except Exception: pass
 
+    # Ora elimina gli articoli (gli allegati verranno cancellati in cascata dal DB)
     db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).delete(synchronize_session=False)
     db.commit()
     flash(f"{len(ids)} articoli e i loro allegati sono stati eliminati.", "success")
@@ -1302,7 +1303,43 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
 @app.post('/pdf/buono')
 @login_required
 def pdf_buono():
-    # ... (logica invariata)
+    ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
+    rows = _get_rows_from_ids(ids)
+    buono_n = (request.form.get('buono_n') or '').strip()
+    db = SessionLocal()
+    for r in rows:
+        if buono_n:
+            r.buono_n = buono_n
+        q_val = request.form.get(f"q_{r.id_articolo}")
+        if q_val is not None:
+            r.n_colli = to_int_eu(q_val) or 1
+    db.commit()
+
+    doc, story, bio = _doc_with_header("BUONO PRELIEVO")
+    d_row = rows[0] if rows else None
+    meta = [
+        ["Data Emissione", datetime.today().strftime("%d/%m/%Y")],
+        ["Commessa", (d_row.commessa or "") if d_row else ""],
+        ["Fornitore", (d_row.fornitore or "") if d_row else ""],
+        ["Protocollo", (d_row.protocollo or "") if d_row else ""],
+        ["N. Buono", (d_row.buono_n or "") if d_row else (buono_n or "")]
+    ]
+    story.append(_pdf_table(meta, [35*mm, None], header=False))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(f"<b>Cliente:</b> {(d_row.cliente or '').upper()}", _styles['Normal']))
+    story.append(Spacer(1, 8))
+    data = [['Ordine','Codice Articolo','Descrizione','Quantità','N.Arrivo']]
+    for r in rows:
+        data.append([r.ordine or '', r.codice_articolo or '', r.descrizione or '', (r.n_colli or 1), r.n_arrivo or ''])
+    story.append(_pdf_table(data, col_widths=[25*mm, 45*mm, None, 20*mm, 25*mm]))
+    story.extend([
+        Spacer(1, 16),
+        Table([["Firma Magazzino:", "Firma Cliente:"]],
+              colWidths=[doc.width/2 - 4*mm, doc.width/2 - 4*mm], style=[('GRID', (0,0), (-1,-1), 0, colors.white)]),
+        Spacer(1, 6), _copyright_para()
+    ])
+    doc.build(story)
+    bio.seek(0)
     return send_file(bio, as_attachment=False, download_name='buono.pdf', mimetype='application/pdf')
 
 @app.post('/pdf/ddt')
@@ -1391,7 +1428,6 @@ def labels_pdf():
     doc.build(story)
     bio.seek(0)
     return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
-
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
