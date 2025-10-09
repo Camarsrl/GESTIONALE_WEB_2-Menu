@@ -1141,7 +1141,6 @@ def bulk_delete():
         return redirect(url_for('giacenze'))
     
     db = SessionLocal()
-    # Prima elimina i file fisici degli allegati
     articoli_da_eliminare = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
     for art in articoli_da_eliminare:
         for att in art.attachments:
@@ -1150,7 +1149,6 @@ def bulk_delete():
                 if path.exists(): path.unlink()
             except Exception: pass
 
-    # Ora elimina gli articoli (gli allegati verranno cancellati in cascata dal DB)
     db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).delete(synchronize_session=False)
     db.commit()
     flash(f"{len(ids)} articoli e i loro allegati sono stati eliminati.", "success")
@@ -1193,7 +1191,7 @@ def get_next_ddt_number():
 
 # --- PDF E FINALIZZAZIONE DDT ---
 _styles = getSampleStyleSheet()
-PRIMARY_COLOR = colors.HexColor("#3498db") # Blu più moderno
+PRIMARY_COLOR = colors.HexColor("#3498db")
 
 def _pdf_table(data, col_widths=None, header=True, hAlign='LEFT', style=None):
     t = Table(data, colWidths=col_widths, hAlign=hAlign)
@@ -1315,7 +1313,16 @@ def pdf_buono():
             r.n_colli = to_int_eu(q_val) or 1
     db.commit()
 
-    doc, story, bio = _doc_with_header("BUONO PRELIEVO")
+    doc, story, bio = SimpleDocTemplate(io.BytesIO(), pagesize=A4, leftMargin=15*mm, rightMargin=15*mm), [], io.BytesIO()
+    if LOGO_PATH and Path(LOGO_PATH).exists():
+        story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='LEFT'))
+        story.append(Spacer(1, 5*mm))
+
+    title_style = ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, textColor=colors.white)
+    title_bar = Table([[Paragraph("BUONO DI PRELIEVO", title_style)]], colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)])
+    story.append(title_bar)
+    story.append(Spacer(1, 8*mm))
+
     d_row = rows[0] if rows else None
     meta = [
         ["Data Emissione", datetime.today().strftime("%d/%m/%Y")],
@@ -1326,14 +1333,14 @@ def pdf_buono():
     ]
     story.append(_pdf_table(meta, [35*mm, None], header=False))
     story.append(Spacer(1, 6))
-    story.append(Paragraph(f"<b>Cliente:</b> {(d_row.cliente or '').upper()}", _styles['Normal']))
+    story.append(Paragraph(f"<b>Cliente:</b> {(d_row.cliente or '').upper()}", getSampleStyleSheet()['Normal']))
     story.append(Spacer(1, 8))
     data = [['Ordine','Codice Articolo','Descrizione','Quantità','N.Arrivo']]
     for r in rows:
         data.append([r.ordine or '', r.codice_articolo or '', r.descrizione or '', (r.n_colli or 1), r.n_arrivo or ''])
     story.append(_pdf_table(data, col_widths=[25*mm, 45*mm, None, 20*mm, 25*mm]))
     story.extend([
-        Spacer(1, 16),
+        Spacer(1, 20*mm),
         Table([["Firma Magazzino:", "Firma Cliente:"]],
               colWidths=[doc.width/2 - 4*mm, doc.width/2 - 4*mm], style=[('GRID', (0,0), (-1,-1), 0, colors.white)]),
         Spacer(1, 6), _copyright_para()
@@ -1341,6 +1348,7 @@ def pdf_buono():
     doc.build(story)
     bio.seek(0)
     return send_file(bio, as_attachment=False, download_name='buono.pdf', mimetype='application/pdf')
+
 
 @app.post('/pdf/ddt')
 @login_required
@@ -1367,9 +1375,9 @@ def ddt_finalize():
         art.data_uscita = data_ddt
         art.n_ddt_uscita = n_ddt
         art.stato = 'USCITO'
-        art.pezzo = to_int_eu(request.form.get(f"pezzi_{art.id_articolo}", art.pezzo)) or 1
-        art.n_colli = to_int_eu(request.form.get(f"colli_{art.id_articolo}", art.n_colli)) or 1
-        art.peso = to_float_eu(request.form.get(f"peso_{art.id_articolo}", art.peso)) or 0
+        art.pezzo = to_int_eu(request.form.get(f"pezzi_{art.id_articolo}", art.pezzo))
+        art.n_colli = to_int_eu(request.form.get(f"colli_{art.id_articolo}", art.n_colli))
+        art.peso = to_float_eu(request.form.get(f"peso_{art.id_articolo}", art.peso))
     db.commit()
     
     dest = load_destinatari().get(request.form.get('dest_key'), {})
@@ -1414,7 +1422,7 @@ def labels_pdf():
         story.append(Image(LOGO_PATH, width=24*mm, height=8*mm))
         story.append(Spacer(1, 2))
 
-    row_style = _styles['Normal'].clone('label_line')
+    row_style = getSampleStyleSheet()['Normal']
     row_style.fontName = 'Helvetica-Bold'; row_style.fontSize = 9; row_style.leading = 11
 
     def P(label, value):
@@ -1428,6 +1436,7 @@ def labels_pdf():
     doc.build(story)
     bio.seek(0)
     return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
+
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
