@@ -832,6 +832,21 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.jinja_env.globals['getattr'] = getattr
 app.jinja_env.filters['fmt_date'] = fmt_date
 
+# --- FUNZIONE LOGO RIPRISTINATA ---
+def logo_url():
+    if not LOGO_PATH:
+        return None
+    p = Path(LOGO_PATH)
+    if p.exists() and p.parent == STATIC_DIR:
+        return url_for('static', filename=p.name)
+    try:
+        target = STATIC_DIR / Path(LOGO_PATH).name
+        if not target.exists():
+            target.write_bytes(p.read_bytes())
+        return url_for('static', filename=target.name)
+    except Exception:
+        return None
+
 @app.context_processor
 def inject_globals():
     return dict(logo_url=logo_url())
@@ -1105,7 +1120,7 @@ def bulk_edit():
         for art in articoli:
             for f in get_all_fields():
                 v = request.form.get(f)
-                if v: # Modifica solo se il campo è stato compilato nel form
+                if v:
                     updated_fields_count += 1
                     if f in ('data_ingresso','data_uscita'):
                         v = parse_date_ui(v)
@@ -1312,8 +1327,11 @@ def pdf_buono():
         if q_val is not None:
             r.n_colli = to_int_eu(q_val) or 1
     db.commit()
-
-    doc, story, bio = SimpleDocTemplate(io.BytesIO(), pagesize=A4, leftMargin=15*mm, rightMargin=15*mm), [], io.BytesIO()
+    
+    bio = io.BytesIO()
+    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm)
+    story = []
+    
     if LOGO_PATH and Path(LOGO_PATH).exists():
         story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='LEFT'))
         story.append(Spacer(1, 5*mm))
@@ -1348,7 +1366,6 @@ def pdf_buono():
     doc.build(story)
     bio.seek(0)
     return send_file(bio, as_attachment=False, download_name='buono.pdf', mimetype='application/pdf')
-
 
 @app.post('/pdf/ddt')
 @login_required
