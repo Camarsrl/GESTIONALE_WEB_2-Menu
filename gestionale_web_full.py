@@ -351,11 +351,11 @@ GIACENZE_HTML = """
 </div>
 <div class="card p-3">
     <div class="d-flex flex-wrap gap-2 mb-3 no-print border-bottom pb-3">
-        <button class="btn btn-outline-secondary btn-sm" onclick="submitForm('{{ url_for('buono_preview') }}', 'post')"><i class="bi bi-receipt"></i> Crea Buono</button>
-        <button class="btn btn-outline-secondary btn-sm" onclick="submitForm('{{ url_for('ddt_preview') }}', 'post')"><i class="bi bi-truck"></i> Crea DDT</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="return submitForm('{{ url_for('buono_preview') }}', 'post')"><i class="bi bi-receipt"></i> Crea Buono</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="return submitForm('{{ url_for('ddt_preview') }}', 'post')"><i class="bi bi-truck"></i> Crea DDT</button>
         {% if session.get('role') == 'admin' %}
-        <button class="btn btn-info btn-sm text-white" onclick="submitForm('{{ url_for('bulk_edit') }}', 'get')"><i class="bi bi-pencil-square"></i> Modifica Multipla</button>
-        <button class="btn btn-danger btn-sm" onclick="submitDeleteForm()"><i class="bi bi-trash"></i> Elimina Selezionati</button>
+        <button class="btn btn-info btn-sm text-white" onclick="return submitForm('{{ url_for('bulk_edit') }}', 'get')"><i class="bi bi-pencil-square"></i> Modifica Multipla</button>
+        <button class="btn btn-danger btn-sm" onclick="return submitDeleteForm()"><i class="bi bi-trash"></i> Elimina Selezionati</button>
         {% endif %}
     </div>
     <form id="selection-form" method="post">
@@ -435,13 +435,11 @@ GIACENZE_HTML = """
         return true;
     }
     function submitDeleteForm() {
-        const ids = getSelectedIds();
-        if (ids.length === 0) {
-            alert('Seleziona almeno una riga');
+        if (!submitForm('{{ url_for("bulk_delete") }}', 'post')) {
             return;
         }
-        if (confirm(`Sei sicuro di voler eliminare definitivamente ${ids.length} articoli selezionati? L'azione è irreversibile.`)) {
-            submitForm('{{ url_for("bulk_delete") }}', 'post');
+        if (!confirm(`Sei sicuro di voler eliminare definitivamente gli articoli selezionati? L'azione è irreversibile.`)) {
+            event.preventDefault(); 
         }
     }
 </script>
@@ -600,7 +598,7 @@ DDT_PREVIEW_HTML = """
             {% if logo_url %}<img src="{{ logo_url }}" style="height:40px">{% endif %}
             <h5 class="flex-grow-1 text-center m-0">DOCUMENTO DI TRASPORTO</h5>
             <div class="btn-group">
-                <button type="button" class="btn btn-primary" onclick="document.getElementById('ddt-form').action='{{ url_for('pdf_ddt') }}'; document.getElementById('ddt-form').target='_blank'; document.getElementById('ddt-form').submit();">
+                <button type="button" class="btn btn-primary" onclick="document.getElementById('ddt-form').action='{{ url_for('pdf_ddt') }}'; document.getElementById('ddt-form').target='_blank'; document.getElementById('ddt-form').submit(); return false;">
                     <i class="bi bi-printer"></i> Genera PDF (Anteprima)
                 </button>
                 <button type="submit" class="btn btn-success" formaction="{{ url_for('ddt_finalize') }}">
@@ -715,7 +713,7 @@ LABELS_FORM_HTML = """
 <div class="card p-4">
     <h3><i class="bi bi-tag"></i> Nuova Etichetta (100x62 mm)</h3>
     <hr>
-    <form method="post" action="{{ url_for('labels_preview') }}">
+    <form method="post" action="{{ url_for('labels_pdf') }}" target="_blank">
         <div class="row g-3">
             <div class="col-md-4"><label class="form-label">Cliente</label><input name="cliente" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Fornitore</label><input name="fornitore" class="form-control"></div>
@@ -729,8 +727,7 @@ LABELS_FORM_HTML = """
             <div class="col-md-4"><label class="form-label">Protocollo</label><input name="protocollo" class="form-control"></div>
         </div>
         <div class="mt-4 d-flex gap-2">
-            <button class="btn btn-primary"><i class="bi bi-eye"></i> Anteprima / Stampa</button>
-            <button type="submit" formaction="{{ url_for('labels_pdf') }}" class="btn btn-outline-primary" target="_blank"><i class="bi bi-file-pdf"></i> Apri solo PDF</button>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-printer"></i> Genera e Stampa PDF</button>
         </div>
     </form>
 </div>
@@ -832,7 +829,6 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.jinja_env.globals['getattr'] = getattr
 app.jinja_env.filters['fmt_date'] = fmt_date
 
-# --- FUNZIONE LOGO RIPRISTINATA ---
 def logo_url():
     if not LOGO_PATH:
         return None
@@ -1320,20 +1316,19 @@ def pdf_buono():
     rows = _get_rows_from_ids(ids)
     buono_n = (request.form.get('buono_n') or '').strip()
     db = SessionLocal()
-    for r in rows:
-        if buono_n:
+    if buono_n:
+        for r in rows:
             r.buono_n = buono_n
-        q_val = request.form.get(f"q_{r.id_articolo}")
-        if q_val is not None:
-            r.n_colli = to_int_eu(q_val) or 1
-    db.commit()
+        db.commit()
+        flash(f"Numero Buono '{buono_n}' salvato per gli articoli selezionati.", "info")
     
     bio = io.BytesIO()
-    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm)
+    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm, topMargin=10*mm, bottomMargin=15*mm)
     story = []
-    
+
     if LOGO_PATH and Path(LOGO_PATH).exists():
-        story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='LEFT'))
+        logo = Image(LOGO_PATH, width=60*mm, height=20*mm, hAlign='CENTER')
+        story.append(logo)
         story.append(Spacer(1, 5*mm))
 
     title_style = ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, textColor=colors.white)
@@ -1355,13 +1350,17 @@ def pdf_buono():
     story.append(Spacer(1, 8))
     data = [['Ordine','Codice Articolo','Descrizione','Quantità','N.Arrivo']]
     for r in rows:
-        data.append([r.ordine or '', r.codice_articolo or '', r.descrizione or '', (r.n_colli or 1), r.n_arrivo or ''])
+        q_val = request.form.get(f"q_{r.id_articolo}")
+        quantita = to_int_eu(q_val) if q_val is not None else (r.n_colli or 1)
+        data.append([r.ordine or '', r.codice_articolo or '', r.descrizione or '', quantita, r.n_arrivo or ''])
     story.append(_pdf_table(data, col_widths=[25*mm, 45*mm, None, 20*mm, 25*mm]))
     story.extend([
-        Spacer(1, 20*mm),
-        Table([["Firma Magazzino:", "Firma Cliente:"]],
-              colWidths=[doc.width/2 - 4*mm, doc.width/2 - 4*mm], style=[('GRID', (0,0), (-1,-1), 0, colors.white)]),
-        Spacer(1, 6), _copyright_para()
+        Spacer(1, 25*mm),
+        Table([["Firma Magazzino:\n\n___________________", "Firma Cliente:\n\n___________________"]],
+              colWidths=[doc.width/2 - 4*mm, doc.width/2 - 4*mm], 
+              style=[('GRID', (0,0), (-1,-1), 0, colors.white), ('VALIGN', (0,0), (-1,-1), 'TOP')]),
+        Spacer(1, 25*mm), 
+        _copyright_para()
     ])
     doc.build(story)
     bio.seek(0)
@@ -1421,7 +1420,7 @@ def _labels_clean_data(form):
     return {k: (form.get(k) or "").strip() for k in ("cliente","fornitore","ordine","commessa",
             "ddt_ingresso","data_ingresso","arrivo","n_colli","posizione","protocollo")}
 
-@app.post('/labels/preview')
+@app.post('/labels/preview') # Questa route non è più usata dal form principale
 @login_required
 def labels_preview():
     data = _labels_clean_data(request.form)
@@ -1450,7 +1449,23 @@ def labels_pdf():
         P("COMMESSA", d['commessa']), P("DDT", d['ddt_ingresso']), P("DATA ING.", d['data_ingresso']),
         P("ARRIVO", d['arrivo']), P("POSIZIONE", d['posizione']), P("COLLI", d['n_colli']),
     ])
-    doc.build(story)
+    try:
+        doc.build(story)
+    except Exception:
+        # Se il testo è troppo lungo, riduci il font e riprova
+        bio.seek(0); bio.truncate(0)
+        story = []
+        if LOGO_PATH and Path(LOGO_PATH).exists():
+            story.append(Image(LOGO_PATH, width=24*mm, height=8*mm))
+            story.append(Spacer(1, 2))
+        row_style.fontSize = 7; row_style.leading = 9
+        story.extend([
+            P("CLIENTE", d['cliente']), P("FORNITORE", d['fornitore']), P("ORDINE", d['ordine']),
+            P("COMMESSA", d['commessa']), P("DDT", d['ddt_ingresso']), P("DATA ING.", d['data_ingresso']),
+            P("ARRIVO", d['arrivo']), P("POSIZIONE", d['posizione']), P("COLLI", d['n_colli']),
+        ])
+        doc.build(story)
+
     bio.seek(0)
     return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
 
