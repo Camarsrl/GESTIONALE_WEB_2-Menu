@@ -27,7 +27,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
-# Jinja loader per gestire i template in memoria
+# Jinja loader for in-memory templates
 from jinja2 import DictLoader
 
 # --- AUTH ---
@@ -37,12 +37,12 @@ def login_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if not session.get('user'):
-            flash("Effettua il login per accedere", "warning")
+            flash("Please log in to access this page.", "warning")
             return redirect(url_for("login"))
         return fn(*args, **kwargs)
     return wrapper
 
-# --- PATH / LOGO (Configurazione robusta per Render) ---
+# --- PATH / LOGO (Robust configuration for Render) ---
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 APP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -76,7 +76,7 @@ def _normalize_db_url(u: str) -> str:
     if u.startswith("mysql://"):
         u = "mysql+pymysql://" + u[len("mysql://"):]
     if re.search(r"<[^>]+>", u):
-        raise ValueError("DATABASE_URL contiene segnaposto non sostituiti.")
+        raise ValueError("DATABASE_URL contains unresolved placeholders.")
     return u
 
 if DB_URL:
@@ -89,7 +89,7 @@ else:
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 Base = declarative_base()
 
-# --- MODELLI ---
+# --- MODELS ---
 class Articolo(Base):
     __tablename__ = "articoli"
     id_articolo = Column(Integer, Identity(start=1), primary_key=True)
@@ -117,7 +117,7 @@ class Attachment(Base):
 
 Base.metadata.create_all(engine)
 
-# --- UTENTI ---
+# --- USERS ---
 DEFAULT_USERS = {
     'DE WAVE': 'Struppa01', 'FINCANTIERI': 'Struppa02', 'DE WAVE REFITTING': 'Struppa03',
     'SGDP': 'Struppa04', 'WINGECO': 'Struppa05', 'AMICO': 'Struppa06', 'DUFERCO': 'Struppa07',
@@ -206,7 +206,7 @@ def next_ddt_number():
     PROG_FILE.write_text(json.dumps(prog, ensure_ascii=False, indent=2), encoding="utf-8")
     return f"{n:02d}/{y}"
 
-# --- SEZIONE TEMPLATES HTML ---
+# --- HTML TEMPLATES SECTION ---
 BASE_HTML = """
 <!doctype html>
 <html lang="it">
@@ -453,7 +453,7 @@ GIACENZE_HTML = """
         const ids = getSelectedIds();
         if (ids.length === 0) {
             alert('Seleziona almeno una riga');
-            return;
+            return false;
         }
         if (confirm(`Sei sicuro di voler eliminare definitivamente ${ids.length} articoli selezionati? L'azione è irreversibile.`)) {
             submitForm('{{ url_for("bulk_delete") }}', 'post');
@@ -840,6 +840,7 @@ app.jinja_loader = DictLoader(templates)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.jinja_env.globals['getattr'] = getattr
 app.jinja_env.filters['fmt_date'] = fmt_date
+
 
 def logo_url():
     if not LOGO_PATH:
