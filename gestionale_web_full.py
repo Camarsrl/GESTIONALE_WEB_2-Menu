@@ -105,17 +105,16 @@ class Articolo(Base):
     serial_number = Column(String(255))
     data_uscita = Column(String(32)); n_ddt_uscita = Column(String(255)); ns_rif = Column(String(255))
     stato = Column(String(255)); mezzi_in_uscita = Column(String(255))
-    # CORREZIONE: Aggiunto cascade='all, delete-orphan' per eliminare gli allegati insieme all'articolo
-    attachments = relationship("Attachment", back_pop_ulates="articolo", cascade="all, delete-orphan", passive_deletes=True)
+    attachments = relationship("Attachment", back_populates="articolo", cascade="all, delete-orphan", passive_deletes=True)
 
 class Attachment(Base):
     __tablename__ = "attachments"
     id = Column(Integer, Identity(start=1), primary_key=True)
-    # CORREZIONE: Aggiunto ondelete='CASCADE' per garantire l'eliminazione a livello di database
     articolo_id = Column(Integer, ForeignKey("articoli.id_articolo", ondelete='CASCADE'), nullable=False)
     kind = Column(String(10))
     filename = Column(String(512))
-    articolo = relationship("Articolo", back_pop_ulates="attachments")
+    articolo = relationship("Articolo", back_populates="attachments")
+
 Base.metadata.create_all(engine)
 
 # --- UTENTI ---
@@ -569,11 +568,10 @@ BULK_EDIT_HTML = """
 {% endblock %}
 """
 
-#### `BUONO_PREVIEW_HTML` (da Sostituire completamente)
-```html
+BUONO_PREVIEW_HTML = """
 {% extends 'base.html' %}
 {% block content %}
-<form method="post" id="buono-form" action="{{ url_for('pdf_buono') }}">
+<form method="post" id="buono-form" action="{{ url_for('buono_finalize_and_get_pdf') }}">
     <input type="hidden" name="ids" value="{{ ids }}">
     <div class="card p-3">
         <div class="d-flex align-items-center gap-3 mb-3">
@@ -616,7 +614,7 @@ BULK_EDIT_HTML = """
 document.getElementById('buono-form').addEventListener('submit', function(e) {
     e.preventDefault();
     const formData = new FormData(this);
-    fetch('{{ url_for("pdf_buono") }}', {
+    fetch('{{ url_for("buono_finalize_and_get_pdf") }}', {
         method: 'POST',
         body: formData
     })
@@ -638,6 +636,7 @@ document.getElementById('buono-form').addEventListener('submit', function(e) {
 </script>
 {% endblock %}
 """
+
 DDT_PREVIEW_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -661,7 +660,7 @@ DDT_PREVIEW_HTML = """
                 <label class="form-label">Destinatario</label>
                 <select class="form-select" name="dest_key">
                     {% for k, v in destinatari.items() %}
-                    <option value="{{ k }}">{{ k }} — {{ v.ragione_sociale }}</option>
+                    <option value="{{ k }}">{{ k }} - {{ v.ragione_sociale }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -765,8 +764,7 @@ document.getElementById('ddt-form').addEventListener('submit', function(e) {
 {% endblock %}
 """
 
-#### `LABELS_FORM_HTML` (da Sostituire completamente)
-```html
+LABELS_FORM_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="card p-4">
@@ -785,15 +783,14 @@ document.getElementById('ddt-form').addEventListener('submit', function(e) {
             <div class="col-md-4"><label class="form-label">Posizione</label><input name="posizione" class="form-control"></div>
         </div>
         <div class="mt-4 d-flex gap-2">
-            <button type="submit" class="btn btn-primary"><i class="bi bi-printer"></i> Genera e Stampa PDF</button>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-printer"></i> Genera PDF Etichetta</button>
         </div>
     </form>
 </div>
 {% endblock %}
 """
 
-# Il template LABELS_PREVIEW_HTML non è più necessario e può essere rimosso.
-LABELS_PREVIEW_HTML = " " 
+LABELS_PREVIEW_HTML = " " # Non più utilizzato
 
 IMPORT_EXCEL_HTML = """
 {% extends 'base.html' %}
