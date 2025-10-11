@@ -1303,7 +1303,7 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
         story.append(Spacer(1, 5*mm))
 
     title_style = ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, textColor=colors.white)
-    title_bar = Table([[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", title_style)]], colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)])
+    title_bar = Table([[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", title_style)]], colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#3498db")), ('PADDING', (0,0), (-1,-1), 6)])
     story.append(title_bar)
     story.append(Spacer(1, 8*mm))
 
@@ -1357,7 +1357,7 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     totals_text = f"<b>Totale Pezzi:</b> {tot_pezzi}<br/><b>Totale Colli:</b> {tot_colli}<br/><b>Totale Peso:</b> {tot_peso:.2f} Kg"
     firma_text = "<b>Firma Vettore:</b><br/><br/>________________________"
     
-    footer_table = Table([[cpa_table, Paragraph(totals_text, s_bold), Paragraph(firma_text, s_bold)]], 
+    footer_table = Table([[cpa_table, Paragraph(totals_text, s_small_bold), Paragraph(firma_text, s_small_bold)]], 
                          colWidths=[doc.width/3, doc.width/3, doc.width/3], 
                          style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
     story.append(footer_table)
@@ -1368,7 +1368,6 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     doc.build(story)
     bio.seek(0)
     return bio
-
 @app.post('/pdf/buono')
 @login_required
 def pdf_buono():
