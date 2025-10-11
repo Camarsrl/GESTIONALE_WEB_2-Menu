@@ -1,0 +1,59 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Aggiungi/Modifica Destinatario</h5>
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="nickname" class="form-label">Nickname (*)</label>
+                        <input type="text" class="form-control" id="nickname" name="nickname" required placeholder="Es. FINCANTIERI_GE">
+                        <small class="form-text text-muted">Un nome breve per identificarlo (in maiuscolo).</small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="ragione_sociale" class="form-label">Ragione Sociale (*)</label>
+                        <input type="text" class="form-control" id="ragione_sociale" name="ragione_sociale" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="indirizzo" class="form-label">Indirizzo Completo (*)</label>
+                        <textarea class="form-control" id="indirizzo" name="indirizzo" rows="3" required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="piva" class="form-label">P.IVA / C.F.</label>
+                        <input type="text" class="form-control" id="piva" name="piva">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Salva</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Destinatari Salvati</h5>
+                {% if destinatari %}
+                <ul class="list-group">
+                    {% for key, dest in destinatari.items() %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>{{ key }}</strong><br>
+                            <small class="text-muted">{{ dest.ragione_sociale }} - {{ dest.indirizzo }}</small>
+                        </div>
+                        <form method="POST" onsubmit="return confirm('Sei sicuro di voler eliminare {{ key }}?');">
+                            <input type="hidden" name="delete_key" value="{{ key }}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Elimina</button>
+                        </form>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-center text-muted">Nessun destinatario salvato.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
