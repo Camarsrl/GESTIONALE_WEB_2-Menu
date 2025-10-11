@@ -454,7 +454,7 @@ GIACENZE_HTML = """
         const ids = getSelectedIds();
         if (ids.length === 0) {
             alert('Seleziona almeno una riga');
-            return;
+            return false;
         }
         if (confirm(`Sei sicuro di voler eliminare definitivamente ${ids.length} articoli selezionati? L'azione è irreversibile.`)) {
             submitForm('{{ url_for("bulk_delete") }}', 'post');
@@ -569,10 +569,11 @@ BULK_EDIT_HTML = """
 {% endblock %}
 """
 
-BUONO_PREVIEW_HTML = """
+#### `BUONO_PREVIEW_HTML` (da Sostituire completamente)
+```html
 {% extends 'base.html' %}
 {% block content %}
-<form method="post" id="buono-form">
+<form method="post" id="buono-form" action="{{ url_for('pdf_buono') }}">
     <input type="hidden" name="ids" value="{{ ids }}">
     <div class="card p-3">
         <div class="d-flex align-items-center gap-3 mb-3">
@@ -615,30 +616,15 @@ BUONO_PREVIEW_HTML = """
 document.getElementById('buono-form').addEventListener('submit', function(e) {
     e.preventDefault();
     const formData = new FormData(this);
-    fetch('{{ url_for('buono_finalize_and_get_pdf') }}', {
+    fetch('{{ url_for("pdf_buono") }}', {
         method: 'POST',
         body: formData
     })
     .then(resp => {
         if (resp.ok) {
-            const contentDisposition = resp.headers.get('content-disposition');
-            let filename = "buono.pdf";
-            if (contentDisposition) {
-                const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-                if (filenameMatch.length > 1) {
-                    filename = filenameMatch[1];
-                }
-            }
             resp.blob().then(blob => {
                 const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                a.target = '_blank'; // Apri in una nuova scheda
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                // Reindirizza la pagina corrente
+                window.open(url, '_blank');
                 window.location.href = '{{ url_for('giacenze') }}';
             });
         } else {
@@ -652,7 +638,6 @@ document.getElementById('buono-form').addEventListener('submit', function(e) {
 </script>
 {% endblock %}
 """
-
 DDT_PREVIEW_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -780,11 +765,12 @@ document.getElementById('ddt-form').addEventListener('submit', function(e) {
 {% endblock %}
 """
 
-LABELS_FORM_HTML = """
+#### `LABELS_FORM_HTML` (da Sostituire completamente)
+```html
 {% extends 'base.html' %}
 {% block content %}
 <div class="card p-4">
-    <h3><i class="bi bi-tag"></i> Nuova Etichetta Stampa Multipla</h3>
+    <h3><i class="bi bi-tag"></i> Nuova Etichetta</h3>
     <hr>
     <form method="post" action="{{ url_for('labels_pdf') }}" target="_blank">
         <div class="row g-3">
@@ -1493,49 +1479,62 @@ def _labels_clean_data(form):
 def labels_preview():
     data = _labels_clean_data(request.form)
     return render_template('labels_preview.html', d=data)
-
+    
 @app.post('/labels/pdf')
 @login_required
 def labels_pdf():
     d = _labels_clean_data(request.form)
-    pagesize = (100*mm, 62*mm) # CORRETTO: 100x62 mm
     bio = io.BytesIO()
-    doc = SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=4*mm, rightMargin=4*mm, topMargin=3*mm, bottomMargin=3*mm)
+    
+    # Usa un formato pagina standard A4
+    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
     story = []
+
+    # Stile per il testo dell'etichetta
+    style = getSampleStyleSheet()
+    label_style = style['Normal']
+    label_style.fontName = 'Helvetica'
+    label_style.fontSize = 12
+    label_style.leading = 14
+
+    # Contenuto dell'etichetta
+    label_content = []
     if LOGO_PATH and Path(LOGO_PATH).exists():
-        story.append(Image(LOGO_PATH, width=24*mm, height=8*mm))
-        story.append(Spacer(1, 2))
+        logo = Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER')
+        label_content.append(logo)
+        label_content.append(Spacer(1, 4*mm))
 
-    row_style = getSampleStyleSheet()['Normal']
-    row_style.fontName = 'Helvetica-Bold'; row_style.fontSize = 9; row_style.leading = 11
+    text = f"""
+    <b>CLIENTE:</b> {d.get('cliente', '')}<br/>
+    <b>FORNITORE:</b> {d.get('fornitore', '')}<br/>
+    <b>ORDINE:</b> {d.get('ordine', '')}<br/>
+    <b>COMMESSA:</b> {d.get('commessa', '')}<br/>
+    <b>DDT:</b> {d.get('ddt_ingresso', '')}<br/>
+    <b>DATA ING.:</b> {d.get('data_ingresso', '')}<br/>
+    <b>ARRIVO:</b> {d.get('arrivo', '')}<br/>
+    <b>POSIZIONE:</b> {d.get('posizione', '')}<br/>
+    <b>COLLI:</b> {d.get('n_colli', '')}
+    """
+    label_content.append(Paragraph(text, label_style))
 
-    def P(label, value):
-        return Paragraph(f"{label}: <b>{value or ''}</b>", row_style)
+    # Crea un Frame (riquadro) per l'etichetta
+    label_frame = Table([label_content], colWidths=[100*mm], rowHeights=[62*mm])
+    label_frame.setStyle(TableStyle([
+        ('BOX', (0,0), (-1,-1), 1, colors.black),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('PADDING', (0,0), (-1,-1), 5*mm)
+    ]))
+    
+    # Aggiungi una o più etichette alla pagina
+    story.append(label_frame)
+    # Puoi aggiungere un ciclo qui per stampare più etichette
+    # for i in range(5):
+    #     story.append(Spacer(1, 5*mm))
+    #     story.append(label_frame)
 
-    story.extend([
-        P("CLIENTE", d['cliente']), P("FORNITORE", d['fornitore']), P("ORDINE", d['ordine']),
-        P("COMMESSA", d['commessa']), P("DDT", d['ddt_ingresso']), P("DATA ING.", d['data_ingresso']),
-        P("ARRIVO", d['arrivo']), P("POSIZIONE", d['posizione']), P("COLLI", d['n_colli']),
-    ])
-    try:
-        doc.build(story)
-    except Exception:
-        # Se il testo è troppo lungo, riduci il font e riprova
-        bio.seek(0); bio.truncate(0)
-        story = []
-        if LOGO_PATH and Path(LOGO_PATH).exists():
-            story.append(Image(LOGO_PATH, width=24*mm, height=8*mm))
-            story.append(Spacer(1, 2))
-        row_style.fontSize = 7; row_style.leading = 9
-        story.extend([
-            P("CLIENTE", d['cliente']), P("FORNITORE", d['fornitore']), P("ORDINE", d['ordine']),
-            P("COMMESSA", d['commessa']), P("DDT", d['ddt_ingresso']), P("DATA ING.", d['data_ingresso']),
-            P("ARRIVO", d['arrivo']), P("POSIZIONE", d['posizione']), P("COLLI", d['n_colli']),
-        ])
-        doc.build(story)
-
+    doc.build(story)
     bio.seek(0)
-    return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
+    return send_file(bio, as_attachment=False, download_name='etichette.pdf', mimetype='application/pdf')
 
 
 # --- AVVIO FLASK APP ---
