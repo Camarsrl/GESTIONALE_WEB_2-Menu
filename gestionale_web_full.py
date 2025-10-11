@@ -90,6 +90,7 @@ SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocom
 Base = declarative_base()
 
 # --- MODELLI ---
+# --- MODELLI ---
 class Articolo(Base):
     __tablename__ = "articoli"
     id_articolo = Column(Integer, Identity(start=1), primary_key=True)
@@ -105,16 +106,17 @@ class Articolo(Base):
     serial_number = Column(String(255))
     data_uscita = Column(String(32)); n_ddt_uscita = Column(String(255)); ns_rif = Column(String(255))
     stato = Column(String(255)); mezzi_in_uscita = Column(String(255))
-    attachments = relationship("Attachment", back_populates="articolo", cascade="all, delete-orphan", passive_deletes=True)
+    # CORREZIONE: Aggiunto cascade='all, delete-orphan' per eliminare gli allegati insieme all'articolo
+    attachments = relationship("Attachment", back_pop_ulates="articolo", cascade="all, delete-orphan", passive_deletes=True)
 
 class Attachment(Base):
     __tablename__ = "attachments"
     id = Column(Integer, Identity(start=1), primary_key=True)
+    # CORREZIONE: Aggiunto ondelete='CASCADE' per garantire l'eliminazione a livello di database
     articolo_id = Column(Integer, ForeignKey("articoli.id_articolo", ondelete='CASCADE'), nullable=False)
     kind = Column(String(10))
     filename = Column(String(512))
-    articolo = relationship("Articolo", back_populates="attachments")
-
+    articolo = relationship("Articolo", back_pop_ulates="attachments")
 Base.metadata.create_all(engine)
 
 # --- UTENTI ---
