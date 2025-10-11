@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 
 # ReportLab (PDF)
-from reportlab.lib.pagesizes import landscape
+from reportlab.lib.pagesizes import landscape, A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
@@ -453,7 +453,7 @@ GIACENZE_HTML = """
         const ids = getSelectedIds();
         if (ids.length === 0) {
             alert('Seleziona almeno una riga');
-            return false;
+            return;
         }
         if (confirm(`Sei sicuro di voler eliminare definitivamente ${ids.length} articoli selezionati? L'azione è irreversibile.`)) {
             submitForm('{{ url_for("bulk_delete") }}', 'post');
