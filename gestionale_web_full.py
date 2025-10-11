@@ -17,12 +17,13 @@ from flask import (
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey, Identity
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.inspection import inspect
 
 # ReportLab (PDF)
-from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak, Frame, PageTemplate
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
@@ -222,6 +223,7 @@ BASE_HTML = """
         .dropzone { border: 2px dashed #0d6efd; background: #eef4ff; padding: 20px; border-radius: 12px; text-align: center; color: #0d6efd; cursor: pointer; }
         .logo { height: 40px; }
         .table-compact th, .table-compact td { font-size: 11px; padding: 4px 5px; white-space: nowrap; vertical-align: middle; }
+        tr.striped { background-color: #f2f2f2; }
         @media print { .no-print { display: none !important; } }
     </style>
 </head>
