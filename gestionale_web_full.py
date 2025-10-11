@@ -66,8 +66,8 @@ def _discover_logo_path():
 LOGO_PATH = _discover_logo_path()
 
 # --- DATABASE ---
-if not os.environ.get("DATABASE_URL"):
-    os.environ["DATABASE_URL"] = "postgresql://magazzino_1pgq_user:SrXIOLyspVI2RUSx51r7ZMq8usa0K8WD@dpg-d348i73uibrs73fagoa0-a/magazzino_1pgq"
+# NUOVO INDIRIZZO DATABASE
+os.environ["DATABASE_URL"] = "postgresql://magazzino_kbfc_user:nLrf9IxrcXvnKpX8UxNXu6vXpZUCcupo@dpg-d348ug6r433s73cdg81g-a/magazzino_kbfc"
 
 DB_URL = (os.environ.get("DATABASE_URL") or "").strip()
 
@@ -1270,19 +1270,17 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     s_small = ParagraphStyle(name='small', fontName='Helvetica', fontSize=8)
     
     if LOGO_PATH and Path(LOGO_PATH).exists():
-        story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='LEFT'))
+        story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER'))
         story.append(Spacer(1, 5*mm))
 
     title_style = ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, textColor=colors.white)
-    title_bar = Table([[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", title_style)]], colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#3498db")), ('PADDING', (0,0), (-1,-1), 6)])
+    title_bar = Table([[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", title_style)]], colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)])
     story.append(title_bar)
     story.append(Spacer(1, 8*mm))
-
-    mitt_text = Paragraph("<b>Mittente</b><br/>Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)", s_small)
-    dest_text = Paragraph(f"<b>Destinatario</b><br/>{dest.get('ragione_sociale','') or ''}<br/>{dest.get('indirizzo','') or ''}", s_small)
     
     first_row = rows[0] if rows else Articolo()
     add_data_content = [
+        [Paragraph("<b>Cliente</b>", s_small_bold), Paragraph(first_row.cliente or '', s_small)],
         [Paragraph("<b>Commessa</b>", s_small_bold), Paragraph(first_row.commessa or '', s_small)],
         [Paragraph("<b>Ordine</b>", s_small_bold), Paragraph(first_row.ordine or '', s_small)],
         [Paragraph("<b>Buono</b>", s_small_bold), Paragraph(first_row.buono_n or '', s_small)],
@@ -1294,14 +1292,13 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
         [Paragraph("<b>Targa</b>", s_small_bold), Paragraph(targa, s_small)],
         [Paragraph("<b>Richiesta di:</b>", s_small_bold), Paragraph("", s_small)],
     ]
-
-    header_table = Table(
-        [[mitt_text, Paragraph("<b>Dati Aggiuntivi</b>", s_small_bold), Paragraph("<b>Dati Documento</b>", s_small_bold)],
-         [dest_text, Table(add_data_content, colWidths=[25*mm, '35%'], style=[('VALIGN', (0,0), (-1,-1), 'TOP')]), 
-                     Table(doc_data_content, colWidths=[25*mm, '35%'], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])]],
-        colWidths=[doc.width/3, doc.width/3, doc.width/3],
-        style=[('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (-1,-1), 0)]
-    )
+    
+    header_data = [
+        [Paragraph("<b>Dati Aggiuntivi</b>", s_small_bold), Paragraph("<b>Destinatario</b>", s_small_bold)],
+        [Table(add_data_content, colWidths=[25*mm, '60%']), Paragraph(f"{dest.get('ragione_sociale','') or ''}<br/>{dest.get('indirizzo','') or ''}", s_small)]
+    ]
+    header_table = Table(header_data, colWidths=[doc.width/2, doc.width/2], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
+    
     story.append(header_table)
     story.append(Spacer(1, 8*mm))
     
@@ -1339,14 +1336,14 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     doc.build(story)
     bio.seek(0)
     return bio
-@app.post('/pdf/buono')
+
+@app.post('/buono/finalize_and_get_pdf')
 @login_required
-def pdf_buono():
+def buono_finalize_and_get_pdf():
     ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
     rows = _get_rows_from_ids(ids)
     buono_n = (request.form.get('buono_n') or '').strip()
     db = SessionLocal()
-
     if buono_n:
         for r in rows:
             r.buono_n = buono_n
@@ -1363,17 +1360,17 @@ def pdf_buono():
         story.append(Spacer(1, 5*mm))
 
     title_style = ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, textColor=colors.white)
-    title_bar = Table([[Paragraph("BUONO DI PRELIEVO", title_style)]], colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#3498db")), ('PADDING', (0,0), (-1,-1), 6)])
+    title_bar = Table([[Paragraph("BUONO DI PRELIEVO", title_style)]], colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)])
     story.append(title_bar)
     story.append(Spacer(1, 8*mm))
 
     d_row = rows[0] if rows else None
     meta = [
-        ["Data Emissione", datetime.today().strftime("%d/%m/%Y")],
-        ["Commessa", (d_row.commessa or "") if d_row else ""],
-        ["Fornitore", (d_row.fornitore or "") if d_row else ""],
-        ["Protocollo", (d_row.protocollo or "") if d_row else ""],
-        ["N. Buono", buono_n or (d_row.buono_n if d_row else "")]
+        ["Data Emissione", request.form.get('data_em', '')],
+        ["Commessa", request.form.get('commessa', '')],
+        ["Fornitore", request.form.get('fornitore', '')],
+        ["Protocollo", request.form.get('protocollo', '')],
+        ["N. Buono", buono_n]
     ]
     story.append(_pdf_table(meta, [35*mm, None], header=False))
     story.append(Spacer(1, 6))
@@ -1386,7 +1383,6 @@ def pdf_buono():
         data.append([r.ordine or '', r.codice_articolo or '', r.descrizione or '', quantita, r.n_arrivo or ''])
     story.append(_pdf_table(data, col_widths=[25*mm, 45*mm, None, 20*mm, 25*mm]))
     
-    # Spaziatore per mandare a fondo pagina le firme
     story.append(Spacer(1, 100*mm)) 
 
     signature_style = ParagraphStyle(name='Signature', fontName='Helvetica', fontSize=10)
@@ -1401,8 +1397,6 @@ def pdf_buono():
 
     doc.build(story)
     bio.seek(0)
-    
-    # Il redirect viene gestito da JavaScript, qui inviamo solo il file
     return send_file(bio, as_attachment=False, download_name=f'Buono_{buono_n}.pdf', mimetype='application/pdf')
 
 @app.post('/pdf/ddt')
@@ -1455,71 +1449,40 @@ def ddt_finalize():
 def labels_form():
     return render_template('labels_form.html')
 
-def _labels_clean_data(form):
-    return {k: (form.get(k) or "").strip() for k in ("cliente","fornitore","ordine","commessa",
-            "ddt_ingresso","data_ingresso","arrivo","n_colli","posizione","protocollo")}
-
-@app.post('/labels/preview') # Questa route non è più usata dal form principale
-@login_required
-def labels_preview():
-    data = _labels_clean_data(request.form)
-    return render_template('labels_preview.html', d=data)
-    
 @app.post('/labels/pdf')
 @login_required
 def labels_pdf():
     d = _labels_clean_data(request.form)
     bio = io.BytesIO()
     
-    # Usa un formato pagina standard A4
+    # Crea un PDF in formato A4 standard
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
     story = []
 
     # Stile per il testo dell'etichetta
     style = getSampleStyleSheet()
-    label_style = style['Normal']
-    label_style.fontName = 'Helvetica'
-    label_style.fontSize = 12
-    label_style.leading = 14
+    label_style_left = ParagraphStyle(name='LabelLeft', parent=style['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=18, alignment=TA_LEFT)
 
     # Contenuto dell'etichetta
-    label_content = []
     if LOGO_PATH and Path(LOGO_PATH).exists():
-        logo = Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER')
-        label_content.append(logo)
-        label_content.append(Spacer(1, 4*mm))
+        story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='LEFT'))
+        story.append(Spacer(1, 4*mm))
 
     text = f"""
-    <b>CLIENTE:</b> {d.get('cliente', '')}<br/>
-    <b>FORNITORE:</b> {d.get('fornitore', '')}<br/>
-    <b>ORDINE:</b> {d.get('ordine', '')}<br/>
-    <b>COMMESSA:</b> {d.get('commessa', '')}<br/>
-    <b>DDT:</b> {d.get('ddt_ingresso', '')}<br/>
-    <b>DATA ING.:</b> {d.get('data_ingresso', '')}<br/>
-    <b>ARRIVO:</b> {d.get('arrivo', '')}<br/>
-    <b>POSIZIONE:</b> {d.get('posizione', '')}<br/>
-    <b>COLLI:</b> {d.get('n_colli', '')}
+    CLIENTE: {d.get('cliente', '')}<br/>
+    FORNITORE: {d.get('fornitore', '')}<br/>
+    ORDINE: {d.get('ordine', '')}<br/>
+    COMMESSA: {d.get('commessa', '')}<br/>
+    DDT: {d.get('ddt_ingresso', '')}<br/>
+    DATA INGRESSO: {d.get('data_ingresso', '')}<br/>
+    ARRIVO: {d.get('arrivo', '')}<br/>
+    COLLI: {d.get('n_colli', '')}
     """
-    label_content.append(Paragraph(text, label_style))
-
-    # Crea un Frame (riquadro) per l'etichetta
-    label_frame = Table([label_content], colWidths=[100*mm], rowHeights=[62*mm])
-    label_frame.setStyle(TableStyle([
-        ('BOX', (0,0), (-1,-1), 1, colors.black),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('PADDING', (0,0), (-1,-1), 5*mm)
-    ]))
+    story.append(Paragraph(text, label_style_left))
     
-    # Aggiungi una o più etichette alla pagina
-    story.append(label_frame)
-    # Puoi aggiungere un ciclo qui per stampare più etichette
-    # for i in range(5):
-    #     story.append(Spacer(1, 5*mm))
-    #     story.append(label_frame)
-
     doc.build(story)
     bio.seek(0)
-    return send_file(bio, as_attachment=False, download_name='etichette.pdf', mimetype='application/pdf')
+    return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
 
 
 # --- AVVIO FLASK APP ---
