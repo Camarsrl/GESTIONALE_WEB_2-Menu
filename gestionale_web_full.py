@@ -855,8 +855,6 @@ def logo_url():
     except Exception:
         return None
 
-
-
 @app.context_processor
 def inject_globals():
     return dict(logo_url=logo_url())
