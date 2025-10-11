@@ -453,7 +453,7 @@ GIACENZE_HTML = """
         const ids = getSelectedIds();
         if (ids.length === 0) {
             alert('Seleziona almeno una riga');
-            return false;
+            return;
         }
         if (confirm(`Sei sicuro di voler eliminare definitivamente ${ids.length} articoli selezionati? L'azione è irreversibile.`)) {
             submitForm('{{ url_for("bulk_delete") }}', 'post');
@@ -833,7 +833,6 @@ templates = {
     'labels_preview.html': LABELS_PREVIEW_HTML,
     'import_excel.html': IMPORT_EXCEL_HTML
 }
-
 
 # --- APP FLASK ---
 app = Flask(__name__)
