@@ -20,12 +20,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 
 # ReportLab (PDF)
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import landscape
 from reportlab.lib.units import mm
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 # Jinja loader per gestire i template in memoria
 from jinja2 import DictLoader
@@ -365,12 +365,12 @@ GIACENZE_HTML = """
 </div>
 <div class="card p-3">
     <div class="d-flex flex-wrap gap-2 mb-3 no-print border-bottom pb-3">
-        <button class="btn btn-outline-secondary btn-sm" onclick="submitForm('{{ url_for('buono_preview') }}', 'post')"><i class="bi bi-receipt"></i> Crea Buono</button>
-        <button class="btn btn-outline-secondary btn-sm" onclick="submitForm('{{ url_for('ddt_preview') }}', 'post')"><i class="bi bi-truck"></i> Crea DDT</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="return submitForm('{{ url_for('buono_preview') }}', 'post')"><i class="bi bi-receipt"></i> Crea Buono</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="return submitForm('{{ url_for('ddt_preview') }}', 'post')"><i class="bi bi-truck"></i> Crea DDT</button>
         {% if session.get('role') == 'admin' %}
-        <button class="btn btn-outline-primary btn-sm" onclick="submitForm('{{ url_for('bulk_duplicate') }}', 'post')"><i class="bi bi-copy"></i> Duplica Selezionati</button>
-        <button class="btn btn-info btn-sm text-white" onclick="submitForm('{{ url_for('bulk_edit') }}', 'get')"><i class="bi bi-pencil-square"></i> Modifica Multipla</button>
-        <button class="btn btn-danger btn-sm" onclick="submitDeleteForm()"><i class="bi bi-trash"></i> Elimina Selezionati</button>
+        <button class="btn btn-outline-primary btn-sm" onclick="return submitForm('{{ url_for('bulk_duplicate') }}', 'post')"><i class="bi bi-copy"></i> Duplica Selezionati</button>
+        <button class="btn btn-info btn-sm text-white" onclick="return submitForm('{{ url_for('bulk_edit') }}', 'get')"><i class="bi bi-pencil-square"></i> Modifica Multipla</button>
+        <button class="btn btn-danger btn-sm" onclick="return submitDeleteForm()"><i class="bi bi-trash"></i> Elimina Selezionati</button>
         {% endif %}
     </div>
     <form id="selection-form" method="post">
@@ -425,8 +425,11 @@ GIACENZE_HTML = """
     document.getElementById('checkall').addEventListener('change', e => {
         document.querySelectorAll('.sel').forEach(cb => cb.checked = e.target.checked);
     });
+    function getSelectedIds() {
+        return [...document.querySelectorAll('.sel:checked')].map(x => x.value);
+    }
     function submitForm(actionUrl, method) {
-        const ids = [...document.querySelectorAll('.sel:checked')].map(x => x.value);
+        const ids = getSelectedIds();
         if (ids.length === 0) {
             alert('Seleziona almeno una riga');
             return false;
@@ -447,14 +450,15 @@ GIACENZE_HTML = """
         return true;
     }
     function submitDeleteForm() {
-        const ids = [...document.querySelectorAll('.sel:checked')].map(x => x.value);
+        const ids = getSelectedIds();
         if (ids.length === 0) {
             alert('Seleziona almeno una riga');
-            return;
+            return false;
         }
         if (confirm(`Sei sicuro di voler eliminare definitivamente ${ids.length} articoli selezionati? L'azione è irreversibile.`)) {
             submitForm('{{ url_for("bulk_delete") }}', 'post');
         }
+        return false;
     }
 </script>
 {% endblock %}
@@ -567,38 +571,84 @@ BULK_EDIT_HTML = """
 BUONO_PREVIEW_HTML = """
 {% extends 'base.html' %}
 {% block content %}
-<form method="post" action="{{ url_for('pdf_buono') }}" target="_blank" class="card p-3">
+<form method="post" id="buono-form">
     <input type="hidden" name="ids" value="{{ ids }}">
-    <div class="d-flex align-items-center gap-3 mb-3">
-        {% if logo_url %}<img src="{{ logo_url }}" style="height:40px">{% endif %}
-        <h5 class="flex-grow-1 text-center m-0">BUONO DI PRELIEVO (ANTEPRIMA)</h5>
-        <button class="btn btn-primary"><i class="bi bi-printer"></i> Stampa / Genera PDF</button>
-    </div>
-    <div class="row g-3">
-        <div class="col-md-3"><label class="form-label">N. Buono</label><input name="buono_n" class="form-control" value="{{ meta.buono_n }}"></div>
-        <div class="col-md-3"><label class="form-label">Data Emissione</label><input name="data_em" class="form-control" value="{{ meta.data_em }}"></div>
-        <div class="col-md-3"><label class="form-label">Commessa</label><input name="commessa" class="form-control" value="{{ meta.commessa }}"></div>
-        <div class="col-md-3"><label class="form-label">Fornitore</label><input name="fornitore" class="form-control" value="{{ meta.fornitore }}"></div>
-        <div class="col-md-3"><label class="form-label">Protocollo</label><input name="protocollo" class="form-control" value="{{ meta.protocollo }}"></div>
-    </div>
-    <hr>
-    <div class="table-responsive">
-        <table class="table table-sm table-bordered">
-            <thead><tr><th>Ordine</th><th>Codice Articolo</th><th>Descrizione</th><th>Quantità</th><th>N.Arrivo</th></tr></thead>
-            <tbody>
-                {% for r in rows %}
-                <tr>
-                    <td>{{ r.ordine or '' }}</td>
-                    <td>{{ r.codice_articolo or '' }}</td>
-                    <td>{{ r.descrizione or '' }}</td>
-                    <td><input name="q_{{ r.id_articolo }}" class="form-control form-control-sm" value="{{ r.n_colli or 1 }}"></td>
-                    <td>{{ r.n_arrivo or '' }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <div class="card p-3">
+        <div class="d-flex align-items-center gap-3 mb-3">
+            {% if logo_url %}<img src="{{ logo_url }}" style="height:40px">{% endif %}
+            <h5 class="flex-grow-1 text-center m-0">BUONO DI PRELIEVO</h5>
+            <div class="btn-group">
+                <button type="submit" class="btn btn-primary"><i class="bi bi-file-earmark-check"></i> Genera e Salva Buono</button>
+                <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
+            </div>
+        </div>
+        <div class="row g-3">
+            <div class="col-md-3"><label class="form-label">N. Buono</label><input name="buono_n" class="form-control" value="{{ meta.buono_n }}"></div>
+            <div class="col-md-3"><label class="form-label">Data Emissione</label><input name="data_em" class="form-control" value="{{ meta.data_em }}" readonly></div>
+            <div class="col-md-3"><label class="form-label">Commessa</label><input name="commessa" class="form-control" value="{{ meta.commessa }}"></div>
+            <div class="col-md-3"><label class="form-label">Fornitore</label><input name="fornitore" class="form-control" value="{{ meta.fornitore }}"></div>
+            <div class="col-md-3"><label class="form-label">Protocollo</label><input name="protocollo" class="form-control" value="{{ meta.protocollo }}"></div>
+        </div>
+        <hr>
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered">
+                <thead><tr><th>Ordine</th><th>Codice Articolo</th><th>Descrizione</th><th>Quantità</th><th>N.Arrivo</th></tr></thead>
+                <tbody>
+                    {% for r in rows %}
+                    <tr>
+                        <td>{{ r.ordine or '' }}</td>
+                        <td>{{ r.codice_articolo or '' }}</td>
+                        <td>{{ r.descrizione or '' }}</td>
+                        <td><input name="q_{{ r.id_articolo }}" class="form-control form-control-sm" value="{{ r.n_colli or 1 }}"></td>
+                        <td>{{ r.n_arrivo or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </form>
+{% endblock %}
+{% block extra_js %}
+<script>
+document.getElementById('buono-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    fetch('{{ url_for('buono_finalize_and_get_pdf') }}', {
+        method: 'POST',
+        body: formData
+    })
+    .then(resp => {
+        if (resp.ok) {
+            const contentDisposition = resp.headers.get('content-disposition');
+            let filename = "buono.pdf";
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+                if (filenameMatch.length > 1) {
+                    filename = filenameMatch[1];
+                }
+            }
+            resp.blob().then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.target = '_blank'; // Apri in una nuova scheda
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                // Reindirizza la pagina corrente
+                window.location.href = '{{ url_for('giacenze') }}';
+            });
+        } else {
+            alert("Si è verificato un errore durante la generazione del buono.");
+        }
+    }).catch(err => {
+        console.error('Error:', err);
+        alert("Errore di rete o del server.");
+    });
+});
+</script>
 {% endblock %}
 """
 
@@ -612,7 +662,7 @@ DDT_PREVIEW_HTML = """
             {% if logo_url %}<img src="{{ logo_url }}" style="height:40px">{% endif %}
             <h5 class="flex-grow-1 text-center m-0">DOCUMENTO DI TRASPORTO</h5>
             <div class="btn-group">
-                <button type="button" class="btn btn-primary" onclick="document.getElementById('ddt-form').action='{{ url_for('pdf_ddt') }}'; document.getElementById('ddt-form').target='_blank'; document.getElementById('ddt-form').submit(); return false;">
+                <button type="button" class="btn btn-primary" onclick="submitDdtPreview()">
                     <i class="bi bi-printer"></i> Genera PDF (Anteprima)
                 </button>
                 <button type="submit" class="btn btn-success" formaction="{{ url_for('ddt_finalize') }}">
@@ -668,6 +718,13 @@ DDT_PREVIEW_HTML = """
 {% endblock %}
 {% block extra_js %}
 <script>
+function submitDdtPreview() {
+    const form = document.getElementById('ddt-form');
+    form.action = '{{ url_for('pdf_ddt') }}';
+    form.target = '_blank';
+    form.submit();
+}
+
 document.getElementById('get-next-ddt').addEventListener('click', function() {
     fetch('{{ url_for('get_next_ddt_number') }}')
         .then(response => response.json())
@@ -676,6 +733,7 @@ document.getElementById('get-next-ddt').addEventListener('click', function() {
         })
         .catch(error => console.error('Error fetching next DDT number:', error));
 });
+
 document.getElementById('ddt-form').addEventListener('submit', function(e) {
     if (this.action.endsWith('{{ url_for('ddt_finalize') }}')) {
         e.preventDefault();
@@ -691,7 +749,7 @@ document.getElementById('ddt-form').addEventListener('submit', function(e) {
                 let filename = "download.pdf";
                 if (contentDisposition) {
                     const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-                    if (filenameMatch.length > 1) {
+                    if (filenameMatch && filenameMatch.length > 1) {
                         filename = filenameMatch[1];
                     }
                 }
@@ -725,7 +783,7 @@ LABELS_FORM_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="card p-4">
-    <h3><i class="bi bi-tag"></i> Nuova Etichetta (100x62 mm)</h3>
+    <h3><i class="bi bi-tag"></i> Nuova Etichetta Stampa Multipla</h3>
     <hr>
     <form method="post" action="{{ url_for('labels_pdf') }}" target="_blank">
         <div class="row g-3">
@@ -735,10 +793,9 @@ LABELS_FORM_HTML = """
             <div class="col-md-4"><label class="form-label">Commessa</label><input name="commessa" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">DDT Ingresso</label><input name="ddt_ingresso" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Data Ingresso</label><input name="data_ingresso" class="form-control" placeholder="gg/mm/aaaa"></div>
-            <div class="col-md-4"><label class="form-label">Arrivo (es. 01/24)</label><input name="arrivo" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">Arrivo (es. 01/25)</label><input name="arrivo" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">N. Colli</label><input name="n_colli" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Posizione</label><input name="posizione" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Protocollo</label><input name="protocollo" class="form-control"></div>
         </div>
         <div class="mt-4 d-flex gap-2">
             <button type="submit" class="btn btn-primary"><i class="bi bi-printer"></i> Genera e Stampa PDF</button>
@@ -748,51 +805,8 @@ LABELS_FORM_HTML = """
 {% endblock %}
 """
 
-LABELS_PREVIEW_HTML = """
-<!doctype html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <style>
-        @media print { .no-print { display: none } body { margin: 0 } }
-        .logo { height: 26px; margin-right: 10px; }
-        .wrap { 
-            width: 100mm; 
-            height: 62mm; 
-            padding: 4mm; 
-            border: 1px solid #ccc; 
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            font-family: 'Helvetica', sans-serif;
-        }
-        .row-line { font-size: 10pt; line-height: 1.3; margin: 0; }
-        .key { font-weight: bold; }
-    </style>
-</head>
-<body class="p-4 bg-light">
-    <div class="no-print mb-3 d-flex gap-2">
-        <button class="btn btn-primary" onclick="window.print()"><i class="bi bi-printer"></i> Stampa</button>
-        <a class="btn btn-outline-secondary" href="{{ url_for('labels_form') }}">Indietro</a>
-    </div>
-    <div class="wrap bg-white">
-        <div class="d-flex align-items-center mb-2">
-            {% if logo_url %}<img src="{{ logo_url }}" class="logo" alt="logo">{% endif %}
-            <h5 class="m-0" style="font-size: 12pt;">Camar S.r.l.</h5>
-        </div>
-        <p class="row-line"><span class="key">CLIENTE:</span> {{ d.cliente }}</p>
-        <p class="row-line"><span class="key">FORNITORE:</span> {{ d.fornitore }}</p>
-        <p class="row-line"><span class="key">ORDINE:</span> {{ d.ordine }}</p>
-        <p class="row-line"><span class="key">COMMESSA:</span> {{ d.commessa }}</p>
-        <p class="row-line"><span class="key">DDT:</span> {{ d.ddt_ingresso }}</p>
-        <p class="row-line"><span class="key">DATA ING.:</span> {{ d.data_ingresso }}</p>
-        <p class="row-line"><span class="key">ARRIVO:</span> {{ d.arrivo }}</p>
-        <p class="row-line"><span class="key">POSIZIONE:</span> {{ d.posizione }}</p>
-        <p class="row-line"><span class="key">COLLI:</span> {{ d.n_colli }}</p>
-    </div>
-</body>
-</html>
-"""
+# Il template LABELS_PREVIEW_HTML non è più necessario e può essere rimosso.
+LABELS_PREVIEW_HTML = " " 
 
 IMPORT_EXCEL_HTML = """
 {% extends 'base.html' %}
@@ -835,6 +849,7 @@ templates = {
     'labels_preview.html': LABELS_PREVIEW_HTML,
     'import_excel.html': IMPORT_EXCEL_HTML
 }
+
 
 # --- APP FLASK ---
 app = Flask(__name__)
