@@ -90,7 +90,6 @@ SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocom
 Base = declarative_base()
 
 # --- MODELLI ---
-# --- MODELLI ---
 class Articolo(Base):
     __tablename__ = "articoli"
     id_articolo = Column(Integer, Identity(start=1), primary_key=True)
@@ -873,6 +872,35 @@ def logo_url():
         return url_for('static', filename=target.name)
     except Exception:
         return None
+
+@app.post('/bulk/duplicate')
+@login_required
+def bulk_duplicate():
+    if session.get('role') != 'admin':
+        flash("Non hai i permessi per eseguire questa azione.", "danger")
+        return redirect(url_for('giacenze'))
+        
+    ids = [int(i) for i in request.form.getlist('ids') if i.isdigit()]
+    if not ids:
+        flash("Nessun articolo selezionato per la duplicazione.", "warning")
+        return redirect(url_for('giacenze'))
+    
+    db = SessionLocal()
+    articoli_da_duplicare = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+    
+    nuovi_articoli = []
+    mapper = inspect(Articolo)
+    for originale in articoli_da_duplicare:
+        nuovo = Articolo()
+        for column in mapper.attrs:
+            if column.key not in ['id_articolo', 'attachments']:
+                setattr(nuovo, column.key, getattr(originale, column.key))
+        nuovi_articoli.append(nuovo)
+
+    db.add_all(nuovi_articoli)
+    db.commit()
+    flash(f"{len(nuovi_articoli)} articoli duplicati con successo.", "success")
+    return redirect(url_for('giacenze'))
 
 @app.context_processor
 def inject_globals():
