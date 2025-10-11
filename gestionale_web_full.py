@@ -873,34 +873,7 @@ def logo_url():
     except Exception:
         return None
 
-@app.post('/bulk/duplicate')
-@login_required
-def bulk_duplicate():
-    if session.get('role') != 'admin':
-        flash("Non hai i permessi per eseguire questa azione.", "danger")
-        return redirect(url_for('giacenze'))
-        
-    ids = [int(i) for i in request.form.getlist('ids') if i.isdigit()]
-    if not ids:
-        flash("Nessun articolo selezionato per la duplicazione.", "warning")
-        return redirect(url_for('giacenze'))
-    
-    db = SessionLocal()
-    articoli_da_duplicare = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-    
-    nuovi_articoli = []
-    mapper = inspect(Articolo)
-    for originale in articoli_da_duplicare:
-        nuovo = Articolo()
-        for column in mapper.attrs:
-            if column.key not in ['id_articolo', 'attachments']:
-                setattr(nuovo, column.key, getattr(originale, column.key))
-        nuovi_articoli.append(nuovo)
 
-    db.add_all(nuovi_articoli)
-    db.commit()
-    flash(f"{len(nuovi_articoli)} articoli duplicati con successo.", "success")
-    return redirect(url_for('giacenze'))
 
 @app.context_processor
 def inject_globals():
@@ -1223,6 +1196,34 @@ def bulk_delete():
     db.commit()
     flash(f"{len(ids)} articoli e i loro allegati sono stati eliminati.", "success")
     return redirect(url_for('giacenze'))
+    @app.post('/bulk/duplicate')
+@login_required
+def bulk_duplicate():
+    if session.get('role') != 'admin':
+        flash("Non hai i permessi per eseguire questa azione.", "danger")
+        return redirect(url_for('giacenze'))
+        
+    ids = [int(i) for i in request.form.getlist('ids') if i.isdigit()]
+    if not ids:
+        flash("Nessun articolo selezionato per la duplicazione.", "warning")
+        return redirect(url_for('giacenze'))
+    
+    db = SessionLocal()
+    articoli_da_duplicare = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+    
+    nuovi_articoli = []
+    mapper = inspect(Articolo)
+    for originale in articoli_da_duplicare:
+        nuovo = Articolo()
+        for column in mapper.attrs:
+            if column.key not in ['id_articolo', 'attachments']:
+                setattr(nuovo, column.key, getattr(originale, column.key))
+        nuovi_articoli.append(nuovo)
+
+    db.add_all(nuovi_articoli)
+    db.commit()
+    flash(f"{len(nuovi_articoli)} articoli duplicati con successo.", "success")
+    return redirect(url_for('giacenze'))
 
 # --- ANTEPRIME HTML (BUONO / DDT) ---
 def _get_rows_from_ids(ids_list):
@@ -1375,6 +1376,7 @@ def pdf_buono():
     rows = _get_rows_from_ids(ids)
     buono_n = (request.form.get('buono_n') or '').strip()
     db = SessionLocal()
+
     if buono_n:
         for r in rows:
             r.buono_n = buono_n
@@ -1391,7 +1393,7 @@ def pdf_buono():
         story.append(Spacer(1, 5*mm))
 
     title_style = ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, textColor=colors.white)
-    title_bar = Table([[Paragraph("BUONO DI PRELIEVO", title_style)]], colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)])
+    title_bar = Table([[Paragraph("BUONO DI PRELIEVO", title_style)]], colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#3498db")), ('PADDING', (0,0), (-1,-1), 6)])
     story.append(title_bar)
     story.append(Spacer(1, 8*mm))
 
@@ -1401,7 +1403,7 @@ def pdf_buono():
         ["Commessa", (d_row.commessa or "") if d_row else ""],
         ["Fornitore", (d_row.fornitore or "") if d_row else ""],
         ["Protocollo", (d_row.protocollo or "") if d_row else ""],
-        ["N. Buono", (d_row.buono_n or "") if d_row else (buono_n or "")]
+        ["N. Buono", buono_n or (d_row.buono_n if d_row else "")]
     ]
     story.append(_pdf_table(meta, [35*mm, None], header=False))
     story.append(Spacer(1, 6))
@@ -1413,17 +1415,25 @@ def pdf_buono():
         quantita = to_int_eu(q_val) if q_val is not None else (r.n_colli or 1)
         data.append([r.ordine or '', r.codice_articolo or '', r.descrizione or '', quantita, r.n_arrivo or ''])
     story.append(_pdf_table(data, col_widths=[25*mm, 45*mm, None, 20*mm, 25*mm]))
-    story.extend([
-        Spacer(1, 25*mm),
-        Table([["Firma Magazzino:\n\n___________________", "Firma Cliente:\n\n___________________"]],
-              colWidths=[doc.width/2 - 4*mm, doc.width/2 - 4*mm], 
-              style=[('GRID', (0,0), (-1,-1), 0, colors.white), ('VALIGN', (0,0), (-1,-1), 'TOP')]),
-        Spacer(1, 25*mm), 
-        _copyright_para()
-    ])
+    
+    # Spaziatore per mandare a fondo pagina le firme
+    story.append(Spacer(1, 100*mm)) 
+
+    signature_style = ParagraphStyle(name='Signature', fontName='Helvetica', fontSize=10)
+    sig_data = [
+        [Paragraph("Firma Magazzino:<br/><br/>____________________________", signature_style), 
+         Paragraph("Firma Cliente:<br/><br/>____________________________", signature_style)]
+    ]
+    story.append(Table(sig_data, colWidths=[doc.width/2, doc.width/2], style=[('VALIGN', (0,0), (-1,-1), 'TOP')]))
+    
+    story.append(Spacer(1, 15*mm))
+    story.append(_copyright_para())
+
     doc.build(story)
     bio.seek(0)
-    return send_file(bio, as_attachment=False, download_name='buono.pdf', mimetype='application/pdf')
+    
+    # Il redirect viene gestito da JavaScript, qui inviamo solo il file
+    return send_file(bio, as_attachment=False, download_name=f'Buono_{buono_n}.pdf', mimetype='application/pdf')
 
 @app.post('/pdf/ddt')
 @login_required
