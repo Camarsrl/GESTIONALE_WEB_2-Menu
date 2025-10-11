@@ -27,7 +27,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
-# Jinja loader for in-memory templates
+# Jinja loader per gestire i template in memoria
 from jinja2 import DictLoader
 
 # --- AUTH ---
@@ -37,12 +37,12 @@ def login_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if not session.get('user'):
-            flash("Please log in to access this page.", "warning")
+            flash("Effettua il login per accedere", "warning")
             return redirect(url_for("login"))
         return fn(*args, **kwargs)
     return wrapper
 
-# --- PATH / LOGO (Robust configuration for Render) ---
+# --- PATH / LOGO (Configurazione robusta per Render) ---
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 APP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -76,7 +76,7 @@ def _normalize_db_url(u: str) -> str:
     if u.startswith("mysql://"):
         u = "mysql+pymysql://" + u[len("mysql://"):]
     if re.search(r"<[^>]+>", u):
-        raise ValueError("DATABASE_URL contains unresolved placeholders.")
+        raise ValueError("DATABASE_URL contiene segnaposto non sostituiti.")
     return u
 
 if DB_URL:
@@ -89,7 +89,7 @@ else:
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 Base = declarative_base()
 
-# --- MODELS ---
+# --- MODELLI ---
 class Articolo(Base):
     __tablename__ = "articoli"
     id_articolo = Column(Integer, Identity(start=1), primary_key=True)
@@ -117,7 +117,7 @@ class Attachment(Base):
 
 Base.metadata.create_all(engine)
 
-# --- USERS ---
+# --- UTENTI ---
 DEFAULT_USERS = {
     'DE WAVE': 'Struppa01', 'FINCANTIERI': 'Struppa02', 'DE WAVE REFITTING': 'Struppa03',
     'SGDP': 'Struppa04', 'WINGECO': 'Struppa05', 'AMICO': 'Struppa06', 'DUFERCO': 'Struppa07',
@@ -206,7 +206,7 @@ def next_ddt_number():
     PROG_FILE.write_text(json.dumps(prog, ensure_ascii=False, indent=2), encoding="utf-8")
     return f"{n:02d}/{y}"
 
-# --- HTML TEMPLATES SECTION ---
+# --- SEZIONE TEMPLATES HTML ---
 BASE_HTML = """
 <!doctype html>
 <html lang="it">
@@ -841,7 +841,6 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.jinja_env.globals['getattr'] = getattr
 app.jinja_env.filters['fmt_date'] = fmt_date
 
-
 def logo_url():
     if not LOGO_PATH:
         return None
@@ -954,30 +953,20 @@ def import_excel():
 
     return render_template('import_excel.html')
 
-def get_all_fields():
-    return [
-        'codice_articolo', 'pezzo', 'larghezza', 'lunghezza', 'altezza',
-        'protocollo', 'ordine', 'commessa', 'magazzino', 'fornitore',
-        'data_ingresso', 'n_ddt_ingresso', 'cliente', 'descrizione', 'peso',
-        'n_colli', 'posizione', 'n_arrivo', 'buono_n', 'note',
-        'serial_number', 'data_uscita', 'n_ddt_uscita', 'ns_rif', 'stato',
-        'mezzi_in_uscita'
-    ]
-
-def get_field_labels():
-    return [
-        ('Codice Articolo', 'codice_articolo'), ('Pezzi', 'pezzo'),
-        ('Descrizione', 'descrizione'), ('Cliente', 'cliente'),
-        ('Protocollo', 'protocollo'), ('Ordine', 'ordine'), ('Peso (Kg)', 'peso'),
-        ('N° Colli', 'n_colli'), ('Posizione', 'posizione'), ('Stato', 'stato'),
-        ('N° Arrivo', 'n_arrivo'), ('Buono N°', 'buono_n'),
-        ('Fornitore', 'fornitore'), ('Magazzino', 'magazzino'),
-        ('Data Ingresso', 'data_ingresso'), ('Data Uscita', 'data_uscita'),
-        ('N° DDT Ingresso', 'n_ddt_ingresso'), ('N° DDT Uscita', 'n_ddt_uscita'),
-        ('Larghezza (m)', 'larghezza'), ('Lunghezza (m)', 'lunghezza'),
-        ('Altezza (m)', 'altezza'), ('Serial Number', 'serial_number'),
-        ('NS Rif', 'ns_rif'), ('Mezzi in Uscita', 'mezzi_in_uscita'), ('Note', 'note')
-    ]
+def get_all_fields_map():
+    return {
+        'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi',
+        'descrizione': 'Descrizione', 'cliente': 'Cliente',
+        'protocollo': 'Protocollo', 'ordine': 'Ordine', 'peso': 'Peso (Kg)',
+        'n_colli': 'N° Colli', 'posizione': 'Posizione', 'stato': 'Stato',
+        'n_arrivo': 'N° Arrivo', 'buono_n': 'Buono N°',
+        'fornitore': 'Fornitore', 'magazzino': 'Magazzino',
+        'data_ingresso': 'Data Ingresso', 'data_uscita': 'Data Uscita',
+        'n_ddt_ingresso': 'N° DDT Ingresso', 'n_ddt_uscita': 'N° DDT Uscita',
+        'larghezza': 'Larghezza (m)', 'lunghezza': 'Lunghezza (m)',
+        'altezza': 'Altezza (m)', 'serial_number': 'Serial Number',
+        'ns_rif': 'NS Rif', 'mezzi_in_uscita': 'Mezzi in Uscita', 'note': 'Note'
+    }
 
 # --- GESTIONE ARTICOLI (CRUD) ---
 @app.get('/new')
@@ -1007,7 +996,7 @@ def edit_row(id):
         abort(404)
 
     if request.method == 'POST':
-        for f in get_all_fields():
+        for f in get_all_fields_map().keys():
             v = request.form.get(f)
             if v is not None:
                 if f in ('data_ingresso','data_uscita'):
@@ -1016,7 +1005,7 @@ def edit_row(id):
                     v = to_float_eu(v)
                 elif f in ('n_colli', 'pezzo'):
                     v = to_int_eu(v)
-                setattr(row, f, v)
+                setattr(row, f, v if v != '' else None)
         row.m2, row.m3 = calc_m2_m3(row.lunghezza, row.larghezza, row.altezza, row.n_colli)
         if 'files' in request.files:
             for f in request.files.getlist('files'):
@@ -1031,7 +1020,7 @@ def edit_row(id):
         flash('Riga salvata', 'success')
         return redirect(url_for('giacenze'))
 
-    return render_template('edit.html', row=row, fields=get_field_labels())
+    return render_template('edit.html', row=row, fields=get_all_fields_map().items())
 
 # --- MEDIA & ALLEGATI ---
 @app.get('/media/<int:att_id>')
@@ -1127,7 +1116,7 @@ def bulk_edit():
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
         updated_fields_count = 0
         for art in articoli:
-            for f in get_all_fields():
+            for f in get_all_fields_map().keys():
                 v = request.form.get(f)
                 if v:
                     updated_fields_count += 1
@@ -1154,7 +1143,7 @@ def bulk_edit():
         return redirect(url_for('giacenze'))
     
     rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-    return render_template('bulk_edit.html', rows=rows, ids_csv=ids_csv, fields=get_field_labels())
+    return render_template('bulk_edit.html', rows=rows, ids_csv=ids_csv, fields=get_all_fields_map().items())
 
 @app.post('/bulk/delete')
 @login_required
@@ -1177,7 +1166,8 @@ def bulk_delete():
     db.commit()
     flash(f"{len(ids)} articoli e i loro allegati sono stati eliminati.", "success")
     return redirect(url_for('giacenze'))
-    @app.post('/bulk/duplicate')
+
+@app.post('/bulk/duplicate')
 @login_required
 def bulk_duplicate():
     if session.get('role') != 'admin':
