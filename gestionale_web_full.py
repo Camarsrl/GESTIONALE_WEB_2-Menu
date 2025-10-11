@@ -23,7 +23,7 @@ from sqlalchemy.inspection import inspect
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak, Frame, PageTemplate
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
@@ -181,15 +181,16 @@ def calc_m2_m3(l, w, h, colli):
 
 def load_destinatari():
     DESTINATARI_JSON = APP_DIR / "destinatari_saved.json"
+    data = {}
     if DESTINATARI_JSON.exists():
         try:
             data = json.loads(DESTINATARI_JSON.read_text(encoding="utf-8"))
             if isinstance(data, list):
                 data = {f"Destinatario {i+1}": v for i, v in enumerate(data)}
-            return data
         except Exception: pass
-    data = {"Sede Cliente": {"ragione_sociale": "Cliente S.p.A.", "indirizzo": "Via Esempio 1, 16100 Genova", "piva": "IT00000000000"}}
-    DESTINATARI_JSON.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    if not data:
+        data = {"Sede Cliente": {"ragione_sociale": "Cliente S.p.A.", "indirizzo": "Via Esempio 1, 16100 Genova", "piva": "IT00000000000"}}
+        DESTINATARI_JSON.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return data
 
 def next_ddt_number():
@@ -218,12 +219,12 @@ BASE_HTML = """
     <style>
         body { background: #f8f9fa; font-size: 14px; }
         .card { border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.08); border: none; }
-        .table-container { overflow-x: auto; }
+        .table-container { overflow: auto; max-height: 65vh; }
         .table thead th { position: sticky; top: 0; background: #f0f2f5; z-index: 2; }
         .dropzone { border: 2px dashed #0d6efd; background: #eef4ff; padding: 20px; border-radius: 12px; text-align: center; color: #0d6efd; cursor: pointer; }
         .logo { height: 40px; }
         .table-compact th, .table-compact td { font-size: 11px; padding: 4px 5px; white-space: nowrap; vertical-align: middle; }
-        tr.striped { background-color: #f2f2f2; }
+        .table-striped tbody tr:nth-of-type(odd) { background-color: rgba(0,0,0,.03); }
         @media print { .no-print { display: none !important; } }
     </style>
 </head>
@@ -327,42 +328,54 @@ GIACENZE_HTML = """
     <h4 class="m-0">📦 Visualizza Giacenze</h4>
     <a href="{{ url_for('new_row') }}" class="btn btn-success"><i class="bi bi-plus-circle"></i> Aggiungi Articolo</a>
 </div>
-<div class="card p-3 mb-3 no-print">
-    <form class="row g-2 align-items-end" method="get">
-        <div class="col-lg-2 col-md-4"><label class="form-label small">Cliente</label><input name="cliente" value="{{ request.args.get('cliente', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">Fornitore</label><input name="fornitore" value="{{ request.args.get('fornitore', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">Commessa</label><input name="commessa" value="{{ request.args.get('commessa', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">Descrizione</label><input name="descrizione" value="{{ request.args.get('descrizione', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">Posizione</label><input name="posizione" value="{{ request.args.get('posizione', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">Stato</label><input name="stato" value="{{ request.args.get('stato', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">Protocollo</label><input name="protocollo" value="{{ request.args.get('protocollo', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">N. DDT Ingresso</label><input name="n_ddt_ingresso" value="{{ request.args.get('n_ddt_ingresso', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">N. DDT Uscita</label><input name="n_ddt_uscita" value="{{ request.args.get('n_ddt_uscita', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">N. Arrivo</label><input name="n_arrivo" value="{{ request.args.get('n_arrivo', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">N. Buono</label><input name="buono_n" value="{{ request.args.get('buono_n', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">NS Rif.</label><input name="ns_rif" value="{{ request.args.get('ns_rif', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">Serial Number</label><input name="serial_number" value="{{ request.args.get('serial_number', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">Mezzo Uscito</label><input name="mezzi_in_uscita" value="{{ request.args.get('mezzi_in_uscita', '') }}" class="form-control form-control-sm"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">Ingresso Da</label><input name="data_ingresso_da" value="{{ request.args.get('data_ingresso_da', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">Ingresso A</label><input name="data_ingresso_a" value="{{ request.args.get('data_ingresso_a', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">Uscita Da</label><input name="data_uscita_da" value="{{ request.args.get('data_uscita_da', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
-        <div class="col-lg-2 col-md-4"><label class="form-label small">Uscita A</label><input name="data_uscita_a" value="{{ request.args.get('data_uscita_a', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
-        <div class="col-lg-2 col-md-4 d-grid"><button class="btn btn-primary btn-sm mt-3">Filtra</button></div>
-        <div class="col-lg-2 col-md-4 d-grid"><a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm mt-3">Pulisci Filtri</a></div>
-    </form>
+<div class="accordion mb-3 no-print" id="accordionFiltri">
+    <div class="accordion-item">
+        <h2 class="accordion-header">
+            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="false" aria-controls="collapseOne">
+                Mostra/Nascondi Filtri di Ricerca
+            </button>
+        </h2>
+        <div id="collapseOne" class="accordion-collapse collapse" data-bs-parent="#accordionFiltri">
+            <div class="accordion-body">
+                <form class="row g-2 align-items-end" method="get">
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">Cliente</label><input name="cliente" value="{{ request.args.get('cliente', '') }}" class="form-control form-control-sm"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">Fornitore</label><input name="fornitore" value="{{ request.args.get('fornitore', '') }}" class="form-control form-control-sm"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">Commessa</label><input name="commessa" value="{{ request.args.get('commessa', '') }}" class="form-control form-control-sm"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">Descrizione</label><input name="descrizione" value="{{ request.args.get('descrizione', '') }}" class="form-control form-control-sm"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">Posizione</label><input name="posizione" value="{{ request.args.get('posizione', '') }}" class="form-control form-control-sm"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">Stato</label><input name="stato" value="{{ request.args.get('stato', '') }}" class="form-control form-control-sm"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">Protocollo</label><input name="protocollo" value="{{ request.args.get('protocollo', '') }}" class="form-control form-control-sm"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">N. DDT Ingresso</label><input name="n_ddt_ingresso" value="{{ request.args.get('n_ddt_ingresso', '') }}" class="form-control form-control-sm"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">N. DDT Uscita</label><input name="n_ddt_uscita" value="{{ request.args.get('n_ddt_uscita', '') }}" class="form-control form-control-sm"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">N. Arrivo</label><input name="n_arrivo" value="{{ request.args.get('n_arrivo', '') }}" class="form-control form-control-sm"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">N. Buono</label><input name="buono_n" value="{{ request.args.get('buono_n', '') }}" class="form-control form-control-sm"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">NS Rif.</label><input name="ns_rif" value="{{ request.args.get('ns_rif', '') }}" class="form-control form-control-sm"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">Serial Number</label><input name="serial_number" value="{{ request.args.get('serial_number', '') }}" class="form-control form-control-sm"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">Mezzo Uscito</label><input name="mezzi_in_uscita" value="{{ request.args.get('mezzi_in_uscita', '') }}" class="form-control form-control-sm"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">Ingresso Da</label><input name="data_ingresso_da" value="{{ request.args.get('data_ingresso_da', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">Ingresso A</label><input name="data_ingresso_a" value="{{ request.args.get('data_ingresso_a', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">Uscita Da</label><input name="data_uscita_da" value="{{ request.args.get('data_uscita_da', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
+                    <div class="col-lg-2 col-md-4"><label class="form-label small">Uscita A</label><input name="data_uscita_a" value="{{ request.args.get('data_uscita_a', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
+                    <div class="col-lg-2 col-md-4 d-grid"><button class="btn btn-primary btn-sm mt-3">Filtra</button></div>
+                    <div class="col-lg-2 col-md-4 d-grid"><a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm mt-3">Pulisci Filtri</a></div>
+                </form>
+            </div>
+        </div>
+    </div>
 </div>
 <div class="card p-3">
     <div class="d-flex flex-wrap gap-2 mb-3 no-print border-bottom pb-3">
-        <button class="btn btn-outline-secondary btn-sm" onclick="return submitForm('{{ url_for('buono_preview') }}', 'post')"><i class="bi bi-receipt"></i> Crea Buono</button>
-        <button class="btn btn-outline-secondary btn-sm" onclick="return submitForm('{{ url_for('ddt_preview') }}', 'post')"><i class="bi bi-truck"></i> Crea DDT</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="submitForm('{{ url_for('buono_preview') }}', 'post')"><i class="bi bi-receipt"></i> Crea Buono</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="submitForm('{{ url_for('ddt_preview') }}', 'post')"><i class="bi bi-truck"></i> Crea DDT</button>
         {% if session.get('role') == 'admin' %}
-        <button class="btn btn-info btn-sm text-white" onclick="return submitForm('{{ url_for('bulk_edit') }}', 'get')"><i class="bi bi-pencil-square"></i> Modifica Multipla</button>
-        <button class="btn btn-danger btn-sm" onclick="return submitDeleteForm()"><i class="bi bi-trash"></i> Elimina Selezionati</button>
+        <button class="btn btn-outline-primary btn-sm" onclick="submitForm('{{ url_for('bulk_duplicate') }}', 'post')"><i class="bi bi-copy"></i> Duplica Selezionati</button>
+        <button class="btn btn-info btn-sm text-white" onclick="submitForm('{{ url_for('bulk_edit') }}', 'get')"><i class="bi bi-pencil-square"></i> Modifica Multipla</button>
+        <button class="btn btn-danger btn-sm" onclick="submitDeleteForm()"><i class="bi bi-trash"></i> Elimina Selezionati</button>
         {% endif %}
     </div>
     <form id="selection-form" method="post">
         <div class="table-container">
-            <table class="table table-sm table-hover table-compact table-bordered align-middle">
+            <table class="table table-sm table-hover table-compact table-bordered table-striped align-middle">
                 <thead class="table-light">
                     <tr>
                         <th class="no-print" style="width:28px"><input type="checkbox" id="checkall"></th>
@@ -373,7 +386,7 @@ GIACENZE_HTML = """
                 </thead>
                 <tbody>
                     {% for r in rows %}
-                    <tr class="{% if r.data_uscita %}table-secondary text-muted{% endif %}">
+                    <tr class="{% if r.data_uscita %}text-muted{% endif %}">
                         <td class="no-print"><input type="checkbox" name="ids" class="sel" value="{{ r.id_articolo }}"></td>
                         {% for c in cols %}
                             {% set v = getattr(r, c) %}
@@ -396,7 +409,7 @@ GIACENZE_HTML = """
                 </tbody>
                 <tfoot class="no-print">
                     <tr class="table-light fw-bold">
-                        <td colspan="10" class="text-end">Totali Merce in Giacenza (esclusi articoli usciti):</td>
+                        <td colspan="10" class="text-end">Totali Merce in Giacenza (filtrata):</td>
                         <td colspan="2">Colli: {{ total_colli }}</td>
                         <td colspan="2">M²: {{ "%.3f"|format(total_m2) }}</td>
                         <td colspan="4"></td>
@@ -412,11 +425,8 @@ GIACENZE_HTML = """
     document.getElementById('checkall').addEventListener('change', e => {
         document.querySelectorAll('.sel').forEach(cb => cb.checked = e.target.checked);
     });
-    function getSelectedIds() {
-        return [...document.querySelectorAll('.sel:checked')].map(x => x.value);
-    }
     function submitForm(actionUrl, method) {
-        const ids = getSelectedIds();
+        const ids = [...document.querySelectorAll('.sel:checked')].map(x => x.value);
         if (ids.length === 0) {
             alert('Seleziona almeno una riga');
             return false;
@@ -437,11 +447,13 @@ GIACENZE_HTML = """
         return true;
     }
     function submitDeleteForm() {
-        if (!submitForm('{{ url_for("bulk_delete") }}', 'post')) {
+        const ids = [...document.querySelectorAll('.sel:checked')].map(x => x.value);
+        if (ids.length === 0) {
+            alert('Seleziona almeno una riga');
             return;
         }
-        if (!confirm(`Sei sicuro di voler eliminare definitivamente gli articoli selezionati? L'azione è irreversibile.`)) {
-            event.preventDefault(); 
+        if (confirm(`Sei sicuro di voler eliminare definitivamente ${ids.length} articoli selezionati? L'azione è irreversibile.`)) {
+            submitForm('{{ url_for("bulk_delete") }}', 'post');
         }
     }
 </script>
