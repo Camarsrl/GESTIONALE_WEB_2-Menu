@@ -27,7 +27,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
-# Jinja loader per gestire i template in memoria
+# Jinja loader for in-memory templates
 from jinja2 import DictLoader
 
 # --- AUTH ---
@@ -37,12 +37,12 @@ def login_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if not session.get('user'):
-            flash("Effettua il login per accedere", "warning")
+            flash("Please log in to access this page.", "warning")
             return redirect(url_for("login"))
         return fn(*args, **kwargs)
     return wrapper
 
-# --- PATH / LOGO (Configurazione robusta per Render) ---
+# --- PATH / LOGO (Robust configuration for Render) ---
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 APP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -66,8 +66,8 @@ def _discover_logo_path():
 LOGO_PATH = _discover_logo_path()
 
 # --- DATABASE ---
-# NUOVO INDIRIZZO DATABASE
-os.environ["DATABASE_URL"] = "postgresql://magazzino_kbfc_user:nLrf9IxrcXvnKpX8UxNXu6vXpZUCcupo@dpg-d348ug6r433s73cdg81g-a/magazzino_kbfc"
+if not os.environ.get("DATABASE_URL"):
+    os.environ["DATABASE_URL"] = "postgresql://magazzino_1pgq_user:SrXIOLyspVI2RUSx51r7ZMq8usa0K8WD@dpg-d348i73uibrs73fagoa0-a/magazzino_1pgq"
 
 DB_URL = (os.environ.get("DATABASE_URL") or "").strip()
 
@@ -76,7 +76,7 @@ def _normalize_db_url(u: str) -> str:
     if u.startswith("mysql://"):
         u = "mysql+pymysql://" + u[len("mysql://"):]
     if re.search(r"<[^>]+>", u):
-        raise ValueError("DATABASE_URL contiene segnaposto non sostituiti.")
+        raise ValueError("DATABASE_URL contains unresolved placeholders.")
     return u
 
 if DB_URL:
@@ -89,7 +89,7 @@ else:
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 Base = declarative_base()
 
-# --- MODELLI ---
+# --- MODELS ---
 class Articolo(Base):
     __tablename__ = "articoli"
     id_articolo = Column(Integer, Identity(start=1), primary_key=True)
@@ -117,7 +117,7 @@ class Attachment(Base):
 
 Base.metadata.create_all(engine)
 
-# --- UTENTI ---
+# --- USERS ---
 DEFAULT_USERS = {
     'DE WAVE': 'Struppa01', 'FINCANTIERI': 'Struppa02', 'DE WAVE REFITTING': 'Struppa03',
     'SGDP': 'Struppa04', 'WINGECO': 'Struppa05', 'AMICO': 'Struppa06', 'DUFERCO': 'Struppa07',
@@ -206,7 +206,7 @@ def next_ddt_number():
     PROG_FILE.write_text(json.dumps(prog, ensure_ascii=False, indent=2), encoding="utf-8")
     return f"{n:02d}/{y}"
 
-# --- SEZIONE TEMPLATES HTML ---
+# --- HTML TEMPLATES SECTION ---
 BASE_HTML = """
 <!doctype html>
 <html lang="it">
@@ -1051,6 +1051,149 @@ def delete_attachment(att_id):
         db.commit()
         flash('Allegato eliminato', 'success')
         return redirect(url_for('edit_row', id=articolo_id))
+    return redirect(url_for('giacenze'))
+
+# --- VISUALIZZA GIACENZE E AZIONI MULTIPLE ---
+@app.get('/giacenze')
+@login_required
+def giacenze():
+    db = SessionLocal()
+    try:
+        qs = db.query(Articolo).order_by(Articolo.id_articolo.desc())
+        if session.get('role') == 'client':
+            qs = qs.filter(Articolo.cliente == session['user'])
+        
+        like_cols = [
+            'codice_articolo', 'cliente', 'fornitore', 'commessa', 'descrizione', 'posizione', 'stato', 
+            'protocollo', 'n_ddt_ingresso', 'n_ddt_uscita', 'n_arrivo', 'buono_n', 'ns_rif', 
+            'serial_number', 'mezzi_in_uscita'
+        ]
+        if request.args.get('id'):
+            try: qs = qs.filter(Articolo.id_articolo == int(request.args.get('id')))
+            except ValueError: pass
+        
+        for col in like_cols:
+            v = request.args.get(col)
+            if v:
+                qs = qs.filter(getattr(Articolo, col).ilike(f"%{v}%"))
+                
+        date_filters = {
+            'data_ingresso_da': (Articolo.data_ingresso, '>='), 'data_ingresso_a': (Articolo.data_ingresso, '<='),
+            'data_uscita_da': (Articolo.data_uscita, '>='), 'data_uscita_a': (Articolo.data_uscita, '<=')
+        }
+        for arg, (col, op) in date_filters.items():
+            val = request.args.get(arg)
+            if val:
+                date_sql = parse_date_ui(val)
+                if date_sql:
+                    if op == '>=': qs = qs.filter(col >= date_sql)
+                    else: qs = qs.filter(col <= date_sql)
+        
+        rows = qs.all()
+        
+        stock_rows = [r for r in rows if not r.data_uscita]
+        total_colli = sum(r.n_colli for r in stock_rows if r.n_colli)
+        total_m2 = sum(r.m2 for r in stock_rows if r.m2)
+
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore nel caricamento delle giacenze: {e}", "danger")
+        rows, total_colli, total_m2 = [], 0, 0
+    
+    cols = ["id_articolo","codice_articolo","descrizione","cliente","fornitore","protocollo","ordine",
+            "commessa","magazzino","posizione","stato","peso","n_colli","m2","data_ingresso","data_uscita",
+            "n_ddt_uscita", "mezzi_in_uscita"]
+    return render_template('giacenze.html', rows=rows, cols=cols, total_colli=total_colli, total_m2=total_m2)
+
+@app.route('/bulk/edit', methods=['GET', 'POST'])
+@login_required
+def bulk_edit():
+    db = SessionLocal()
+    if request.method == 'POST':
+        ids_csv = request.form.get('ids', '')
+        ids = [int(i) for i in ids_csv.split(',') if i.isdigit()]
+        
+        articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+        updated_fields_count = 0
+        for art in articoli:
+            for f in get_all_fields_map().keys():
+                v = request.form.get(f)
+                if v:
+                    updated_fields_count += 1
+                    if f in ('data_ingresso','data_uscita'):
+                        v = parse_date_ui(v)
+                    elif f in ('larghezza','lunghezza','altezza','peso'):
+                        v = to_float_eu(v)
+                    elif f in ('n_colli', 'pezzo'):
+                        v = to_int_eu(v)
+                    setattr(art, f, v)
+        
+        if updated_fields_count > 0:
+            db.commit()
+            flash(f"{len(articoli)} articoli aggiornati con successo.", "success")
+        else:
+            flash("Nessun campo compilato, nessuna modifica applicata.", "info")
+            
+        return redirect(url_for('giacenze'))
+
+    ids_csv = request.args.get('ids', '')
+    ids = [int(i) for i in ids_csv.split(',') if i.isdigit()]
+    if not ids:
+        flash("Nessun articolo selezionato per la modifica.", "warning")
+        return redirect(url_for('giacenze'))
+    
+    rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+    return render_template('bulk_edit.html', rows=rows, ids_csv=ids_csv, fields=get_all_fields_map().items())
+
+@app.post('/bulk/delete')
+@login_required
+def bulk_delete():
+    ids = [int(i) for i in request.form.getlist('ids') if i.isdigit()]
+    if not ids:
+        flash("Nessun articolo selezionato per l'eliminazione.", "warning")
+        return redirect(url_for('giacenze'))
+    
+    db = SessionLocal()
+    articoli_da_eliminare = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+    for art in articoli_da_eliminare:
+        for att in art.attachments:
+            path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / att.filename
+            try:
+                if path.exists(): path.unlink()
+            except Exception: pass
+
+    db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).delete(synchronize_session=False)
+    db.commit()
+    flash(f"{len(ids)} articoli e i loro allegati sono stati eliminati.", "success")
+    return redirect(url_for('giacenze'))
+
+@app.post('/bulk/duplicate')
+@login_required
+def bulk_duplicate():
+    if session.get('role') != 'admin':
+        flash("Non hai i permessi per eseguire questa azione.", "danger")
+        return redirect(url_for('giacenze'))
+        
+    ids = [int(i) for i in request.form.getlist('ids') if i.isdigit()]
+    if not ids:
+        flash("Nessun articolo selezionato per la duplicazione.", "warning")
+        return redirect(url_for('giacenze'))
+    
+    db = SessionLocal()
+    articoli_da_duplicare = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+    
+    nuovi_articoli = []
+    mapper = inspect(Articolo)
+    for originale in articoli_da_duplicare:
+        nuovo = Articolo()
+        for column in mapper.attrs:
+            if column.key not in ['id_articolo', 'attachments']:
+                setattr(nuovo, column.key, getattr(originale, column.key))
+        nuovi_articoli.append(nuovo)
+
+    db.add_all(nuovi_articoli)
+    db.commit()
+    flash(f"{len(nuovi_articoli)} articoli duplicati con successo.", "success")
     return redirect(url_for('giacenze'))
 
 # --- VISUALIZZA GIACENZE E AZIONI MULTIPLE ---
