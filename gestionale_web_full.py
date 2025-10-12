@@ -37,7 +37,7 @@ def login_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if not session.get('user'):
-            flash("Please log in to access this page.", "warning")
+            flash("Effettua il login per accedere", "warning")
             return redirect(url_for("login"))
         return fn(*args, **kwargs)
     return wrapper
@@ -66,8 +66,7 @@ def _discover_logo_path():
 LOGO_PATH = _discover_logo_path()
 
 # --- DATABASE ---
-if not os.environ.get("DATABASE_URL"):
-    os.environ["DATABASE_URL"] = "postgresql://magazzino_1pgq_user:SrXIOLyspVI2RUSx51r7ZMq8usa0K8WD@dpg-d348i73uibrs73fagoa0-a/magazzino_1pgq"
+os.environ["DATABASE_URL"] = "postgresql://magazzino_kbfc_user:nLrf9IxrcXvnKpX8UxNXu6vXpZUCcupo@dpg-d348ug6r433s73cdg81g-a/magazzino_kbfc"
 
 DB_URL = (os.environ.get("DATABASE_URL") or "").strip()
 
@@ -76,7 +75,7 @@ def _normalize_db_url(u: str) -> str:
     if u.startswith("mysql://"):
         u = "mysql+pymysql://" + u[len("mysql://"):]
     if re.search(r"<[^>]+>", u):
-        raise ValueError("DATABASE_URL contains unresolved placeholders.")
+        raise ValueError("DATABASE_URL contiene segnaposto non sostituiti.")
     return u
 
 if DB_URL:
@@ -89,7 +88,7 @@ else:
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 Base = declarative_base()
 
-# --- MODELS ---
+# --- MODELLI ---
 class Articolo(Base):
     __tablename__ = "articoli"
     id_articolo = Column(Integer, Identity(start=1), primary_key=True)
@@ -117,7 +116,7 @@ class Attachment(Base):
 
 Base.metadata.create_all(engine)
 
-# --- USERS ---
+# --- UTENTI ---
 DEFAULT_USERS = {
     'DE WAVE': 'Struppa01', 'FINCANTIERI': 'Struppa02', 'DE WAVE REFITTING': 'Struppa03',
     'SGDP': 'Struppa04', 'WINGECO': 'Struppa05', 'AMICO': 'Struppa06', 'DUFERCO': 'Struppa07',
@@ -206,7 +205,7 @@ def next_ddt_number():
     PROG_FILE.write_text(json.dumps(prog, ensure_ascii=False, indent=2), encoding="utf-8")
     return f"{n:02d}/{y}"
 
-# --- HTML TEMPLATES SECTION ---
+# --- SEZIONE TEMPLATES HTML ---
 BASE_HTML = """
 <!doctype html>
 <html lang="it">
@@ -996,7 +995,7 @@ def edit_row(id):
         abort(404)
 
     if request.method == 'POST':
-        for f in get_all_fields_map().keys():
+        for f, label in get_all_fields_map().items():
             v = request.form.get(f)
             if v is not None:
                 if f in ('data_ingresso','data_uscita'):
