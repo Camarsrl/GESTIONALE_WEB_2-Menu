@@ -66,8 +66,7 @@ def _discover_logo_path():
 LOGO_PATH = _discover_logo_path()
 
 # --- DATABASE ---
-os.environ["DATABASE_URL"] = "postgresql://magazzino_kbfc_user:nLrf9IxrcXvnKpX8UxNXu6vXpZUCcupo@dpg-d348ug6r433s73cdg81g-a/magazzino_kbfc"
-
+os.environ["DATABASE_URL"] = "postgresql://magazzino_1pgq_user:SrXIOLyspVI2RUSx51r7ZMq8usa0K8WD@dpg-d348i73uibrs73fagoa0-a/magazzino_1pgq"
 DB_URL = (os.environ.get("DATABASE_URL") or "").strip()
 
 def _normalize_db_url(u: str) -> str:
