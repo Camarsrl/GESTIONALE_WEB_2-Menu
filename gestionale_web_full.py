@@ -27,7 +27,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
-# Jinja loader for in-memory templates
+# Jinja loader per gestire i template in memoria
 from jinja2 import DictLoader
 
 # --- AUTH ---
@@ -42,7 +42,7 @@ def login_required(fn):
         return fn(*args, **kwargs)
     return wrapper
 
-# --- PATH / LOGO (Robust configuration for Render) ---
+# --- PATH / LOGO (Configurazione robusta per Render) ---
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 APP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -66,7 +66,8 @@ def _discover_logo_path():
 LOGO_PATH = _discover_logo_path()
 
 # --- DATABASE ---
-os.environ["DATABASE_URL"] = "postgresql://magazzino_1pgq_user:SrXIOLyspVI2RUSx51r7ZMq8usa0K8WD@dpg-d348i73uibrs73fagoa0-a/magazzino_1pgq"
+os.environ["DATABASE_URL"] = "postgresql://magazzino_kbfc_user:nLrf9IxrcXvnKpX8UxNXu6vXpZUCcupo@dpg-d348ug6r433s73cdg81g-a/magazzino_kbfc"
+
 DB_URL = (os.environ.get("DATABASE_URL") or "").strip()
 
 def _normalize_db_url(u: str) -> str:
@@ -301,6 +302,9 @@ HOME_HTML = """
                 <a class="btn btn-outline-secondary" href="{{ url_for('labels_form') }}"><i class="bi bi-tag"></i> Stampa Etichette</a>
                 <hr>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('import_excel') }}"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel</a>
+                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel_client') }}"><i class="bi bi-people"></i> Export per Cliente</a>
+                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Costi</a>
             </div>
         </div>
     </div>
@@ -656,11 +660,14 @@ DDT_PREVIEW_HTML = """
         <div class="row g-3">
             <div class="col-md-4">
                 <label class="form-label">Destinatario</label>
-                <select class="form-select" name="dest_key">
-                    {% for k, v in destinatari.items() %}
-                    <option value="{{ k }}">{{ k }} - {{ v.ragione_sociale }}</option>
-                    {% endfor %}
-                </select>
+                <div class="input-group">
+                    <select class="form-select" name="dest_key">
+                        {% for k, v in destinatari.items() %}
+                        <option value="{{ k }}">{{ k }} - {{ v.ragione_sociale }}</option>
+                        {% endfor %}
+                    </select>
+                    <a href="{{ url_for('manage_destinatari') }}" class="btn btn-outline-secondary" title="Gestisci Destinatari"><i class="bi bi-pencil"></i></a>
+                </div>
             </div>
             <div class="col-md-3">
                  <label class="form-label">N. DDT</label>
@@ -707,7 +714,6 @@ function submitDdtPreview() {
     form.target = '_blank';
     form.submit();
 }
-
 document.getElementById('get-next-ddt').addEventListener('click', function() {
     fetch('{{ url_for('get_next_ddt_number') }}')
         .then(response => response.json())
@@ -716,7 +722,6 @@ document.getElementById('get-next-ddt').addEventListener('click', function() {
         })
         .catch(error => console.error('Error fetching next DDT number:', error));
 });
-
 document.getElementById('ddt-form').addEventListener('submit', function(e) {
     if (this.action.endsWith('{{ url_for('ddt_finalize') }}')) {
         e.preventDefault();
@@ -817,6 +822,60 @@ IMPORT_EXCEL_HTML = """
 {% endblock %}
 """
 
+DESTINATARI_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-10 col-lg-8">
+        <div class="card p-4">
+            <h3><i class="bi bi-person-rolodex"></i> Gestione Destinatari</h3>
+            <hr>
+            <h5>Aggiungi Nuovo Destinatario</h5>
+            <form method="post" class="mb-4">
+                <div class="row g-3">
+                    <div class="col-md-6"><label class="form-label">Nome Chiave (es. Sede Cliente)</label><input name="key_name" class="form-control" required></div>
+                    <div class="col-md-6"><label class="form-label">Ragione Sociale</label><input name="ragione_sociale" class="form-control" required></div>
+                    <div class="col-md-6"><label class="form-label">Indirizzo Completo</label><input name="indirizzo" class="form-control"></div>
+                    <div class="col-md-6"><label class="form-label">Partita IVA</label><input name="piva" class="form-control"></div>
+                </div>
+                <button type="submit" class="btn btn-primary mt-3">Aggiungi</button>
+            </form>
+            <hr>
+            <h5>Destinatari Esistenti</h5>
+            <ul class="list-group">
+                {% for key, details in destinatari.items() %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ key }}</strong><br>
+                        <small class="text-muted">{{ details.ragione_sociale }} - {{ details.indirizzo }}</small>
+                    </div>
+                    <a href="{{ url_for('delete_destinatario', key=key) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Sei sicuro di voler eliminare questo destinatario?')"><i class="bi bi-trash"></i></a>
+                </li>
+                {% else %}
+                <li class="list-group-item">Nessun destinatario salvato.</li>
+                {% endfor %}
+            </ul>
+             <a href="{{ request.referrer or url_for('home') }}" class="btn btn-secondary mt-4">Indietro</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+"""
+
+CALCOLA_COSTI_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="card p-4">
+    <h3><i class="bi bi-calculator"></i> Calcola Costi</h3>
+    <hr>
+    <div class="alert alert-info">
+        Questa funzionalità è in fase di sviluppo. Sarà disponibile in una versione futura.
+    </div>
+    <a href="{{ url_for('home') }}" class="btn btn-secondary mt-3">Torna alla Home</a>
+</div>
+{% endblock %}
+"""
+
 # Dizionario dei template per il loader di Jinja
 templates = {
     'base.html': BASE_HTML,
@@ -829,7 +888,9 @@ templates = {
     'ddt_preview.html': DDT_PREVIEW_HTML,
     'labels_form.html': LABELS_FORM_HTML,
     'labels_preview.html': LABELS_PREVIEW_HTML,
-    'import_excel.html': IMPORT_EXCEL_HTML
+    'import_excel.html': IMPORT_EXCEL_HTML,
+    'destinatari.html': DESTINATARI_HTML,
+    'calcola_costi.html': CALCOLA_COSTI_HTML
 }
 
 # --- APP FLASK ---
