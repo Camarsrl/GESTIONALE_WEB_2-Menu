@@ -466,14 +466,6 @@ GIACENZE_HTML = """
 {% endblock %}
 """
 
-# ... (gli altri template sono nel codice completo sotto)
-
-# --- APP FLASK ---
-# ... (la configurazione di Flask e le route sono state aggiornate come descritto)
-
-# Il resto del file python completo è qui sotto
-# ...
-
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
