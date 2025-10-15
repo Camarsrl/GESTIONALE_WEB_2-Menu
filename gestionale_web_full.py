@@ -8,13 +8,14 @@ Tutti i diritti riservati.
 import os, io, re, json, uuid
 from datetime import datetime, date
 from pathlib import Path
+import calendar
 
 import pandas as pd
 from flask import (
     Flask, request, render_template, redirect, url_for,
-    send_file, session, flash, abort, jsonify
+    send_file, session, flash, abort, jsonify, Response
 )
-from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey, Identity
+from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey, Identity, or_
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
@@ -27,7 +28,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
-# Jinja loader per gestire i template in memoria
+# Jinja loader for in-memory templates
 from jinja2 import DictLoader
 
 # --- AUTH ---
@@ -42,7 +43,7 @@ def login_required(fn):
         return fn(*args, **kwargs)
     return wrapper
 
-# --- PATH / LOGO (Configurazione robusta per Render) ---
+# --- PATH / LOGO (Robust configuration for Render) ---
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 APP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -66,7 +67,7 @@ def _discover_logo_path():
 LOGO_PATH = _discover_logo_path()
 
 # --- DATABASE ---
-os.environ["DATABASE_URL"] = "postgresql://magazzino_kbfc_user:nLrf9IxrcXvnKpX8UxNXu6vXpZUCcupo@dpg-d348ug6r433s73cdg81g-a/magazzino_kbfc"
+os.environ["DATABASE_URL"] = "postgresql://magazzino_1pgq_user:SrXIOLyspVI2RUSx51r7ZMq8usa0K8WD@dpg-d348i73uibrs73fagoa0-a/magazzino_1pgq"
 
 DB_URL = (os.environ.get("DATABASE_URL") or "").strip()
 
@@ -222,7 +223,7 @@ BASE_HTML = """
         .table thead th { position: sticky; top: 0; background: #f0f2f5; z-index: 2; }
         .dropzone { border: 2px dashed #0d6efd; background: #eef4ff; padding: 20px; border-radius: 12px; text-align: center; color: #0d6efd; cursor: pointer; }
         .logo { height: 40px; }
-        .table-compact th, .table-compact td { font-size: 11px; padding: 4px 5px; white-space: nowrap; vertical-align: middle; }
+        .table-compact th, .table-compact td { font-size: 11px; padding: 4px 5px; white-space: normal; word-wrap: break-word; vertical-align: middle; }
         .table-striped tbody tr:nth-of-type(odd) { background-color: rgba(0,0,0,.03); }
         @media print { .no-print { display: none !important; } }
     </style>
@@ -302,9 +303,9 @@ HOME_HTML = """
                 <a class="btn btn-outline-secondary" href="{{ url_for('labels_form') }}"><i class="bi bi-tag"></i> Stampa Etichette</a>
                 <hr>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('import_excel') }}"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</a>
-                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel</a>
-                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel_client') }}"><i class="bi bi-people"></i> Export per Cliente</a>
-                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Costi</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel Totale</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel_client_page') }}"><i class="bi bi-people"></i> Export per Cliente</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>
             </div>
         </div>
     </div>
