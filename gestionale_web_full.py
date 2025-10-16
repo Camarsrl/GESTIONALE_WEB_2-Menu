@@ -1083,6 +1083,17 @@ def get_all_fields_map():
         'ns_rif': 'NS Rif', 'mezzi_in_uscita': 'Mezzi in Uscita', 'note': 'Note'
     }
 
+# --- EXPORTAZIONE EXCEL ---
+@app.get('/export_excel')
+@login_required
+def export_excel():
+    db = SessionLocal()
+    df = pd.read_sql(db.query(Articolo).statement, db.bind)
+    bio = io.BytesIO()
+    df.to_excel(bio, index=False, engine='openpyxl')
+    bio.seek(0)
+    return send_file(bio, as_attachment=True, download_name='Giacenze_Totali.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
 # --- GESTIONE ARTICOLI (CRUD) ---
 @app.get('/new')
 @login_required
