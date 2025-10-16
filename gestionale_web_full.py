@@ -822,6 +822,34 @@ IMPORT_EXCEL_HTML = """
 {% endblock %}
 """
 
+EXPORT_CLIENT_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="card p-4">
+            <h3><i class="bi bi-people"></i> Export Excel per Cliente</h3>
+            <hr>
+            <p>Seleziona un cliente dall'elenco per scaricare il file Excel con solo le sue giacenze.</p>
+            <form method="post">
+                <div class="mb-3">
+                    <label for="cliente" class="form-label">Cliente</label>
+                    <select class="form-select" id="cliente" name="cliente" required>
+                        <option value="" disabled selected>-- Seleziona un cliente --</option>
+                        {% for c in clienti %}
+                        <option value="{{ c }}">{{ c }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Scarica Excel</button>
+                <a href="{{ url_for('home') }}" class="btn btn-secondary">Annulla</a>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+"""
+
 DESTINATARI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -866,12 +894,38 @@ CALCOLA_COSTI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="card p-4">
-    <h3><i class="bi bi-calculator"></i> Calcola Costi</h3>
+    <h3><i class="bi bi-calculator"></i> Calcolo Giacenze Mensili</h3>
     <hr>
-    <div class="alert alert-info">
-        Questa funzionalità è in fase di sviluppo. Sarà disponibile in una versione futura.
+    <form method="post" class="mb-4">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-5">
+                <label for="cliente" class="form-label">Cliente</label>
+                <select class="form-select" id="cliente" name="cliente" required>
+                    <option value="" disabled selected>-- Seleziona un cliente --</option>
+                    {% for c in clienti %}
+                    <option value="{{ c }}" {% if cliente_selezionato == c %}selected{% endif %}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-5">
+                <label for="mese_anno" class="form-label">Mese e Anno</label>
+                <input type="month" class="form-control" id="mese_anno" name="mese_anno" value="{{ mese_selezionato }}" required>
+            </div>
+            <div class="col-md-2 d-grid">
+                <button type="submit" class="btn btn-primary">Calcola</button>
+            </div>
+        </div>
+    </form>
+    {% if risultato %}
+    <hr>
+    <div class="alert alert-success">
+        <h5>Risultato Calcolo</h5>
+        <p>Per il cliente <strong>{{ risultato.cliente }}</strong> alla fine del periodo <strong>{{ risultato.periodo }}</strong>, la giacenza totale era di:</p>
+        <h3 class="display-6">{{ "%.3f"|format(risultato.total_m2) }} m²</h3>
+        <p class="mb-0 text-muted">(calcolato su {{ risultato.count }} articoli in giacenza in quel periodo)</p>
     </div>
-    <a href="{{ url_for('home') }}" class="btn btn-secondary mt-3">Torna alla Home</a>
+    {% endif %}
+     <a href="{{ url_for('home') }}" class="btn btn-secondary mt-3">Torna alla Home</a>
 </div>
 {% endblock %}
 """
@@ -889,6 +943,7 @@ templates = {
     'labels_form.html': LABELS_FORM_HTML,
     'labels_preview.html': LABELS_PREVIEW_HTML,
     'import_excel.html': IMPORT_EXCEL_HTML,
+    'export_client.html': EXPORT_CLIENT_HTML,
     'destinatari.html': DESTINATARI_HTML,
     'calcola_costi.html': CALCOLA_COSTI_HTML
 }
@@ -899,6 +954,7 @@ app.jinja_loader = DictLoader(templates)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.jinja_env.globals['getattr'] = getattr
 app.jinja_env.filters['fmt_date'] = fmt_date
+
 
 def logo_url():
     if not LOGO_PATH:
