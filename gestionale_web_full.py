@@ -1576,13 +1576,12 @@ def ddt_finalize():
 @app.get('/labels')
 @login_required
 def labels_form():
-    return render_template('labels_form.html')
-
-@app.post('/labels/pdf')
-@login_required
-def labels_pdf():
-    d = _labels_clean_data(request.form)
-    bio = io.BytesIO()
+    db = SessionLocal()
+    # Query per ottenere la lista di clienti unici, escludendo valori vuoti o nulli
+    clienti_query = db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()
+    # Trasforma la lista di tuple in una lista semplice di stringhe
+    clienti = [c[0] for c in clienti_query]
+    return render_template('labels_form.html', clienti=clienti)
     
     # Crea un PDF in formato A4 standard
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
