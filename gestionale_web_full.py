@@ -38,7 +38,7 @@ def login_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if not session.get('user'):
-            flash("Please log in to access this page.", "warning")
+            flash("Effettua il login per accedere", "warning")
             return redirect(url_for("login"))
         return fn(*args, **kwargs)
     return wrapper
@@ -954,6 +954,8 @@ app.jinja_loader = DictLoader(templates)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.jinja_env.globals['getattr'] = getattr
 app.jinja_env.filters['fmt_date'] = fmt_date
+
+# ... (il resto del codice, che è lungo, segue qui)
 
 
 def logo_url():
