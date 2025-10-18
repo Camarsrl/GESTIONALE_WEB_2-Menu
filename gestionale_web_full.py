@@ -38,7 +38,7 @@ def login_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if not session.get('user'):
-            flash("Effettua il login per accedere", "warning")
+            flash("Please log in to access this page.", "warning")
             return redirect(url_for("login"))
         return fn(*args, **kwargs)
     return wrapper
@@ -465,6 +465,14 @@ GIACENZE_HTML = """
 </script>
 {% endblock %}
 """
+
+# ... (gli altri template sono nel codice completo sotto)
+
+# --- APP FLASK ---
+# ... (la configurazione di Flask e le route sono state aggiornate come descritto)
+
+# Il resto del file python completo è qui sotto
+# ...
 
 EDIT_HTML = """
 {% extends 'base.html' %}
