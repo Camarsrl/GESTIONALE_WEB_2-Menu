@@ -775,7 +775,15 @@ LABELS_FORM_HTML = """
     <hr>
     <form method="post" action="{{ url_for('labels_pdf') }}" target="_blank">
         <div class="row g-3">
-            <div class="col-md-4"><label class="form-label">Cliente</label><input name="cliente" class="form-control"></div>
+            <div class="col-md-4">
+                <label class="form-label">Cliente</label>
+                <input class="form-control" list="clienti-datalist" name="cliente" placeholder="Digita o seleziona un cliente...">
+                <datalist id="clienti-datalist">
+                    {% for c in clienti %}
+                    <option value="{{ c }}">
+                    {% endfor %}
+                </datalist>
+            </div>
             <div class="col-md-4"><label class="form-label">Fornitore</label><input name="fornitore" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Ordine</label><input name="ordine" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Commessa</label><input name="commessa" class="form-control"></div>
