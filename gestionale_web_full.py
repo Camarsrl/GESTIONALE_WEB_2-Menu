@@ -1319,7 +1319,7 @@ def giacenze():
         rows, total_colli, total_m2 = [], 0, 0
     
     cols = ["id_articolo","codice_articolo","descrizione","cliente","fornitore","protocollo","ordine","lunghezza","larghezza","altezza",
-            "commessa","magazzino","posizione","stato","peso","n_colli","m2",m3,"data_ingresso","data_uscita","n_arrivo",
+            "commessa","magazzino","posizione","stato","peso","n_colli","m2","m3","data_ingresso","data_uscita","n_arrivo",
             "n_ddt_uscita", "mezzi_in_uscita"]
     return render_template('giacenze.html', rows=rows, cols=cols, total_colli=total_colli, total_m2=total_m2)
 
