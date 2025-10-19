@@ -8,27 +8,25 @@ Tutti i diritti riservati.
 import os, io, re, json, uuid
 from datetime import datetime, date
 from pathlib import Path
-import calendar
 
 import pandas as pd
 from flask import (
     Flask, request, render_template, redirect, url_for,
-    send_file, session, flash, abort, jsonify, Response
+    send_file, session, flash, abort, jsonify
 )
-from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey, Identity, or_
+from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey, Identity
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.inspection import inspect
 
 # ReportLab (PDF)
-from reportlab.lib.pagesizes import landscape, A4
+from reportlab.lib.pagesizes import letter, A4 # <-- CORREZIONE: Aggiunto A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
-# Jinja loader for in-memory templates
+# Jinja loader per gestire i template in memoria
 from jinja2 import DictLoader
 
 # --- AUTH ---
@@ -43,7 +41,7 @@ def login_required(fn):
         return fn(*args, **kwargs)
     return wrapper
 
-# --- PATH / LOGO (Robust configuration for Render) ---
+# --- PATH / LOGO (Configurazione robusta per Render) ---
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 APP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -67,7 +65,8 @@ def _discover_logo_path():
 LOGO_PATH = _discover_logo_path()
 
 # --- DATABASE ---
-os.environ["DATABASE_URL"] = "postgresql://magazzino_1pgq_user:SrXIOLyspVI2RUSx51r7ZMq8usa0K8WD@dpg-d348i73uibrs73fagoa0-a/magazzino_1pgq"
+if not os.environ.get("DATABASE_URL"):
+    os.environ["DATABASE_URL"] = "postgresql://magazzino_1pgq_user:SrXIOLyspVI2RUSx51r7ZMq8usa0K8WD@dpg-d348i73uibrs73fagoa0-a/magazzino_1pgq"
 
 DB_URL = (os.environ.get("DATABASE_URL") or "").strip()
 
