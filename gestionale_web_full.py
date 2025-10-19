@@ -1649,7 +1649,6 @@ def ddt_finalize():
     for art in articoli:
         art.data_uscita = data_ddt
         art.n_ddt_uscita = n_ddt
-        art.stato = 'USCITO'
         art.pezzo = to_int_eu(request.form.get(f"pezzi_{art.id_articolo}", art.pezzo))
         art.n_colli = to_int_eu(request.form.get(f"colli_{art.id_articolo}", art.n_colli))
         art.peso = to_float_eu(request.form.get(f"peso_{art.id_articolo}", art.peso))
