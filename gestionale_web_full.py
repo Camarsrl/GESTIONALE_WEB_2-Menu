@@ -1267,7 +1267,6 @@ def delete_attachment(att_id):
 
 
 # --- VISUALIZZA GIACENZE E AZIONI MULTIPLE ---
-# --- VISUALIZZA GIACENZE ---
 @app.route('/giacenze')
 @login_required
 def giacenze():
@@ -1281,16 +1280,23 @@ def giacenze():
                     Articolo.codice_articolo.ilike(f"%{filtro}%"),
                     Articolo.descrizione.ilike(f"%{filtro}%"),
                     Articolo.cliente.ilike(f"%{filtro}%"),
-                    Articolo.fornitore.ilike(f"%{filtro}%")
+                    Articolo.fornitore.ilike(f"%{filtro}%"),
+                    Articolo.commessa.ilike(f"%{filtro}%"),
+                    Articolo.magazzino.ilike(f"%{filtro}%"),
+                    Articolo.posizione.ilike(f"%{filtro}%")
                 )
             )
+
         articoli = query.order_by(Articolo.id_articolo.desc()).all()
 
-        cols = ["id_articolo","codice_articolo","descrizione","cliente","fornitore","protocollo",
-                "ordine","lunghezza","larghezza","altezza","commessa","magazzino","posizione",
-                "stato","peso","n_colli","m2","m3","data_ingresso","data_uscita","n_arrivo",
-                "n_ddt_uscita","mezzi_in_uscita"]
+        cols = [
+            "id_articolo", "codice_articolo", "descrizione", "cliente", "fornitore",
+            "protocollo", "ordine", "lunghezza", "larghezza", "altezza", "commessa",
+            "magazzino", "posizione", "stato", "peso", "n_colli", "m2", "m3",
+            "data_ingresso", "data_uscita", "n_arrivo", "n_ddt_uscita", "mezzi_in_uscita"
+        ]
 
+        # --- Conversione in dizionari per il template ---
         data = []
         for a in articoli:
             data.append({
@@ -1318,9 +1324,22 @@ def giacenze():
                 "n_ddt_uscita": a.n_ddt_uscita or "",
                 "mezzi_in_uscita": a.mezzi_in_uscita or ""
             })
-        return render_template('giacenze.html', articoli=data, filtro=filtro, colonne=cols)
+
+        total_colli = sum(a.n_colli or 0 for a in articoli)
+        total_m2 = sum(a.m2 or 0 for a in articoli)
+
+        return render_template(
+            "giacenze.html",
+            rows=data,          # 🔹 nome corretto per il template
+            cols=cols,          # 🔹 nome corretto per il template
+            filtro=filtro,
+            total_colli=total_colli,
+            total_m2=total_m2
+        )
+
     finally:
         db.close()
+
 
 
 @app.route('/bulk/edit', methods=['GET', 'POST'])
