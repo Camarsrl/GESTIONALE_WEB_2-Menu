@@ -1293,45 +1293,16 @@ def giacenze():
             "id_articolo", "codice_articolo", "descrizione", "cliente", "fornitore",
             "protocollo", "ordine", "lunghezza", "larghezza", "altezza", "commessa",
             "magazzino", "posizione", "stato", "peso", "n_colli", "m2", "m3",
-            "data_ingresso", "data_uscita", "n_arrivo", "n_ddt_uscita", "mezzi_in_uscita"
+            "data_ingresso_da", "data_ingresso_a", "data_uscita_da","data_uscita_a" "n_arrivo", "n_ddt_uscita", "mezzi_in_uscita"
         ]
-
-        # --- Conversione in dizionari per il template ---
-        data = []
-        for a in articoli:
-            data.append({
-                "id_articolo": a.id_articolo,
-                "codice_articolo": a.codice_articolo or "",
-                "descrizione": a.descrizione or "",
-                "cliente": a.cliente or "",
-                "fornitore": a.fornitore or "",
-                "protocollo": a.protocollo or "",
-                "ordine": a.ordine or "",
-                "lunghezza": a.lunghezza or "",
-                "larghezza": a.larghezza or "",
-                "altezza": a.altezza or "",
-                "commessa": a.commessa or "",
-                "magazzino": a.magazzino or "",
-                "posizione": a.posizione or "",
-                "stato": a.stato or "",
-                "peso": a.peso or "",
-                "n_colli": a.n_colli or "",
-                "m2": a.m2 or "",
-                "m3": a.m3 or "",
-                "data_ingresso": a.data_ingresso or "",
-                "data_uscita": a.data_uscita or "",
-                "n_arrivo": a.n_arrivo or "",
-                "n_ddt_uscita": a.n_ddt_uscita or "",
-                "mezzi_in_uscita": a.mezzi_in_uscita or ""
-            })
 
         total_colli = sum(a.n_colli or 0 for a in articoli)
         total_m2 = sum(a.m2 or 0 for a in articoli)
 
         return render_template(
             "giacenze.html",
-            rows=data,          # 🔹 nome corretto per il template
-            cols=cols,          # 🔹 nome corretto per il template
+            rows=articoli,      # 🔹 Passiamo oggetti, non dizionari
+            cols=cols,
             filtro=filtro,
             total_colli=total_colli,
             total_m2=total_m2
