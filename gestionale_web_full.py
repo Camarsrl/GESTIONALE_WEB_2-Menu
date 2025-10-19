@@ -304,7 +304,7 @@ HOME_HTML = """
                 <hr>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('import_excel') }}"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel Totale</a>
-                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel_client_page') }}"><i class="bi bi-people"></i> Export per Cliente</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_client') }}"><i class="bi bi-people"></i> Export per Cliente</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>
             </div>
         </div>
@@ -963,8 +963,6 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.jinja_env.globals['getattr'] = getattr
 app.jinja_env.filters['fmt_date'] = fmt_date
 
-# ... (il resto del codice, che è lungo, segue qui)
-
 
 def logo_url():
     if not LOGO_PATH:
@@ -1103,6 +1101,32 @@ def export_excel():
     df.to_excel(bio, index=False, engine='openpyxl')
     bio.seek(0)
     return send_file(bio, as_attachment=True, download_name='Giacenze_Totali.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+@app.route('/export_client', methods=['GET', 'POST'])
+@login_required
+def export_client():
+    db = SessionLocal()
+    clienti = [c[0] for c in db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()]
+    
+    if request.method == 'POST':
+        cliente = request.form.get('cliente')
+        if not cliente:
+            flash("Seleziona un cliente.", "warning")
+            return redirect(request.url)
+        
+        rows = db.query(Articolo).filter(Articolo.cliente == cliente).all()
+        if not rows:
+            flash(f"Nessun articolo trovato per il cliente {cliente}.", "info")
+            return redirect(request.url)
+        
+        df = pd.DataFrame([vars(r) for r in rows])
+        bio = io.BytesIO()
+        df.to_excel(bio, index=False, engine='openpyxl')
+        bio.seek(0)
+        return send_file(bio, as_attachment=True, download_name=f"Giacenze_{cliente}.xlsx",
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    return render_template('export_client.html', clienti=clienti)
 
 # --- GESTIONE ARTICOLI (CRUD) ---
 @app.get('/new')
