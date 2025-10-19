@@ -810,18 +810,42 @@ IMPORT_EXCEL_HTML = """
         <div class="card p-4">
             <h3><i class="bi bi-file-earmark-arrow-up"></i> Importa Articoli da Excel</h3>
             <hr>
-            <p class="text-muted">Carica un file Excel (.xlsx, .xls, .xlsm) per aggiungere nuovi articoli in blocco. Assicurati che il file abbia una riga di intestazione con i nomi delle colonne corretti.</p>
+            <p class="text-muted">
+                Carica un file Excel (.xlsx, .xls, .xlsm) per aggiungere nuovi articoli in blocco.<br>
+                Assicurati che il file abbia una riga di intestazione e che i nomi delle colonne corrispondano
+                alla mappa selezionata qui sotto.
+            </p>
+
             <form method="post" enctype="multipart/form-data">
                 <div class="mb-3">
-                    <label for="excel_file" class="form-label">Seleziona il file Excel</label>
-                    <input class="form-control" type="file" id="excel_file" name="excel_file" accept=".xlsx,.xls,.xlsm" required>
+                    <label for="mappa_excel" class="form-label">Seleziona una mappa Excel</label>
+                    <select class="form-select" id="mappa_excel" name="mappa_excel" required>
+                        <option value="" disabled selected>-- Seleziona una mappa --</option>
+                        {% for m in mappe %}
+                        <option value="{{ m }}">{{ m }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
-                <button type="submit" class="btn btn-primary">Carica e Importa</button>
-                <a href="{{ url_for('home') }}" class="btn btn-secondary">Annulla</a>
+
+                <div class="mb-3">
+                    <label for="excel_file" class="form-label">Seleziona il file Excel</label>
+                    <input class="form-control" type="file" id="excel_file" name="excel_file"
+                           accept=".xlsx,.xls,.xlsm" required>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">Carica e Importa</button>
+                    <a href="{{ url_for('home') }}" class="btn btn-secondary">Annulla</a>
+                </div>
             </form>
+
             <div class="alert alert-info mt-4">
                 <strong>Nomi colonne suggeriti:</strong><br>
-                <small><code>Codice Articolo, Pezzo, Larghezza, Lunghezza, Altezza, Protocollo, Ordine, Commessa, Magazzino, Fornitore, Data Ingresso, N. DDT Ingresso, Cliente, Descrizione, Peso, N. Colli, Posizione, N. Arrivo, Buono N., Note, Serial Number, Stato, Mezzi in Uscita, NS Rif</code></small>
+                <small><code>
+                    Codice Articolo, Pezzo, Larghezza, Lunghezza, Altezza, Protocollo, Ordine, Commessa,
+                    Magazzino, Fornitore, Data Ingresso, N. DDT Ingresso, Cliente, Descrizione, Peso,
+                    N. Colli, Posizione, N. Arrivo, Buono N., Note, Serial Number, Stato, Mezzi in Uscita, NS Rif
+                </code></small>
             </div>
         </div>
     </div>
