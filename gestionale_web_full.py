@@ -1707,13 +1707,12 @@ def labels_form():
     return render_template("labels_form.html", clienti=clienti, fornitori=fornitori)
 
 
-# --- GENERAZIONE PDF ETICHETTE ---
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
 def labels_pdf():
     cliente = request.form.get('cliente')
     formato = request.form.get('formato', '62x100')
-    anteprima = request.form.get('anteprima') == 'on'
+    anteprima = True  # ✅ Mostra sempre anteprima nel browser
 
     db = SessionLocal()
     try:
@@ -1722,23 +1721,16 @@ def labels_pdf():
             flash("Nessun articolo trovato per il cliente selezionato.", "warning")
             return redirect(url_for('labels_form'))
 
-        # genera il pdf in memoria
+        # ✅ Genera PDF in memoria
         pdf_buffer = _genera_pdf_etichetta(articoli, formato)
 
-        if anteprima:
-            return send_file(
-                pdf_buffer,
-                mimetype='application/pdf',
-                as_attachment=False,
-                download_name=f"Etichetta_{cliente}.pdf"
-            )
-        else:
-            file_path = os.path.join("pdf_ddt", f"Etichetta_{cliente}.pdf")
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            with open(file_path, "wb") as f:
-                f.write(pdf_buffer.getbuffer())
-            flash(f"Etichette per {cliente} generate correttamente.", "success")
-            return redirect(url_for('labels_form'))
+        # ✅ Mostra anteprima direttamente nel browser
+        return send_file(
+            pdf_buffer,
+            mimetype='application/pdf',
+            as_attachment=False,
+            download_name=f"Etichetta_{cliente}.pdf"
+        )
 
     except Exception as e:
         flash(f"Errore durante la generazione dell'etichetta: {e}", "danger")
@@ -1747,31 +1739,34 @@ def labels_pdf():
         db.close()
 
 
-# --- FUNZIONE GENERAZIONE PDF ---
 def _genera_pdf_etichetta(articoli, formato='62x100'):
-    """Genera un PDF con le etichette degli articoli e restituisce un buffer BytesIO."""
+    """
+    Genera un PDF con le etichette degli articoli e restituisce un buffer BytesIO.
+    """
     import io
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import landscape
     from reportlab.lib.units import mm
     import os
 
+    # --- Formato personalizzato ---
     try:
         larg_mm, alt_mm = map(float, formato.lower().split('x'))
     except Exception:
-        larg_mm, alt_mm = 62, 100  # default 62x100 mm
+        larg_mm, alt_mm = 62, 100  # default
 
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=landscape((larg_mm * mm, alt_mm * mm)))
 
-    # Logo in alto a sinistra
+    # --- Logo (se presente) ---
     logo_path = os.path.join('static', 'logo camar.jpg')
     if os.path.exists(logo_path):
         pdf.drawImage(logo_path, 8 * mm, alt_mm * mm - 22 * mm,
                       width=25 * mm, preserveAspectRatio=True, mask='auto')
 
+    # --- Font e posizioni ---
+    pdf.setFont("Helvetica-Bold", 9)
     y_start = alt_mm * mm - 10 * mm
-    pdf.setFont("Helvetica", 9)
 
     for art in articoli:
         y = y_start
