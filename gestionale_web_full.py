@@ -1449,6 +1449,26 @@ def ddt_preview():
 def get_next_ddt_number():
     return jsonify({'next_ddt': next_ddt_number()})
 
+@app.route('/manage_destinatari', methods=['GET', 'POST'])
+@login_required
+def manage_destinatari():
+    db_file = os.path.join(BASE_DIR, 'destinatari_saved.json')
+
+    if request.method == 'POST':
+        data = request.get_json(force=True)
+        with open(db_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        return jsonify({"message": "Destinatari aggiornati con successo!"})
+
+    if os.path.exists(db_file):
+        with open(db_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    else:
+        data = []
+
+    return render_template('manage_destinatari.html', destinatari=data)
+
+
 # --- PDF E FINALIZZAZIONE DDT ---
 _styles = getSampleStyleSheet()
 PRIMARY_COLOR = colors.HexColor("#3498db")
@@ -1701,6 +1721,27 @@ def labels_form():
     bio.seek(0)
     return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
 
+
+@app.route('/labels_pdf', methods=['POST'])
+@login_required
+def labels_pdf():
+    cliente = request.form.get('cliente')
+    formato = request.form.get('formato', '62x100')
+    anteprima = request.form.get('anteprima') == 'on'
+
+    db = SessionLocal()
+    articoli = db.query(Articolo).filter(Articolo.cliente == cliente).all()
+    if not articoli:
+        flash("Nessun articolo trovato per il cliente selezionato.", "warning")
+        return redirect(url_for('labels_form'))
+
+    pdf_path = _genera_pdf_etichetta(articoli, formato, anteprima)
+
+    if anteprima:
+        return send_file(pdf_path, mimetype='application/pdf')
+    else:
+        flash(f"Etichette per {cliente} generate correttamente.", "success")
+        return redirect(url_for('labels_form'))
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
