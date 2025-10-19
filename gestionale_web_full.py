@@ -1674,45 +1674,18 @@ def ddt_finalize():
 @app.route("/labels_form", methods=["GET", "POST"])
 @login_required
 def labels_form():
+    """Mostra il form per la generazione etichette"""
     db = SessionLocal()
     try:
         clienti = sorted({r[0] for r in db.query(Articolo.cliente).distinct() if r[0]})
         fornitori = sorted({r[0] for r in db.query(Articolo.fornitore).distinct() if r[0]})
     finally:
         db.close()
+
     return render_template("labels_form.html", clienti=clienti, fornitori=fornitori)
 
-    
-    # Crea un PDF in formato A4 standard
-    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
-    story = []
 
-    # Stile per il testo dell'etichetta
-    style = getSampleStyleSheet()
-    label_style_left = ParagraphStyle(name='LabelLeft', parent=style['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=18, alignment=TA_LEFT)
-
-    # Contenuto dell'etichetta
-    if LOGO_PATH and Path(LOGO_PATH).exists():
-        story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='LEFT'))
-        story.append(Spacer(1, 4*mm))
-
-    text = f"""
-    CLIENTE: {d.get('cliente', '')}<br/>
-    FORNITORE: {d.get('fornitore', '')}<br/>
-    ORDINE: {d.get('ordine', '')}<br/>
-    COMMESSA: {d.get('commessa', '')}<br/>
-    DDT: {d.get('ddt_ingresso', '')}<br/>
-    DATA INGRESSO: {d.get('data_ingresso', '')}<br/>
-    ARRIVO: {d.get('arrivo', '')}<br/>
-    COLLI: {d.get('n_colli', '')}
-    """
-    story.append(Paragraph(text, label_style_left))
-    
-    doc.build(story)
-    bio.seek(0)
-    return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
-
-
+# --- GENERAZIONE PDF ETICHETTE ---
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
 def labels_pdf():
@@ -1727,10 +1700,9 @@ def labels_pdf():
             flash("Nessun articolo trovato per il cliente selezionato.", "warning")
             return redirect(url_for('labels_form'))
 
-        # genera il pdf in memoria (buffer BytesIO)
+        # genera il pdf in memoria
         pdf_buffer = _genera_pdf_etichetta(articoli, formato)
 
-        # ✅ se è anteprima, lo mostra nel browser
         if anteprima:
             return send_file(
                 pdf_buffer,
@@ -1739,7 +1711,6 @@ def labels_pdf():
                 download_name=f"Etichetta_{cliente}.pdf"
             )
         else:
-            # ✅ altrimenti salva il file sul server
             file_path = os.path.join("pdf_ddt", f"Etichetta_{cliente}.pdf")
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "wb") as f:
@@ -1752,34 +1723,33 @@ def labels_pdf():
         return redirect(url_for('labels_form'))
     finally:
         db.close()
+
+
+# --- FUNZIONE GENERAZIONE PDF ---
 def _genera_pdf_etichetta(articoli, formato='62x100'):
-    """
-    Genera un PDF con le etichette degli articoli e restituisce un buffer BytesIO.
-    """
+    """Genera un PDF con le etichette degli articoli e restituisce un buffer BytesIO."""
     import io
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import landscape
     from reportlab.lib.units import mm
     import os
 
-    # --- Formato personalizzato ---
     try:
         larg_mm, alt_mm = map(float, formato.lower().split('x'))
     except Exception:
-        larg_mm, alt_mm = 62, 100  # default
+        larg_mm, alt_mm = 62, 100  # default 62x100 mm
 
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=landscape((larg_mm * mm, alt_mm * mm)))
 
-    # --- Logo (se presente) ---
+    # Logo in alto a sinistra
     logo_path = os.path.join('static', 'logo camar.jpg')
     if os.path.exists(logo_path):
         pdf.drawImage(logo_path, 8 * mm, alt_mm * mm - 22 * mm,
                       width=25 * mm, preserveAspectRatio=True, mask='auto')
 
-    # --- Font e posizioni ---
-    pdf.setFont("Helvetica-Bold", 9)
     y_start = alt_mm * mm - 10 * mm
+    pdf.setFont("Helvetica", 9)
 
     for art in articoli:
         y = y_start
