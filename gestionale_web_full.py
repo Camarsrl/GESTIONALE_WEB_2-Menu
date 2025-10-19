@@ -28,6 +28,12 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
+from reportlab.lib.pagesizes import landscape
+from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas
+import io
+from flask import send_file
+
 # Jinja loader for in-memory templates
 from jinja2 import DictLoader
 
@@ -1714,47 +1720,77 @@ def labels_form():
     return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
 
 
-@app.route('/labels_pdf', methods=['POST'])
-@login_required
-def labels_pdf():
-    cliente = request.form.get('cliente')
-    formato = request.form.get('formato', '62x100')
-    anteprima = request.form.get('anteprima') == 'on'
 
-    db = SessionLocal()
+
+def _genera_pdf_etichetta(articoli, formato='62x100', anteprima=True):
+    """
+    Genera un PDF con le etichette degli articoli selezionati.
+    - formato: stringa tipo '62x100' (mm)
+    - anteprima: se True, apre in browser invece di forzare il download
+    """
+
+    # --- Dimensione formato etichetta ---
     try:
-        articoli = db.query(Articolo).filter(Articolo.cliente == cliente).all()
+        larg_mm, alt_mm = map(float, formato.lower().split('x'))
+    except Exception:
+        larg_mm, alt_mm = 62, 100  # default
 
-        if not articoli:
-            flash("Nessun articolo trovato per il cliente selezionato.", "warning")
-            return redirect(url_for('labels_form'))
+    # Orientamento orizzontale
+    page_size = landscape((larg_mm * mm, alt_mm * mm))
 
-        # ✅ Genera il PDF direttamente in memoria
-        pdf_buffer = _genera_pdf_etichetta(articoli, formato, anteprima)
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=page_size)
 
-        # ✅ Se è anteprima → mostra nel browser
-        if anteprima:
-            return send_file(
-                pdf_buffer,
-                mimetype='application/pdf',
-                as_attachment=False,
-                download_name=f"Etichetta_{cliente}.pdf"
-            )
-        else:
-            # ✅ Se non è anteprima → salva su disco e mostra messaggio
-            file_path = os.path.join("pdf_ddt", f"Etichetta_{cliente}.pdf")
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            with open(file_path, "wb") as f:
-                f.write(pdf_buffer.getbuffer())
-            flash(f"Etichette per {cliente} generate correttamente.", "success")
-            return redirect(url_for('labels_form'))
+    # --- Logo (se presente in static) ---
+    logo_path = os.path.join('static', 'logo camar.jpg')
+    if os.path.exists(logo_path):
+        pdf.drawImage(logo_path, 8 * mm, alt_mm * mm - 22 * mm, width=25 * mm, preserveAspectRatio=True, mask='auto')
 
-    except Exception as e:
-        flash(f"Errore durante la generazione dell'etichetta: {e}", "danger")
-        return redirect(url_for('labels_form'))
+    # --- Font ---
+    pdf.setFont("Helvetica-Bold", 9)
+    y_start = alt_mm * mm - 10 * mm
 
-    finally:
-        db.close()
+    for idx, art in enumerate(articoli, start=1):
+        y = y_start
+
+        pdf.setFont("Helvetica-Bold", 10)
+        pdf.drawString(40 * mm, y, f"Cliente: {art.cliente or ''}")
+        y -= 6 * mm
+        pdf.setFont("Helvetica", 9)
+        pdf.drawString(40 * mm, y, f"Fornitore: {art.fornitore or ''}")
+        y -= 5 * mm
+        pdf.drawString(40 * mm, y, f"Commessa: {art.commessa or ''}")
+        y -= 5 * mm
+        pdf.drawString(40 * mm, y, f"Ordine: {art.ordine or ''}")
+        y -= 5 * mm
+        pdf.drawString(40 * mm, y, f"Descrizione: {art.descrizione or ''}")
+        y -= 5 * mm
+        pdf.drawString(40 * mm, y, f"Colli: {art.n_colli or ''} | Posizione: {art.posizione or ''}")
+        y -= 5 * mm
+        pdf.drawString(40 * mm, y, f"Data Ingresso: {art.data_ingresso or ''}")
+        y -= 6 * mm
+        pdf.setFont("Helvetica-Bold", 10)
+        pdf.drawString(40 * mm, y, f"Arrivo: {art.n_arrivo or ''}")
+        pdf.showPage()
+
+    pdf.save()
+    buffer.seek(0)
+
+    # --- Ritorna come anteprima nel browser ---
+    if anteprima:
+        return send_file(
+            buffer,
+            as_attachment=False,
+            download_name="etichetta.pdf",
+            mimetype='application/pdf'
+        )
+    else:
+        file_path = os.path.join("pdf_ddt", "etichetta.pdf")
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, "wb") as f:
+            f.write(buffer.getbuffer())
+        return file_path
+
 
 
 # --- AVVIO FLASK APP ---
