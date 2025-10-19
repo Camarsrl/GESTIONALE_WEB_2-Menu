@@ -1292,7 +1292,7 @@ def giacenze():
             "id_articolo", "codice_articolo", "descrizione", "cliente", "fornitore",
             "protocollo", "ordine", "lunghezza", "larghezza", "altezza", "commessa",
             "magazzino", "posizione", "stato", "peso", "n_colli", "m2", "m3",
-            "data_ingresso_da", "data_ingresso_a", "data_uscita_da","data_uscita_a" "n_arrivo", "n_ddt_uscita", "mezzi_in_uscita"
+            "data_ingresso", "data_uscita", "n_arrivo", "n_ddt_uscita", "mezzi_in_uscita"
         ]
 
         total_colli = sum(a.n_colli or 0 for a in articoli)
@@ -1300,7 +1300,7 @@ def giacenze():
 
         return render_template(
             "giacenze.html",
-            rows=articoli,      # 🔹 Passiamo oggetti, non dizionari
+            rows=articoli,
             cols=cols,
             filtro=filtro,
             total_colli=total_colli,
@@ -1309,7 +1309,6 @@ def giacenze():
 
     finally:
         db.close()
-
 
 
 @app.route('/bulk/edit', methods=['GET', 'POST'])
