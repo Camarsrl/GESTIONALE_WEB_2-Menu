@@ -1291,7 +1291,7 @@ def giacenze():
         cols = [
             "id_articolo", "codice_articolo", "descrizione", "cliente", "fornitore",
             "protocollo", "ordine", "lunghezza", "larghezza", "altezza", "commessa",
-            "magazzino", "posizione", "stato", "peso", "n_colli", "m2", "m3",
+            "magazzino", "posizione", "stato", "peso", "n_colli", "m2", "m3","n_buono",
             "data_ingresso", "data_uscita", "n_arrivo", "n_ddt_uscita", "mezzi_in_uscita"
         ]
 
