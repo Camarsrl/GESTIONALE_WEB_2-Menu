@@ -1016,80 +1016,75 @@ def logout():
 def home():
     return render_template('home.html')
 
-# --- IMPORTAZIONE EXCEL ---
+# --- IMPORTAZIONE EXCEL (con mappe dinamiche) ---
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
 def import_excel():
+    import json
+
+    # Carica le mappe definite in mappe_excel.json
+    with open("mappe_excel.json", "r", encoding="utf-8") as f:
+        mappe_excel = json.load(f)
+    nomi_mappe = list(mappe_excel.keys())
+
     if request.method == 'POST':
         if 'excel_file' not in request.files:
             flash('Nessun file selezionato', 'warning')
             return redirect(request.url)
+
         file = request.files['excel_file']
         if file.filename == '':
             flash('Nessun file selezionato', 'warning')
             return redirect(request.url)
+
+        mappa_scelta = request.form.get("mappa_excel")
+        if not mappa_scelta or mappa_scelta not in mappe_excel:
+            flash('Seleziona una mappa Excel valida.', 'warning')
+            return redirect(request.url)
+
+        mapping = mappe_excel[mappa_scelta]
+        col_map = {k.lower(): v for k, v in mapping["column_map"].items()}
+        header_row = mapping.get("header_row", 1) - 1  # da 1-based a 0-based index
+
         if file and file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
             try:
                 db = SessionLocal()
-                df = pd.read_excel(file, engine='openpyxl')
-                
-                df.columns = [c.strip().lower().replace(' ', '_').replace('.', '').replace('°', '') for c in df.columns]
-
-                column_map = {
-                    'codice_articolo': 'codice_articolo', 'pezzo': 'pezzo', 'larghezza': 'larghezza', 'lunghezza': 'lunghezza',
-                    'altezza': 'altezza', 'protocollo': 'protocollo', 'ordine': 'ordine', 'commessa': 'commessa', 'magazzino': 'magazzino',
-                    'fornitore': 'fornitore', 'data_ingresso': 'data_ingresso', 'n_ddt_ingresso': 'n_ddt_ingresso', 'cliente': 'cliente',
-                    'descrizione': 'descrizione', 'peso': 'peso', 'n_colli': 'n_colli', 'posizione': 'posizione', 'n_arrivo': 'n_arrivo',
-                    'buono_n': 'buono_n', 'note': 'note', 'serial_number': 'serial_number', 'stato': 'stato',
-                    'mezzi_in_uscita': 'mezzi_in_uscita', 'ns_rif': 'ns_rif'
-                }
+                df = pd.read_excel(file, engine='openpyxl', header=header_row)
+                df.columns = [str(c).strip().lower() for c in df.columns]
 
                 imported_count = 0
                 for _, row in df.iterrows():
                     new_art = Articolo()
-                    for col_name, attr_name in column_map.items():
+                    for col_name, attr_name in col_map.items():
                         if col_name in row and not pd.isna(row[col_name]):
                             val = row[col_name]
                             if attr_name in ['larghezza', 'lunghezza', 'altezza', 'peso']:
                                 val = to_float_eu(val)
                             elif attr_name in ['n_colli', 'pezzo']:
                                 val = to_int_eu(val)
-                            elif attr_name == 'data_ingresso':
+                            elif attr_name in ['data_ingresso', 'data_uscita']:
                                 val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
                             setattr(new_art, attr_name, val)
-                    
-                    new_art.m2, new_art.m3 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)
+
+                    new_art.m2, new_art.m3 = calc_m2_m3(
+                        new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli
+                    )
                     db.add(new_art)
                     imported_count += 1
-                
+
                 db.commit()
-                flash(f'{imported_count} articoli importati con successo dal file Excel.', 'success')
-                return redirect(url_for('giacenze'))
+                flash(f"{imported_count} articoli importati con successo con la mappa '{mappa_scelta}'.", "success")
+                return redirect(url_for("giacenze"))
 
             except Exception as e:
                 db.rollback()
-                flash(f"Errore durante l'importazione: {e}", 'danger')
+                flash(f"Errore durante l'importazione: {e}", "danger")
                 return redirect(request.url)
         else:
-            flash('Formato file non supportato. Usare .xlsx, .xls o .xlsm', 'warning')
+            flash("Formato file non supportato. Usa un file .xlsx, .xls o .xlsm", "warning")
             return redirect(request.url)
 
-    return render_template('import_excel.html')
-
-def get_all_fields_map():
-    return {
-        'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi',
-        'descrizione': 'Descrizione', 'cliente': 'Cliente',
-        'protocollo': 'Protocollo', 'ordine': 'Ordine', 'peso': 'Peso (Kg)',
-        'n_colli': 'N° Colli', 'posizione': 'Posizione', 'stato': 'Stato',
-        'n_arrivo': 'N° Arrivo', 'buono_n': 'Buono N°',
-        'fornitore': 'Fornitore', 'magazzino': 'Magazzino',
-        'data_ingresso': 'Data Ingresso', 'data_uscita': 'Data Uscita',
-        'n_ddt_ingresso': 'N° DDT Ingresso', 'n_ddt_uscita': 'N° DDT Uscita',
-        'larghezza': 'Larghezza (m)', 'lunghezza': 'Lunghezza (m)',
-        'altezza': 'Altezza (m)', 'serial_number': 'Serial Number',
-        'ns_rif': 'NS Rif', 'mezzi_in_uscita': 'Mezzi in Uscita', 'note': 'Note'
-    }
+    return render_template("import_excel.html", mappe=nomi_mappe)
 
 # --- EXPORTAZIONE EXCEL ---
 @app.get('/export_excel')
