@@ -1721,8 +1721,6 @@ def labels_form():
 
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
-@app.route('/labels_pdf', methods=['POST'])
-@login_required
 def labels_pdf():
     cliente = request.form.get('cliente')
     formato = request.form.get('formato', '62x100')
@@ -1735,9 +1733,10 @@ def labels_pdf():
             flash("Nessun articolo trovato per il cliente selezionato.", "warning")
             return redirect(url_for('labels_form'))
 
-        # genera il pdf in memoria
-        pdf_buffer = _genera_pdf_etichetta(articoli, formato, anteprima)
+        # genera il pdf in memoria (buffer BytesIO)
+        pdf_buffer = _genera_pdf_etichetta(articoli, formato)
 
+        # ✅ se è anteprima, lo mostra nel browser
         if anteprima:
             return send_file(
                 pdf_buffer,
@@ -1746,6 +1745,7 @@ def labels_pdf():
                 download_name=f"Etichetta_{cliente}.pdf"
             )
         else:
+            # ✅ altrimenti salva il file sul server
             file_path = os.path.join("pdf_ddt", f"Etichetta_{cliente}.pdf")
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "wb") as f:
@@ -1758,37 +1758,37 @@ def labels_pdf():
         return redirect(url_for('labels_form'))
     finally:
         db.close()
-def _genera_pdf_etichetta(articoli, formato='62x100', anteprima=True):
+def _genera_pdf_etichetta(articoli, formato='62x100'):
     """
-    Genera un PDF con le etichette degli articoli selezionati.
-    - formato: stringa tipo '62x100' (mm)
-    - anteprima: se True, apre in browser invece di forzare il download
+    Genera un PDF con le etichette degli articoli e restituisce un buffer BytesIO.
     """
+    import io
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import landscape
+    from reportlab.lib.units import mm
+    import os
 
-    # --- Dimensione formato etichetta ---
+    # --- Formato personalizzato ---
     try:
         larg_mm, alt_mm = map(float, formato.lower().split('x'))
     except Exception:
         larg_mm, alt_mm = 62, 100  # default
 
-    # Orientamento orizzontale
-    page_size = landscape((larg_mm * mm, alt_mm * mm))
-
     buffer = io.BytesIO()
-    pdf = canvas.Canvas(buffer, pagesize=page_size)
+    pdf = canvas.Canvas(buffer, pagesize=landscape((larg_mm * mm, alt_mm * mm)))
 
-    # --- Logo (se presente in static) ---
+    # --- Logo (se presente) ---
     logo_path = os.path.join('static', 'logo camar.jpg')
     if os.path.exists(logo_path):
-        pdf.drawImage(logo_path, 8 * mm, alt_mm * mm - 22 * mm, width=25 * mm, preserveAspectRatio=True, mask='auto')
+        pdf.drawImage(logo_path, 8 * mm, alt_mm * mm - 22 * mm,
+                      width=25 * mm, preserveAspectRatio=True, mask='auto')
 
-    # --- Font ---
+    # --- Font e posizioni ---
     pdf.setFont("Helvetica-Bold", 9)
     y_start = alt_mm * mm - 10 * mm
 
-    for idx, art in enumerate(articoli, start=1):
+    for art in articoli:
         y = y_start
-
         pdf.setFont("Helvetica-Bold", 10)
         pdf.drawString(40 * mm, y, f"Cliente: {art.cliente or ''}")
         y -= 6 * mm
@@ -1811,21 +1811,8 @@ def _genera_pdf_etichetta(articoli, formato='62x100', anteprima=True):
 
     pdf.save()
     buffer.seek(0)
+    return buffer
 
-    # --- Ritorna come anteprima nel browser ---
-    if anteprima:
-        return send_file(
-            buffer,
-            as_attachment=False,
-            download_name="etichetta.pdf",
-            mimetype='application/pdf'
-        )
-    else:
-        file_path = os.path.join("pdf_ddt", "etichetta.pdf")
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        with open(file_path, "wb") as f:
-            f.write(buffer.getbuffer())
-        return file_path
 
 
 
