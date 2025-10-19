@@ -1128,6 +1128,63 @@ def export_client():
 
     return render_template('export_client.html', clienti=clienti)
 
+
+
+# --- CALCOLO GIACENZE MENSILI ---
+@app.route('/calcola_costi', methods=['GET', 'POST'])
+@login_required
+def calcola_costi():
+    db = SessionLocal()
+    clienti = [c[0] for c in db.query(Articolo.cliente)
+               .distinct()
+               .filter(Articolo.cliente != None, Articolo.cliente != '')
+               .order_by(Articolo.cliente)
+               .all()]
+
+    risultato = None
+    cliente_selezionato = None
+    mese_selezionato = None
+
+    if request.method == 'POST':
+        cliente = request.form.get('cliente')
+        mese_anno = request.form.get('mese_anno')
+        cliente_selezionato = cliente
+        mese_selezionato = mese_anno
+
+        if not cliente or not mese_anno:
+            flash("Seleziona sia il cliente che il mese.", "warning")
+            return redirect(request.url)
+
+        try:
+            anno, mese = mese_anno.split('-')
+            inizio = f"{anno}-{mese}-01"
+            fine = f"{anno}-{mese}-{calendar.monthrange(int(anno), int(mese))[1]}"
+
+            articoli = db.query(Articolo).filter(
+                Articolo.cliente == cliente,
+                or_(Articolo.data_uscita == None, Articolo.data_uscita > inizio),
+                Articolo.data_ingresso <= fine
+            ).all()
+
+            total_m2 = sum(a.m2 or 0 for a in articoli)
+            risultato = {
+                "cliente": cliente,
+                "periodo": f"{mese}/{anno}",
+                "total_m2": total_m2,
+                "count": len(articoli)
+            }
+        except Exception as e:
+            flash(f"Errore nel calcolo: {e}", "danger")
+
+    return render_template(
+        'calcola_costi.html',
+        clienti=clienti,
+        risultato=risultato,
+        cliente_selezionato=cliente_selezionato,
+        mese_selezionato=mese_selezionato
+    )
+
+
 # --- GESTIONE ARTICOLI (CRUD) ---
 @app.get('/new')
 @login_required
