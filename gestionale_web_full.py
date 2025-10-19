@@ -1722,18 +1722,40 @@ def labels_pdf():
     anteprima = request.form.get('anteprima') == 'on'
 
     db = SessionLocal()
-    articoli = db.query(Articolo).filter(Articolo.cliente == cliente).all()
-    if not articoli:
-        flash("Nessun articolo trovato per il cliente selezionato.", "warning")
+    try:
+        articoli = db.query(Articolo).filter(Articolo.cliente == cliente).all()
+
+        if not articoli:
+            flash("Nessun articolo trovato per il cliente selezionato.", "warning")
+            return redirect(url_for('labels_form'))
+
+        # ✅ Genera il PDF direttamente in memoria
+        pdf_buffer = _genera_pdf_etichetta(articoli, formato, anteprima)
+
+        # ✅ Se è anteprima → mostra nel browser
+        if anteprima:
+            return send_file(
+                pdf_buffer,
+                mimetype='application/pdf',
+                as_attachment=False,
+                download_name=f"Etichetta_{cliente}.pdf"
+            )
+        else:
+            # ✅ Se non è anteprima → salva su disco e mostra messaggio
+            file_path = os.path.join("pdf_ddt", f"Etichetta_{cliente}.pdf")
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, "wb") as f:
+                f.write(pdf_buffer.getbuffer())
+            flash(f"Etichette per {cliente} generate correttamente.", "success")
+            return redirect(url_for('labels_form'))
+
+    except Exception as e:
+        flash(f"Errore durante la generazione dell'etichetta: {e}", "danger")
         return redirect(url_for('labels_form'))
 
-    pdf_path = _genera_pdf_etichetta(articoli, formato, anteprima)
+    finally:
+        db.close()
 
-    if anteprima:
-        return send_file(pdf_path, mimetype='application/pdf')
-    else:
-        flash(f"Etichette per {cliente} generate correttamente.", "success")
-        return redirect(url_for('labels_form'))
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
