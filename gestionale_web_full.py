@@ -1720,8 +1720,45 @@ def labels_form():
     return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
 
 
+@app.route('/labels_pdf', methods=['POST'])
+@login_required
+@app.route('/labels_pdf', methods=['POST'])
+@login_required
+def labels_pdf():
+    cliente = request.form.get('cliente')
+    formato = request.form.get('formato', '62x100')
+    anteprima = request.form.get('anteprima') == 'on'
 
+    db = SessionLocal()
+    try:
+        articoli = db.query(Articolo).filter(Articolo.cliente == cliente).all()
+        if not articoli:
+            flash("Nessun articolo trovato per il cliente selezionato.", "warning")
+            return redirect(url_for('labels_form'))
 
+        # genera il pdf in memoria
+        pdf_buffer = _genera_pdf_etichetta(articoli, formato, anteprima)
+
+        if anteprima:
+            return send_file(
+                pdf_buffer,
+                mimetype='application/pdf',
+                as_attachment=False,
+                download_name=f"Etichetta_{cliente}.pdf"
+            )
+        else:
+            file_path = os.path.join("pdf_ddt", f"Etichetta_{cliente}.pdf")
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, "wb") as f:
+                f.write(pdf_buffer.getbuffer())
+            flash(f"Etichette per {cliente} generate correttamente.", "success")
+            return redirect(url_for('labels_form'))
+
+    except Exception as e:
+        flash(f"Errore durante la generazione dell'etichetta: {e}", "danger")
+        return redirect(url_for('labels_form'))
+    finally:
+        db.close()
 def _genera_pdf_etichetta(articoli, formato='62x100', anteprima=True):
     """
     Genera un PDF con le etichette degli articoli selezionati.
