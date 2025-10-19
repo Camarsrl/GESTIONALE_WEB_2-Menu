@@ -28,12 +28,6 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
-from reportlab.lib.pagesizes import landscape
-from reportlab.lib.units import mm
-from reportlab.pdfgen import canvas
-import io
-from flask import send_file
-
 # Jinja loader for in-memory templates
 from jinja2 import DictLoader
 
@@ -310,7 +304,7 @@ HOME_HTML = """
                 <hr>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('import_excel') }}"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel Totale</a>
-                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_client') }}"><i class="bi bi-people"></i> Export per Cliente</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel_client_page') }}"><i class="bi bi-people"></i> Export per Cliente</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>
             </div>
         </div>
@@ -329,6 +323,7 @@ HOME_HTML = """
 </div>
 {% endblock %}
 """
+
 GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
