@@ -1267,56 +1267,61 @@ def delete_attachment(att_id):
 
 
 # --- VISUALIZZA GIACENZE E AZIONI MULTIPLE ---
-@app.get('/giacenze')
+# --- VISUALIZZA GIACENZE ---
+@app.route('/giacenze')
 @login_required
 def giacenze():
     db = SessionLocal()
+    filtro = request.args.get('filtro', '').strip().lower()
     try:
-        qs = db.query(Articolo).order_by(Articolo.id_articolo.desc())
-        if session.get('role') == 'client':
-            qs = qs.filter(Articolo.cliente == session['user'])
-        
-        like_cols = [
-            'codice_articolo', 'cliente', 'fornitore', 'commessa', 'descrizione', 'posizione', 'stato', 
-            'protocollo', 'n_ddt_ingresso', 'n_ddt_uscita', 'n_arrivo', 'buono_n', 'ns_rif', 
-            'serial_number', 'mezzi_in_uscita'
-        ]
-        if request.args.get('id'):
-            try: qs = qs.filter(Articolo.id_articolo == int(request.args.get('id')))
-            except ValueError: pass
-        
-        for col in like_cols:
-            v = request.args.get(col)
-            if v:
-                qs = qs.filter(getattr(Articolo, col).ilike(f"%{v}%"))
-                
-        date_filters = {
-            'data_ingresso_da': (Articolo.data_ingresso, '>='), 'data_ingresso_a': (Articolo.data_ingresso, '<='),
-            'data_uscita_da': (Articolo.data_uscita, '>='), 'data_uscita_a': (Articolo.data_uscita, '<=')
-        }
-        for arg, (col, op) in date_filters.items():
-            val = request.args.get(arg)
-            if val:
-                date_sql = parse_date_ui(val)
-                if date_sql:
-                    if op == '>=': qs = qs.filter(col >= date_sql)
-                    else: qs = qs.filter(col <= date_sql)
-        
-        rows = qs.all()
-        
-        stock_rows = [r for r in rows if not r.data_uscita]
-        total_colli = sum(r.n_colli for r in stock_rows if r.n_colli)
-        total_m2 = sum(r.m2 for r in stock_rows if r.m2)
+        query = db.query(Articolo)
+        if filtro:
+            query = query.filter(
+                or_(
+                    Articolo.codice_articolo.ilike(f"%{filtro}%"),
+                    Articolo.descrizione.ilike(f"%{filtro}%"),
+                    Articolo.cliente.ilike(f"%{filtro}%"),
+                    Articolo.fornitore.ilike(f"%{filtro}%")
+                )
+            )
+        articoli = query.order_by(Articolo.id_articolo.desc()).all()
 
-    except Exception as e:
-        db.rollback()
-        flash(f"Errore nel caricamento delle giacenze: {e}", "danger")
-        rows, total_colli, total_m2 = [], 0, 0
-    
-    cols = ["id_articolo","codice_articolo","descrizione","cliente","fornitore","protocollo","ordine","lunghezza","larghezza","altezza",
-            "commessa","magazzino","posizione","stato","peso","n_colli","m2","m3","data_ingresso","data_uscita","n_arrivo",
-            "n_ddt_uscita", "mezzi_in_uscita"]
-    return render_template('giacenze.html', rows=rows, cols=cols, total_colli=total_colli, total_m2=total_m2)
+        cols = ["id_articolo","codice_articolo","descrizione","cliente","fornitore","protocollo",
+                "ordine","lunghezza","larghezza","altezza","commessa","magazzino","posizione",
+                "stato","peso","n_colli","m2","m3","data_ingresso","data_uscita","n_arrivo",
+                "n_ddt_uscita","mezzi_in_uscita"]
+
+        data = []
+        for a in articoli:
+            data.append({
+                "id_articolo": a.id_articolo,
+                "codice_articolo": a.codice_articolo or "",
+                "descrizione": a.descrizione or "",
+                "cliente": a.cliente or "",
+                "fornitore": a.fornitore or "",
+                "protocollo": a.protocollo or "",
+                "ordine": a.ordine or "",
+                "lunghezza": a.lunghezza or "",
+                "larghezza": a.larghezza or "",
+                "altezza": a.altezza or "",
+                "commessa": a.commessa or "",
+                "magazzino": a.magazzino or "",
+                "posizione": a.posizione or "",
+                "stato": a.stato or "",
+                "peso": a.peso or "",
+                "n_colli": a.n_colli or "",
+                "m2": a.m2 or "",
+                "m3": a.m3 or "",
+                "data_ingresso": a.data_ingresso or "",
+                "data_uscita": a.data_uscita or "",
+                "n_arrivo": a.n_arrivo or "",
+                "n_ddt_uscita": a.n_ddt_uscita or "",
+                "mezzi_in_uscita": a.mezzi_in_uscita or ""
+            })
+        return render_template('giacenze.html', articoli=data, filtro=filtro, colonne=cols)
+    finally:
+        db.close()
+
 
 @app.route('/bulk/edit', methods=['GET', 'POST'])
 @login_required
@@ -1676,16 +1681,18 @@ def ddt_finalize():
     response.headers['X-Redirect'] = url_for('giacenze')
     return response
 
-# --- ETICHETTE ---
-@app.get('/labels')
+# --- FORM CREAZIONE ETICHETTA ---
+@app.route("/labels_form", methods=["GET", "POST"])
 @login_required
 def labels_form():
     db = SessionLocal()
-    # Query per ottenere la lista di clienti unici, escludendo valori vuoti o nulli
-    clienti_query = db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()
-    # Trasforma la lista di tuple in una lista semplice di stringhe
-    clienti = [c[0] for c in clienti_query]
-    return render_template('labels_form.html', clienti=clienti)
+    try:
+        clienti = sorted({r[0] for r in db.query(Articolo.cliente).distinct() if r[0]})
+        fornitori = sorted({r[0] for r in db.query(Articolo.fornitore).distinct() if r[0]})
+    finally:
+        db.close()
+    return render_template("labels_form.html", clienti=clienti, fornitori=fornitori)
+
     
     # Crea un PDF in formato A4 standard
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
