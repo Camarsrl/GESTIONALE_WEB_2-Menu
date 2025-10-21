@@ -1290,13 +1290,26 @@ def delete_attachment(att_id):
 
 
 # --- VISUALIZZA GIACENZE E AZIONI MULTIPLE ---
+
 @app.route('/giacenze')
 @login_required
 def giacenze():
     db = SessionLocal()
     filtro = request.args.get('filtro', '').strip().lower()
     try:
-        query = db.query(Articolo)
+        # escludo righe completamente vuote (derivanti da Excel)
+        base_filter = or_(
+            Articolo.codice_articolo.isnot(None),
+            Articolo.descrizione.isnot(None),
+            Articolo.cliente.isnot(None),
+            Articolo.fornitore.isnot(None),
+            Articolo.commessa.isnot(None),
+            Articolo.magazzino.isnot(None),
+            Articolo.posizione.isnot(None)
+        )
+
+        query = db.query(Articolo).filter(base_filter)
+
         if filtro:
             query = query.filter(
                 or_(
@@ -1312,10 +1325,11 @@ def giacenze():
 
         articoli = query.order_by(Articolo.id_articolo.desc()).all()
 
+        # 🔴 QUI era "n_buono" (campo inesistente) → ✅ "buono_n"
         cols = [
             "id_articolo", "codice_articolo", "descrizione", "cliente", "fornitore",
             "protocollo", "ordine", "lunghezza", "larghezza", "altezza", "commessa",
-            "magazzino", "posizione", "stato", "peso", "n_colli", "m2", "m3",
+            "magazzino", "posizione", "stato", "peso", "n_colli", "m2", "m3", "buono_n",
             "data_ingresso", "data_uscita", "n_arrivo", "n_ddt_uscita", "mezzi_in_uscita"
         ]
 
@@ -1330,9 +1344,9 @@ def giacenze():
             total_colli=total_colli,
             total_m2=total_m2
         )
-
     finally:
         db.close()
+
 
 
 @app.route('/bulk/edit', methods=['GET', 'POST'])
