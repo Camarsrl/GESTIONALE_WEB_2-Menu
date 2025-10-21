@@ -1724,91 +1724,97 @@ def labels_form():
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
 def labels_pdf():
-    cliente = request.form.get('cliente')
-    formato = request.form.get('formato', '62x100')
-    anteprima = True  # ✅ Mostra sempre anteprima nel browser
+    # Leggo i campi del form: si genera UNA etichetta per volta
+    d = {
+        "cliente":        (request.form.get('cliente') or '').strip(),
+        "fornitore":      (request.form.get('fornitore') or '').strip(),
+        "ordine":         (request.form.get('ordine') or '').strip(),
+        "commessa":       (request.form.get('commessa') or '').strip(),
+        "ddt_ingresso":   (request.form.get('ddt_ingresso') or '').strip(),
+        "data_ingresso":  (request.form.get('data_ingresso') or '').strip(),
+        "arrivo":         (request.form.get('arrivo') or '').strip(),
+        "n_colli":        (request.form.get('n_colli') or '').strip(),
+        "posizione":      (request.form.get('posizione') or '').strip(),
+    }
+    formato = request.form.get('formato', '62x100')  # default 62x100 mm
 
-    db = SessionLocal()
     try:
-        articoli = db.query(Articolo).filter(Articolo.cliente == cliente).all()
-        if not articoli:
-            flash("Nessun articolo trovato per il cliente selezionato.", "warning")
-            return redirect(url_for('labels_form'))
-
-        # ✅ Genera PDF in memoria
-        pdf_buffer = _genera_pdf_etichetta(articoli, formato)
-
-        # ✅ Mostra anteprima direttamente nel browser
-        return send_file(
-            pdf_buffer,
-            mimetype='application/pdf',
-            as_attachment=False,
-            download_name=f"Etichetta_{cliente}.pdf"
-        )
-
+        bio = _genera_pdf_etichetta_single(d, formato=formato)
+        return send_file(bio,
+                         as_attachment=False,
+                         download_name=f"Etichetta_{(d['cliente'] or 'cliente')}.pdf",
+                         mimetype='application/pdf')
     except Exception as e:
         flash(f"Errore durante la generazione dell'etichetta: {e}", "danger")
         return redirect(url_for('labels_form'))
-    finally:
-        db.close()
 
 
-def _genera_pdf_etichetta(articoli, formato='62x100'):
+def _genera_pdf_etichetta_single(d, formato='62x100'):
     """
-    Genera un PDF con le etichette degli articoli e restituisce un buffer BytesIO.
+    Genera UNA etichetta per volta su una singola pagina in orizzontale.
+    Logo in alto a sinistra. Formato default 62x100 mm.
+    d = dict con chiavi: cliente, fornitore, ordine, commessa, ddt_ingresso,
+                         data_ingresso, arrivo, n_colli, posizione
     """
     import io
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import landscape
     from reportlab.lib.units import mm
-    import os
 
-    # --- Formato personalizzato ---
     try:
-        larg_mm, alt_mm = map(float, formato.lower().split('x'))
+        larg_mm, alt_mm = map(float, formato.lower().replace('mm','').split('x'))
     except Exception:
-        larg_mm, alt_mm = 62, 100  # default
+        larg_mm, alt_mm = 62.0, 100.0
 
-    buffer = io.BytesIO()
-    pdf = canvas.Canvas(buffer, pagesize=landscape((larg_mm * mm, alt_mm * mm)))
+    page_size = landscape((larg_mm * mm, alt_mm * mm))
 
-    # --- Logo (se presente) ---
-    logo_path = os.path.join('static', 'logo camar.jpg')
-    if os.path.exists(logo_path):
-        pdf.drawImage(logo_path, 8 * mm, alt_mm * mm - 22 * mm,
-                      width=25 * mm, preserveAspectRatio=True, mask='auto')
+    bio = io.BytesIO()
+    c = canvas.Canvas(bio, pagesize=page_size)
 
-    # --- Font e posizioni ---
-    pdf.setFont("Helvetica-Bold", 9)
-    y_start = alt_mm * mm - 10 * mm
+    # margini comodi
+    margin_x = 6 * mm
+    margin_y = 6 * mm
 
-    for art in articoli:
-        y = y_start
-        pdf.setFont("Helvetica-Bold", 10)
-        pdf.drawString(40 * mm, y, f"Cliente: {art.cliente or ''}")
-        y -= 6 * mm
-        pdf.setFont("Helvetica", 9)
-        pdf.drawString(40 * mm, y, f"Fornitore: {art.fornitore or ''}")
-        y -= 5 * mm
-        pdf.drawString(40 * mm, y, f"Commessa: {art.commessa or ''}")
-        y -= 5 * mm
-        pdf.drawString(40 * mm, y, f"Ordine: {art.ordine or ''}")
-        y -= 5 * mm
-        pdf.drawString(40 * mm, y, f"Descrizione: {art.descrizione or ''}")
-        y -= 5 * mm
-        pdf.drawString(40 * mm, y, f"Colli: {art.n_colli or ''} | Posizione: {art.posizione or ''}")
-        y -= 5 * mm
-        pdf.drawString(40 * mm, y, f"Data Ingresso: {art.data_ingresso or ''}")
-        y -= 6 * mm
-        pdf.setFont("Helvetica-Bold", 10)
-        pdf.drawString(40 * mm, y, f"Arrivo: {art.n_arrivo or ''}")
-        pdf.showPage()
+    # logo in alto a sinistra (se presente)
+    try:
+        logo_path = os.path.join('static', 'logo camar.jpg')
+        if os.path.exists(logo_path):
+            c.drawImage(logo_path, margin_x, page_size[1] - margin_y - 16*mm,
+                        width=28*mm, height=16*mm, preserveAspectRatio=True, mask='auto')
+    except Exception:
+        pass
 
-    pdf.save()
-    buffer.seek(0)
-    return buffer
+    # area testo a destra del logo
+    text_x = margin_x + 32*mm
+    y = page_size[1] - margin_y - 6*mm
 
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(text_x, y, f"Data Ingresso: {d.get('data_ingresso','')}")
+    y -= 5 * mm
+    c.drawString(text_x, y, f"Arrivo: {d.get('arrivo','')}")
+    y -= 7 * mm
 
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(margin_x, y, f"CLIENTE: {(d.get('cliente') or '').upper()}")
+    y -= 5 * mm
+
+    c.setFont("Helvetica", 9)
+    def line(lbl, key):
+        nonlocal y
+        c.drawString(margin_x, y, f"{lbl}: {d.get(key,'')}")
+        y -= 4.5*mm
+
+    line("FORNITORE", "fornitore")
+    line("COMMESSA", "commessa")
+    line("ORDINE", "ordine")
+    line("DDT INGRESSO", "ddt_ingresso")
+    line("COLLI", "n_colli")
+    line("POSIZIONE", "posizione")
+
+    c.showPage()
+    c.save()
+    bio.seek(0)
+    return bio
 
 
 # --- AVVIO FLASK APP ---
