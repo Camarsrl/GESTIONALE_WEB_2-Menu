@@ -8,6 +8,8 @@ Tutti i diritti riservati.
 import os, io, re, json, uuid
 from datetime import datetime, date
 from pathlib import Path
+from sqlalchemy import or_
+
 
 import pandas as pd
 from flask import (
