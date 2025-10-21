@@ -806,52 +806,41 @@ IMPORT_EXCEL_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-md-8 col-lg-6">
-        <div class="card p-4">
-            <h3><i class="bi bi-file-earmark-arrow-up"></i> Importa Articoli da Excel</h3>
-            <hr>
-            <p class="text-muted">
-                Carica un file Excel (.xlsx, .xls, .xlsm) per aggiungere nuovi articoli in blocco.<br>
-                Assicurati che il file abbia una riga di intestazione e che i nomi delle colonne corrispondano
-                alla mappa selezionata qui sotto.
-            </p>
-
-            <form method="post" enctype="multipart/form-data">
-                <div class="mb-3">
-                    <label for="mappa_excel" class="form-label">Seleziona una mappa Excel</label>
-                    <select class="form-select" id="mappa_excel" name="mappa_excel" required>
-                        <option value="" disabled selected>-- Seleziona una mappa --</option>
-                        {% for m in mappe %}
-                        <option value="{{ m }}">{{ m }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="mb-3">
-                    <label for="excel_file" class="form-label">Seleziona il file Excel</label>
-                    <input class="form-control" type="file" id="excel_file" name="excel_file"
-                           accept=".xlsx,.xls,.xlsm" required>
-                </div>
-
-                <div class="d-flex gap-2">
-                    <button type="submit" class="btn btn-primary">Carica e Importa</button>
-                    <a href="{{ url_for('home') }}" class="btn btn-secondary">Annulla</a>
-                </div>
-            </form>
-
-            <div class="alert alert-info mt-4">
-                <strong>Nomi colonne suggeriti:</strong><br>
-                <small><code>
-                    Codice Articolo, Pezzo, Larghezza, Lunghezza, Altezza, Protocollo, Ordine, Commessa,
-                    Magazzino, Fornitore, Data Ingresso, N. DDT Ingresso, Cliente, Descrizione, Peso,
-                    N. Colli, Posizione, N. Arrivo, Buono N., Note, Serial Number, Stato, Mezzi in Uscita, NS Rif
-                </code></small>
-            </div>
+  <div class="col-md-8 col-lg-6">
+    <div class="card p-4">
+      <h3><i class="bi bi-file-earmark-arrow-up"></i> Importa Articoli da Excel</h3>
+      <hr>
+      <form method="post" enctype="multipart/form-data">
+        <div class="mb-3">
+          <label class="form-label">Seleziona la mappa Excel</label>
+          <select name="mappa_excel" class="form-select" required>
+            <option value="" selected disabled>— scegli una mappa —</option>
+            {% for m in mappe %}
+              <option value="{{ m }}">{{ m }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">Le mappe sono lette da <code>mappe_excel.json</code>.</div>
         </div>
+
+        <div class="mb-3">
+          <label for="excel_file" class="form-label">File Excel (.xlsx, .xls, .xlsm)</label>
+          <input class="form-control" type="file" id="excel_file" name="excel_file" accept=".xlsx,.xls,.xlsm" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Carica e Importa</button>
+        <a href="{{ url_for('home') }}" class="btn btn-secondary">Annulla</a>
+      </form>
+
+      <div class="alert alert-info mt-4">
+        <strong>Nomi colonne suggeriti:</strong><br>
+        <small><code>Codice Articolo, Pezzo, Larghezza, Lunghezza, Altezza, Protocollo, Ordine, Commessa, Magazzino, Fornitore, Data Ingresso, N. DDT Ingresso, Cliente, Descrizione, Peso, N. Colli, Posizione, N. Arrivo, Buono N., Note, Serial Number, Stato, Mezzi in Uscita, NS Rif</code></small>
+      </div>
     </div>
+  </div>
 </div>
 {% endblock %}
 """
+
 
 EXPORT_CLIENT_HTML = """
 {% extends 'base.html' %}
@@ -1478,21 +1467,36 @@ def get_next_ddt_number():
 @app.route('/manage_destinatari', methods=['GET', 'POST'])
 @login_required
 def manage_destinatari():
-    db_file = os.path.join(BASE_DIR, 'destinatari_saved.json')
+    path = APP_DIR / "destinatari_saved.json"
+    data = load_destinatari()  # dict: {chiave: {ragione_sociale, indirizzo, piva}}
 
     if request.method == 'POST':
-        data = request.get_json(force=True)
-        with open(db_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-        return jsonify({"message": "Destinatari aggiornati con successo!"})
+        key = (request.form.get('key_name') or '').strip()
+        rag = (request.form.get('ragione_sociale') or '').strip()
+        ind = (request.form.get('indirizzo') or '').strip()
+        piva = (request.form.get('piva') or '').strip()
+        if not key:
+            flash("Nome chiave obbligatorio.", "warning")
+            return redirect(url_for('manage_destinatari'))
+        data[key] = {"ragione_sociale": rag, "indirizzo": ind, "piva": piva}
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        flash("Destinatario salvato.", "success")
+        return redirect(url_for('manage_destinatari'))
 
-    if os.path.exists(db_file):
-        with open(db_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+    return render_template('destinatari.html', destinatari=data)
+
+@app.get('/destinatari/delete/<path:key>')
+@login_required
+def delete_destinatario(key):
+    path = APP_DIR / "destinatari_saved.json"
+    data = load_destinatari()
+    if key in data:
+        data.pop(key, None)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        flash("Destinatario eliminato.", "success")
     else:
-        data = []
-
-    return render_template('manage_destinatari.html', destinatari=data)
+        flash("Destinatario non trovato.", "warning")
+    return redirect(url_for('manage_destinatari'))
 
 
 # --- PDF E FINALIZZAZIONE DDT ---
