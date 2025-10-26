@@ -1851,17 +1851,20 @@ def labels_pdf():
 
 def _genera_pdf_etichetta_single(d, formato='62x100'):
     """
-    Genera una singola etichetta PDF:
-    - Logo centrato in alto
-    - Testo tutto allineato a sinistra sotto il logo
+    Genera UNA etichetta per volta in orizzontale.
+    Tutto il testo è in MAIUSCOLO, senza grassetto.
+    Logo centrato sopra, testo allineato a sinistra.
+    d = dict con chiavi:
+        cliente, fornitore, ordine, commessa, ddt_ingresso,
+        data_ingresso, arrivo, n_colli, posizione
     """
-    import io
+    import io, os
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import landscape
     from reportlab.lib.units import mm
 
     try:
-        larg_mm, alt_mm = map(float, formato.lower().replace('mm','').split('x'))
+        larg_mm, alt_mm = map(float, formato.lower().replace('mm', '').split('x'))
     except Exception:
         larg_mm, alt_mm = 62.0, 100.0
 
@@ -1873,44 +1876,41 @@ def _genera_pdf_etichetta_single(d, formato='62x100'):
     margin_x = 8 * mm
     margin_y = 6 * mm
 
-    # Logo centrato in alto
-    logo_path = os.path.join('static', 'logo camar.jpg')
+    # Logo centrato
     try:
+        logo_path = os.path.join('static', 'logo camar.jpg')
         if os.path.exists(logo_path):
-            logo_width = 28 * mm
-            logo_height = 16 * mm
-            logo_x = (page_size[0] - logo_width) / 2
-            logo_y = page_size[1] - margin_y - logo_height
-            c.drawImage(logo_path, logo_x, logo_y, width=logo_width, height=logo_height,
+            logo_width = 30 * mm
+            logo_height = 15 * mm
+            x_center = (page_size[0] - logo_width) / 2
+            y_top = page_size[1] - margin_y - logo_height
+            c.drawImage(logo_path, x_center, y_top,
+                        width=logo_width, height=logo_height,
                         preserveAspectRatio=True, mask='auto')
     except Exception:
         pass
 
-    # Punto di partenza per il testo
+    # Testo sotto il logo
     y = page_size[1] - margin_y - 20 * mm
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(margin_x, y, f"Data Ingresso: {d.get('data_ingresso','')}")
-    y -= 5 * mm
-    c.drawString(margin_x, y, f"Arrivo: {d.get('arrivo','')}")
-    y -= 7 * mm
-
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(margin_x, y, f"CLIENTE: {(d.get('cliente') or '').upper()}")
-    y -= 5 * mm
-
     c.setFont("Helvetica", 9)
-    def line(lbl, key):
-        nonlocal y
-        c.drawString(margin_x, y, f"{lbl}: {d.get(key,'')}")
-        y -= 4.5 * mm
 
-    # Testo allineato a sinistra
-    line("FORNITORE", "fornitore")
-    line("COMMESSA", "commessa")
-    line("ORDINE", "ordine")
-    line("DDT INGRESSO", "ddt_ingresso")
-    line("COLLI", "n_colli")
-    line("POSIZIONE", "posizione")
+    def line(txt):
+        """Scrive una riga di testo in maiuscolo."""
+        nonlocal y
+        c.drawString(margin_x, y, txt.upper())
+        y -= 5 * mm
+
+    line(f"DATA INGRESSO: {d.get('data_ingresso', '')}")
+    line(f"ARRIVO: {d.get('arrivo', '')}")
+    y -= 3 * mm
+
+    line(f"CLIENTE: {d.get('cliente', '')}")
+    line(f"FORNITORE: {d.get('fornitore', '')}")
+    line(f"COMMESSA: {d.get('commessa', '')}")
+    line(f"ORDINE: {d.get('ordine', '')}")
+    line(f"DDT INGRESSO: {d.get('ddt_ingresso', '')}")
+    line(f"COLLI: {d.get('n_colli', '')}")
+    line(f"POSIZIONE: {d.get('posizione', '')}")
 
     c.showPage()
     c.save()
