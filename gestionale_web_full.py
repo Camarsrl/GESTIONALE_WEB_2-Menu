@@ -1458,7 +1458,12 @@ def bulk_delete():
                 if path.exists(): path.unlink()
             except Exception: pass
 
-    db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).delete(synchronize_session=False)
+    for id_articolo in ids:
+    art = db.query(Articolo).get(id_articolo)
+    if art:
+        for a in art.attachments:
+            db.delete(a)
+        db.delete(art)
     db.commit()
     flash(f"{len(ids)} articoli e i loro allegati sono stati eliminati.", "success")
     return redirect(url_for('giacenze'))
