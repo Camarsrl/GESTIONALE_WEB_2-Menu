@@ -1603,7 +1603,7 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
 
     # --- Mittente e Destinatario ---
     mittente_info = Paragraph(
-        "Mittente<br/>Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)<br/>P.IVA: 02231420992",
+        "Mittente<br/>Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)",
         style_normal
     )
 
