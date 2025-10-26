@@ -1566,7 +1566,7 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
         img = Image(logo_path, width=60 * mm, height=20 * mm)
         img.hAlign = 'CENTER'
         story.append(img)
-    story.append(Spacer(1, 4 * mm))
+    story.append(Spacer(1, 2 * mm))
 
     # --- Banner blu titolo ---
     banner = Table(
@@ -1587,7 +1587,7 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)<br/>P.IVA: 02231420992"""
 
     destinatario_info = f"""<b>Destinatario</b><br/>
-    <b>{dest.get('cliente','')}</b><br/>{dest.get('ragione_sociale','')}<br/>{dest.get('indirizzo','')}<br/>{dest.get('piva','')}"""
+    <b>{dest.get('nickname','')}</b><br/>{dest.get('ragione_sociale','')}<br/>{dest.get('indirizzo','')}<br/>{dest.get('piva','')}"""
 
     tab_top = Table(
         [[Paragraph(mittente_info, style_normal), Paragraph(destinatario_info, style_normal)]],
@@ -1612,8 +1612,8 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     tab_dati = Table(dati, colWidths=[25 * mm, 60 * mm, 25 * mm, 60 * mm])
     tab_dati.setStyle(TableStyle([
         ('GRID', (0, 0), (-1, -1), 0.3, colors.grey),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('WORDWRAP', (0, 0), (-1, -1), None),
     ]))
     story.append(tab_dati)
     story.append(Spacer(1, 6 * mm))
@@ -1636,6 +1636,7 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('ALIGN', (3, 1), (-1, -1), 'CENTER'),
+        ('WORDWRAP', (0, 0), (-1, -1), None),
     ]))
     story.append(tab_art)
     story.append(Spacer(1, 8 * mm))
@@ -1674,6 +1675,7 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     doc.build(story)
     buffer.seek(0)
     return buffer
+
 
 @app.post('/buono/finalize_and_get_pdf')
 @login_required
