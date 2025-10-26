@@ -1541,14 +1541,13 @@ def _copyright_para():
     tiny_style = _styles['Normal'].clone('copyright')
     tiny_style.fontSize = 7; tiny_style.textColor = colors.grey; tiny_style.alignment = TA_CENTER
     return Paragraph("Camar S.r.l. - Gestionale Web - © Alessia Moncalvo", tiny_style)
-
 def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     """
-    Genera un PDF DDT moderno e pulito per il gestionale web.
-    Layout:
-    - Logo centrato in alto
-    - Banner blu con titolo
-    - Tabelle per mittente/destinatario, dati, articoli, trasporto e firme
+    Genera un PDF DDT con layout moderno:
+    - Logo centrato sopra il titolo
+    - Banner blu "DOCUMENTO DI TRASPORTO (DDT)"
+    - Mittente e Destinatario affiancati
+    - Tabella dati aggiuntivi, articoli, causale/porto/aspetto, firme
     """
     import io, os
     from reportlab.lib.pagesizes import A4
@@ -1565,18 +1564,9 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
                             topMargin=20 * mm, bottomMargin=15 * mm)
 
     styles = getSampleStyleSheet()
-    style_normal = ParagraphStyle(
-        name='NormalSmall', parent=styles['Normal'],
-        fontSize=9, leading=12
-    )
-    style_bold = ParagraphStyle(
-        name='Bold', parent=style_normal, fontName='Helvetica-Bold'
-    )
-    style_title = ParagraphStyle(
-        name='Title', parent=styles['Heading1'],
-        alignment=1, textColor=colors.white,
-        fontSize=14, leading=18
-    )
+    style_normal = ParagraphStyle(name='NormalSmall', parent=styles['Normal'], fontSize=9, leading=12)
+    style_bold = ParagraphStyle(name='Bold', parent=styles['Normal'], fontSize=9, leading=12, fontName='Helvetica-Bold')
+    style_title = ParagraphStyle(name='Title', parent=styles['Heading1'], alignment=1, textColor=colors.white, fontSize=14, leading=18)
 
     story = []
 
@@ -1588,7 +1578,7 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
         story.append(img)
     story.append(Spacer(1, 4 * mm))
 
-    # --- Banner blu ---
+    # --- Banner blu titolo ---
     banner = Table(
         [[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", style_title)]],
         colWidths=[180 * mm],
@@ -1596,54 +1586,51 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
             ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#004C97")),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ]
+            ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor("#004C97")),
+        ],
     )
     story.append(banner)
-    story.append(Spacer(1, 8 * mm))
+    story.append(Spacer(1, 6 * mm))
 
     # --- Mittente e Destinatario ---
-    mittente_info = Paragraph(
-        "Mittente<br/>Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)",
-        style_normal
-    )
+    mittente_info = """<b>Mittente</b><br/>
+    Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)"""
 
-    destinatario_info = Paragraph(
-        f"Destinatario<br/><b>{dest.get('cliente','')}</b><br/>{dest.get('ragione_sociale','')}<br/>{dest.get('indirizzo','')}<br/>{dest.get('piva','')}",
-        style_normal
-    )
+    destinatario_info = f"""<b>Destinatario</b><br/>
+    <b>{dest.get('cliente', '').upper()}</b><br/>
+    {dest.get('ragione_sociale', '')}<br/>{dest.get('indirizzo', '')}<br/>{dest.get('piva', '')}"""
 
-    tab_top = Table([[mittente_info, destinatario_info]],
-                    colWidths=[90 * mm, 90 * mm])
-    tab_top.setStyle(TableStyle([
-        ('BOX', (0, 0), (-1, -1), 0.4, colors.grey),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 6),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-    ]))
+    tab_top = Table(
+        [[Paragraph(mittente_info, style_normal), Paragraph(destinatario_info, style_normal)]],
+        colWidths=[90 * mm, 90 * mm],
+        style=[
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('BOX', (0, 0), (-1, -1), 0.3, colors.lightgrey),
+            ('INNERGRID', (0, 0), (-1, -1), 0.3, colors.lightgrey),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ],
+    )
     story.append(tab_top)
     story.append(Spacer(1, 5 * mm))
 
     # --- Dati aggiuntivi ---
     dati = [
-        [Paragraph("Commessa", style_bold), Paragraph(form_data.get('commessa', ''), style_normal),
-         Paragraph("N. DDT", style_bold), Paragraph(str(n_ddt), style_normal)],
-        [Paragraph("Ordine", style_bold), Paragraph(form_data.get('ordine', ''), style_normal),
-         Paragraph("Data DDT", style_bold), Paragraph(fmt_date(data_ddt), style_normal)],
-        [Paragraph("Protocollo", style_bold), Paragraph(form_data.get('protocollo', ''), style_normal),
-         Paragraph("Targa", style_bold), Paragraph(targa, style_normal)]
+        ['<b>Commessa</b>', form_data.get('commessa', ''), '<b>N. DDT</b>', n_ddt],
+        ['<b>Ordine</b>', form_data.get('ordine', ''), '<b>Data DDT</b>', fmt_date(data_ddt)],
+        ['<b>Protocollo</b>', form_data.get('protocollo', ''), '<b>Targa</b>', targa],
     ]
     tab_dati = Table(dati, colWidths=[25 * mm, 60 * mm, 25 * mm, 60 * mm])
     tab_dati.setStyle(TableStyle([
-        ('GRID', (0, 0), (-1, -1), 0.3, colors.lightgrey),
+        ('GRID', (0, 0), (-1, -1), 0.3, colors.grey),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
     ]))
     story.append(tab_dati)
-    story.append(Spacer(1, 8 * mm))
+    story.append(Spacer(1, 6 * mm))
 
     # --- Tabella articoli ---
-    data_articoli = [
-        [Paragraph(h, style_bold) for h in ['ID', 'Cod. Articolo', 'Descrizione', 'Colli', 'Peso (Kg)', 'N. Arrivo']]
-    ]
+    data_articoli = [['ID', 'Cod. Articolo', 'Descrizione', 'Colli', 'Peso (Kg)', 'N. Arrivo']]
     for art in rows:
         data_articoli.append([
             Paragraph(str(art.id_articolo), style_normal),
@@ -1653,11 +1640,11 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
             Paragraph(f"{art.peso or 0:.2f}", style_normal),
             Paragraph(art.n_arrivo or '', style_normal)
         ])
-
     tab_art = Table(data_articoli, colWidths=[15 * mm, 30 * mm, 70 * mm, 20 * mm, 25 * mm, 25 * mm])
     tab_art.setStyle(TableStyle([
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#E6F0FA")),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('ALIGN', (3, 1), (-1, -1), 'CENTER'),
     ]))
@@ -1666,10 +1653,10 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
 
     # --- Dati trasporto ---
     trasporto = [
-        [Paragraph("Causale Trasporto", style_bold), Paragraph(form_data.get('causale', 'Trasferimento'), style_normal),
-         Paragraph("Porto", style_bold), Paragraph(form_data.get('porto', 'Franco'), style_normal)],
-        [Paragraph("Aspetto dei Beni", style_bold), Paragraph(form_data.get('aspetto', 'A vista'), style_normal),
-         Paragraph("", style_bold), Paragraph("", style_normal)]
+        ['<b>Causale Trasporto</b>', form_data.get('causale', 'Trasferimento'),
+         '<b>Porto</b>', form_data.get('porto', 'Franco')],
+        ['<b>Aspetto dei Beni</b>', form_data.get('aspetto', 'A vista'),
+         '<b></b>', '']
     ]
     tab_trasporto = Table(trasporto, colWidths=[35 * mm, 55 * mm, 35 * mm, 55 * mm])
     tab_trasporto.setStyle(TableStyle([
@@ -1677,16 +1664,16 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
     ]))
     story.append(tab_trasporto)
-    story.append(Spacer(1, 8 * mm))
+    story.append(Spacer(1, 10 * mm))
 
-    # --- Totali e firme ---
+    # --- Firme ---
     tot_colli = sum(a.n_colli or 0 for a in rows)
     tot_peso = sum(a.peso or 0 for a in rows)
     firme = [
-        [Paragraph("Totale Colli:", style_bold), Paragraph(str(tot_colli), style_normal),
-         Paragraph("Totale Peso:", style_bold), Paragraph(f"{tot_peso:.2f} Kg", style_normal)],
-        [Paragraph("Firma Magazzino:", style_bold), Paragraph("____________________", style_normal),
-         Paragraph("Firma Vettore:", style_bold), Paragraph("____________________", style_normal)]
+        ['<b>Totale Colli:</b>', str(tot_colli),
+         '<b>Totale Peso:</b>', f"{tot_peso:.2f} Kg"],
+        ['<b>Firma Magazzino:</b>', '____________________',
+         '<b>Firma Vettore:</b>', '____________________']
     ]
     tab_firme = Table(firme, colWidths=[40 * mm, 50 * mm, 40 * mm, 50 * mm])
     tab_firme.setStyle(TableStyle([
