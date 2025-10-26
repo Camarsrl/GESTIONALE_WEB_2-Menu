@@ -1799,10 +1799,9 @@ def labels_pdf():
 
 def _genera_pdf_etichetta_single(d, formato='62x100'):
     """
-    Genera UNA etichetta per volta su una singola pagina in orizzontale.
-    Logo in alto a sinistra. Formato default 62x100 mm.
-    d = dict con chiavi: cliente, fornitore, ordine, commessa, ddt_ingresso,
-                         data_ingresso, arrivo, n_colli, posizione
+    Genera una singola etichetta PDF:
+    - Logo centrato in alto
+    - Testo tutto allineato a sinistra sotto il logo
     """
     import io
     from reportlab.pdfgen import canvas
@@ -1815,31 +1814,32 @@ def _genera_pdf_etichetta_single(d, formato='62x100'):
         larg_mm, alt_mm = 62.0, 100.0
 
     page_size = landscape((larg_mm * mm, alt_mm * mm))
-
     bio = io.BytesIO()
     c = canvas.Canvas(bio, pagesize=page_size)
 
-    # margini comodi
-    margin_x = 6 * mm
+    # Margini
+    margin_x = 8 * mm
     margin_y = 6 * mm
 
-    # logo in alto a sinistra (se presente)
+    # Logo centrato in alto
+    logo_path = os.path.join('static', 'logo camar.jpg')
     try:
-        logo_path = os.path.join('static', 'logo camar.jpg')
         if os.path.exists(logo_path):
-            c.drawImage(logo_path, margin_x, page_size[1] - margin_y - 16*mm,
-                        width=28*mm, height=16*mm, preserveAspectRatio=True, mask='auto')
+            logo_width = 28 * mm
+            logo_height = 16 * mm
+            logo_x = (page_size[0] - logo_width) / 2
+            logo_y = page_size[1] - margin_y - logo_height
+            c.drawImage(logo_path, logo_x, logo_y, width=logo_width, height=logo_height,
+                        preserveAspectRatio=True, mask='auto')
     except Exception:
         pass
 
-    # area testo a destra del logo
-    text_x = margin_x + 32*mm
-    y = page_size[1] - margin_y - 6*mm
-
+    # Punto di partenza per il testo
+    y = page_size[1] - margin_y - 20 * mm
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(text_x, y, f"Data Ingresso: {d.get('data_ingresso','')}")
+    c.drawString(margin_x, y, f"Data Ingresso: {d.get('data_ingresso','')}")
     y -= 5 * mm
-    c.drawString(text_x, y, f"Arrivo: {d.get('arrivo','')}")
+    c.drawString(margin_x, y, f"Arrivo: {d.get('arrivo','')}")
     y -= 7 * mm
 
     c.setFont("Helvetica-Bold", 11)
@@ -1850,8 +1850,9 @@ def _genera_pdf_etichetta_single(d, formato='62x100'):
     def line(lbl, key):
         nonlocal y
         c.drawString(margin_x, y, f"{lbl}: {d.get(key,'')}")
-        y -= 4.5*mm
+        y -= 4.5 * mm
 
+    # Testo allineato a sinistra
     line("FORNITORE", "fornitore")
     line("COMMESSA", "commessa")
     line("ORDINE", "ordine")
@@ -1863,6 +1864,7 @@ def _genera_pdf_etichetta_single(d, formato='62x100'):
     c.save()
     bio.seek(0)
     return bio
+
 
 
 # --- AVVIO FLASK APP ---
