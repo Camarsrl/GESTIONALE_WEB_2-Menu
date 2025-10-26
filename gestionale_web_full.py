@@ -1468,35 +1468,34 @@ def get_next_ddt_number():
 
 @app.route('/manage_destinatari', methods=['GET', 'POST'])
 @login_required
-@app.route('/manage_destinatari', methods=['GET', 'POST'])
-@login_required
 def manage_destinatari():
     path = APP_DIR / "destinatari_saved.json"
-    data = load_destinatari()  # dict: {nickname: {ragione_sociale, indirizzo, piva}}
+    data = load_destinatari()  # dict: {chiave: {cliente, ragione_sociale, indirizzo, piva}}
 
     if request.method == 'POST':
-        nickname = (request.form.get('nickname') or '').strip().upper()
+        key = (request.form.get('key_name') or '').strip()
+        cliente = (request.form.get('cliente') or '').strip()
         rag = (request.form.get('ragione_sociale') or '').strip()
         ind = (request.form.get('indirizzo') or '').strip()
         piva = (request.form.get('piva') or '').strip()
 
-        if not nickname:
-            flash("Il campo 'Nickname' è obbligatorio.", "warning")
+        if not key:
+            flash("Nome chiave obbligatorio.", "warning")
             return redirect(url_for('manage_destinatari'))
 
-        # ✅ Salva anche il nickname all’interno del dizionario
-        data[nickname] = {
-            "nickname": nickname,
+        data[key] = {
+            "cliente": cliente,
             "ragione_sociale": rag,
             "indirizzo": ind,
             "piva": piva
         }
 
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        flash(f"Destinatario '{nickname}' salvato correttamente.", "success")
+        flash("Destinatario salvato correttamente.", "success")
         return redirect(url_for('manage_destinatari'))
 
     return render_template('destinatari.html', destinatari=data)
+
 
 
 @app.get('/destinatari/delete/<path:key>')
