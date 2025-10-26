@@ -9,6 +9,8 @@ import os, io, re, json, uuid
 from datetime import datetime, date
 from pathlib import Path
 from sqlalchemy import or_
+import calendar
+
 
 
 import pandas as pd
@@ -771,36 +773,95 @@ document.getElementById('ddt-form').addEventListener('submit', function(e) {
 LABELS_FORM_HTML = """
 {% extends 'base.html' %}
 {% block content %}
-<div class="card p-4">
-    <h3><i class="bi bi-tag"></i> Nuova Etichetta</h3>
+<div class="card p-4 shadow-sm">
+    <h3 class="mb-3"><i class="bi bi-tag"></i> Nuova Etichetta</h3>
     <hr>
+
     <form method="post" action="{{ url_for('labels_pdf') }}" target="_blank">
         <div class="row g-3">
+            <!-- Cliente -->
             <div class="col-md-4">
-                <label class="form-label">Cliente</label>
-                <input class="form-control" list="clienti-datalist" name="cliente" placeholder="Digita o seleziona un cliente...">
+                <label class="form-label fw-semibold">Cliente</label>
+                <input type="text" name="cliente" class="form-control"
+                       list="clienti-datalist"
+                       placeholder="Digita o seleziona un cliente...">
                 <datalist id="clienti-datalist">
                     {% for c in clienti %}
                     <option value="{{ c }}">
                     {% endfor %}
                 </datalist>
             </div>
-            <div class="col-md-4"><label class="form-label">Fornitore</label><input name="fornitore" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Ordine</label><input name="ordine" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Commessa</label><input name="commessa" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">DDT Ingresso</label><input name="ddt_ingresso" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Data Ingresso</label><input name="data_ingresso" class="form-control" placeholder="gg/mm/aaaa"></div>
-            <div class="col-md-4"><label class="form-label">Arrivo (es. 01/25)</label><input name="arrivo" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">N. Colli</label><input name="n_colli" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Posizione</label><input name="posizione" class="form-control"></div>
+
+            <!-- Fornitore -->
+            <div class="col-md-4">
+                <label class="form-label fw-semibold">Fornitore</label>
+                <input type="text" name="fornitore" class="form-control"
+                       list="fornitori-datalist"
+                       placeholder="Digita o seleziona un fornitore...">
+                <datalist id="fornitori-datalist">
+                    {% for f in fornitori %}
+                    <option value="{{ f }}">
+                    {% endfor %}
+                </datalist>
+            </div>
+
+            <!-- Ordine -->
+            <div class="col-md-4">
+                <label class="form-label fw-semibold">Ordine</label>
+                <input type="text" name="ordine" class="form-control">
+            </div>
+
+            <!-- Commessa -->
+            <div class="col-md-4">
+                <label class="form-label fw-semibold">Commessa</label>
+                <input type="text" name="commessa" class="form-control">
+            </div>
+
+            <!-- DDT ingresso -->
+            <div class="col-md-4">
+                <label class="form-label fw-semibold">DDT Ingresso</label>
+                <input type="text" name="ddt_ingresso" class="form-control">
+            </div>
+
+            <!-- Data ingresso -->
+            <div class="col-md-4">
+                <label class="form-label fw-semibold">Data Ingresso</label>
+                <input type="text" name="data_ingresso" class="form-control" placeholder="gg/mm/aaaa">
+            </div>
+
+            <!-- Arrivo -->
+            <div class="col-md-4">
+                <label class="form-label fw-semibold">Arrivo (es. 01/25)</label>
+                <input type="text" name="arrivo" class="form-control">
+            </div>
+
+            <!-- N. Colli -->
+            <div class="col-md-4">
+                <label class="form-label fw-semibold">N. Colli</label>
+                <input type="text" name="n_colli" class="form-control">
+            </div>
+
+            <!-- Posizione -->
+            <div class="col-md-4">
+                <label class="form-label fw-semibold">Posizione</label>
+                <input type="text" name="posizione" class="form-control">
+            </div>
         </div>
+
+        <!-- Pulsanti -->
         <div class="mt-4 d-flex gap-2">
-            <button type="submit" class="btn btn-primary"><i class="bi bi-printer"></i> Genera PDF Etichetta</button>
+            <button type="submit" class="btn btn-outline-secondary" name="preview" value="1">
+                <i class="bi bi-eye"></i> Anteprima
+            </button>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-printer"></i> Genera PDF Etichetta
+            </button>
         </div>
     </form>
 </div>
 {% endblock %}
 """
+
 
 LABELS_PREVIEW_HTML = " " # Non più utilizzato
 
@@ -1470,11 +1531,21 @@ def get_next_ddt_number():
 @login_required
 def manage_destinatari():
     path = APP_DIR / "destinatari_saved.json"
-    data = load_destinatari()  # dict: {chiave: {cliente, ragione_sociale, indirizzo, piva}}
+    data = load_destinatari()  # {key: {ragione_sociale, indirizzo, piva, [cliente]}}
 
     if request.method == 'POST':
+        # aggiunta/eliminazione
+        del_key = (request.form.get('delete_key') or '').strip()
+        if del_key:
+            if del_key in data:
+                data.pop(del_key, None)
+                path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+                flash("Destinatario eliminato.", "success")
+            else:
+                flash("Destinatario non trovato.", "warning")
+            return redirect(url_for('manage_destinatari'))
+
         key = (request.form.get('key_name') or '').strip()
-        cliente = (request.form.get('cliente') or '').strip()
         rag = (request.form.get('ragione_sociale') or '').strip()
         ind = (request.form.get('indirizzo') or '').strip()
         piva = (request.form.get('piva') or '').strip()
@@ -1483,19 +1554,25 @@ def manage_destinatari():
             flash("Nome chiave obbligatorio.", "warning")
             return redirect(url_for('manage_destinatari'))
 
+        # salvo SEMPRE anche il campo 'cliente' (maiuscolo). Se non indicato, uso la ragione sociale.
+        cliente_name = (request.form.get('cliente') or rag or key).strip().upper()
+
         data[key] = {
-            "cliente": cliente,
             "ragione_sociale": rag,
             "indirizzo": ind,
-            "piva": piva
+            "piva": piva,
+            "cliente": cliente_name
         }
-
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        flash("Destinatario salvato correttamente.", "success")
+        flash("Destinatario salvato.", "success")
         return redirect(url_for('manage_destinatari'))
 
-    return render_template('destinatari.html', destinatari=data)
+    # normalizzo per sicurezza: se manca "cliente", lo genero on the fly
+    for k, v in data.items():
+        if isinstance(v, dict) and 'cliente' not in v:
+            v['cliente'] = (v.get('ragione_sociale') or k).upper()
 
+    return render_template('destinatari.html', destinatari=data)
 
 
 @app.get('/destinatari/delete/<path:key>')
@@ -1543,149 +1620,145 @@ def _copyright_para():
     return Paragraph("Camar S.r.l. - Gestionale Web - © Alessia Moncalvo", tiny_style)
 def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     """
-    Genera un PDF DDT con layout moderno:
-    - Logo centrato sopra il titolo
-    - Banner blu "DOCUMENTO DI TRASPORTO (DDT)"
-    - Mittente e Destinatario affiancati
-    - Tabella dati aggiuntivi, articoli, causale/porto/aspetto, firme
+    Layout DDT:
+    - Logo centrato
+    - Banner blu titolo
+    - Mittente (senza P.IVA) a sinistra, Destinatario a destra con NOME CLIENTE in alto
+    - Sezione 'Dati Aggiuntivi' (banner blu)
+    - Tabella articoli con descrizioni a capo
+    - Sezione trasporto (Causale, Porto, Aspetto)
+    - Totali + firma vettore
     """
     import io, os
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.lib.units import mm
-    from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
-    )
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4,
-                            leftMargin=15 * mm, rightMargin=15 * mm,
-                            topMargin=20 * mm, bottomMargin=15 * mm)
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            leftMargin=15*mm, rightMargin=15*mm,
+                            topMargin=12*mm, bottomMargin=15*mm)
 
     styles = getSampleStyleSheet()
-    style_normal = ParagraphStyle(name='NormalSmall', parent=styles['Normal'], fontSize=9, leading=12)
-    style_bold = ParagraphStyle(name='Bold', parent=styles['Normal'], fontSize=9, leading=12, fontName='Helvetica-Bold')
-    style_title = ParagraphStyle(name='Title', parent=styles['Heading1'], alignment=1, textColor=colors.white, fontSize=14, leading=18)
+    p_norm = ParagraphStyle('p_norm', parent=styles['Normal'], fontSize=9, leading=12, alignment=TA_LEFT)
+    p_head = ParagraphStyle('p_head', parent=styles['Heading2'], fontSize=15, leading=18, alignment=TA_CENTER, textColor=colors.white)
+    p_bold = ParagraphStyle('p_bold', parent=styles['Normal'], fontSize=9, leading=12)
+    p_bold.fontName = 'Helvetica-Bold'
 
     story = []
 
-    # --- Logo centrato ---
+    # Logo centrato
     logo_path = LOGO_PATH or os.path.join("static", "logo camar.jpg")
     if logo_path and os.path.exists(logo_path):
-        img = Image(logo_path, width=60 * mm, height=20 * mm)
-        img.hAlign = 'CENTER'
-        story.append(img)
-    story.append(Spacer(1, 4 * mm))
+        im = Image(logo_path, width=60*mm, height=20*mm)
+        im.hAlign = 'CENTER'
+        story.append(im)
+        story.append(Spacer(1, 2*mm))
 
-    # --- Banner blu titolo ---
-    banner = Table(
-        [[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", style_title)]],
-        colWidths=[180 * mm],
-        style=[
-            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#004C97")),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor("#004C97")),
-        ],
-    )
-    story.append(banner)
-    story.append(Spacer(1, 6 * mm))
+    # Banner titolo
+    story.append(Table([[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", p_head)]],
+                       colWidths=[doc.width],
+                       style=[('BACKGROUND',(0,0),(-1,-1), colors.HexColor("#1E66AE")),
+                              ('BOX',(0,0),(-1,-1), 0.5, colors.HexColor("#1E66AE")),
+                              ('ALIGN',(0,0),(-1,-1),'CENTER'),
+                              ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+                              ('BOTTOMPADDING',(0,0),(-1,-1),6),
+                              ('TOPPADDING',(0,0),(-1,-1),6)]))
+    story.append(Spacer(1, 6*mm))
 
-    # --- Mittente e Destinatario ---
-    mittente_info = """<b>Mittente</b><br/>
-    Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)"""
+    # Mittente/Destinatario
+    mitt = """<b>Mittente</b><br/>Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)"""
+    # Nome cliente IN TESTA
+    dest_cliente = (dest.get('cliente') or dest.get('ragione_sociale') or '').upper()
+    dest_lines = [f"<b>Destinatario</b>",
+                  dest_cliente,
+                  dest.get('ragione_sociale',''),
+                  dest.get('indirizzo',''),
+                  dest.get('piva','')]
+    # ripulisci linee vuote
+    dest_block = "<br/>".join([ln for ln in dest_lines if ln.strip()])
 
-    destinatario_info = f"""<b>Destinatario</b><br/>
-    <b>{dest.get('cliente', '').upper()}</b><br/>
-    {dest.get('ragione_sociale', '')}<br/>{dest.get('indirizzo', '')}<br/>{dest.get('piva', '')}"""
+    top = Table([[Paragraph(mitt, p_norm), Paragraph(dest_block, p_norm)]],
+                colWidths=[doc.width/2, doc.width/2],
+                style=[('BOX',(0,0),(-1,-1),0.3, colors.lightgrey),
+                       ('VALIGN',(0,0),(-1,-1),'TOP'),
+                       ('LEFTPADDING',(0,0),(-1,-1),6),
+                       ('RIGHTPADDING',(0,0),(-1,-1),6)])
+    story.append(top)
+    story.append(Spacer(1, 6*mm))
 
-    tab_top = Table(
-        [[Paragraph(mittente_info, style_normal), Paragraph(destinatario_info, style_normal)]],
-        colWidths=[90 * mm, 90 * mm],
-        style=[
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('BOX', (0, 0), (-1, -1), 0.3, colors.lightgrey),
-            ('INNERGRID', (0, 0), (-1, -1), 0.3, colors.lightgrey),
-            ('LEFTPADDING', (0, 0), (-1, -1), 6),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-        ],
-    )
-    story.append(tab_top)
-    story.append(Spacer(1, 5 * mm))
+    # Banner "Dati Aggiuntivi"
+    story.append(Table([[Paragraph("Dati Aggiuntivi", ParagraphStyle('bar', parent=styles['Normal'], fontSize=10, textColor=colors.white))]],
+                       colWidths=[doc.width],
+                       style=[('BACKGROUND',(0,0),(-1,-1), colors.HexColor("#1E66AE")),
+                              ('LEFTPADDING',(0,0),(-1,-1),6),
+                              ('RIGHTPADDING',(0,0),(-1,-1),6),
+                              ('TOPPADDING',(0,0),(-1,-1),3),
+                              ('BOTTOMPADDING',(0,0),(-1,-1),3)]))
 
-    # --- Dati aggiuntivi ---
     dati = [
-        ['<b>Commessa</b>', form_data.get('commessa', ''), '<b>N. DDT</b>', n_ddt],
-        ['<b>Ordine</b>', form_data.get('ordine', ''), '<b>Data DDT</b>', fmt_date(data_ddt)],
-        ['<b>Protocollo</b>', form_data.get('protocollo', ''), '<b>Targa</b>', targa],
+        ['Commessa', form_data.get('commessa',''), 'N. DDT', n_ddt],
+        ['Ordine',   form_data.get('ordine',''),   'Data Uscita', fmt_date(data_ddt)],
+        ['Buono',    form_data.get('buono_n',''),  'Targa', targa or ''],
+        ['Protocollo', form_data.get('protocollo',''), '', '']
     ]
-    tab_dati = Table(dati, colWidths=[25 * mm, 60 * mm, 25 * mm, 60 * mm])
-    tab_dati.setStyle(TableStyle([
-        ('GRID', (0, 0), (-1, -1), 0.3, colors.grey),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-    ]))
-    story.append(tab_dati)
-    story.append(Spacer(1, 6 * mm))
+    story.append(Table(dati,
+                       colWidths=[25*mm, 70*mm, 25*mm, None],
+                       style=[('GRID',(0,0),(-1,-1),0.3, colors.grey),
+                              ('BACKGROUND',(0,0),(-1,0),colors.whitesmoke),
+                              ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+                              ('FONT',(0,0),(-1,0),'Helvetica-Bold',9)]))
+    story.append(Spacer(1, 8*mm))
 
-    # --- Tabella articoli ---
-    data_articoli = [['ID', 'Cod. Articolo', 'Descrizione', 'Colli', 'Peso (Kg)', 'N. Arrivo']]
-    for art in rows:
-        data_articoli.append([
-            Paragraph(str(art.id_articolo), style_normal),
-            Paragraph(art.codice_articolo or '', style_normal),
-            Paragraph(art.descrizione or '', style_normal),
-            Paragraph(str(art.n_colli or ''), style_normal),
-            Paragraph(f"{art.peso or 0:.2f}", style_normal),
-            Paragraph(art.n_arrivo or '', style_normal)
+    # Tabella articoli
+    art_head = ['ID','Cod.Art.','Descrizione','Pezzi','Colli','Peso','N.Arrivo']
+    data_art = [art_head]
+    for a in rows:
+        data_art.append([
+            Paragraph(str(a.id_articolo), p_norm),
+            Paragraph(a.codice_articolo or '', p_norm),
+            Paragraph(a.descrizione or '', p_norm),  # Paragraph -> va a capo
+            Paragraph(str(a.pezzo or ''), p_norm),
+            Paragraph(str(a.n_colli or ''), p_norm),
+            Paragraph(f"{(a.peso or 0):.0f}", p_norm),
+            Paragraph(a.n_arrivo or '', p_norm)
         ])
-    tab_art = Table(data_articoli, colWidths=[15 * mm, 30 * mm, 70 * mm, 20 * mm, 25 * mm, 25 * mm])
-    tab_art.setStyle(TableStyle([
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#E6F0FA")),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('ALIGN', (3, 1), (-1, -1), 'CENTER'),
-    ]))
-    story.append(tab_art)
-    story.append(Spacer(1, 8 * mm))
+    story.append(Table(data_art,
+                       colWidths=[14*mm, 25*mm, None, 18*mm, 18*mm, 22*mm, 25*mm],
+                       style=[('GRID',(0,0),(-1,-1),0.4, colors.grey),
+                              ('BACKGROUND',(0,0),(-1,0),colors.whitesmoke),
+                              ('FONT',(0,0),(-1,0),'Helvetica-Bold',9),
+                              ('VALIGN',(0,0),(-1,-1),'TOP'),
+                              ('ALIGN',(3,1),(-1,-1),'CENTER')]))
+    story.append(Spacer(1, 8*mm))
 
-    # --- Dati trasporto ---
-    trasporto = [
-        ['<b>Causale Trasporto</b>', form_data.get('causale', 'Trasferimento'),
-         '<b>Porto</b>', form_data.get('porto', 'Franco')],
-        ['<b>Aspetto dei Beni</b>', form_data.get('aspetto', 'A vista'),
-         '<b></b>', '']
+    # Sezione Trasporto
+    tras = [
+        ['Causale', form_data.get('causale','TRASFERIMENTO'), 'Porto', form_data.get('porto','FRANCO')],
+        ['Aspetto', form_data.get('aspetto','A VISTA'), '', '']
     ]
-    tab_trasporto = Table(trasporto, colWidths=[35 * mm, 55 * mm, 35 * mm, 55 * mm])
-    tab_trasporto.setStyle(TableStyle([
-        ('GRID', (0, 0), (-1, -1), 0.3, colors.lightgrey),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-    ]))
-    story.append(tab_trasporto)
-    story.append(Spacer(1, 10 * mm))
+    story.append(Table(tras,
+                       colWidths=[25*mm, 70*mm, 25*mm, None],
+                       style=[('GRID',(0,0),(-1,-1),0.3, colors.lightgrey),
+                              ('VALIGN',(0,0),(-1,-1),'MIDDLE')]))
+    story.append(Spacer(1, 10*mm))
 
-    # --- Firme ---
+    # Totali / firma
     tot_colli = sum(a.n_colli or 0 for a in rows)
-    tot_peso = sum(a.peso or 0 for a in rows)
-    firme = [
-        ['<b>Totale Colli:</b>', str(tot_colli),
-         '<b>Totale Peso:</b>', f"{tot_peso:.2f} Kg"],
-        ['<b>Firma Magazzino:</b>', '____________________',
-         '<b>Firma Vettore:</b>', '____________________']
-    ]
-    tab_firme = Table(firme, colWidths=[40 * mm, 50 * mm, 40 * mm, 50 * mm])
-    tab_firme.setStyle(TableStyle([
-        ('GRID', (0, 0), (-1, -1), 0.3, colors.lightgrey),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-    ]))
-    story.append(tab_firme)
+    tot_peso  = sum(a.peso or 0 for a in rows)
+    foot = Table([['Totale Colli:', str(tot_colli), 'Totale Peso:', f"{int(tot_peso)}"],
+                  ['', '', 'Firma Vettore:', '____________________________']],
+                 colWidths=[25*mm, 30*mm, 35*mm, None],
+                 style=[('GRID',(0,0),(-1,-1),0.3, colors.lightgrey),
+                        ('VALIGN',(0,0),(-1,-1),'MIDDLE')])
+    story.append(foot)
 
     doc.build(story)
-    buffer.seek(0)
-    return buffer
-
+    buf.seek(0)
+    return buf
 
 
 @app.post('/buono/finalize_and_get_pdf')
