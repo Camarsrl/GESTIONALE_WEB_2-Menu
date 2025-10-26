@@ -1468,24 +1468,36 @@ def get_next_ddt_number():
 
 @app.route('/manage_destinatari', methods=['GET', 'POST'])
 @login_required
+@app.route('/manage_destinatari', methods=['GET', 'POST'])
+@login_required
 def manage_destinatari():
     path = APP_DIR / "destinatari_saved.json"
-    data = load_destinatari()  # dict: {chiave: {ragione_sociale, indirizzo, piva}}
+    data = load_destinatari()  # dict: {nickname: {ragione_sociale, indirizzo, piva}}
 
     if request.method == 'POST':
-        key = (request.form.get('key_name') or '').strip()
+        nickname = (request.form.get('nickname') or '').strip().upper()
         rag = (request.form.get('ragione_sociale') or '').strip()
         ind = (request.form.get('indirizzo') or '').strip()
         piva = (request.form.get('piva') or '').strip()
-        if not key:
-            flash("Nome chiave obbligatorio.", "warning")
+
+        if not nickname:
+            flash("Il campo 'Nickname' è obbligatorio.", "warning")
             return redirect(url_for('manage_destinatari'))
-        data[key] = {"ragione_sociale": rag, "indirizzo": ind, "piva": piva}
+
+        # ✅ Salva anche il nickname all’interno del dizionario
+        data[nickname] = {
+            "nickname": nickname,
+            "ragione_sociale": rag,
+            "indirizzo": ind,
+            "piva": piva
+        }
+
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        flash("Destinatario salvato.", "success")
+        flash(f"Destinatario '{nickname}' salvato correttamente.", "success")
         return redirect(url_for('manage_destinatari'))
 
     return render_template('destinatari.html', destinatari=data)
+
 
 @app.get('/destinatari/delete/<path:key>')
 @login_required
@@ -1495,7 +1507,7 @@ def delete_destinatario(key):
     if key in data:
         data.pop(key, None)
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        flash("Destinatario eliminato.", "success")
+        flash(f"Destinatario '{key}' eliminato.", "success")
     else:
         flash("Destinatario non trovato.", "warning")
     return redirect(url_for('manage_destinatari'))
