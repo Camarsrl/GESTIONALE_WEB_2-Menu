@@ -1549,53 +1549,69 @@ def ddt_preview():
 def get_next_ddt_number():
     return jsonify({'next_ddt': next_ddt_number()})
 
+# modello SQL (da mettere insieme agli altri modelli)
+class Destinatario(Base):
+    __tablename__ = "destinatari"
+    id = Column(Integer, primary_key=True)
+    key_name = Column(String, unique=True)
+    ragione_sociale = Column(String)
+    indirizzo = Column(String)
+    piva = Column(String)
+    cliente = Column(String)
+
+# ----------------------------- #
+# GESTIONE DESTINATARI (DB)     #
+# ----------------------------- #
+
 @app.route('/manage_destinatari', methods=['GET', 'POST'])
 @login_required
 def manage_destinatari():
-    path = APP_DIR / "destinatari_saved.json"
-    data = load_destinatari()  # {key: {ragione_sociale, indirizzo, piva, [cliente]}}
+    db = SessionLocal()
+    try:
+        if request.method == 'POST':
+            # eliminazione
+            del_key = (request.form.get('delete_key') or '').strip()
+            if del_key:
+                dest = db.query(Destinatario).filter(Destinatario.key_name == del_key).first()
+                if dest:
+                    db.delete(dest)
+                    db.commit()
+                    flash("Destinatario eliminato.", "success")
+                else:
+                    flash("Destinatario non trovato.", "warning")
+                return redirect(url_for('manage_destinatari'))
 
-    if request.method == 'POST':
-        # aggiunta/eliminazione
-        del_key = (request.form.get('delete_key') or '').strip()
-        if del_key:
-            if del_key in data:
-                data.pop(del_key, None)
-                path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-                flash("Destinatario eliminato.", "success")
-            else:
-                flash("Destinatario non trovato.", "warning")
+            # aggiunta/modifica
+            key = (request.form.get('key_name') or '').strip()
+            rag = (request.form.get('ragione_sociale') or '').strip()
+            ind = (request.form.get('indirizzo') or '').strip()
+            piva = (request.form.get('piva') or '').strip()
+            cliente = (request.form.get('cliente') or rag or key).strip().upper()
+
+            if not key:
+                flash("Nome chiave obbligatorio.", "warning")
+                return redirect(url_for('manage_destinatari'))
+
+            dest = db.query(Destinatario).filter(Destinatario.key_name == key).first()
+            if not dest:
+                dest = Destinatario(key_name=key)
+                db.add(dest)
+
+            dest.ragione_sociale = rag
+            dest.indirizzo = ind
+            dest.piva = piva
+            dest.cliente = cliente
+            db.commit()
+
+            flash("Destinatario salvato.", "success")
             return redirect(url_for('manage_destinatari'))
 
-        key = (request.form.get('key_name') or '').strip()
-        rag = (request.form.get('ragione_sociale') or '').strip()
-        ind = (request.form.get('indirizzo') or '').strip()
-        piva = (request.form.get('piva') or '').strip()
+        # visualizzazione
+        destinatari = db.query(Destinatario).order_by(Destinatario.key_name).all()
+        return render_template('destinatari.html', destinatari=destinatari)
 
-        if not key:
-            flash("Nome chiave obbligatorio.", "warning")
-            return redirect(url_for('manage_destinatari'))
-
-        # salvo SEMPRE anche il campo 'cliente' (maiuscolo). Se non indicato, uso la ragione sociale.
-        cliente_name = (request.form.get('cliente') or rag or key).strip().upper()
-
-        data[key] = {
-            "ragione_sociale": rag,
-            "indirizzo": ind,
-            "piva": piva,
-            "cliente": cliente_name
-        }
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        flash("Destinatario salvato.", "success")
-        return redirect(url_for('manage_destinatari'))
-
-    # normalizzo per sicurezza: se manca "cliente", lo genero on the fly
-    for k, v in data.items():
-        if isinstance(v, dict) and 'cliente' not in v:
-            v['cliente'] = (v.get('ragione_sociale') or k).upper()
-
-    return render_template('destinatari.html', destinatari=data)
-
+    finally:
+        db.close()
 
 @app.get('/destinatari/delete/<path:key>')
 @login_required
@@ -1935,16 +1951,17 @@ def _genera_pdf_etichetta_single(d, formato='62x100'):
     """
     Genera UNA etichetta per volta in orizzontale.
     Tutto il testo è in MAIUSCOLO, senza grassetto.
-    Logo centrato sopra, testo allineato a sinistra.
+    Logo centrato sopra, testo allineato a sinistra e adattato alla pagina.
     d = dict con chiavi:
         cliente, fornitore, ordine, commessa, ddt_ingresso,
         data_ingresso, arrivo, n_colli, posizione
     """
-    import io, os
+    import io, os, textwrap
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import landscape
     from reportlab.lib.units import mm
 
+    # --- dimensione pagina ---
     try:
         larg_mm, alt_mm = map(float, formato.lower().replace('mm', '').split('x'))
     except Exception:
@@ -1954,11 +1971,12 @@ def _genera_pdf_etichetta_single(d, formato='62x100'):
     bio = io.BytesIO()
     c = canvas.Canvas(bio, pagesize=page_size)
 
-    # Margini
-    margin_x = 8 * mm
+    # --- margini ---
+    margin_x = 6 * mm
     margin_y = 6 * mm
+    max_text_width = page_size[0] - 2 * margin_x
 
-    # Logo centrato
+    # --- logo centrato ---
     try:
         logo_path = os.path.join('static', 'logo camar.jpg')
         if os.path.exists(logo_path):
@@ -1966,25 +1984,31 @@ def _genera_pdf_etichetta_single(d, formato='62x100'):
             logo_height = 15 * mm
             x_center = (page_size[0] - logo_width) / 2
             y_top = page_size[1] - margin_y - logo_height
-            c.drawImage(logo_path, x_center, y_top,
-                        width=logo_width, height=logo_height,
-                        preserveAspectRatio=True, mask='auto')
+            c.drawImage(
+                logo_path, x_center, y_top,
+                width=logo_width, height=logo_height,
+                preserveAspectRatio=True, mask='auto'
+            )
     except Exception:
         pass
 
-    # Testo sotto il logo
+    # --- testo sotto il logo ---
     y = page_size[1] - margin_y - 20 * mm
     c.setFont("Helvetica", 9)
 
-    def line(txt):
-        """Scrive una riga di testo in maiuscolo."""
+    def line(txt, spacing=4.5):
+        """Scrive testo in maiuscolo e lo manda a capo se necessario."""
         nonlocal y
-        c.drawString(margin_x, y, txt.upper())
-        y -= 5 * mm
+        txt = (txt or "").upper()
+        wrapped = textwrap.wrap(txt, width=60)  # auto-wrap semplice
+        for w in wrapped:
+            c.drawString(margin_x, y, w)
+            y -= spacing * mm
 
+    # sezione dati
     line(f"DATA INGRESSO: {d.get('data_ingresso', '')}")
     line(f"ARRIVO: {d.get('arrivo', '')}")
-    y -= 3 * mm
+    y -= 2 * mm
 
     line(f"CLIENTE: {d.get('cliente', '')}")
     line(f"FORNITORE: {d.get('fornitore', '')}")
@@ -1998,8 +2022,6 @@ def _genera_pdf_etichetta_single(d, formato='62x100'):
     c.save()
     bio.seek(0)
     return bio
-
-
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
