@@ -10,6 +10,7 @@ from datetime import datetime, date
 from pathlib import Path
 from sqlalchemy import or_
 import calendar
+from sqlalchemy import inspect
 
 
 
@@ -32,6 +33,34 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 # Jinja loader per gestire i template in memoria
 from jinja2 import DictLoader
+
+def get_all_fields_map():
+    return {
+        "codice_articolo": "Codice Articolo",
+        "descrizione": "Descrizione",
+        "cliente": "Cliente",
+        "fornitore": "Fornitore",
+        "commessa": "Commessa",
+        "ordine": "Ordine",
+        "protocollo": "Protocollo",
+        "magazzino": "Magazzino",
+        "posizione": "Posizione",
+        "n_ddt_ingresso": "DDT Ingresso",
+        "n_ddt_uscita": "DDT Uscita",
+        "data_ingresso": "Data Ingresso",
+        "data_uscita": "Data Uscita",
+        "peso": "Peso",
+        "n_colli": "Colli",
+        "m2": "Metri Quadri",
+        "m3": "Metri Cubi",
+        "stato": "Stato",
+        "n_arrivo": "N. Arrivo",
+        "buono_n": "Buono N.",
+        "ns_rif": "Ns Riferimento",
+        "mezzi_in_uscita": "Mezzi in Uscita",
+        "note": "Note",
+    }
+
 
 # --- AUTH ---
 from functools import wraps
@@ -1464,34 +1493,26 @@ def bulk_delete():
         db.close()
     return redirect(url_for('giacenze'))
 
-@app.post('/bulk/duplicate')
+@app.route('/bulk/duplicate', methods=['POST'])
 @login_required
 def bulk_duplicate():
-    if session.get('role') != 'admin':
-        flash("Non hai i permessi per eseguire questa azione.", "danger")
-        return redirect(url_for('giacenze'))
-        
-    ids = [int(i) for i in request.form.getlist('ids') if i.isdigit()]
+    ids = request.form.getlist('ids')
     if not ids:
-        flash("Nessun articolo selezionato per la duplicazione.", "warning")
+        flash("Nessun elemento selezionato per duplicazione.", "warning")
         return redirect(url_for('giacenze'))
-    
-    db = SessionLocal()
-    articoli_da_duplicare = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-    
-    nuovi_articoli = []
-    mapper = inspect(Articolo)
-    for originale in articoli_da_duplicare:
-        nuovo = Articolo()
-        for column in mapper.attrs:
-            if column.key not in ['id_articolo', 'attachments']:
-                setattr(nuovo, column.key, getattr(originale, column.key))
-        nuovi_articoli.append(nuovo)
 
-    db.add_all(nuovi_articoli)
+    from sqlalchemy import inspect
+    for id_articolo in ids:
+        art = db.query(Articolo).get(id_articolo)
+        if art:
+            mapper = inspect(Articolo)
+            data = {c.key: getattr(art, c.key) for c in mapper.columns if c.key != 'id_articolo'}
+            new_art = Articolo(**data)
+            db.add(new_art)
     db.commit()
-    flash(f"{len(nuovi_articoli)} articoli duplicati con successo.", "success")
+    flash(f"{len(ids)} articoli duplicati con successo!", "success")
     return redirect(url_for('giacenze'))
+
 
 # --- ANTEPRIME HTML (BUONO / DDT) ---
 def _get_rows_from_ids(ids_list):
