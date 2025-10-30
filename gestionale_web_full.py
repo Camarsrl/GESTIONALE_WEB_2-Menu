@@ -1441,31 +1441,27 @@ def bulk_edit():
     rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
     return render_template('bulk_edit.html', rows=rows, ids_csv=ids_csv, fields=get_all_fields_map().items())
 
-@app.post('/bulk/delete')
+@app.route('/bulk/delete', methods=['POST'])
 @login_required
 def bulk_delete():
-    ids = [int(i) for i in request.form.getlist('ids') if i.isdigit()]
-    if not ids:
-        flash("Nessun articolo selezionato per l'eliminazione.", "warning")
-        return redirect(url_for('giacenze'))
-    
+    ids = request.form.getlist('ids[]')
     db = SessionLocal()
-    articoli_da_eliminare = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-    for art in articoli_da_eliminare:
-        for att in art.attachments:
-            path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / att.filename
-            try:
-                if path.exists(): path.unlink()
-            except Exception: pass
-
-    for id_articolo in ids:
-    art = db.query(Articolo).get(id_articolo)
-    if art:
-        for a in art.attachments:
-            db.delete(a)
-        db.delete(art)
-    db.commit()
-    flash(f"{len(ids)} articoli e i loro allegati sono stati eliminati.", "success")
+    try:
+        for id_articolo in ids:
+            art = db.query(Articolo).get(id_articolo)
+            if art:
+                # Elimina prima gli eventuali allegati collegati
+                for a in art.attachments:
+                    db.delete(a)
+                # Poi elimina l'articolo stesso
+                db.delete(art)
+        db.commit()
+        flash("Articoli eliminati correttamente.", "success")
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore durante l'eliminazione: {e}", "danger")
+    finally:
+        db.close()
     return redirect(url_for('giacenze'))
 
 @app.post('/bulk/duplicate')
