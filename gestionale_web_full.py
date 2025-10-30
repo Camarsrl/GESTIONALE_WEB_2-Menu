@@ -967,40 +967,81 @@ DESTINATARI_HTML = """
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-10 col-lg-8">
-        <div class="card p-4">
-            <h3><i class="bi bi-person-rolodex"></i> Gestione Destinatari</h3>
+        <div class="card p-4 shadow-sm">
+            <h3 class="mb-3"><i class="bi bi-person-rolodex"></i> Gestione Destinatari</h3>
             <hr>
-            <h5>Aggiungi Nuovo Destinatario</h5>
+
+            <h5 class="mb-3">Aggiungi Nuovo Destinatario</h5>
             <form method="post" class="mb-4">
                 <div class="row g-3">
-                    <div class="col-md-6"><label class="form-label">Nome Chiave (es. Sede Cliente)</label><input name="key_name" class="form-control" required></div>
-                    <div class="col-md-6"><label class="form-label">Ragione Sociale</label><input name="ragione_sociale" class="form-control" required></div>
-                    <div class="col-md-6"><label class="form-label">Indirizzo Completo</label><input name="indirizzo" class="form-control"></div>
-                    <div class="col-md-6"><label class="form-label">Partita IVA</label><input name="piva" class="form-control"></div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Nome Chiave (*)</label>
+                        <input name="key_name" class="form-control" placeholder="Es. FINCANTIERI_GE" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Cliente</label>
+                        <input name="cliente" class="form-control" placeholder="Nome cliente (opzionale)">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Ragione Sociale (*)</label>
+                        <input name="ragione_sociale" class="form-control" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Indirizzo Completo</label>
+                        <input name="indirizzo" class="form-control" placeholder="Via, città, CAP">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Partita IVA / C.F.</label>
+                        <input name="piva" class="form-control">
+                    </div>
                 </div>
-                <button type="submit" class="btn btn-primary mt-3">Aggiungi</button>
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-plus-circle"></i> Aggiungi Destinatario
+                    </button>
+                    <a href="{{ request.referrer or url_for('home') }}" class="btn btn-secondary ms-2">
+                        <i class="bi bi-arrow-left"></i> Indietro
+                    </a>
+                </div>
             </form>
+
             <hr>
-            <h5>Destinatari Esistenti</h5>
+
+            <h5 class="mb-3">Destinatari Esistenti</h5>
             <ul class="list-group">
                 {% for key, details in destinatari.items() %}
                 <li class="list-group-item d-flex justify-content-between align-items-center">
                     <div>
-                        <strong>{{ key }}</strong><br>
-                        <small class="text-muted">{{ details.ragione_sociale }} - {{ details.indirizzo }}</small>
+                        <strong>{{ key }}</strong>
+                        <br>
+                        <small>
+                            <span class="text-muted">
+                                {{ details.ragione_sociale }}
+                                {% if details.cliente %} – Cliente: <strong>{{ details.cliente }}</strong>{% endif %}
+                                {% if details.indirizzo %}<br>{{ details.indirizzo }}{% endif %}
+                                {% if details.piva %}<br>P.IVA: {{ details.piva }}{% endif %}
+                            </span>
+                        </small>
                     </div>
-                    <a href="{{ url_for('delete_destinatario', key=key) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Sei sicuro di voler eliminare questo destinatario?')"><i class="bi bi-trash"></i></a>
+                    <form method="post" onsubmit="return confirm('Sei sicuro di voler eliminare {{ key }}?');">
+                        <input type="hidden" name="delete_key" value="{{ key }}">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </form>
                 </li>
                 {% else %}
-                <li class="list-group-item">Nessun destinatario salvato.</li>
+                <li class="list-group-item text-center text-muted">
+                    Nessun destinatario salvato.
+                </li>
                 {% endfor %}
             </ul>
-             <a href="{{ request.referrer or url_for('home') }}" class="btn btn-secondary mt-4">Indietro</a>
         </div>
     </div>
 </div>
 {% endblock %}
 """
+
 
 CALCOLA_COSTI_HTML = """
 {% extends 'base.html' %}
