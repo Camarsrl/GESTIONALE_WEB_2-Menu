@@ -1539,20 +1539,40 @@ def bulk_delete():
 def bulk_duplicate():
     ids = request.form.getlist('ids')
     if not ids:
-        flash("Nessun elemento selezionato per duplicazione.", "warning")
+        flash("Nessun elemento selezionato.", "warning")
         return redirect(url_for('giacenze'))
 
-    from sqlalchemy import inspect
-    for id_articolo in ids:
-        art = db.query(Articolo).get(id_articolo)
-        if art:
-            mapper = inspect(Articolo)
-            data = {c.key: getattr(art, c.key) for c in mapper.columns if c.key != 'id_articolo'}
-            new_art = Articolo(**data)
-            db.add(new_art)
-    db.commit()
-    flash(f"{len(ids)} articoli duplicati con successo!", "success")
+    session = Session()  # crea una sessione db valida
+    try:
+        for id_articolo in ids:
+            art = session.query(Articolo).get(id_articolo)
+            if art:
+                new_art = Articolo(
+                    cliente=art.cliente,
+                    fornitore=art.fornitore,
+                    commessa=art.commessa,
+                    descrizione=art.descrizione,
+                    codice_articolo=art.codice_articolo,
+                    n_arrivo=art.n_arrivo,
+                    data_ingresso=art.data_ingresso,
+                    colli=art.colli,
+                    pezzi=art.pezzi,
+                    peso=art.peso,
+                    posizione=art.posizione,
+                    stato=art.stato,
+                    protocollo=art.protocollo
+                )
+                session.add(new_art)
+        session.commit()
+        flash(f"{len(ids)} articoli duplicati correttamente.", "success")
+    except Exception as e:
+        session.rollback()
+        flash(f"Errore duplicazione: {e}", "danger")
+    finally:
+        session.close()
+
     return redirect(url_for('giacenze'))
+
 
 
 # --- ANTEPRIME HTML (BUONO / DDT) ---
