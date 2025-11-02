@@ -1164,71 +1164,99 @@ def home():
 # --- IMPORTAZIONE EXCEL (con mappe dinamiche) ---
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
+@app.route("/import_excel", methods=["GET", "POST"])
+@login_required
 def import_excel():
     import json
+    import pandas as pd
+    from datetime import datetime, date
 
     # Carica le mappe definite in mappe_excel.json
-    with open("mappe_excel.json", "r", encoding="utf-8") as f:
+    mappe_path = Path("mappe_excel.json")
+    if not mappe_path.exists():
+        flash("File mappe_excel.json non trovato!", "danger")
+        return redirect(url_for("visualizza_giacenze"))
+
+    with open(mappe_path, "r", encoding="utf-8") as f:
         mappe_excel = json.load(f)
     nomi_mappe = list(mappe_excel.keys())
 
-    if request.method == 'POST':
-        if 'excel_file' not in request.files:
-            flash('Nessun file selezionato', 'warning')
-            return redirect(request.url)
-
-        file = request.files['excel_file']
-        if file.filename == '':
-            flash('Nessun file selezionato', 'warning')
+    if request.method == "POST":
+        file = request.files.get("excel_file")
+        if not file or file.filename == "":
+            flash("Nessun file selezionato.", "warning")
             return redirect(request.url)
 
         mappa_scelta = request.form.get("mappa_excel")
         if not mappa_scelta or mappa_scelta not in mappe_excel:
-            flash('Seleziona una mappa Excel valida.', 'warning')
+            flash("Seleziona una mappa Excel valida.", "warning")
             return redirect(request.url)
 
         mapping = mappe_excel[mappa_scelta]
-        col_map = {k.lower(): v for k, v in mapping["column_map"].items()}
+        col_map = {k.strip().lower(): v for k, v in mapping.get("column_map", {}).items()}
         header_row = mapping.get("header_row", 1) - 1  # da 1-based a 0-based index
 
-        if file and file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
-            try:
-                db = SessionLocal()
-                df = pd.read_excel(file, engine='openpyxl', header=header_row)
-                df.columns = [str(c).strip().lower() for c in df.columns]
-
-                imported_count = 0
-                for _, row in df.iterrows():
-                    new_art = Articolo()
-                    for col_name, attr_name in col_map.items():
-                        if col_name in row and not pd.isna(row[col_name]):
-                            val = row[col_name]
-                            if attr_name in ['larghezza', 'lunghezza', 'altezza', 'peso']:
-                                val = to_float_eu(val)
-                            elif attr_name in ['n_colli', 'pezzo']:
-                                val = to_int_eu(val)
-                            elif attr_name in ['data_ingresso', 'data_uscita']:
-                                val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
-                            setattr(new_art, attr_name, val)
-
-                    new_art.m2, new_art.m3 = calc_m2_m3(
-                        new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli
-                    )
-                    db.add(new_art)
-                    imported_count += 1
-
-                db.commit()
-                flash(f"{imported_count} articoli importati con successo con la mappa '{mappa_scelta}'.", "success")
-                return redirect(url_for("giacenze"))
-
-            except Exception as e:
-                db.rollback()
-                flash(f"Errore durante l'importazione: {e}", "danger")
-                return redirect(request.url)
-        else:
-            flash("Formato file non supportato. Usa un file .xlsx, .xls o .xlsm", "warning")
+        if not file.filename.lower().endswith((".xlsx", ".xls", ".xlsm")):
+            flash("Formato file non supportato. Usa un file Excel (.xlsx, .xls, .xlsm)", "warning")
             return redirect(request.url)
 
+        db = SessionLocal()
+        try:
+            df = pd.read_excel(file, engine="openpyxl", header=header_row)
+            df.columns = [str(c).strip().lower() for c in df.columns]
+
+            imported_count = 0
+            for _, row in df.iterrows():
+                new_art = Articolo()
+                for col_name, attr_name in col_map.items():
+                    if col_name in df.columns:
+                        val = row[col_name]
+                        if pd.isna(val):
+                            continue
+
+                        # Conversioni di tipo automatiche
+                        if attr_name in ["larghezza", "lunghezza", "altezza", "peso"]:
+                            try:
+                                val = float(str(val).replace(",", "."))
+                            except:
+                                val = None
+                        elif attr_name in ["n_colli", "pezzi"]:
+                            try:
+                                val = int(val)
+                            except:
+                                val = 0
+                        elif attr_name in ["data_ingresso", "data_uscita"]:
+                            try:
+                                if isinstance(val, (datetime, date)):
+                                    val = val
+                                else:
+                                    val = datetime.strptime(str(val), "%d/%m/%Y")
+                            except:
+                                val = None
+
+                        setattr(new_art, attr_name, val)
+
+                # Calcolo M2 e M3
+                new_art.m2, new_art.m3 = calc_m2_m3(
+                    new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli
+                )
+
+                db.add(new_art)
+                imported_count += 1
+
+            db.commit()
+            flash(f"{imported_count} articoli importati con successo con la mappa '{mappa_scelta}'.", "success")
+            return redirect(url_for("visualizza_giacenze"))
+
+        except Exception as e:
+            db.rollback()
+            flash(f"Errore durante l'importazione: {e}", "danger")
+            return redirect(request.url)
+
+        finally:
+            db.close()
+
+    # Render iniziale
     return render_template("import_excel.html", mappe=nomi_mappe)
 
 # --- EXPORTAZIONE EXCEL ---
