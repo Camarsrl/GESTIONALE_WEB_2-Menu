@@ -2010,79 +2010,66 @@ def labels_pdf():
 
 def _genera_pdf_etichetta_single(d, formato='62x100'):
     """
-    Genera UNA etichetta per volta in orizzontale.
-    Tutto il testo è in MAIUSCOLO, senza grassetto.
-    Logo centrato sopra, testo allineato a sinistra e adattato alla pagina.
-    d = dict con chiavi:
-        cliente, fornitore, ordine, commessa, ddt_ingresso,
-        data_ingresso, arrivo, n_colli, posizione
+    Etichetta 62x100 mm orizzontale, testo in MAIUSCOLO, logo piccolo centrato.
     """
-    import io, os, textwrap
+    import io, os
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import landscape
     from reportlab.lib.units import mm
 
-    # --- dimensione pagina ---
     try:
         larg_mm, alt_mm = map(float, formato.lower().replace('mm', '').split('x'))
     except Exception:
-        larg_mm, alt_mm = 62.0, 100.0
+        larg_mm, alt_mm = 100.0, 62.0  # orizzontale
 
     page_size = landscape((larg_mm * mm, alt_mm * mm))
     bio = io.BytesIO()
     c = canvas.Canvas(bio, pagesize=page_size)
 
-    # --- margini ---
     margin_x = 6 * mm
     margin_y = 6 * mm
-    max_text_width = page_size[0] - 2 * margin_x
 
-    # --- logo centrato ---
-    try:
-        logo_path = os.path.join('static', 'logo camar.jpg')
-        if os.path.exists(logo_path):
-            logo_width = 30 * mm
-            logo_height = 15 * mm
-            x_center = (page_size[0] - logo_width) / 2
-            y_top = page_size[1] - margin_y - logo_height
-            c.drawImage(
-                logo_path, x_center, y_top,
-                width=logo_width, height=logo_height,
-                preserveAspectRatio=True, mask='auto'
-            )
-    except Exception:
-        pass
+    # Logo ridimensionato e centrato
+    logo_path = os.path.join('static', 'logo camar.jpg')
+    if os.path.exists(logo_path):
+        logo_w, logo_h = 22 * mm, 10 * mm
+        c.drawImage(
+            logo_path,
+            (page_size[0] - logo_w) / 2,
+            page_size[1] - margin_y - logo_h,
+            width=logo_w, height=logo_h,
+            preserveAspectRatio=True, mask='auto'
+        )
 
-    # --- testo sotto il logo ---
-    y = page_size[1] - margin_y - 20 * mm
+    # Testo
     c.setFont("Helvetica", 9)
+    y = page_size[1] - margin_y - 15 * mm
 
-    def line(txt, spacing=4.5):
-        """Scrive testo in maiuscolo e lo manda a capo se necessario."""
+    def line(txt):
         nonlocal y
-        txt = (txt or "").upper()
-        wrapped = textwrap.wrap(txt, width=60)  # auto-wrap semplice
-        for w in wrapped:
-            c.drawString(margin_x, y, w)
-            y -= spacing * mm
+        if txt.strip():
+            c.drawString(margin_x, y, txt.upper())
+            y -= 4.2 * mm
 
-    # sezione dati
-    line(f"DATA INGRESSO: {d.get('data_ingresso', '')}")
-    line(f"ARRIVO: {d.get('arrivo', '')}")
-    y -= 2 * mm
-
-    line(f"CLIENTE: {d.get('cliente', '')}")
-    line(f"FORNITORE: {d.get('fornitore', '')}")
-    line(f"COMMESSA: {d.get('commessa', '')}")
-    line(f"ORDINE: {d.get('ordine', '')}")
-    line(f"DDT INGRESSO: {d.get('ddt_ingresso', '')}")
-    line(f"COLLI: {d.get('n_colli', '')}")
-    line(f"POSIZIONE: {d.get('posizione', '')}")
+    for label in [
+        f"DATA INGRESSO: {d.get('data_ingresso', '')}",
+        f"ARRIVO: {d.get('arrivo', '')}",
+        "",
+        f"CLIENTE: {d.get('cliente', '')}",
+        f"FORNITORE: {d.get('fornitore', '')}",
+        f"COMMESSA: {d.get('commessa', '')}",
+        f"ORDINE: {d.get('ordine', '')}",
+        f"DDT INGRESSO: {d.get('ddt_ingresso', '')}",
+        f"COLLI: {d.get('n_colli', '')}",
+        f"POSIZIONE: {d.get('posizione', '')}",
+    ]:
+        line(label)
 
     c.showPage()
     c.save()
     bio.seek(0)
     return bio
+
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
