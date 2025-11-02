@@ -1534,46 +1534,45 @@ def bulk_delete():
         db.close()
     return redirect(url_for('giacenze'))
 
-@app.route('/bulk/duplicate', methods=['POST'])
+@app.route('/bulk/duplicate', methods=['POST', 'GET'])
 @login_required
 def bulk_duplicate():
-    ids = request.form.getlist('ids')
-    if not ids:
-        flash("Nessun elemento selezionato.", "warning")
-        return redirect(url_for('giacenze'))
-
-    session = Session()  # crea una sessione db valida
     try:
-        for id_articolo in ids:
-            art = session.query(Articolo).get(id_articolo)
-            if art:
-                new_art = Articolo(
-                    cliente=art.cliente,
-                    fornitore=art.fornitore,
-                    commessa=art.commessa,
-                    descrizione=art.descrizione,
-                    codice_articolo=art.codice_articolo,
-                    n_arrivo=art.n_arrivo,
-                    data_ingresso=art.data_ingresso,
-                    colli=art.colli,
-                    pezzi=art.pezzi,
-                    peso=art.peso,
-                    posizione=art.posizione,
-                    stato=art.stato,
-                    protocollo=art.protocollo
-                )
-                session.add(new_art)
+        ids = request.args.get('ids', '') or request.form.get('selected_ids', '')
+        if not ids:
+            flash("Nessun articolo selezionato.", "warning")
+            return redirect(url_for('visualizza_giacenze'))
+
+        ids_list = [int(x) for x in ids.split(',') if x.strip().isdigit()]
+        if not ids_list:
+            flash("ID non validi.", "danger")
+            return redirect(url_for('visualizza_giacenze'))
+
+        session = Session()
+        from sqlalchemy import inspect
+
+        for art_id in ids_list:
+            articolo = session.query(Articolo).get(art_id)
+            if not articolo:
+                continue
+
+            # Duplica tutti i campi eccetto la chiave primaria
+            mapper = inspect(Articolo)
+            new_data = {col.key: getattr(articolo, col.key) for col in mapper.columns if col.key != 'id'}
+
+            nuovo = Articolo(**new_data)
+            session.add(nuovo)
+
         session.commit()
-        flash(f"{len(ids)} articoli duplicati correttamente.", "success")
+        flash(f"Duplicati {len(ids_list)} articoli.", "success")
+
     except Exception as e:
         session.rollback()
         flash(f"Errore duplicazione: {e}", "danger")
     finally:
         session.close()
 
-    return redirect(url_for('giacenze'))
-
-
+    return redirect(url_for('visualizza_giacenze'))
 
 # --- ANTEPRIME HTML (BUONO / DDT) ---
 def _get_rows_from_ids(ids_list):
