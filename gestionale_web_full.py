@@ -1611,17 +1611,18 @@ def get_next_ddt_number():
 
 # modello SQL (da mettere insieme agli altri modelli)
 class Destinatario(Base):
-    __tablename__ = "destinatari"
-    id = Column(Integer, primary_key=True)
-    key_name = Column(String, unique=True)
-    ragione_sociale = Column(String)
-    indirizzo = Column(String)
-    piva = Column(String)
-    cliente = Column(String)
+    __tablename__ = 'destinatari'
 
-# ----------------------------- #
-# GESTIONE DESTINATARI (DB)     #
-# ----------------------------- #
+    id = Column(Integer, primary_key=True)
+    key_name = Column(String(100), nullable=False, unique=True)
+    ragione_sociale = Column(String(255))
+    indirizzo = Column(String(255))
+    piva = Column(String(50))
+    cliente = Column(String(255))
+
+    def __repr__(self):
+        return f"<Destinatario {self.key_name}>"
+
 
 @app.route('/manage_destinatari', methods=['GET', 'POST'])
 @login_required
