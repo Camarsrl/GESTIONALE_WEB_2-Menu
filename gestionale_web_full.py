@@ -1164,8 +1164,7 @@ def home():
 # --- IMPORTAZIONE EXCEL (con mappe dinamiche) ---
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
-@app.route("/import_excel", methods=["GET", "POST"])
-@login_required
+
 def import_excel():
     import json
     import pandas as pd
