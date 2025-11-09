@@ -1655,56 +1655,63 @@ def _ensure_tables():
         app.logger.error(f"Errore create_all: {e}")
 
 
-
 @app.route('/manage_destinatari', methods=['GET', 'POST'])
 @login_required
 def manage_destinatari():
     db = SessionLocal()
     try:
         if request.method == 'POST':
-            # eliminazione
+            # delete
             del_key = (request.form.get('delete_key') or '').strip()
             if del_key:
-                dest = db.query(Destinatario).filter(Destinatario.key_name == del_key).first()
-                if dest:
-                    db.delete(dest)
+                d = db.query(Destinatario).filter(Destinatario.key_name==del_key).first()
+                if d:
+                    db.delete(d)
                     db.commit()
                     flash("Destinatario eliminato.", "success")
                 else:
                     flash("Destinatario non trovato.", "warning")
                 return redirect(url_for('manage_destinatari'))
 
-            # aggiunta/modifica
+            # upsert
             key = (request.form.get('key_name') or '').strip()
-            rag = (request.form.get('ragione_sociale') or '').strip()
-            ind = (request.form.get('indirizzo') or '').strip()
-            piva = (request.form.get('piva') or '').strip()
-            cliente = (request.form.get('cliente') or rag or key).strip().upper()
-
             if not key:
                 flash("Nome chiave obbligatorio.", "warning")
                 return redirect(url_for('manage_destinatari'))
 
-            dest = db.query(Destinatario).filter(Destinatario.key_name == key).first()
-            if not dest:
-                dest = Destinatario(key_name=key)
-                db.add(dest)
+            rag = (request.form.get('ragione_sociale') or '').strip()
+            ind = (request.form.get('indirizzo') or '').strip()
+            piva = (request.form.get('piva') or '').strip()
+            cliente = (request.form.get('cliente') or rag or key).strip()
 
-            dest.ragione_sociale = rag
-            dest.indirizzo = ind
-            dest.piva = piva
-            dest.cliente = cliente
+            d = db.query(Destinatario).filter(Destinatario.key_name==key).first()
+            if not d:
+                d = Destinatario(key_name=key)
+                db.add(d)
+
+            d.ragione_sociale = rag or None
+            d.indirizzo = ind or None
+            d.piva = piva or None
+            d.cliente = cliente or None
+
             db.commit()
-
             flash("Destinatario salvato.", "success")
             return redirect(url_for('manage_destinatari'))
 
-        # visualizzazione
         destinatari = db.query(Destinatario).order_by(Destinatario.key_name).all()
-        return render_template('destinatari.html', destinatari=destinatari)
+        # trasformo per il template (mai "None")
+        data = [{
+            "key_name": d.key_name,
+            "cliente": d.cliente or "",
+            "ragione_sociale": d.ragione_sociale or "",
+            "indirizzo": d.indirizzo or "",
+            "piva": d.piva or ""
+        } for d in destinatari]
 
+        return render_template('destinatari.html', destinatari=data)
     finally:
         db.close()
+
 
 @app.get('/destinatari/delete/<path:key>')
 @login_required
