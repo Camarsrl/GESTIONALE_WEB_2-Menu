@@ -1637,18 +1637,23 @@ def get_next_ddt_number():
     return jsonify({'next_ddt': next_ddt_number()})
 
 # modello SQL (da mettere insieme agli altri modelli)
+# --- MODELLO DESTINATARI -----------------------------------------------------
 class Destinatario(Base):
-    __tablename__ = 'destinatari'
-
+    __tablename__ = "destinatari"
     id = Column(Integer, primary_key=True)
-    key_name = Column(String(100), nullable=False, unique=True)
-    ragione_sociale = Column(String(255))
-    indirizzo = Column(String(255))
-    piva = Column(String(50))
-    cliente = Column(String(255))
+    key_name = Column(String(120), unique=True, nullable=False)  # es. "Destinatario 1 -"
+    ragione_sociale = Column(String(255), nullable=True)
+    indirizzo = Column(String(255), nullable=True)
+    piva = Column(String(64), nullable=True)
+    cliente = Column(String(255), nullable=True)  # intestazione cliente
 
-    def __repr__(self):
-        return f"<Destinatario {self.key_name}>"
+# crea le tabelle mancanti all’avvio
+def _ensure_tables():
+    try:
+        Base.metadata.create_all(engine)
+    except Exception as e:
+        app.logger.error(f"Errore create_all: {e}")
+
 
 
 @app.route('/manage_destinatari', methods=['GET', 'POST'])
