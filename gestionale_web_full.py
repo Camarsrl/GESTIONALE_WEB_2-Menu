@@ -1083,6 +1083,34 @@ CALCOLA_COSTI_HTML = """
 {% endblock %}
 """
 
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <div class="card p-4">
+        <h4><i class="bi bi-envelope"></i> Invia Email con Allegati</h4>
+        <form method="post">
+            <input type="hidden" name="selected_ids" value="{{ selected_ids }}">
+            <div class="mb-3">
+                <label class="form-label">Destinatario</label>
+                <input type="email" name="destinatario" class="form-control" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Oggetto</label>
+                <input type="text" name="oggetto" class="form-control" value="DDT e allegati">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Messaggio</label>
+                <textarea name="messaggio" rows="5" class="form-control">In allegato i documenti selezionati.</textarea>
+            </div>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> Invia</button>
+            <a href="{{ url_for('visualizza_giacenze') }}" class="btn btn-secondary">Annulla</a>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+
+
 # Dizionario dei template per il loader di Jinja
 templates = {
     'base.html': BASE_HTML,
@@ -2000,6 +2028,86 @@ def labels_form():
         db.close()
 
     return render_template("labels_form.html", clienti=clienti, fornitori=fornitori)
+@app.route('/invia_email', methods=['GET', 'POST'])
+@login_required
+def invia_email():
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+    import smtplib, os
+
+    db = SessionLocal()
+
+    if request.method == 'POST':
+        ids = request.form.get('selected_ids', '')
+        ids_list = [int(i) for i in ids.split(',') if i.isdigit()]
+
+        destinatario = request.form.get('destinatario', '').strip()
+        oggetto = request.form.get('oggetto', 'DDT e allegati')
+        messaggio = request.form.get('messaggio', 'In allegato i documenti selezionati.')
+
+        if not destinatario or not ids_list:
+            flash("Seleziona almeno un articolo e specifica un indirizzo email valido.", "warning")
+            return redirect(url_for('visualizza_giacenze'))
+
+        # --- Recupera i file allegati per gli articoli selezionati ---
+        allegati = []
+        for art_id in ids_list:
+            articolo = db.get(Articolo, art_id)
+            if not articolo:
+                continue
+
+            # Cartelle base
+            pdf_path = os.path.join('pdf_ddt', f"{articolo.n_ddt_uscita or articolo.n_ddt_ingresso or art_id}.pdf")
+            img_path = os.path.join('immagini', f"{articolo.id}.jpg")
+
+            if os.path.exists(pdf_path):
+                allegati.append(pdf_path)
+            if os.path.exists(img_path):
+                allegati.append(img_path)
+
+        if not allegati:
+            flash("Nessun file trovato per gli articoli selezionati.", "warning")
+            return redirect(url_for('visualizza_giacenze'))
+
+        # --- Configurazione SMTP ---
+        SMTP_SERVER = "smtp.office365.com"
+        SMTP_PORT = 587
+        SMTP_USER = "tuoindirizzo@azienda.it"
+        SMTP_PASS = "tua_password_app"  # usa password app, non quella personale
+
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = SMTP_USER
+            msg['To'] = destinatario
+            msg['Subject'] = oggetto
+            msg.attach(MIMEText(messaggio, 'plain'))
+
+            # Aggiungi allegati
+            for file_path in allegati:
+                with open(file_path, "rb") as f:
+                    part = MIMEBase('application', 'octet-stream')
+                    part.set_payload(f.read())
+                    encoders.encode_base64(part)
+                    part.add_header('Content-Disposition', f'attachment; filename="{os.path.basename(file_path)}"')
+                    msg.attach(part)
+
+            # Invia email
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                server.starttls()
+                server.login(SMTP_USER, SMTP_PASS)
+                server.send_message(msg)
+
+            flash(f"Email inviata con successo a {destinatario}.", "success")
+        except Exception as e:
+            flash(f"Errore durante l'invio: {e}", "danger")
+
+        return redirect(url_for('visualizza_giacenze'))
+
+    # --- GET: Mostra form di invio email ---
+    ids = request.args.get('ids', '')
+    return render_template('invia_email.html', selected_ids=ids)
 
 
 @app.route('/labels_pdf', methods=['POST'])
