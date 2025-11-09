@@ -1474,47 +1474,59 @@ def giacenze():
     finally:
         db.close()
 
-
-
-@app.route('/bulk/edit', methods=['GET', 'POST'])
+@app.route('/bulk/edit', methods=['GET','POST'])
 @login_required
 def bulk_edit():
-    db = SessionLocal()
-    if request.method == 'POST':
-        ids_csv = request.form.get('ids', '')
-        ids = [int(i) for i in ids_csv.split(',') if i.isdigit()]
-        
-        articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-        updated_fields_count = 0
-        for art in articoli:
-            for f in get_all_fields_map().keys():
-                v = request.form.get(f)
-                if v:
-                    updated_fields_count += 1
-                    if f in ('data_ingresso','data_uscita'):
-                        v = parse_date_ui(v)
-                    elif f in ('larghezza','lunghezza','altezza','peso'):
-                        v = to_float_eu(v)
-                    elif f in ('n_colli', 'pezzo'):
-                        v = to_int_eu(v)
-                    setattr(art, f, v)
-        
-        if updated_fields_count > 0:
-            db.commit()
-            flash(f"{len(articoli)} articoli aggiornati con successo.", "success")
-        else:
-            flash("Nessun campo compilato, nessuna modifica applicata.", "info")
-            
+    ids = request.args.get('ids') or request.form.get('ids') or ''
+    id_list = [int(x) for x in ids.split(',') if x.isdigit()]
+    if request.method == 'GET':
+        if not id_list:
+            flash("Seleziona almeno un articolo.", "warning")
+            return redirect(url_for('giacenze'))
+        return render_template('bulk_edit.html', ids_csv=','.join(map(str,id_list)))
+    # POST
+    if not id_list:
+        flash("Seleziona almeno un articolo.", "warning")
         return redirect(url_for('giacenze'))
 
-    ids_csv = request.args.get('ids', '')
-    ids = [int(i) for i in ids_csv.split(',') if i.isdigit()]
-    if not ids:
-        flash("Nessun articolo selezionato per la modifica.", "warning")
+    # campi che consenti di aggiornare in massa:
+    editable_fields = [
+        'cliente','fornitore','commessa','ordine','posizione','stato',
+        'n_colli','peso','n_ddt_ingresso','n_ddt_uscita','buono_n',
+        'data_ingresso','data_uscita','n_arrivo','ns_rif','mezzi_in_uscita'
+    ]
+    payload = {}
+    for f in editable_fields:
+        v = request.form.get(f, None)
+        if v is None or v == '':
+            continue
+        if f in ('n_colli','peso'):
+            v = to_float_eu(v) if f=='peso' else to_int_eu(v)
+        elif f in ('data_ingresso','data_uscita'):
+            v = parse_date_ui(v)
+        payload[f] = v
+
+    if not payload:
+        flash("Nessun campo compilato, nessuna modifica applicata.", "info")
         return redirect(url_for('giacenze'))
-    
-    rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-    return render_template('bulk_edit.html', rows=rows, ids_csv=ids_csv, fields=get_all_fields_map().items())
+
+    db = SessionLocal()
+    try:
+        for id_ in id_list:
+            a = db.get(Articolo, id_)
+            if not a: 
+                continue
+            for k,v in payload.items():
+                setattr(a, k, v)
+        db.commit()
+        flash(f"Modifica applicata a {len(id_list)} articoli.", "success")
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore modifica multipla: {e}", "danger")
+    finally:
+        db.close()
+    return redirect(url_for('giacenze'))
+
 
 @app.route('/bulk/delete', methods=['POST'])
 @login_required
