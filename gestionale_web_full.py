@@ -1539,45 +1539,38 @@ def bulk_delete():
         db.close()
     return redirect(url_for('giacenze'))
 
-@app.route('/bulk/duplicate', methods=['POST', 'GET'])
+@app.route('/bulk/duplicate', methods=['POST'])
 @login_required
 def bulk_duplicate():
+    ids_csv = (request.form.get('selected_ids') or '').strip()
+    if not ids_csv:
+        flash("Seleziona almeno un articolo da duplicare.", "warning")
+        return redirect(url_for('giacenze'))
+
+    ids = [int(x) for x in ids_csv.split(',') if x.isdigit()]
+    db = SessionLocal()
     try:
-        ids = request.args.get('ids', '') or request.form.get('selected_ids', '')
-        if not ids:
-            flash("Nessun articolo selezionato.", "warning")
-            return redirect(url_for('visualizza_giacenze'))
-
-        ids_list = [int(x) for x in ids.split(',') if x.strip().isdigit()]
-        if not ids_list:
-            flash("ID non validi.", "danger")
-            return redirect(url_for('visualizza_giacenze'))
-
-        session = Session()
-        from sqlalchemy import inspect
-
-        for art_id in ids_list:
-            articolo = session.query(Articolo).get(art_id)
-            if not articolo:
+        mapper = inspect(Articolo)
+        cols = [c.key for c in mapper.attrs if c.key != 'id']
+        duplicati = 0
+        for id_art in ids:
+            src = db.get(Articolo, id_art)
+            if not src:
                 continue
-
-            # Duplica tutti i campi eccetto la chiave primaria
-            mapper = inspect(Articolo)
-            new_data = {col.key: getattr(articolo, col.key) for col in mapper.columns if col.key != 'id'}
-
-            nuovo = Articolo(**new_data)
-            session.add(nuovo)
-
-        session.commit()
-        flash(f"Duplicati {len(ids_list)} articoli.", "success")
-
+            dest = Articolo()
+            for c in cols:
+                setattr(dest, c, getattr(src, c))
+            db.add(dest)
+            duplicati += 1
+        db.commit()
+        flash(f"Duplicati {duplicati} articoli.", "success")
     except Exception as e:
-        session.rollback()
+        db.rollback()
         flash(f"Errore duplicazione: {e}", "danger")
     finally:
-        session.close()
+        db.close()
+    return redirect(url_for('visualizza giacenze'))
 
-    return redirect(url_for('visualizza_giacenze'))
 
 # --- ANTEPRIME HTML (BUONO / DDT) ---
 def _get_rows_from_ids(ids_list):
