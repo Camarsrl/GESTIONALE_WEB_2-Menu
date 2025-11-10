@@ -1083,33 +1083,6 @@ CALCOLA_COSTI_HTML = """
 {% endblock %}
 """
 
-{% extends "base.html" %}
-{% block content %}
-<div class="container mt-4">
-    <div class="card p-4">
-        <h4><i class="bi bi-envelope"></i> Invia Email con Allegati</h4>
-        <form method="post">
-            <input type="hidden" name="selected_ids" value="{{ selected_ids }}">
-            <div class="mb-3">
-                <label class="form-label">Destinatario</label>
-                <input type="email" name="destinatario" class="form-control" required>
-            </div>
-            <div class="mb-3">
-                <label class="form-label">Oggetto</label>
-                <input type="text" name="oggetto" class="form-control" value="DDT e allegati">
-            </div>
-            <div class="mb-3">
-                <label class="form-label">Messaggio</label>
-                <textarea name="messaggio" rows="5" class="form-control">In allegato i documenti selezionati.</textarea>
-            </div>
-            <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> Invia</button>
-            <a href="{{ url_for('visualizza_giacenze') }}" class="btn btn-secondary">Annulla</a>
-        </form>
-    </div>
-</div>
-{% endblock %}
-
-
 
 # Dizionario dei template per il loader di Jinja
 templates = {
