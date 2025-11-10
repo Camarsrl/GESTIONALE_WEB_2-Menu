@@ -1163,8 +1163,6 @@ def home():
     return render_template('home.html')
 
 # --- IMPORTAZIONE EXCEL (con mappe dinamiche) ---
-@app.route('/import_excel', methods=['GET', 'POST'])
-@login_required
 
 @app.route('/import_excel', methods=['GET','POST'])
 @login_required
