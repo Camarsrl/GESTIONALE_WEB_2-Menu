@@ -43,7 +43,7 @@ def login_required(fn):
         return fn(*args, **kwargs)
     return wrapper
 
-# --- PATH / LOGO (Configurazione robusta per Render) ---
+# --- PATH / LOGO (Robust configuration for Render) ---
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 APP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -386,13 +386,21 @@ GIACENZE_HTML = """
     </div>
     <form id="selection-form" method="post">
         <div class="table-container">
-            <table class="table table-sm table-hover table-compact table-bordered table-striped align-middle">
+            <table id="giacenze-table" class="table table-sm table-hover table-compact table-bordered table-striped align-middle">
                 <thead class="table-light">
                     <tr>
                         <th class="no-print" style="width:28px"><input type="checkbox" id="checkall"></th>
-                        {% for c in cols %}<th>{{ c.replace('_', ' ') | title }}</th>{% endfor %}
-                        <th>Allegati</th>
-                        <th class="no-print">Azione</th>
+                        {% for c in cols %}
+                        <th 
+                            {% if c == 'codice_articolo' %}style="width: 250px;"
+                            {% elif c == 'descrizione' %}style="width: 300px;"
+                            {% elif c == 'id_articolo' %}style="width: 60px;"
+                            {% else %}style="width: 120px;"
+                            {% endif %}>{{ c.replace('_', ' ') | title }}
+                        </th>
+                        {% endfor %}
+                        <th style="width: 80px;">Allegati</th>
+                        <th class="no-print" style="width: 80px;">Azione</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -436,7 +444,7 @@ GIACENZE_HTML = """
 <script src="https://cdn.jsdelivr.net/npm/colresizable@1.6.0/colResizable-1.6.min.js"></script>
 <script>
     $(function(){
-      $("table").colResizable({
+      $("#giacenze-table").colResizable({
           liveDrag:true,
           gripInnerHtml:"<div class='grip'></div>", 
           draggingClass:"dragging", 
@@ -1394,7 +1402,7 @@ def bulk_edit():
         for art in articoli:
             for f in fields_map.keys():
                 v = request.form.get(f)
-                if v: # Modifica solo se il campo è stato compilato
+                if v:
                     updated_fields_count += 1
                     if f in ('data_ingresso','data_uscita'):
                         v = parse_date_ui(v)
@@ -1616,28 +1624,21 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
 
     # Sezione Dati Aggiuntivi e Dati Documento
     add_data_content = [
-        [Paragraph("<b>Dati Aggiuntivi</b>", s_small_bold)],
-        [Table([
-            [Paragraph("<b>Cliente</b>", s_small), Paragraph(first_row.cliente or '', s_small)],
-            [Paragraph("<b>Commessa</b>", s_small), Paragraph(first_row.commessa or '', s_small)],
-            [Paragraph("<b>Ordine</b>", s_small), Paragraph(first_row.ordine or '', s_small)],
-            [Paragraph("<b>Buono</b>", s_small), Paragraph(first_row.buono_n or '', s_small)],
-            [Paragraph("<b>Protocollo</b>", s_small), Paragraph(first_row.protocollo or '', s_small)],
-        ], colWidths=[25*mm, '60%'], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])]
+        [Paragraph("<b>Cliente</b>", s_small_bold), Paragraph(first_row.cliente or '', s_small)],
+        [Paragraph("<b>Commessa</b>", s_small_bold), Paragraph(first_row.commessa or '', s_small)],
+        [Paragraph("<b>Ordine</b>", s_small_bold), Paragraph(first_row.ordine or '', s_small)],
+        [Paragraph("<b>Buono</b>", s_small_bold), Paragraph(first_row.buono_n or '', s_small)],
+        [Paragraph("<b>Protocollo</b>", s_small_bold), Paragraph(first_row.protocollo or '', s_small)],
     ]
-    
     doc_data_content = [
-        [Paragraph("<b>Dati Documento</b>", s_small_bold)],
-        [Table([
-            [Paragraph("<b>N. DDT</b>", s_small_bold), Paragraph(n_ddt or '', s_small)],
-            [Paragraph("<b>Data Uscita</b>", s_small_bold), Paragraph(fmt_date(data_ddt) or '', s_small)],
-            [Paragraph("<b>Targa</b>", s_small_bold), Paragraph(targa or '', s_small)],
-        ], colWidths=[25*mm, '60%'], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])]
+        [Paragraph("<b>N. DDT</b>", s_small_bold), Paragraph(n_ddt or '', s_small)],
+        [Paragraph("<b>Data Uscita</b>", s_small_bold), Paragraph(fmt_date(data_ddt) or '', s_small)],
+        [Paragraph("<b>Targa</b>", s_small_bold), Paragraph(targa or '', s_small)],
     ]
 
     data_table = Table([
-        [Table(add_data_content, style=[('VALIGN', (0,0), (-1,-1), 'TOP')]), 
-         Table(doc_data_content, style=[('VALIGN', (0,0), (-1,-1), 'TOP')])]
+        [Table(add_data_content, colWidths=[25*mm, doc.width/2-25*mm], style=[('VALIGN', (0,0), (-1,-1), 'TOP')]), 
+         Table(doc_data_content, colWidths=[25*mm, doc.width/2-25*mm], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])]
     ], colWidths=[doc.width/2, doc.width/2], style=[
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('BOX', (0,0), (-1,-1), 0.5, colors.lightgrey),
@@ -1851,6 +1852,7 @@ def labels_pdf():
     # Formato personalizzato 100x62 mm in orizzontale
     pagesize = landscape((62*mm, 100*mm))
     bio = io.BytesIO()
+    # Margini ridotti per massimizzare lo spazio
     doc = SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=4*mm, rightMargin=4*mm, topMargin=4*mm, bottomMargin=4*mm)
     story = []
 
