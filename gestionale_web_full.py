@@ -1383,7 +1383,14 @@ def giacenze():
         "serial_number", "ns_rif", "note"
     ]
 
-    return render_template('giacenze.html', rows=rows, cols=cols, total_colli=total_colli, total_m2=total_m2)
+   return render_template(
+    'giacenze.html',
+    rows=rows,
+    cols=cols,
+    total_colli=total_colli,
+    total_m2=total_m2
+)
+
 
 @app.route('/bulk/edit', methods=['GET', 'POST'])
 @login_required
