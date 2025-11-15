@@ -8,59 +8,28 @@ Tutti i diritti riservati.
 import os, io, re, json, uuid
 from datetime import datetime, date
 from pathlib import Path
-from sqlalchemy import or_
 import calendar
-from sqlalchemy import inspect
-
-
 
 import pandas as pd
 from flask import (
     Flask, request, render_template, redirect, url_for,
-    send_file, session, flash, abort, jsonify
+    send_file, session, flash, abort, jsonify, Response
 )
-from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey, Identity
+from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey, Identity, or_
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.inspection import inspect
 
 # ReportLab (PDF)
-from reportlab.lib.pagesizes import letter, A4 # <-- CORREZIONE: Aggiunto A4
+from reportlab.lib.pagesizes import landscape, A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
-# Jinja loader per gestire i template in memoria
+# Jinja loader for in-memory templates
 from jinja2 import DictLoader
-
-def get_all_fields_map():
-    return {
-        "codice_articolo": "Codice Articolo",
-        "descrizione": "Descrizione",
-        "cliente": "Cliente",
-        "fornitore": "Fornitore",
-        "commessa": "Commessa",
-        "ordine": "Ordine",
-        "protocollo": "Protocollo",
-        "magazzino": "Magazzino",
-        "posizione": "Posizione",
-        "n_ddt_ingresso": "DDT Ingresso",
-        "n_ddt_uscita": "DDT Uscita",
-        "data_ingresso": "Data Ingresso",
-        "data_uscita": "Data Uscita",
-        "peso": "Peso",
-        "n_colli": "Colli",
-        "m2": "Metri Quadri",
-        "m3": "Metri Cubi",
-        "stato": "Stato",
-        "n_arrivo": "N. Arrivo",
-        "buono_n": "Buono N.",
-        "ns_rif": "Ns Riferimento",
-        "mezzi_in_uscita": "Mezzi in Uscita",
-        "note": "Note",
-    }
-
 
 # --- AUTH ---
 from functools import wraps
@@ -74,7 +43,7 @@ def login_required(fn):
         return fn(*args, **kwargs)
     return wrapper
 
-# --- PATH / LOGO (Configurazione robusta per Render) ---
+# --- PATH / LOGO (Robust configuration for Render) ---
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 APP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -98,8 +67,7 @@ def _discover_logo_path():
 LOGO_PATH = _discover_logo_path()
 
 # --- DATABASE ---
-if not os.environ.get("DATABASE_URL"):
-    os.environ["DATABASE_URL"] = "postgresql://magazzino_1pgq_user:SrXIOLyspVI2RUSx51r7ZMq8usa0K8WD@dpg-d348i73uibrs73fagoa0-a/magazzino_1pgq"
+os.environ["DATABASE_URL"] = "postgresql://magazzino_1pgq_user:SrXIOLyspVI2RUSx51r7ZMq8usa0K8WD@dpg-d348i73uibrs73fagoa0-a/magazzino_1pgq"
 
 DB_URL = (os.environ.get("DATABASE_URL") or "").strip()
 
@@ -255,8 +223,16 @@ BASE_HTML = """
         .table thead th { position: sticky; top: 0; background: #f0f2f5; z-index: 2; }
         .dropzone { border: 2px dashed #0d6efd; background: #eef4ff; padding: 20px; border-radius: 12px; text-align: center; color: #0d6efd; cursor: pointer; }
         .logo { height: 40px; }
-        .table-compact th, .table-compact td { font-size: 11px; padding: 4px 5px; white-space: normal; word-wrap: break-word; vertical-align: middle; }
+        .table-compact th, .table-compact td { 
+            font-size: 11px; 
+            padding: 4px 5px; 
+            white-space: normal; 
+            word-wrap: break-word;
+            vertical-align: middle;
+        }
         .table-striped tbody tr:nth-of-type(odd) { background-color: rgba(0,0,0,.03); }
+        th { position: relative; }
+        .resizer { position: absolute; top: 0; right: 0; width: 5px; cursor: col-resize; user-select: none; height: 100%; }
         @media print { .no-print { display: none !important; } }
     </style>
 </head>
@@ -336,7 +312,7 @@ HOME_HTML = """
                 <hr>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('import_excel') }}"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel Totale</a>
-                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_client') }}"><i class="bi bi-people"></i> Export per Cliente</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel_client_page') }}"><i class="bi bi-people"></i> Export per Cliente</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>
             </div>
         </div>
@@ -410,13 +386,21 @@ GIACENZE_HTML = """
     </div>
     <form id="selection-form" method="post">
         <div class="table-container">
-            <table class="table table-sm table-hover table-compact table-bordered table-striped align-middle">
+            <table id="giacenze-table" class="table table-sm table-hover table-compact table-bordered table-striped align-middle">
                 <thead class="table-light">
                     <tr>
                         <th class="no-print" style="width:28px"><input type="checkbox" id="checkall"></th>
-                        {% for c in cols %}<th>{{ c.replace('_', ' ') | title }}</th>{% endfor %}
-                        <th>Allegati</th>
-                        <th class="no-print">Azione</th>
+                        {% for c in cols %}
+                        <th 
+                            {% if c == 'codice_articolo' %}style="width: 250px;"
+                            {% elif c == 'descrizione' %}style="width: 300px;"
+                            {% elif c == 'id_articolo' %}style="width: 60px;"
+                            {% else %}style="width: 120px;"
+                            {% endif %}>{{ c.replace('_', ' ') | title }}
+                        </th>
+                        {% endfor %}
+                        <th style="width: 80px;">Allegati</th>
+                        <th class="no-print" style="width: 80px;">Azione</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -456,7 +440,17 @@ GIACENZE_HTML = """
 </div>
 {% endblock %}
 {% block extra_js %}
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/colresizable@1.6.0/colResizable-1.6.min.js"></script>
 <script>
+    $(function(){
+      $("#giacenze-table").colResizable({
+          liveDrag:true,
+          gripInnerHtml:"<div class='grip'></div>", 
+          draggingClass:"dragging", 
+          resizeMode:'fit'
+      });
+    });
     document.getElementById('checkall').addEventListener('change', e => {
         document.querySelectorAll('.sel').forEach(cb => cb.checked = e.target.checked);
     });
@@ -654,10 +648,25 @@ document.getElementById('buono-form').addEventListener('submit', function(e) {
     })
     .then(resp => {
         if (resp.ok) {
+            const contentDisposition = resp.headers.get('content-disposition');
+            let filename = "buono.pdf";
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+                if (filenameMatch && filenameMatch.length > 1) {
+                    filename = filenameMatch[1];
+                }
+            }
             resp.blob().then(blob => {
                 const url = window.URL.createObjectURL(blob);
-                window.open(url, '_blank');
-                window.location.href = '{{ url_for('giacenze') }}';
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = filename; // Questo forza il download
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                // Reindirizza la pagina corrente
+                window.location.href = '{{ url_for('giacenze', v=Date.now()) }}';
             });
         } else {
             alert("Si è verificato un errore durante la generazione del buono.");
@@ -802,95 +811,36 @@ document.getElementById('ddt-form').addEventListener('submit', function(e) {
 LABELS_FORM_HTML = """
 {% extends 'base.html' %}
 {% block content %}
-<div class="card p-4 shadow-sm">
-    <h3 class="mb-3"><i class="bi bi-tag"></i> Nuova Etichetta</h3>
+<div class="card p-4">
+    <h3><i class="bi bi-tag"></i> Nuova Etichetta</h3>
     <hr>
-
     <form method="post" action="{{ url_for('labels_pdf') }}" target="_blank">
         <div class="row g-3">
-            <!-- Cliente -->
             <div class="col-md-4">
-                <label class="form-label fw-semibold">Cliente</label>
-                <input type="text" name="cliente" class="form-control"
-                       list="clienti-datalist"
-                       placeholder="Digita o seleziona un cliente...">
+                <label class="form-label">Cliente</label>
+                <input class="form-control" list="clienti-datalist" name="cliente" placeholder="Digita o seleziona un cliente...">
                 <datalist id="clienti-datalist">
                     {% for c in clienti %}
                     <option value="{{ c }}">
                     {% endfor %}
                 </datalist>
             </div>
-
-            <!-- Fornitore -->
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">Fornitore</label>
-                <input type="text" name="fornitore" class="form-control"
-                       list="fornitori-datalist"
-                       placeholder="Digita o seleziona un fornitore...">
-                <datalist id="fornitori-datalist">
-                    {% for f in fornitori %}
-                    <option value="{{ f }}">
-                    {% endfor %}
-                </datalist>
-            </div>
-
-            <!-- Ordine -->
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">Ordine</label>
-                <input type="text" name="ordine" class="form-control">
-            </div>
-
-            <!-- Commessa -->
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">Commessa</label>
-                <input type="text" name="commessa" class="form-control">
-            </div>
-
-            <!-- DDT ingresso -->
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">DDT Ingresso</label>
-                <input type="text" name="ddt_ingresso" class="form-control">
-            </div>
-
-            <!-- Data ingresso -->
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">Data Ingresso</label>
-                <input type="text" name="data_ingresso" class="form-control" placeholder="gg/mm/aaaa">
-            </div>
-
-            <!-- Arrivo -->
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">Arrivo (es. 01/25)</label>
-                <input type="text" name="arrivo" class="form-control">
-            </div>
-
-            <!-- N. Colli -->
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">N. Colli</label>
-                <input type="text" name="n_colli" class="form-control">
-            </div>
-
-            <!-- Posizione -->
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">Posizione</label>
-                <input type="text" name="posizione" class="form-control">
-            </div>
+            <div class="col-md-4"><label class="form-label">Fornitore</label><input name="fornitore" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">Ordine</label><input name="ordine" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">Commessa</label><input name="commessa" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">DDT Ingresso</label><input name="ddt_ingresso" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">Data Ingresso</label><input name="data_ingresso" class="form-control" placeholder="gg/mm/aaaa"></div>
+            <div class="col-md-4"><label class="form-label">Arrivo (es. 01/25)</label><input name="arrivo" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">N. Colli</label><input name="n_colli" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">Posizione</label><input name="posizione" class="form-control"></div>
         </div>
-
-        <!-- Pulsanti -->
         <div class="mt-4 d-flex gap-2">
-            <button type="submit" class="btn btn-outline-secondary" name="preview" value="1">
-                <i class="bi bi-eye"></i> Anteprima
-            </button>
-            <button type="submit" class="btn btn-primary">
-                <i class="bi bi-printer"></i> Genera PDF Etichetta
-            </button>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-printer"></i> Genera PDF Etichetta</button>
         </div>
     </form>
 </div>
 {% endblock %}
 """
-
 
 LABELS_PREVIEW_HTML = " " # Non più utilizzato
 
@@ -898,41 +848,28 @@ IMPORT_EXCEL_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="row justify-content-center">
-  <div class="col-md-8 col-lg-6">
-    <div class="card p-4">
-      <h3><i class="bi bi-file-earmark-arrow-up"></i> Importa Articoli da Excel</h3>
-      <hr>
-      <form method="post" enctype="multipart/form-data">
-        <div class="mb-3">
-          <label class="form-label">Seleziona la mappa Excel</label>
-          <select name="mappa_excel" class="form-select" required>
-            <option value="" selected disabled>— scegli una mappa —</option>
-            {% for m in mappe %}
-              <option value="{{ m }}">{{ m }}</option>
-            {% endfor %}
-          </select>
-          <div class="form-text">Le mappe sono lette da <code>mappe_excel.json</code>.</div>
+    <div class="col-md-8 col-lg-6">
+        <div class="card p-4">
+            <h3><i class="bi bi-file-earmark-arrow-up"></i> Importa Articoli da Excel</h3>
+            <hr>
+            <p class="text-muted">Carica un file Excel (.xlsx, .xls, .xlsm) per aggiungere nuovi articoli in blocco. Assicurati che il file abbia una riga di intestazione con i nomi delle colonne corretti.</p>
+            <form method="post" enctype="multipart/form-data">
+                <div class="mb-3">
+                    <label for="excel_file" class="form-label">Seleziona il file Excel</label>
+                    <input class="form-control" type="file" id="excel_file" name="excel_file" accept=".xlsx,.xls,.xlsm" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Carica e Importa</button>
+                <a href="{{ url_for('home') }}" class="btn btn-secondary">Annulla</a>
+            </form>
+            <div class="alert alert-info mt-4">
+                <strong>Nomi colonne suggeriti:</strong><br>
+                <small><code>Codice Articolo, Pezzo, Larghezza, Lunghezza, Altezza, Protocollo, Ordine, Commessa, Magazzino, Fornitore, Data Ingresso, N. DDT Ingresso, Cliente, Descrizione, Peso, N. Colli, Posizione, N. Arrivo, Buono N., Note, Serial Number, Stato, Mezzi in Uscita, NS Rif</code></small>
+            </div>
         </div>
-
-        <div class="mb-3">
-          <label for="excel_file" class="form-label">File Excel (.xlsx, .xls, .xlsm)</label>
-          <input class="form-control" type="file" id="excel_file" name="excel_file" accept=".xlsx,.xls,.xlsm" required>
-        </div>
-
-        <button type="submit" class="btn btn-primary">Carica e Importa</button>
-        <a href="{{ url_for('home') }}" class="btn btn-secondary">Annulla</a>
-      </form>
-
-      <div class="alert alert-info mt-4">
-        <strong>Nomi colonne suggeriti:</strong><br>
-        <small><code>Codice Articolo, Pezzo, Larghezza, Lunghezza, Altezza, Protocollo, Ordine, Commessa, Magazzino, Fornitore, Data Ingresso, N. DDT Ingresso, Cliente, Descrizione, Peso, N. Colli, Posizione, N. Arrivo, Buono N., Note, Serial Number, Stato, Mezzi in Uscita, NS Rif</code></small>
-      </div>
     </div>
-  </div>
 </div>
 {% endblock %}
 """
-
 
 EXPORT_CLIENT_HTML = """
 {% extends 'base.html' %}
@@ -967,81 +904,45 @@ DESTINATARI_HTML = """
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-10 col-lg-8">
-        <div class="card p-4 shadow-sm">
-            <h3 class="mb-3"><i class="bi bi-person-rolodex"></i> Gestione Destinatari</h3>
+        <div class="card p-4">
+            <h3><i class="bi bi-person-rolodex"></i> Gestione Destinatari</h3>
             <hr>
-
-            <h5 class="mb-3">Aggiungi Nuovo Destinatario</h5>
+            <h5>Aggiungi Nuovo Destinatario</h5>
             <form method="post" class="mb-4">
+                <input type="hidden" name="action" value="add">
                 <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold">Nome Chiave (*)</label>
-                        <input name="key_name" class="form-control" placeholder="Es. FINCANTIERI_GE" required>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold">Cliente</label>
-                        <input name="cliente" class="form-control" placeholder="Nome cliente (opzionale)">
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold">Ragione Sociale (*)</label>
-                        <input name="ragione_sociale" class="form-control" required>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold">Indirizzo Completo</label>
-                        <input name="indirizzo" class="form-control" placeholder="Via, città, CAP">
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold">Partita IVA / C.F.</label>
-                        <input name="piva" class="form-control">
-                    </div>
+                    <div class="col-md-6"><label class="form-label">Nome Chiave (es. Sede Cliente)</label><input name="key_name" class="form-control" required></div>
+                    <div class="col-md-6"><label class="form-label">Ragione Sociale</label><input name="ragione_sociale" class="form-control" required></div>
+                    <div class="col-md-6"><label class="form-label">Indirizzo Completo</label><input name="indirizzo" class="form-control"></div>
+                    <div class="col-md-6"><label class="form-label">Partita IVA</label><input name="piva" class="form-control"></div>
                 </div>
-                <div class="mt-4">
-                    <button type="submit" class="btn btn-primary">
-                        <i class="bi bi-plus-circle"></i> Aggiungi Destinatario
-                    </button>
-                    <a href="{{ request.referrer or url_for('home') }}" class="btn btn-secondary ms-2">
-                        <i class="bi bi-arrow-left"></i> Indietro
-                    </a>
-                </div>
+                <button type="submit" class="btn btn-primary mt-3">Aggiungi</button>
             </form>
-
             <hr>
-
-            <h5 class="mb-3">Destinatari Esistenti</h5>
+            <h5>Destinatari Esistenti</h5>
             <ul class="list-group">
                 {% for key, details in destinatari.items() %}
                 <li class="list-group-item d-flex justify-content-between align-items-center">
                     <div>
-                        <strong>{{ key }}</strong>
-                        <br>
-                        <small>
-                            <span class="text-muted">
-                                {{ details.ragione_sociale }}
-                                {% if details.cliente %} – Cliente: <strong>{{ details.cliente }}</strong>{% endif %}
-                                {% if details.indirizzo %}<br>{{ details.indirizzo }}{% endif %}
-                                {% if details.piva %}<br>P.IVA: {{ details.piva }}{% endif %}
-                            </span>
-                        </small>
+                        <strong>{{ key }}</strong><br>
+                        <small class="text-muted">{{ details.ragione_sociale }} - {{ details.indirizzo }}</small>
                     </div>
-                    <form method="post" onsubmit="return confirm('Sei sicuro di voler eliminare {{ key }}?');">
+                    <form method="post" onsubmit="return confirm('Sei sicuro di voler eliminare {{ key }}?');" style="display: inline;">
+                         <input type="hidden" name="action" value="delete">
                         <input type="hidden" name="delete_key" value="{{ key }}">
-                        <button type="submit" class="btn btn-sm btn-outline-danger">
-                            <i class="bi bi-trash"></i>
-                        </button>
+                        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
                     </form>
                 </li>
                 {% else %}
-                <li class="list-group-item text-center text-muted">
-                    Nessun destinatario salvato.
-                </li>
+                <li class="list-group-item">Nessun destinatario salvato.</li>
                 {% endfor %}
             </ul>
+             <a href="{{ request.referrer or url_for('home') }}" class="btn btn-secondary mt-4">Indietro</a>
         </div>
     </div>
 </div>
 {% endblock %}
 """
-
 
 CALCOLA_COSTI_HTML = """
 {% extends 'base.html' %}
@@ -1083,7 +984,6 @@ CALCOLA_COSTI_HTML = """
 {% endblock %}
 """
 
-
 # Dizionario dei template per il loader di Jinja
 templates = {
     'base.html': BASE_HTML,
@@ -1108,7 +1008,6 @@ app.jinja_loader = DictLoader(templates)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.jinja_env.globals['getattr'] = getattr
 app.jinja_env.filters['fmt_date'] = fmt_date
-
 
 def logo_url():
     if not LOGO_PATH:
@@ -1162,79 +1061,66 @@ def logout():
 def home():
     return render_template('home.html')
 
-# --- IMPORTAZIONE EXCEL (con mappe dinamiche) ---
-
-@app.route('/import_excel', methods=['GET','POST'])
+# --- IMPORTAZIONE EXCEL ---
+@app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
 def import_excel():
-    import json
-
-    with open("mappe_excel.json", "r", encoding="utf-8") as f:
-        mappe_excel = json.load(f)
-    nomi_mappe = list(mappe_excel.keys())
-
     if request.method == 'POST':
-        if 'excel_file' not in request.files or not request.files['excel_file'].filename:
+        if 'excel_file' not in request.files:
             flash('Nessun file selezionato', 'warning')
             return redirect(request.url)
-
-        mappa_scelta = request.form.get("mappa_excel")
-        if not mappa_scelta or mappa_scelta not in mappe_excel:
-            flash('Seleziona una mappa Excel valida.', 'warning')
-            return redirect(request.url)
-
-        mapping = mappe_excel[mappa_scelta]
-        col_map = {str(k).strip().lower(): v for k, v in mapping["column_map"].items()}
-        header_row = int(mapping.get("header_row", 1)) - 1
-
         file = request.files['excel_file']
-        if not file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
-            flash("Formato file non supportato. Usa .xlsx / .xls / .xlsm", "warning")
+        if file.filename == '':
+            flash('Nessun file selezionato', 'warning')
+            return redirect(request.url)
+        if file and file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
+            try:
+                db = SessionLocal()
+                df = pd.read_excel(file, engine='openpyxl')
+                
+                df.columns = [c.strip().lower().replace(' ', '_').replace('.', '').replace('°', '') for c in df.columns]
+
+                column_map = {
+                    'codice_articolo': 'codice_articolo', 'pezzo': 'pezzo', 'larghezza': 'larghezza', 'lunghezza': 'lunghezza',
+                    'altezza': 'altezza', 'protocollo': 'protocollo', 'ordine': 'ordine', 'commessa': 'commessa', 'magazzino': 'magazzino',
+                    'fornitore': 'fornitore', 'data_ingresso': 'data_ingresso', 'n_ddt_ingresso': 'n_ddt_ingresso', 'cliente': 'cliente',
+                    'descrizione': 'descrizione', 'peso': 'peso', 'n_colli': 'n_colli', 'posizione': 'posizione', 'n_arrivo': 'n_arrivo',
+                    'buono_n': 'buono_n', 'note': 'note', 'serial_number': 'serial_number', 'stato': 'stato',
+                    'mezzi_in_uscita': 'mezzi_in_uscita', 'ns_rif': 'ns_rif'
+                }
+
+                imported_count = 0
+                for _, row in df.iterrows():
+                    new_art = Articolo()
+                    for col_name, attr_name in column_map.items():
+                        if col_name in row and not pd.isna(row[col_name]):
+                            val = row[col_name]
+                            if attr_name in ['larghezza', 'lunghezza', 'altezza', 'peso']:
+                                val = to_float_eu(val)
+                            elif attr_name in ['n_colli', 'pezzo']:
+                                val = to_int_eu(val)
+                            elif attr_name == 'data_ingresso':
+                                val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
+                            setattr(new_art, attr_name, val)
+                    
+                    new_art.m2, new_art.m3 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)
+                    db.add(new_art)
+                    imported_count += 1
+                
+                db.commit()
+                flash(f'{imported_count} articoli importati con successo dal file Excel.', 'success')
+                return redirect(url_for('giacenze', v=uuid.uuid4().hex[:6])) # Cache buster
+
+            except Exception as e:
+                db.rollback()
+                flash(f"Errore durante l'importazione: {e}", 'danger')
+                return redirect(request.url)
+        else:
+            flash('Formato file non supportato. Usare .xlsx, .xls o .xlsm', 'warning')
             return redirect(request.url)
 
-        db = SessionLocal()
-        try:
-            df = pd.read_excel(file, engine='openpyxl', header=header_row)
-            df.columns = [str(c).strip().lower() for c in df.columns]
+    return render_template('import_excel.html')
 
-            cnt = 0
-            for _, r in df.iterrows():
-                a = Articolo()
-                for col_name, attr_name in col_map.items():
-                    if col_name in df.columns:
-                        val = r.get(col_name, None)
-                        if pd.isna(val):
-                            continue
-                        if attr_name in ('larghezza','lunghezza','altezza','peso'):
-                            val = to_float_eu(val)
-                        elif attr_name in ('n_colli','pezzo'):
-                            val = to_int_eu(val)
-                        elif attr_name in ('data_ingresso','data_uscita'):
-                            val = fmt_date(val) if isinstance(val,(datetime,date)) else parse_date_ui(str(val))
-                        else:
-                            val = str(val).strip()
-                        setattr(a, attr_name, val)
-                # m2/m3 calcolo automatico
-                a.m2, a.m3 = calc_m2_m3(a.lunghezza, a.larghezza, a.altezza, a.n_colli)
-                db.add(a)
-                cnt += 1
-
-            db.commit()
-            flash(f"{cnt} articoli importati con successo con la mappa '{mappa_scelta}'.", "success")
-            # FIX: endpoint corretto
-            return redirect(url_for("giacenze"))
-        except Exception as e:
-            db.rollback()
-            app.logger.exception(e)
-            flash(f"Errore durante l'importazione: {e}", "danger")
-            return redirect(request.url)
-        finally:
-            db.close()
-
-    return render_template("import_excel.html", mappe=nomi_mappe)
-
-
-   
 # --- EXPORTAZIONE EXCEL ---
 @app.get('/export_excel')
 @login_required
@@ -1248,7 +1134,7 @@ def export_excel():
 
 @app.route('/export_client', methods=['GET', 'POST'])
 @login_required
-def export_client():
+def export_excel_client_page():
     db = SessionLocal()
     clienti = [c[0] for c in db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()]
     
@@ -1264,6 +1150,9 @@ def export_client():
             return redirect(request.url)
         
         df = pd.DataFrame([vars(r) for r in rows])
+        # Rimuovi colonne non necessarie
+        df = df.drop(columns=[col for col in df.columns if col.startswith('_') or col == 'attachments'], errors='ignore')
+
         bio = io.BytesIO()
         df.to_excel(bio, index=False, engine='openpyxl')
         bio.seek(0)
@@ -1273,17 +1162,16 @@ def export_client():
     return render_template('export_client.html', clienti=clienti)
 
 
-
 # --- CALCOLO GIACENZE MENSILI ---
 @app.route('/calcola_costi', methods=['GET', 'POST'])
 @login_required
 def calcola_costi():
     db = SessionLocal()
     clienti = [c[0] for c in db.query(Articolo.cliente)
-               .distinct()
-               .filter(Articolo.cliente != None, Articolo.cliente != '')
-               .order_by(Articolo.cliente)
-               .all()]
+                 .distinct()
+                 .filter(Articolo.cliente != None, Articolo.cliente != '')
+                 .order_by(Articolo.cliente)
+                 .all()]
 
     risultato = None
     cliente_selezionato = None
@@ -1301,13 +1189,14 @@ def calcola_costi():
 
         try:
             anno, mese = mese_anno.split('-')
-            inizio = f"{anno}-{mese}-01"
-            fine = f"{anno}-{mese}-{calendar.monthrange(int(anno), int(mese))[1]}"
+            # Calcola l'ultimo giorno di quel mese
+            last_day = calendar.monthrange(int(anno), int(mese))[1]
+            fine_mese = f"{anno}-{mese}-{last_day}"
 
             articoli = db.query(Articolo).filter(
                 Articolo.cliente == cliente,
-                or_(Articolo.data_uscita == None, Articolo.data_uscita > inizio),
-                Articolo.data_ingresso <= fine
+                Articolo.data_ingresso <= fine_mese,
+                or_(Articolo.data_uscita == None, Articolo.data_uscita == '', Articolo.data_uscita > fine_mese)
             ).all()
 
             total_m2 = sum(a.m2 or 0 for a in articoli)
@@ -1328,6 +1217,21 @@ def calcola_costi():
         mese_selezionato=mese_selezionato
     )
 
+
+def get_all_fields_map():
+    return {
+        'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi',
+        'descrizione': 'Descrizione', 'cliente': 'Cliente',
+        'protocollo': 'Protocollo', 'ordine': 'Ordine', 'peso': 'Peso (Kg)',
+        'n_colli': 'N° Colli', 'posizione': 'Posizione', 'stato': 'Stato',
+        'n_arrivo': 'N° Arrivo', 'buono_n': 'Buono N°',
+        'fornitore': 'Fornitore', 'magazzino': 'Magazzino',
+        'data_ingresso': 'Data Ingresso', 'data_uscita': 'Data Uscita',
+        'n_ddt_ingresso': 'N° DDT Ingresso', 'n_ddt_uscita': 'N° DDT Uscita',
+        'larghezza': 'Larghezza (m)', 'lunghezza': 'Lunghezza (m)',
+        'altezza': 'Altezza (m)', 'serial_number': 'Serial Number',
+        'ns_rif': 'NS Rif', 'mezzi_in_uscita': 'Mezzi in Uscita', 'note': 'Note'
+    }
 
 # --- GESTIONE ARTICOLI (CRUD) ---
 @app.get('/new')
@@ -1355,9 +1259,13 @@ def edit_row(id):
     row = db.get(Articolo, id)
     if not row:
         abort(404)
+        
+    fields_map = get_all_fields_map()
+    # Rimuovi m2 e m3 dal form di modifica
+    fields_to_show = {k: v for k, v in fields_map.items() if k not in ['m2', 'm3']}
 
     if request.method == 'POST':
-        for f, label in get_all_fields_map().items():
+        for f, label in fields_map.items():
             v = request.form.get(f)
             if v is not None:
                 if f in ('data_ingresso','data_uscita'):
@@ -1367,7 +1275,10 @@ def edit_row(id):
                 elif f in ('n_colli', 'pezzo'):
                     v = to_int_eu(v)
                 setattr(row, f, v if v != '' else None)
+        
+        # Calcolo automatico m2 e m3
         row.m2, row.m3 = calc_m2_m3(row.lunghezza, row.larghezza, row.altezza, row.n_colli)
+
         if 'files' in request.files:
             for f in request.files.getlist('files'):
                 if not f or not f.filename: continue
@@ -1377,11 +1288,12 @@ def edit_row(id):
                 folder = DOCS_DIR if kind == 'doc' else PHOTOS_DIR
                 f.save(str(folder / safe_name))
                 db.add(Attachment(articolo_id=id, kind=kind, filename=safe_name))
+        
         db.commit()
         flash('Riga salvata', 'success')
         return redirect(url_for('giacenze'))
 
-    return render_template('edit.html', row=row, fields=get_all_fields_map().items())
+    return render_template('edit.html', row=row, fields=fields_to_show.items())
 
 # --- MEDIA & ALLEGATI ---
 @app.get('/media/<int:att_id>')
@@ -1414,174 +1326,157 @@ def delete_attachment(att_id):
         return redirect(url_for('edit_row', id=articolo_id))
     return redirect(url_for('giacenze'))
 
-
 # --- VISUALIZZA GIACENZE E AZIONI MULTIPLE ---
-
-@app.route('/giacenze')
+@app.get('/giacenze')
 @login_required
 def giacenze():
     db = SessionLocal()
-    filtro = request.args.get('filtro', '').strip().lower()
     try:
-        # escludo righe completamente vuote (derivanti da Excel)
-        base_filter = or_(
-            Articolo.codice_articolo.isnot(None),
-            Articolo.descrizione.isnot(None),
-            Articolo.cliente.isnot(None),
-            Articolo.fornitore.isnot(None),
-            Articolo.commessa.isnot(None),
-            Articolo.magazzino.isnot(None),
-            Articolo.posizione.isnot(None)
-        )
-
-        query = db.query(Articolo).filter(base_filter)
-
-        if filtro:
-            query = query.filter(
-                or_(
-                    Articolo.codice_articolo.ilike(f"%{filtro}%"),
-                    Articolo.descrizione.ilike(f"%{filtro}%"),
-                    Articolo.cliente.ilike(f"%{filtro}%"),
-                    Articolo.fornitore.ilike(f"%{filtro}%"),
-                    Articolo.commessa.ilike(f"%{filtro}%"),
-                    Articolo.magazzino.ilike(f"%{filtro}%"),
-                    Articolo.posizione.ilike(f"%{filtro}%")
-                )
-            )
-
-        articoli = query.order_by(Articolo.id_articolo.desc()).all()
-
-        # 🔴 QUI era "n_buono" (campo inesistente) → ✅ "buono_n"
-        cols = [
-            "id_articolo", "codice_articolo", "descrizione", "cliente", "fornitore",
-            "protocollo", "ordine", "lunghezza", "larghezza", "altezza", "commessa",
-            "magazzino", "posizione", "stato", "peso", "n_colli", "m2", "m3", "buono_n",
-            "data_ingresso", "data_uscita", "n_arrivo", "n_ddt_uscita", "mezzi_in_uscita"
+        qs = db.query(Articolo).order_by(Articolo.id_articolo.desc())
+        if session.get('role') == 'client':
+            qs = qs.filter(Articolo.cliente == session['user'])
+        
+        like_cols = [
+            'codice_articolo', 'cliente', 'fornitore', 'commessa', 'descrizione', 'posizione', 'stato', 
+            'protocollo', 'n_ddt_ingresso', 'n_ddt_uscita', 'n_arrivo', 'buono_n', 'ns_rif', 
+            'serial_number', 'mezzi_in_uscita'
         ]
+        if request.args.get('id'):
+            try: qs = qs.filter(Articolo.id_articolo == int(request.args.get('id')))
+            except ValueError: pass
+        
+        for col in like_cols:
+            v = request.args.get(col)
+            if v:
+                qs = qs.filter(getattr(Articolo, col).ilike(f"%{v}%"))
+                
+        date_filters = {
+            'data_ingresso_da': (Articolo.data_ingresso, '>='), 'data_ingresso_a': (Articolo.data_ingresso, '<='),
+            'data_uscita_da': (Articolo.data_uscita, '>='), 'data_uscita_a': (Articolo.data_uscita, '<=')
+        }
+        for arg, (col, op) in date_filters.items():
+            val = request.args.get(arg)
+            if val:
+                date_sql = parse_date_ui(val)
+                if date_sql:
+                    if op == '>=': qs = qs.filter(col >= date_sql)
+                    else: qs = qs.filter(col <= date_sql)
+        
+        rows = qs.all()
+        
+        stock_rows = [r for r in rows if not r.data_uscita]
+        total_colli = sum(r.n_colli or 0 for r in stock_rows)
+        total_m2 = sum(r.m2 or 0 for r in stock_rows)
 
-        total_colli = sum(a.n_colli or 0 for a in articoli)
-        total_m2 = sum(a.m2 or 0 for a in articoli)
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore nel caricamento delle giacenze: {e}", "danger")
+        rows, total_colli, total_m2 = [], 0, 0
+    
+    cols = [
+        "id_articolo", "codice_articolo", "pezzo", "descrizione", "cliente", "fornitore",
+        "commessa", "ordine", "protocollo", "n_colli", "peso",
+        "larghezza", "lunghezza", "altezza", "m2", "m3", "magazzino",
+        "posizione", "stato", "data_ingresso", "n_ddt_ingresso", "n_arrivo",
+        "data_uscita", "n_ddt_uscita", "mezzi_in_uscita", "buono_n",
+        "serial_number", "ns_rif", "note"
+    ]
 
-        return render_template(
-            "giacenze.html",
-            rows=articoli,
-            cols=cols,
-            filtro=filtro,
-            total_colli=total_colli,
-            total_m2=total_m2
-        )
-    finally:
-        db.close()
+    return render_template('giacenze.html', rows=rows, cols=cols, total_colli=total_colli, total_m2=total_m2)
 
-@app.route('/bulk/edit', methods=['GET','POST'])
+@app.route('/bulk/edit', methods=['GET', 'POST'])
 @login_required
 def bulk_edit():
-    ids = request.args.get('ids') or request.form.get('ids') or ''
-    id_list = [int(x) for x in ids.split(',') if x.isdigit()]
-    if request.method == 'GET':
-        if not id_list:
-            flash("Seleziona almeno un articolo.", "warning")
-            return redirect(url_for('giacenze'))
-        return render_template('bulk_edit.html', ids_csv=','.join(map(str,id_list)))
-    # POST
-    if not id_list:
-        flash("Seleziona almeno un articolo.", "warning")
-        return redirect(url_for('giacenze'))
-
-    # campi che consenti di aggiornare in massa:
-    editable_fields = [
-        'cliente','fornitore','commessa','ordine','posizione','stato',
-        'n_colli','peso','n_ddt_ingresso','n_ddt_uscita','buono_n',
-        'data_ingresso','data_uscita','n_arrivo','ns_rif','mezzi_in_uscita'
-    ]
-    payload = {}
-    for f in editable_fields:
-        v = request.form.get(f, None)
-        if v is None or v == '':
-            continue
-        if f in ('n_colli','peso'):
-            v = to_float_eu(v) if f=='peso' else to_int_eu(v)
-        elif f in ('data_ingresso','data_uscita'):
-            v = parse_date_ui(v)
-        payload[f] = v
-
-    if not payload:
-        flash("Nessun campo compilato, nessuna modifica applicata.", "info")
-        return redirect(url_for('giacenze'))
-
     db = SessionLocal()
-    try:
-        for id_ in id_list:
-            a = db.get(Articolo, id_)
-            if not a: 
-                continue
-            for k,v in payload.items():
-                setattr(a, k, v)
-        db.commit()
-        flash(f"Modifica applicata a {len(id_list)} articoli.", "success")
-    except Exception as e:
-        db.rollback()
-        flash(f"Errore modifica multipla: {e}", "danger")
-    finally:
-        db.close()
-    return redirect(url_for('giacenze'))
+    fields_map = get_all_fields_map()
+    fields_to_show = {k: v for k, v in fields_map.items() if k not in ['m2', 'm3']}
+    
+    if request.method == 'POST':
+        ids_csv = request.form.get('ids', '')
+        ids = [int(i) for i in ids_csv.split(',') if i.isdigit()]
+        
+        articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+        updated_fields_count = 0
+        for art in articoli:
+            for f in fields_map.keys():
+                v = request.form.get(f)
+                if v:
+                    updated_fields_count += 1
+                    if f in ('data_ingresso','data_uscita'):
+                        v = parse_date_ui(v)
+                    elif f in ('larghezza','lunghezza','altezza','peso'):
+                        v = to_float_eu(v)
+                    elif f in ('n_colli', 'pezzo'):
+                        v = to_int_eu(v)
+                    setattr(art, f, v)
+        
+        if updated_fields_count > 0:
+            db.commit()
+            flash(f"{len(articoli)} articoli aggiornati con successo.", "success")
+        else:
+            flash("Nessun campo compilato, nessuna modifica applicata.", "info")
+            
+        return redirect(url_for('giacenze', v=uuid.uuid4().hex[:6])) # Cache buster
 
+    ids_csv = request.args.get('ids', '')
+    ids = [int(i) for i in ids_csv.split(',') if i.isdigit()]
+    if not ids:
+        flash("Nessun articolo selezionato per la modifica.", "warning")
+        return redirect(url_for('giacenze'))
+    
+    rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+    return render_template('bulk_edit.html', rows=rows, ids_csv=ids_csv, fields=fields_to_show.items())
 
-@app.route('/bulk/delete', methods=['POST'])
+@app.post('/bulk/delete')
 @login_required
 def bulk_delete():
-    ids = request.form.getlist('ids[]')
+    ids = [int(i) for i in request.form.getlist('ids') if i.isdigit()]
+    if not ids:
+        flash("Nessun articolo selezionato per l'eliminazione.", "warning")
+        return redirect(url_for('giacenze'))
+    
     db = SessionLocal()
-    try:
-        for id_articolo in ids:
-            art = db.query(Articolo).get(id_articolo)
-            if art:
-                # Elimina prima gli eventuali allegati collegati
-                for a in art.attachments:
-                    db.delete(a)
-                # Poi elimina l'articolo stesso
-                db.delete(art)
-        db.commit()
-        flash("Articoli eliminati correttamente.", "success")
-    except Exception as e:
-        db.rollback()
-        flash(f"Errore durante l'eliminazione: {e}", "danger")
-    finally:
-        db.close()
-    return redirect(url_for('giacenze'))
+    articoli_da_eliminare = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+    for art in articoli_da_eliminare:
+        for att in art.attachments:
+            path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / att.filename
+            try:
+                if path.exists(): path.unlink()
+            except Exception: pass
 
-@app.route('/bulk/duplicate', methods=['POST'])
+    db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).delete(synchronize_session=False)
+    db.commit()
+    flash(f"{len(ids)} articoli e i loro allegati sono stati eliminati.", "success")
+    return redirect(url_for('giacenze', v=uuid.uuid4().hex[:6])) # Cache buster
+
+@app.post('/bulk/duplicate')
 @login_required
 def bulk_duplicate():
-    ids_csv = (request.form.get('selected_ids') or '').strip()
-    if not ids_csv:
-        flash("Seleziona almeno un articolo da duplicare.", "warning")
+    if session.get('role') != 'admin':
+        flash("Non hai i permessi per eseguire questa azione.", "danger")
         return redirect(url_for('giacenze'))
-
-    ids = [int(x) for x in ids_csv.split(',') if x.isdigit()]
+        
+    ids = [int(i) for i in request.form.getlist('ids') if i.isdigit()]
+    if not ids:
+        flash("Nessun articolo selezionato per la duplicazione.", "warning")
+        return redirect(url_for('giacenze'))
+    
     db = SessionLocal()
-    try:
-        mapper = inspect(Articolo)
-        cols = [c.key for c in mapper.attrs if c.key != 'id']
-        duplicati = 0
-        for id_art in ids:
-            src = db.get(Articolo, id_art)
-            if not src:
-                continue
-            dest = Articolo()
-            for c in cols:
-                setattr(dest, c, getattr(src, c))
-            db.add(dest)
-            duplicati += 1
-        db.commit()
-        flash(f"Duplicati {duplicati} articoli.", "success")
-    except Exception as e:
-        db.rollback()
-        flash(f"Errore duplicazione: {e}", "danger")
-    finally:
-        db.close()
-    return redirect(url_for('visualizza giacenze'))
+    articoli_da_duplicare = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+    
+    nuovi_articoli = []
+    mapper = inspect(Articolo)
+    for originale in articoli_da_duplicare:
+        nuovo = Articolo()
+        for column in mapper.attrs:
+            if column.key not in ['id_articolo', 'attachments']:
+                setattr(nuovo, column.key, getattr(originale, column.key))
+        nuovi_articoli.append(nuovo)
 
+    db.add_all(nuovi_articoli)
+    db.commit()
+    flash(f"{len(nuovi_articoli)} articoli duplicati con successo.", "success")
+    return redirect(url_for('giacenze', v=uuid.uuid4().hex[:6])) # Cache buster
 
 # --- ANTEPRIME HTML (BUONO / DDT) ---
 def _get_rows_from_ids(ids_list):
@@ -1617,97 +1512,45 @@ def ddt_preview():
 @login_required
 def get_next_ddt_number():
     return jsonify({'next_ddt': next_ddt_number()})
-
-# modello SQL (da mettere insieme agli altri modelli)
-# --- MODELLO DESTINATARI -----------------------------------------------------
-class Destinatario(Base):
-    __tablename__ = "destinatari"
-    id = Column(Integer, primary_key=True)
-    key_name = Column(String(120), unique=True, nullable=False)  # es. "Destinatario 1 -"
-    ragione_sociale = Column(String(255), nullable=True)
-    indirizzo = Column(String(255), nullable=True)
-    piva = Column(String(64), nullable=True)
-    cliente = Column(String(255), nullable=True)  # intestazione cliente
-
-# crea le tabelle mancanti all’avvio
-def _ensure_tables():
-    try:
-        Base.metadata.create_all(engine)
-    except Exception as e:
-        app.logger.error(f"Errore create_all: {e}")
-
-
+    
 @app.route('/manage_destinatari', methods=['GET', 'POST'])
 @login_required
 def manage_destinatari():
-    db = SessionLocal()
-    try:
-        if request.method == 'POST':
-            # delete
-            del_key = (request.form.get('delete_key') or '').strip()
-            if del_key:
-                d = db.query(Destinatario).filter(Destinatario.key_name==del_key).first()
-                if d:
-                    db.delete(d)
-                    db.commit()
-                    flash("Destinatario eliminato.", "success")
-                else:
-                    flash("Destinatario non trovato.", "warning")
-                return redirect(url_for('manage_destinatari'))
+    dest_file = APP_DIR / "destinatari_saved.json"
+    destinatari = load_destinatari()
+    
+    if request.method == 'POST':
+        action = request.form.get('action')
+        
+        if action == 'add':
+            key_name = request.form.get('key_name')
+            if not key_name:
+                flash("Il Nome Chiave è obbligatorio.", "warning")
+            else:
+                destinatari[key_name] = {
+                    "ragione_sociale": request.form.get('ragione_sociale', ''),
+                    "indirizzo": request.form.get('indirizzo', ''),
+                    "piva": request.form.get('piva', '')
+                }
+                try:
+                    dest_file.write_text(json.dumps(destinatari, ensure_ascii=False, indent=2), encoding="utf-8")
+                    flash(f"Destinatario '{key_name}' salvato.", "success")
+                except Exception as e:
+                    flash(f"Errore salvataggio file: {e}", "danger")
+        
+        elif action == 'delete':
+            key_to_delete = request.form.get('delete_key')
+            if key_to_delete in destinatari:
+                del destinatari[key_to_delete]
+                try:
+                    dest_file.write_text(json.dumps(destinatari, ensure_ascii=False, indent=2), encoding="utf-8")
+                    flash(f"Destinatario '{key_to_delete}' eliminato.", "success")
+                except Exception as e:
+                    flash(f"Errore salvataggio file: {e}", "danger")
 
-            # upsert
-            key = (request.form.get('key_name') or '').strip()
-            if not key:
-                flash("Nome chiave obbligatorio.", "warning")
-                return redirect(url_for('manage_destinatari'))
-
-            rag = (request.form.get('ragione_sociale') or '').strip()
-            ind = (request.form.get('indirizzo') or '').strip()
-            piva = (request.form.get('piva') or '').strip()
-            cliente = (request.form.get('cliente') or rag or key).strip()
-
-            d = db.query(Destinatario).filter(Destinatario.key_name==key).first()
-            if not d:
-                d = Destinatario(key_name=key)
-                db.add(d)
-
-            d.ragione_sociale = rag or None
-            d.indirizzo = ind or None
-            d.piva = piva or None
-            d.cliente = cliente or None
-
-            db.commit()
-            flash("Destinatario salvato.", "success")
-            return redirect(url_for('manage_destinatari'))
-
-        destinatari = db.query(Destinatario).order_by(Destinatario.key_name).all()
-        # trasformo per il template (mai "None")
-        data = [{
-            "key_name": d.key_name,
-            "cliente": d.cliente or "",
-            "ragione_sociale": d.ragione_sociale or "",
-            "indirizzo": d.indirizzo or "",
-            "piva": d.piva or ""
-        } for d in destinatari]
-
-        return render_template('destinatari.html', destinatari=data)
-    finally:
-        db.close()
-
-
-@app.get('/destinatari/delete/<path:key>')
-@login_required
-def delete_destinatario(key):
-    path = APP_DIR / "destinatari_saved.json"
-    data = load_destinatari()
-    if key in data:
-        data.pop(key, None)
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        flash(f"Destinatario '{key}' eliminato.", "success")
-    else:
-        flash("Destinatario non trovato.", "warning")
-    return redirect(url_for('manage_destinatari'))
-
+        return redirect(url_for('manage_destinatari'))
+        
+    return render_template('destinatari.html', destinatari=destinatari)
 
 # --- PDF E FINALIZZAZIONE DDT ---
 _styles = getSampleStyleSheet()
@@ -1738,161 +1581,101 @@ def _copyright_para():
     tiny_style = _styles['Normal'].clone('copyright')
     tiny_style.fontSize = 7; tiny_style.textColor = colors.grey; tiny_style.alignment = TA_CENTER
     return Paragraph("Camar S.r.l. - Gestionale Web - © Alessia Moncalvo", tiny_style)
+
 def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
-    """
-    Layout DDT:
-    - Logo centrato
-    - Banner blu titolo
-    - Mittente (senza P.IVA) a sinistra, Destinatario a destra con NOME CLIENTE in alto
-    - Sezione 'Dati Aggiuntivi' (banner blu)
-    - Tabella articoli con descrizioni a capo
-    - Sezione trasporto (Causale, Porto, Aspetto)
-    - Totali + firma vettore
-    """
-    import io, os
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib import colors
-    from reportlab.lib.units import mm
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT
-
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4,
-                            leftMargin=15*mm, rightMargin=15*mm,
-                            topMargin=12*mm, bottomMargin=15*mm)
-
-    styles = getSampleStyleSheet()
-    p_norm = ParagraphStyle('p_norm', parent=styles['Normal'], fontSize=9, leading=12, alignment=TA_LEFT)
-    p_head = ParagraphStyle('p_head', parent=styles['Heading2'], fontSize=15, leading=18, alignment=TA_CENTER, textColor=colors.white)
-    p_bold = ParagraphStyle('p_bold', parent=styles['Normal'], fontSize=9, leading=12)
-    p_bold.fontName = 'Helvetica-Bold'
-
+    bio = io.BytesIO()
+    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm, topMargin=10*mm, bottomMargin=15*mm)
     story = []
+    
+    s_small_bold = ParagraphStyle(name='small_bold', fontName='Helvetica-Bold', fontSize=8, leading=10)
+    s_small = ParagraphStyle(name='small', fontName='Helvetica', fontSize=8, leading=10)
+    
+    if LOGO_PATH and Path(LOGO_PATH).exists():
+        story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER'))
+        story.append(Spacer(1, 5*mm))
 
-    # Logo centrato
-    logo_path = LOGO_PATH or os.path.join("static", "logo camar.jpg")
-    if logo_path and os.path.exists(logo_path):
-        im = Image(logo_path, width=60*mm, height=20*mm)
-        im.hAlign = 'CENTER'
-        story.append(im)
-        story.append(Spacer(1, 2*mm))
-
-    # Banner titolo
-    story.append(Table([[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", p_head)]],
-                       colWidths=[doc.width],
-                       style=[('BACKGROUND',(0,0),(-1,-1), colors.HexColor("#1E66AE")),
-                              ('BOX',(0,0),(-1,-1), 0.5, colors.HexColor("#1E66AE")),
-                              ('ALIGN',(0,0),(-1,-1),'CENTER'),
-                              ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-                              ('BOTTOMPADDING',(0,0),(-1,-1),6),
-                              ('TOPPADDING',(0,0),(-1,-1),6)]))
-    story.append(Spacer(1, 6*mm))
-
-    # Mittente/Destinatario
-    mitt = """<b>Mittente</b><br/>Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)"""
-    # Nome cliente IN TESTA
-    dest_cliente = (dest.get('cliente') or dest.get('ragione_sociale') or '').upper()
-    dest_lines = [f"<b>Destinatario</b>",
-                  dest_cliente,
-                  dest.get('ragione_sociale',''),
-                  dest.get('indirizzo',''),
-                  dest.get('piva','')]
-    # ripulisci linee vuote
-    dest_block = "<br/>".join([ln for ln in dest_lines if ln.strip()])
-
-    top = Table([[Paragraph(mitt, p_norm), Paragraph(dest_block, p_norm)]],
-                colWidths=[doc.width/2, doc.width/2],
-                style=[('BOX',(0,0),(-1,-1),0.3, colors.lightgrey),
-                       ('VALIGN',(0,0),(-1,-1),'TOP'),
-                       ('LEFTPADDING',(0,0),(-1,-1),6),
-                       ('RIGHTPADDING',(0,0),(-1,-1),6)])
-    story.append(top)
-    story.append(Spacer(1, 6*mm))
-
-    # Banner "Dati Aggiuntivi"
-    story.append(Table([[Paragraph("Dati Aggiuntivi", ParagraphStyle('bar', parent=styles['Normal'], fontSize=10, textColor=colors.white))]],
-                       colWidths=[doc.width],
-                       style=[('BACKGROUND',(0,0),(-1,-1), colors.HexColor("#1E66AE")),
-                              ('LEFTPADDING',(0,0),(-1,-1),6),
-                              ('RIGHTPADDING',(0,0),(-1,-1),6),
-                              ('TOPPADDING',(0,0),(-1,-1),3),
-                              ('BOTTOMPADDING',(0,0),(-1,-1),3)]))
-
-    dati = [
-        ['Commessa', form_data.get('commessa',''), 'N. DDT', n_ddt],
-        ['Ordine',   form_data.get('ordine',''),   'Data Uscita', fmt_date(data_ddt)],
-        ['Buono',    form_data.get('buono_n',''),  'Targa', targa or ''],
-        ['Protocollo', form_data.get('protocollo',''), '', '']
-    ]
-    story.append(Table(dati,
-                       colWidths=[25*mm, 70*mm, 25*mm, None],
-                       style=[('GRID',(0,0),(-1,-1),0.3, colors.grey),
-                              ('BACKGROUND',(0,0),(-1,0),colors.whitesmoke),
-                              ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-                              ('FONT',(0,0),(-1,0),'Helvetica-Bold',9)]))
+    title_style = ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, textColor=colors.white)
+    title_bar = Table([[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", title_style)]], colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)])
+    story.append(title_bar)
     story.append(Spacer(1, 8*mm))
+    
+    first_row = rows[0] if rows else Articolo()
+    add_data_content = [
+        [Paragraph("<b>Cliente</b>", s_small_bold), Paragraph(first_row.cliente or '', s_small)],
+        [Paragraph("<b>Commessa</b>", s_small_bold), Paragraph(first_row.commessa or '', s_small)],
+        [Paragraph("<b>Ordine</b>", s_small_bold), Paragraph(first_row.ordine or '', s_small)],
+        [Paragraph("<b>Buono</b>", s_small_bold), Paragraph(first_row.buono_n or '', s_small)],
+        [Paragraph("<b>Protocollo</b>", s_small_bold), Paragraph(first_row.protocollo or '', s_small)],
+    ]
+    doc_data_content = [
+        [Paragraph("<b>N. DDT</b>", s_small_bold), Paragraph(n_ddt, s_small)],
+        [Paragraph("<b>Data Uscita</b>", s_small_bold), Paragraph(fmt_date(data_ddt), s_small)],
+        [Paragraph("<b>Targa</b>", s_small_bold), Paragraph(targa or '', s_small)],
+        [Paragraph("<b>Richiesta di:</b>", s_small_bold), Paragraph("", s_small)],
+    ]
+    
+    header_data = [
+        [Paragraph("<b>Dati Aggiuntivi</b>", s_small_bold), Paragraph("<b>Destinatario</b>", s_small_bold)],
+        [Table(add_data_content, colWidths=[25*mm, '60%'], style=[('VALIGN', (0,0), (-1,-1), 'TOP')]), Paragraph(f"{dest.get('ragione_sociale','') or ''}<br/>{dest.get('indirizzo','') or ''}", s_small)]
+    ]
+    header_table = Table(header_data, colWidths=[doc.width/2, doc.width/2], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
+    
+    story.append(header_table)
+    story.append(Spacer(1, 8*mm))
+    
+    # Stili per il testo a capo nelle celle
+    style_cell = ParagraphStyle(name='Cell', parent=s_small)
+    style_cell_bold = ParagraphStyle(name='CellBold', parent=s_small_bold)
 
-    # Tabella articoli
-    art_head = ['ID','Cod.Art.','Descrizione','Pezzi','Colli','Peso','N.Arrivo']
-    data_art = [art_head]
-    for a in rows:
-        data_art.append([
-            Paragraph(str(a.id_articolo), p_norm),
-            Paragraph(a.codice_articolo or '', p_norm),
-            Paragraph(a.descrizione or '', p_norm),  # Paragraph -> va a capo
-            Paragraph(str(a.pezzo or ''), p_norm),
-            Paragraph(str(a.n_colli or ''), p_norm),
-            Paragraph(f"{(a.peso or 0):.0f}", p_norm),
-            Paragraph(a.n_arrivo or '', p_norm)
+    data = [[
+        Paragraph('ID', style_cell_bold), Paragraph('Cod.Art.', style_cell_bold), Paragraph('Descrizione', style_cell_bold),
+        Paragraph('Pezzi', style_cell_bold), Paragraph('Colli', style_cell_bold), Paragraph('Peso', style_cell_bold), Paragraph('N.Arrivo', style_cell_bold)
+    ]]
+    
+    tot_colli, tot_peso, tot_pezzi = 0, 0.0, 0
+    for r in rows:
+        pezzi = to_int_eu(form_data.get(f"pezzi_{r.id_articolo}", r.pezzo)) or 0
+        colli = to_int_eu(form_data.get(f"colli_{r.id_articolo}", r.n_colli)) or 0
+        peso = to_float_eu(form_data.get(f"peso_{r.id_articolo}", r.peso)) or 0.0
+        data.append([
+            Paragraph(str(r.id_articolo), style_cell), 
+            Paragraph(r.codice_articolo or '', style_cell), 
+            Paragraph(r.descrizione or '', style_cell), 
+            Paragraph(str(pezzi), style_cell), 
+            Paragraph(str(colli), style_cell), 
+            Paragraph(f"{peso:.2f}", style_cell), 
+            Paragraph(r.n_arrivo or '', style_cell)
         ])
-    story.append(Table(data_art,
-                       colWidths=[14*mm, 25*mm, None, 18*mm, 18*mm, 22*mm, 25*mm],
-                       style=[('GRID',(0,0),(-1,-1),0.4, colors.grey),
-                              ('BACKGROUND',(0,0),(-1,0),colors.whitesmoke),
-                              ('FONT',(0,0),(-1,0),'Helvetica-Bold',9),
-                              ('VALIGN',(0,0),(-1,-1),'TOP'),
-                              ('ALIGN',(3,1),(-1,-1),'CENTER')]))
-    story.append(Spacer(1, 8*mm))
-
-    # Sezione Trasporto
-    tras = [
-        ['Causale', form_data.get('causale','TRASFERIMENTO'), 'Porto', form_data.get('porto','FRANCO')],
-        ['Aspetto', form_data.get('aspetto','A VISTA'), '', '']
+        tot_pezzi += pezzi; tot_colli += colli; tot_peso += float(peso)
+    
+    item_table = _pdf_table(data, col_widths=[15*mm, 35*mm, None, 15*mm, 15*mm, 18*mm, 22*mm])
+    story.append(item_table)
+    story.append(Spacer(1, 6*mm))
+    
+    causale_porto_aspetto = [
+        [Paragraph("<b>Causale</b>", s_small), Paragraph(form_data.get('causale', 'TRASFERIMENTO'), s_small)],
+        [Paragraph("<b>Porto</b>", s_small), Paragraph(form_data.get('porto', 'FRANCO'), s_small)],
+        [Paragraph("<b>Aspetto</b>", s_small), Paragraph(form_data.get('aspetto', 'A VISTA'), s_small)],
     ]
-    story.append(Table(tras,
-                       colWidths=[25*mm, 70*mm, 25*mm, None],
-                       style=[('GRID',(0,0),(-1,-1),0.3, colors.lightgrey),
-                              ('VALIGN',(0,0),(-1,-1),'MIDDLE')]))
-    story.append(Spacer(1, 10*mm))
+    cpa_table = Table(causale_porto_aspetto, colWidths=[20*mm, None], style=[('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey)])
 
-    # Totali / firma
-    tot_colli = sum(a.n_colli or 0 for a in rows)
-    tot_peso  = sum(a.peso or 0 for a in rows)
-    foot = Table([['Totale Colli:', str(tot_colli), 'Totale Peso:', f"{int(tot_peso)}"],
-                  ['', '', 'Firma Vettore:', '____________________________']],
-                 colWidths=[25*mm, 30*mm, 35*mm, None],
-                 style=[('GRID',(0,0),(-1,-1),0.3, colors.lightgrey),
-                        ('VALIGN',(0,0),(-1,-1),'MIDDLE')])
-    story.append(foot)
-
+    totals_text = f"<b>Totale Pezzi:</b> {tot_pezzi}<br/><b>Totale Colli:</b> {tot_colli}<br/><b>Totale Peso:</b> {tot_peso:.2f} Kg"
+    firma_text = "<b>Firma Vettore:</b><br/><br/>________________________"
+    
+    footer_table = Table([[cpa_table, Paragraph(totals_text, s_small_bold), Paragraph(firma_text, s_small_bold)]], 
+                         colWidths=[doc.width/3, doc.width/3, doc.width/3], 
+                         style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
+    story.append(footer_table)
+    
+    story.append(Spacer(1, 15*mm))
+    story.append(_copyright_para())
+    
     doc.build(story)
-    buf.seek(0)
-    return buf
+    bio.seek(0)
+    return bio
 
-
-@app.post('/buono/finalize_and_get_pdf')
-@login_required
-def buono_finalize_and_get_pdf():
-    ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
-    rows = _get_rows_from_ids(ids)
-    buono_n = (request.form.get('buono_n') or '').strip()
-    db = SessionLocal()
-    if buono_n:
-        for r in rows:
-            r.buono_n = buono_n
-        db.commit()
-        flash(f"Numero Buono '{buono_n}' salvato per gli articoli selezionati.", "info")
+def _generate_buono_pdf(form_data, rows):
+    buono_n = (form_data.get('buono_n') or '').strip()
     
     bio = io.BytesIO()
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm, topMargin=10*mm, bottomMargin=15*mm)
@@ -1910,21 +1693,33 @@ def buono_finalize_and_get_pdf():
 
     d_row = rows[0] if rows else None
     meta = [
-        ["Data Emissione", request.form.get('data_em', '')],
-        ["Commessa", request.form.get('commessa', '')],
-        ["Fornitore", request.form.get('fornitore', '')],
-        ["Protocollo", request.form.get('protocollo', '')],
+        ["Data Emissione", form_data.get('data_em', '')],
+        ["Commessa", form_data.get('commessa', '')],
+        ["Fornitore", form_data.get('fornitore', '')],
+        ["Protocollo", form_data.get('protocollo', '')],
         ["N. Buono", buono_n]
     ]
     story.append(_pdf_table(meta, [35*mm, None], header=False))
     story.append(Spacer(1, 6))
     story.append(Paragraph(f"<b>Cliente:</b> {(d_row.cliente or '').upper()}", getSampleStyleSheet()['Normal']))
     story.append(Spacer(1, 8))
-    data = [['Ordine','Codice Articolo','Descrizione','Quantità','N.Arrivo']]
+    
+    s_small = ParagraphStyle(name='small', fontName='Helvetica', fontSize=8, leading=10)
+    s_small_bold = ParagraphStyle(name='small_bold', fontName='Helvetica-Bold', fontSize=8, leading=10)
+    data = [
+        [Paragraph('Ordine', s_small_bold), Paragraph('Codice Articolo', s_small_bold), Paragraph('Descrizione', s_small_bold), 
+         Paragraph('Quantità', s_small_bold), Paragraph('N.Arrivo', s_small_bold)]
+    ]
     for r in rows:
         q_val = request.form.get(f"q_{r.id_articolo}")
         quantita = to_int_eu(q_val) if q_val is not None else (r.n_colli or 1)
-        data.append([r.ordine or '', r.codice_articolo or '', r.descrizione or '', quantita, r.n_arrivo or ''])
+        data.append([
+            Paragraph(r.ordine or '', s_small), 
+            Paragraph(r.codice_articolo or '', s_small), 
+            Paragraph(r.descrizione or '', s_small), 
+            Paragraph(str(quantita), s_small), 
+            Paragraph(r.n_arrivo or '', s_small)
+        ])
     story.append(_pdf_table(data, col_widths=[25*mm, 45*mm, None, 20*mm, 25*mm]))
     
     story.append(Spacer(1, 100*mm)) 
@@ -1941,7 +1736,26 @@ def buono_finalize_and_get_pdf():
 
     doc.build(story)
     bio.seek(0)
-    return send_file(bio, as_attachment=False, download_name=f'Buono_{buono_n}.pdf', mimetype='application/pdf')
+    return bio
+
+@app.post('/buono/finalize_and_get_pdf')
+@login_required
+def buono_finalize_and_get_pdf():
+    ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
+    rows = _get_rows_from_ids(ids)
+    buono_n = (request.form.get('buono_n') or '').strip()
+    db = SessionLocal()
+    
+    if buono_n:
+        for r in rows:
+            r.buono_n = buono_n
+        db.commit()
+        flash(f"Numero Buono '{buono_n}' salvato per gli articoli selezionati.", "info")
+    
+    pdf_bio = _generate_buono_pdf(request.form, rows)
+    
+    return send_file(pdf_bio, as_attachment=True, download_name=f'Buono_{buono_n}.pdf', mimetype='application/pdf')
+
 
 @app.post('/pdf/ddt')
 @login_required
@@ -1967,6 +1781,7 @@ def ddt_finalize():
     for art in articoli:
         art.data_uscita = data_ddt
         art.n_ddt_uscita = n_ddt
+        art.stato = 'USCITO'
         art.pezzo = to_int_eu(request.form.get(f"pezzi_{art.id_articolo}", art.pezzo))
         art.n_colli = to_int_eu(request.form.get(f"colli_{art.id_articolo}", art.n_colli))
         art.peso = to_float_eu(request.form.get(f"peso_{art.id_articolo}", art.peso))
@@ -1983,194 +1798,56 @@ def ddt_finalize():
     download_name = f"DDT_{n_ddt.replace('/', '-')}_{data_ddt}.pdf"
     response = send_file(pdf_bio, as_attachment=True, download_name=download_name, mimetype='application/pdf')
     
-    response.headers['X-Redirect'] = url_for('giacenze')
+    response.headers['X-Redirect'] = url_for('giacenze', v=uuid.uuid4().hex[:6])
     return response
 
-# --- FORM CREAZIONE ETICHETTA ---
-@app.route("/labels_form", methods=["GET", "POST"])
+# --- ETICHETTE ---
+@app.get('/labels')
 @login_required
 def labels_form():
-    """Mostra il form per la generazione etichette"""
     db = SessionLocal()
-    try:
-        clienti = sorted({r[0] for r in db.query(Articolo.cliente).distinct() if r[0]})
-        fornitori = sorted({r[0] for r in db.query(Articolo.fornitore).distinct() if r[0]})
-    finally:
-        db.close()
+    clienti = [c[0] for c in db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()]
+    return render_template('labels_form.html', clienti=clienti)
 
-    return render_template("labels_form.html", clienti=clienti, fornitori=fornitori)
-@app.route('/invia_email', methods=['GET', 'POST'])
-@login_required
-def invia_email():
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-    from email.mime.base import MIMEBase
-    from email import encoders
-    import smtplib, os
+def _labels_clean_data(form):
+    return {k: (form.get(k) or "").strip() for k in ("cliente","fornitore","ordine","commessa",
+            "ddt_ingresso","data_ingresso","arrivo","n_colli","posizione")}
 
-    db = SessionLocal()
-
-    if request.method == 'POST':
-        ids = request.form.get('selected_ids', '')
-        ids_list = [int(i) for i in ids.split(',') if i.isdigit()]
-
-        destinatario = request.form.get('destinatario', '').strip()
-        oggetto = request.form.get('oggetto', 'DDT e allegati')
-        messaggio = request.form.get('messaggio', 'In allegato i documenti selezionati.')
-
-        if not destinatario or not ids_list:
-            flash("Seleziona almeno un articolo e specifica un indirizzo email valido.", "warning")
-            return redirect(url_for('visualizza_giacenze'))
-
-        # --- Recupera i file allegati per gli articoli selezionati ---
-        allegati = []
-        for art_id in ids_list:
-            articolo = db.get(Articolo, art_id)
-            if not articolo:
-                continue
-
-            # Cartelle base
-            pdf_path = os.path.join('pdf_ddt', f"{articolo.n_ddt_uscita or articolo.n_ddt_ingresso or art_id}.pdf")
-            img_path = os.path.join('immagini', f"{articolo.id}.jpg")
-
-            if os.path.exists(pdf_path):
-                allegati.append(pdf_path)
-            if os.path.exists(img_path):
-                allegati.append(img_path)
-
-        if not allegati:
-            flash("Nessun file trovato per gli articoli selezionati.", "warning")
-            return redirect(url_for('visualizza_giacenze'))
-
-        # --- Configurazione SMTP ---
-        SMTP_SERVER = "smtp.office365.com"
-        SMTP_PORT = 587
-        SMTP_USER = "tuoindirizzo@azienda.it"
-        SMTP_PASS = "tua_password_app"  # usa password app, non quella personale
-
-        try:
-            msg = MIMEMultipart()
-            msg['From'] = SMTP_USER
-            msg['To'] = destinatario
-            msg['Subject'] = oggetto
-            msg.attach(MIMEText(messaggio, 'plain'))
-
-            # Aggiungi allegati
-            for file_path in allegati:
-                with open(file_path, "rb") as f:
-                    part = MIMEBase('application', 'octet-stream')
-                    part.set_payload(f.read())
-                    encoders.encode_base64(part)
-                    part.add_header('Content-Disposition', f'attachment; filename="{os.path.basename(file_path)}"')
-                    msg.attach(part)
-
-            # Invia email
-            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-                server.starttls()
-                server.login(SMTP_USER, SMTP_PASS)
-                server.send_message(msg)
-
-            flash(f"Email inviata con successo a {destinatario}.", "success")
-        except Exception as e:
-            flash(f"Errore durante l'invio: {e}", "danger")
-
-        return redirect(url_for('visualizza_giacenze'))
-
-    # --- GET: Mostra form di invio email ---
-    ids = request.args.get('ids', '')
-    return render_template('invia_email.html', selected_ids=ids)
-
-
-@app.route('/labels_pdf', methods=['POST'])
+@app.post('/labels_pdf')
 @login_required
 def labels_pdf():
-    # Leggo i campi del form: si genera UNA etichetta per volta
-    d = {
-        "cliente":        (request.form.get('cliente') or '').strip(),
-        "fornitore":      (request.form.get('fornitore') or '').strip(),
-        "ordine":         (request.form.get('ordine') or '').strip(),
-        "commessa":       (request.form.get('commessa') or '').strip(),
-        "ddt_ingresso":   (request.form.get('ddt_ingresso') or '').strip(),
-        "data_ingresso":  (request.form.get('data_ingresso') or '').strip(),
-        "arrivo":         (request.form.get('arrivo') or '').strip(),
-        "n_colli":        (request.form.get('n_colli') or '').strip(),
-        "posizione":      (request.form.get('posizione') or '').strip(),
-    }
-    formato = request.form.get('formato', '62x100')  # default 62x100 mm
-
-    try:
-        bio = _genera_pdf_etichetta_single(d, formato=formato)
-        return send_file(bio,
-                         as_attachment=False,
-                         download_name=f"Etichetta_{(d['cliente'] or 'cliente')}.pdf",
-                         mimetype='application/pdf')
-    except Exception as e:
-        flash(f"Errore durante la generazione dell'etichetta: {e}", "danger")
-        return redirect(url_for('labels_form'))
-
-
-def _genera_pdf_etichetta_single(d, formato='62x100'):
-    """
-    Etichetta 62x100 mm orizzontale, testo in MAIUSCOLO, logo piccolo centrato.
-    """
-    import io, os
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.pagesizes import landscape
-    from reportlab.lib.units import mm
-
-    try:
-        larg_mm, alt_mm = map(float, formato.lower().replace('mm', '').split('x'))
-    except Exception:
-        larg_mm, alt_mm = 100.0, 62.0  # orizzontale
-
-    page_size = landscape((larg_mm * mm, alt_mm * mm))
+    d = _labels_clean_data(request.form)
+    
+    # Formato personalizzato 100x62 mm in orizzontale
+    pagesize = landscape((62*mm, 100*mm))
     bio = io.BytesIO()
-    c = canvas.Canvas(bio, pagesize=page_size)
+    doc = SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=4*mm, rightMargin=4*mm, topMargin=4*mm, bottomMargin=4*mm)
+    story = []
 
-    margin_x = 6 * mm
-    margin_y = 6 * mm
+    # Stile per il testo
+    style = getSampleStyleSheet()
+    label_style_left = ParagraphStyle(name='LabelLeft', parent=style['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=18, alignment=TA_LEFT)
 
-    # Logo ridimensionato e centrato
-    logo_path = os.path.join('static', 'logo camar.jpg')
-    if os.path.exists(logo_path):
-        logo_w, logo_h = 22 * mm, 10 * mm
-        c.drawImage(
-            logo_path,
-            (page_size[0] - logo_w) / 2,
-            page_size[1] - margin_y - logo_h,
-            width=logo_w, height=logo_h,
-            preserveAspectRatio=True, mask='auto'
-        )
+    # Contenuto dell'etichetta
+    if LOGO_PATH and Path(LOGO_PATH).exists():
+        story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='LEFT'))
+        story.append(Spacer(1, 4*mm))
 
-    # Testo
-    c.setFont("Helvetica", 9)
-    y = page_size[1] - margin_y - 15 * mm
-
-    def line(txt):
-        nonlocal y
-        if txt.strip():
-            c.drawString(margin_x, y, txt.upper())
-            y -= 4.2 * mm
-
-    for label in [
-        f"DATA INGRESSO: {d.get('data_ingresso', '')}",
-        f"ARRIVO: {d.get('arrivo', '')}",
-        "",
-        f"CLIENTE: {d.get('cliente', '')}",
-        f"FORNITORE: {d.get('fornitore', '')}",
-        f"COMMESSA: {d.get('commessa', '')}",
-        f"ORDINE: {d.get('ordine', '')}",
-        f"DDT INGRESSO: {d.get('ddt_ingresso', '')}",
-        f"COLLI: {d.get('n_colli', '')}",
-        f"POSIZIONE: {d.get('posizione', '')}",
-    ]:
-        line(label)
-
-    c.showPage()
-    c.save()
+    text = f"""
+    CLIENTE: {d.get('cliente', '')}<br/>
+    FORNITORE: {d.get('fornitore', '')}<br/>
+    ORDINE: {d.get('ordine', '')}<br/>
+    COMMESSA: {d.get('commessa', '')}<br/>
+    DDT: {d.get('ddt_ingresso', '')}<br/>
+    DATA ING.: {d.get('data_ingresso', '')}<br/>
+    ARRIVO: {d.get('arrivo', '')}<br/>
+    COLLI: {d.get('n_colli', '')}
+    """
+    story.append(Paragraph(text, label_style_left))
+    
+    doc.build(story)
     bio.seek(0)
-    return bio
-
+    return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
