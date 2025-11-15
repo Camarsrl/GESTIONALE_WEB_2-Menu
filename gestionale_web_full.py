@@ -43,7 +43,7 @@ def login_required(fn):
         return fn(*args, **kwargs)
     return wrapper
 
-# --- PATH / LOGO (Robust configuration for Render) ---
+# --- PATH / LOGO (Configurazione robusta per Render) ---
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 APP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -386,21 +386,13 @@ GIACENZE_HTML = """
     </div>
     <form id="selection-form" method="post">
         <div class="table-container">
-            <table id="giacenze-table" class="table table-sm table-hover table-compact table-bordered table-striped align-middle">
+            <table class="table table-sm table-hover table-compact table-bordered table-striped align-middle">
                 <thead class="table-light">
                     <tr>
                         <th class="no-print" style="width:28px"><input type="checkbox" id="checkall"></th>
-                        {% for c in cols %}
-                        <th 
-                            {% if c == 'codice_articolo' %}style="width: 250px;"
-                            {% elif c == 'descrizione' %}style="width: 300px;"
-                            {% elif c == 'id_articolo' %}style="width: 60px;"
-                            {% else %}style="width: 120px;"
-                            {% endif %}>{{ c.replace('_', ' ') | title }}
-                        </th>
-                        {% endfor %}
-                        <th style="width: 80px;">Allegati</th>
-                        <th class="no-print" style="width: 80px;">Azione</th>
+                        {% for c in cols %}<th>{{ c.replace('_', ' ') | title }}</th>{% endfor %}
+                        <th>Allegati</th>
+                        <th class="no-print">Azione</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -444,7 +436,7 @@ GIACENZE_HTML = """
 <script src="https://cdn.jsdelivr.net/npm/colresizable@1.6.0/colResizable-1.6.min.js"></script>
 <script>
     $(function(){
-      $("#giacenze-table").colResizable({
+      $("table").colResizable({
           liveDrag:true,
           gripInnerHtml:"<div class='grip'></div>", 
           draggingClass:"dragging", 
@@ -1373,6 +1365,7 @@ def giacenze():
         flash(f"Errore nel caricamento delle giacenze: {e}", "danger")
         rows, total_colli, total_m2 = [], 0, 0
     
+    # CORREZIONE: 'buono_n' e rimosse le colonne dei filtri
     cols = [
         "id_articolo", "codice_articolo", "pezzo", "descrizione", "cliente", "fornitore",
         "commessa", "ordine", "protocollo", "n_colli", "peso",
@@ -1389,6 +1382,7 @@ def giacenze():
 def bulk_edit():
     db = SessionLocal()
     fields_map = get_all_fields_map()
+    # Rimuovi m2 e m3 dal form
     fields_to_show = {k: v for k, v in fields_map.items() if k not in ['m2', 'm3']}
     
     if request.method == 'POST':
@@ -1400,7 +1394,7 @@ def bulk_edit():
         for art in articoli:
             for f in fields_map.keys():
                 v = request.form.get(f)
-                if v:
+                if v: # Modifica solo se il campo è stato compilato
                     updated_fields_count += 1
                     if f in ('data_ingresso','data_uscita'):
                         v = parse_date_ui(v)
@@ -1600,32 +1594,65 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     story.append(Spacer(1, 8*mm))
     
     first_row = rows[0] if rows else Articolo()
-    add_data_content = [
-        [Paragraph("<b>Cliente</b>", s_small_bold), Paragraph(first_row.cliente or '', s_small)],
-        [Paragraph("<b>Commessa</b>", s_small_bold), Paragraph(first_row.commessa or '', s_small)],
-        [Paragraph("<b>Ordine</b>", s_small_bold), Paragraph(first_row.ordine or '', s_small)],
-        [Paragraph("<b>Buono</b>", s_small_bold), Paragraph(first_row.buono_n or '', s_small)],
-        [Paragraph("<b>Protocollo</b>", s_small_bold), Paragraph(first_row.protocollo or '', s_small)],
-    ]
-    doc_data_content = [
-        [Paragraph("<b>N. DDT</b>", s_small_bold), Paragraph(n_ddt, s_small)],
-        [Paragraph("<b>Data Uscita</b>", s_small_bold), Paragraph(fmt_date(data_ddt), s_small)],
-        [Paragraph("<b>Targa</b>", s_small_bold), Paragraph(targa or '', s_small)],
-        [Paragraph("<b>Richiesta di:</b>", s_small_bold), Paragraph("", s_small)],
-    ]
+    
+    # Sezione Mittente e Destinatario
+    mitt_text = Paragraph("<b>Mittente</b><br/>Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)<br/>P.IVA: 02231420992", s_small)
+    dest_text = Paragraph(f"<b>Destinatario</b><br/><b>{dest.get('ragione_sociale','') or ''}</b><br/>{dest.get('indirizzo','') or ''}", s_small)
     
     header_data = [
-        [Paragraph("<b>Dati Aggiuntivi</b>", s_small_bold), Paragraph("<b>Destinatario</b>", s_small_bold)],
-        [Table(add_data_content, colWidths=[25*mm, '60%'], style=[('VALIGN', (0,0), (-1,-1), 'TOP')]), Paragraph(f"{dest.get('ragione_sociale','') or ''}<br/>{dest.get('indirizzo','') or ''}", s_small)]
+        [mitt_text, dest_text]
     ]
-    header_table = Table(header_data, colWidths=[doc.width/2, doc.width/2], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
-    
+    header_table = Table(header_data, colWidths=[doc.width/2, doc.width/2], style=[
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BOX', (0,0), (-1,-1), 0.5, colors.lightgrey),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
+        ('LEFTPADDING', (0,0), (-1,-1), 3*mm),
+        ('RIGHTPADDING', (0,0), (-1,-1), 3*mm),
+        ('TOPPADDING', (0,0), (-1,-1), 3*mm),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3*mm),
+    ])
     story.append(header_table)
+    story.append(Spacer(1, 2*mm))
+
+    # Sezione Dati Aggiuntivi e Dati Documento
+    add_data_content = [
+        [Paragraph("<b>Dati Aggiuntivi</b>", s_small_bold)],
+        [Table([
+            [Paragraph("<b>Cliente</b>", s_small), Paragraph(first_row.cliente or '', s_small)],
+            [Paragraph("<b>Commessa</b>", s_small), Paragraph(first_row.commessa or '', s_small)],
+            [Paragraph("<b>Ordine</b>", s_small), Paragraph(first_row.ordine or '', s_small)],
+            [Paragraph("<b>Buono</b>", s_small), Paragraph(first_row.buono_n or '', s_small)],
+            [Paragraph("<b>Protocollo</b>", s_small), Paragraph(first_row.protocollo or '', s_small)],
+        ], colWidths=[25*mm, '60%'], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])]
+    ]
+    
+    doc_data_content = [
+        [Paragraph("<b>Dati Documento</b>", s_small_bold)],
+        [Table([
+            [Paragraph("<b>N. DDT</b>", s_small_bold), Paragraph(n_ddt or '', s_small)],
+            [Paragraph("<b>Data Uscita</b>", s_small_bold), Paragraph(fmt_date(data_ddt) or '', s_small)],
+            [Paragraph("<b>Targa</b>", s_small_bold), Paragraph(targa or '', s_small)],
+        ], colWidths=[25*mm, '60%'], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])]
+    ]
+
+    data_table = Table([
+        [Table(add_data_content, style=[('VALIGN', (0,0), (-1,-1), 'TOP')]), 
+         Table(doc_data_content, style=[('VALIGN', (0,0), (-1,-1), 'TOP')])]
+    ], colWidths=[doc.width/2, doc.width/2], style=[
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BOX', (0,0), (-1,-1), 0.5, colors.lightgrey),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
+        ('LEFTPADDING', (0,0), (-1,-1), 3*mm),
+        ('RIGHTPADDING', (0,0), (-1,-1), 3*mm),
+        ('TOPPADDING', (0,0), (-1,-1), 3*mm),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3*mm),
+    ])
+    story.append(data_table)
     story.append(Spacer(1, 8*mm))
     
     # Stili per il testo a capo nelle celle
-    style_cell = ParagraphStyle(name='Cell', parent=s_small)
-    style_cell_bold = ParagraphStyle(name='CellBold', parent=s_small_bold)
+    style_cell = ParagraphStyle(name='Cell', parent=s_small, alignment=TA_LEFT)
+    style_cell_bold = ParagraphStyle(name='CellBold', parent=s_small_bold, alignment=TA_LEFT)
 
     data = [[
         Paragraph('ID', style_cell_bold), Paragraph('Cod.Art.', style_cell_bold), Paragraph('Descrizione', style_cell_bold),
@@ -1652,18 +1679,21 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     story.append(item_table)
     story.append(Spacer(1, 6*mm))
     
+    # Footer
     causale_porto_aspetto = [
-        [Paragraph("<b>Causale</b>", s_small), Paragraph(form_data.get('causale', 'TRASFERIMENTO'), s_small)],
-        [Paragraph("<b>Porto</b>", s_small), Paragraph(form_data.get('porto', 'FRANCO'), s_small)],
-        [Paragraph("<b>Aspetto</b>", s_small), Paragraph(form_data.get('aspetto', 'A VISTA'), s_small)],
+        [Paragraph("<b>Causale</b>", s_small), Paragraph(form_data.get('causale', 'TRASFERIMENTO'), s_small),
+         Paragraph("<b>Porto</b>", s_small), Paragraph(form_data.get('porto', 'FRANCO'), s_small)],
+        [Paragraph("<b>Aspetto</b>", s_small), Paragraph(form_data.get('aspetto', 'A VISTA'), s_small), '', '']
     ]
-    cpa_table = Table(causale_porto_aspetto, colWidths=[20*mm, None], style=[('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey)])
+    cpa_table = Table(causale_porto_aspetto, colWidths=[20*mm, doc.width/3-20*mm, 20*mm, doc.width/3-20*mm], style=[('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey)])
+    story.append(cpa_table)
+    story.append(Spacer(1, 8*mm))
 
     totals_text = f"<b>Totale Pezzi:</b> {tot_pezzi}<br/><b>Totale Colli:</b> {tot_colli}<br/><b>Totale Peso:</b> {tot_peso:.2f} Kg"
     firma_text = "<b>Firma Vettore:</b><br/><br/>________________________"
     
-    footer_table = Table([[cpa_table, Paragraph(totals_text, s_small_bold), Paragraph(firma_text, s_small_bold)]], 
-                         colWidths=[doc.width/3, doc.width/3, doc.width/3], 
+    footer_table = Table([[Paragraph(totals_text, s_small_bold), Paragraph(firma_text, s_small_bold)]], 
+                         colWidths=[doc.width/2, doc.width/2], 
                          style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
     story.append(footer_table)
     
@@ -1848,6 +1878,7 @@ def labels_pdf():
     doc.build(story)
     bio.seek(0)
     return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
+
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
