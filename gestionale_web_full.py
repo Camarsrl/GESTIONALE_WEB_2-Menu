@@ -43,7 +43,7 @@ def login_required(fn):
         return fn(*args, **kwargs)
     return wrapper
 
-# --- PATH / LOGO (Robust configuration for Render) ---
+# --- PATH / LOGO (Configurazione robusta per Render) ---
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 APP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -669,7 +669,7 @@ document.getElementById('buono-form').addEventListener('submit', function(e) {
                 window.location.href = '{{ url_for('giacenze', v=Date.now()) }}';
             });
         } else {
-            alert("Si è verificato un errore durante la generazione del buono.");
+            alert("Si è verificato un errore during la generazione del buono.");
         }
     }).catch(err => {
         console.error('Error:', err);
@@ -1383,14 +1383,7 @@ def giacenze():
         "serial_number", "ns_rif", "note"
     ]
 
-   return render_template(
-    'giacenze.html',
-    rows=rows,
-    cols=cols,
-    total_colli=total_colli,
-    total_m2=total_m2
-)
-
+    return render_template('giacenze.html', rows=rows, cols=cols, total_colli=total_colli, total_m2=total_m2)
 
 @app.route('/bulk/edit', methods=['GET', 'POST'])
 @login_required
@@ -1887,7 +1880,6 @@ def labels_pdf():
     doc.build(story)
     bio.seek(0)
     return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
-
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
