@@ -16,7 +16,7 @@ from flask import (
     send_file, session, flash, abort, jsonify, Response
 )
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, ForeignKey, Identity, or_
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session, selectinload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 
