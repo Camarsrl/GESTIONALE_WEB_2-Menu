@@ -9,7 +9,6 @@ import os, io, re, json, uuid
 from datetime import datetime, date
 from pathlib import Path
 import calendar
-from sqlalchemy.orm import selectinload
 
 import pandas as pd
 from flask import (
@@ -224,16 +223,8 @@ BASE_HTML = """
         .table thead th { position: sticky; top: 0; background: #f0f2f5; z-index: 2; }
         .dropzone { border: 2px dashed #0d6efd; background: #eef4ff; padding: 20px; border-radius: 12px; text-align: center; color: #0d6efd; cursor: pointer; }
         .logo { height: 40px; }
-        .table-compact th, .table-compact td { 
-            font-size: 11px; 
-            padding: 4px 5px; 
-            white-space: normal; 
-            word-wrap: break-word;
-            vertical-align: middle;
-        }
+        .table-compact th, .table-compact td { font-size: 11px; padding: 4px 5px; white-space: normal; word-wrap: break-word; vertical-align: middle; }
         .table-striped tbody tr:nth-of-type(odd) { background-color: rgba(0,0,0,.03); }
-        th { position: relative; }
-        .resizer { position: absolute; top: 0; right: 0; width: 5px; cursor: col-resize; user-select: none; height: 100%; }
         @media print { .no-print { display: none !important; } }
     </style>
 </head>
@@ -313,7 +304,7 @@ HOME_HTML = """
                 <hr>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('import_excel') }}"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel Totale</a>
-                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel_client_page') }}"><i class="bi bi-people"></i> Export per Cliente</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_client') }}"><i class="bi bi-people"></i> Export per Cliente</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>
             </div>
         </div>
@@ -387,21 +378,13 @@ GIACENZE_HTML = """
     </div>
     <form id="selection-form" method="post">
         <div class="table-container">
-            <table id="giacenze-table" class="table table-sm table-hover table-compact table-bordered table-striped align-middle">
+            <table class="table table-sm table-hover table-compact table-bordered table-striped align-middle">
                 <thead class="table-light">
                     <tr>
                         <th class="no-print" style="width:28px"><input type="checkbox" id="checkall"></th>
-                        {% for c in cols %}
-                        <th 
-                            {% if c == 'codice_articolo' %}style="width: 250px;"
-                            {% elif c == 'descrizione' %}style="width: 300px;"
-                            {% elif c == 'id_articolo' %}style="width: 60px;"
-                            {% else %}style="width: 120px;"
-                            {% endif %}>{{ c.replace('_', ' ') | title }}
-                        </th>
-                        {% endfor %}
-                        <th style="width: 80px;">Allegati</th>
-                        <th class="no-print" style="width: 80px;">Azione</th>
+                        {% for c in cols %}<th>{{ c.replace('_', ' ') | title }}</th>{% endfor %}
+                        <th>Allegati</th>
+                        <th class="no-print">Azione</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -441,17 +424,7 @@ GIACENZE_HTML = """
 </div>
 {% endblock %}
 {% block extra_js %}
-<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/colresizable@1.6.0/colResizable-1.6.min.js"></script>
 <script>
-    $(function(){
-      $("#giacenze-table").colResizable({
-          liveDrag:true,
-          gripInnerHtml:"<div class='grip'></div>", 
-          draggingClass:"dragging", 
-          resizeMode:'fit'
-      });
-    });
     document.getElementById('checkall').addEventListener('change', e => {
         document.querySelectorAll('.sel').forEach(cb => cb.checked = e.target.checked);
     });
@@ -649,25 +622,10 @@ document.getElementById('buono-form').addEventListener('submit', function(e) {
     })
     .then(resp => {
         if (resp.ok) {
-            const contentDisposition = resp.headers.get('content-disposition');
-            let filename = "buono.pdf";
-            if (contentDisposition) {
-                const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-                if (filenameMatch && filenameMatch.length > 1) {
-                    filename = filenameMatch[1];
-                }
-            }
             resp.blob().then(blob => {
                 const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                a.download = filename; // Questo forza il download
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                // Reindirizza la pagina corrente
-                window.location.href = '{{ url_for('giacenze', v=Date.now()) }}';
+                window.open(url, '_blank');
+                window.location.href = '{{ url_for('giacenze') }}';
             });
         } else {
             alert("Si è verificato un errore durante la generazione del buono.");
@@ -910,7 +868,6 @@ DESTINATARI_HTML = """
             <hr>
             <h5>Aggiungi Nuovo Destinatario</h5>
             <form method="post" class="mb-4">
-                <input type="hidden" name="action" value="add">
                 <div class="row g-3">
                     <div class="col-md-6"><label class="form-label">Nome Chiave (es. Sede Cliente)</label><input name="key_name" class="form-control" required></div>
                     <div class="col-md-6"><label class="form-label">Ragione Sociale</label><input name="ragione_sociale" class="form-control" required></div>
@@ -928,11 +885,7 @@ DESTINATARI_HTML = """
                         <strong>{{ key }}</strong><br>
                         <small class="text-muted">{{ details.ragione_sociale }} - {{ details.indirizzo }}</small>
                     </div>
-                    <form method="post" onsubmit="return confirm('Sei sicuro di voler eliminare {{ key }}?');" style="display: inline;">
-                         <input type="hidden" name="action" value="delete">
-                        <input type="hidden" name="delete_key" value="{{ key }}">
-                        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
-                    </form>
+                    <a href="{{ url_for('delete_destinatario', key=key) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Sei sicuro di voler eliminare questo destinatario?')"><i class="bi bi-trash"></i></a>
                 </li>
                 {% else %}
                 <li class="list-group-item">Nessun destinatario salvato.</li>
@@ -1009,6 +962,7 @@ app.jinja_loader = DictLoader(templates)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.jinja_env.globals['getattr'] = getattr
 app.jinja_env.filters['fmt_date'] = fmt_date
+
 
 def logo_url():
     if not LOGO_PATH:
@@ -1110,7 +1064,7 @@ def import_excel():
                 
                 db.commit()
                 flash(f'{imported_count} articoli importati con successo dal file Excel.', 'success')
-                return redirect(url_for('giacenze', v=uuid.uuid4().hex[:6])) # Cache buster
+                return redirect(url_for('giacenze'))
 
             except Exception as e:
                 db.rollback()
@@ -1121,6 +1075,21 @@ def import_excel():
             return redirect(request.url)
 
     return render_template('import_excel.html')
+
+def get_all_fields_map():
+    return {
+        'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi',
+        'descrizione': 'Descrizione', 'cliente': 'Cliente',
+        'protocollo': 'Protocollo', 'ordine': 'Ordine', 'peso': 'Peso (Kg)',
+        'n_colli': 'N° Colli', 'posizione': 'Posizione', 'stato': 'Stato',
+        'n_arrivo': 'N° Arrivo', 'buono_n': 'Buono N°',
+        'fornitore': 'Fornitore', 'magazzino': 'Magazzino',
+        'data_ingresso': 'Data Ingresso', 'data_uscita': 'Data Uscita',
+        'n_ddt_ingresso': 'N° DDT Ingresso', 'n_ddt_uscita': 'N° DDT Uscita',
+        'larghezza': 'Larghezza (m)', 'lunghezza': 'Lunghezza (m)',
+        'altezza': 'Altezza (m)', 'serial_number': 'Serial Number',
+        'ns_rif': 'NS Rif', 'mezzi_in_uscita': 'Mezzi in Uscita', 'note': 'Note'
+    }
 
 # --- EXPORTAZIONE EXCEL ---
 @app.get('/export_excel')
@@ -1135,7 +1104,7 @@ def export_excel():
 
 @app.route('/export_client', methods=['GET', 'POST'])
 @login_required
-def export_excel_client_page():
+def export_client():
     db = SessionLocal()
     clienti = [c[0] for c in db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()]
     
@@ -1151,9 +1120,6 @@ def export_excel_client_page():
             return redirect(request.url)
         
         df = pd.DataFrame([vars(r) for r in rows])
-        # Rimuovi colonne non necessarie
-        df = df.drop(columns=[col for col in df.columns if col.startswith('_') or col == 'attachments'], errors='ignore')
-
         bio = io.BytesIO()
         df.to_excel(bio, index=False, engine='openpyxl')
         bio.seek(0)
@@ -1163,16 +1129,17 @@ def export_excel_client_page():
     return render_template('export_client.html', clienti=clienti)
 
 
+
 # --- CALCOLO GIACENZE MENSILI ---
 @app.route('/calcola_costi', methods=['GET', 'POST'])
 @login_required
 def calcola_costi():
     db = SessionLocal()
     clienti = [c[0] for c in db.query(Articolo.cliente)
-                 .distinct()
-                 .filter(Articolo.cliente != None, Articolo.cliente != '')
-                 .order_by(Articolo.cliente)
-                 .all()]
+               .distinct()
+               .filter(Articolo.cliente != None, Articolo.cliente != '')
+               .order_by(Articolo.cliente)
+               .all()]
 
     risultato = None
     cliente_selezionato = None
@@ -1190,14 +1157,13 @@ def calcola_costi():
 
         try:
             anno, mese = mese_anno.split('-')
-            # Calcola l'ultimo giorno di quel mese
-            last_day = calendar.monthrange(int(anno), int(mese))[1]
-            fine_mese = f"{anno}-{mese}-{last_day}"
+            inizio = f"{anno}-{mese}-01"
+            fine = f"{anno}-{mese}-{calendar.monthrange(int(anno), int(mese))[1]}"
 
             articoli = db.query(Articolo).filter(
                 Articolo.cliente == cliente,
-                Articolo.data_ingresso <= fine_mese,
-                or_(Articolo.data_uscita == None, Articolo.data_uscita == '', Articolo.data_uscita > fine_mese)
+                or_(Articolo.data_uscita == None, Articolo.data_uscita > inizio),
+                Articolo.data_ingresso <= fine
             ).all()
 
             total_m2 = sum(a.m2 or 0 for a in articoli)
@@ -1218,21 +1184,6 @@ def calcola_costi():
         mese_selezionato=mese_selezionato
     )
 
-
-def get_all_fields_map():
-    return {
-        'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi',
-        'descrizione': 'Descrizione', 'cliente': 'Cliente',
-        'protocollo': 'Protocollo', 'ordine': 'Ordine', 'peso': 'Peso (Kg)',
-        'n_colli': 'N° Colli', 'posizione': 'Posizione', 'stato': 'Stato',
-        'n_arrivo': 'N° Arrivo', 'buono_n': 'Buono N°',
-        'fornitore': 'Fornitore', 'magazzino': 'Magazzino',
-        'data_ingresso': 'Data Ingresso', 'data_uscita': 'Data Uscita',
-        'n_ddt_ingresso': 'N° DDT Ingresso', 'n_ddt_uscita': 'N° DDT Uscita',
-        'larghezza': 'Larghezza (m)', 'lunghezza': 'Lunghezza (m)',
-        'altezza': 'Altezza (m)', 'serial_number': 'Serial Number',
-        'ns_rif': 'NS Rif', 'mezzi_in_uscita': 'Mezzi in Uscita', 'note': 'Note'
-    }
 
 # --- GESTIONE ARTICOLI (CRUD) ---
 @app.get('/new')
@@ -1260,13 +1211,9 @@ def edit_row(id):
     row = db.get(Articolo, id)
     if not row:
         abort(404)
-        
-    fields_map = get_all_fields_map()
-    # Rimuovi m2 e m3 dal form di modifica
-    fields_to_show = {k: v for k, v in fields_map.items() if k not in ['m2', 'm3']}
 
     if request.method == 'POST':
-        for f, label in fields_map.items():
+        for f, label in get_all_fields_map().items():
             v = request.form.get(f)
             if v is not None:
                 if f in ('data_ingresso','data_uscita'):
@@ -1276,10 +1223,7 @@ def edit_row(id):
                 elif f in ('n_colli', 'pezzo'):
                     v = to_int_eu(v)
                 setattr(row, f, v if v != '' else None)
-        
-        # Calcolo automatico m2 e m3
         row.m2, row.m3 = calc_m2_m3(row.lunghezza, row.larghezza, row.altezza, row.n_colli)
-
         if 'files' in request.files:
             for f in request.files.getlist('files'):
                 if not f or not f.filename: continue
@@ -1289,12 +1233,11 @@ def edit_row(id):
                 folder = DOCS_DIR if kind == 'doc' else PHOTOS_DIR
                 f.save(str(folder / safe_name))
                 db.add(Attachment(articolo_id=id, kind=kind, filename=safe_name))
-        
         db.commit()
         flash('Riga salvata', 'success')
         return redirect(url_for('giacenze'))
 
-    return render_template('edit.html', row=row, fields=fields_to_show.items())
+    return render_template('edit.html', row=row, fields=get_all_fields_map().items())
 
 # --- MEDIA & ALLEGATI ---
 @app.get('/media/<int:att_id>')
@@ -1326,6 +1269,7 @@ def delete_attachment(att_id):
         flash('Allegato eliminato', 'success')
         return redirect(url_for('edit_row', id=articolo_id))
     return redirect(url_for('giacenze'))
+
 
 # --- VISUALIZZA GIACENZE E AZIONI MULTIPLE ---
 @app.get('/giacenze')
@@ -1366,34 +1310,23 @@ def giacenze():
         rows = qs.all()
         
         stock_rows = [r for r in rows if not r.data_uscita]
-        total_colli = sum(r.n_colli or 0 for r in stock_rows)
-        total_m2 = sum(r.m2 or 0 for r in stock_rows)
+        total_colli = sum(r.n_colli for r in stock_rows if r.n_colli)
+        total_m2 = sum(r.m2 for r in stock_rows if r.m2)
 
     except Exception as e:
         db.rollback()
         flash(f"Errore nel caricamento delle giacenze: {e}", "danger")
         rows, total_colli, total_m2 = [], 0, 0
     
-    # CORREZIONE: 'buono_n' e rimosse le colonne dei filtri
-    cols = [
-        "id_articolo", "codice_articolo", "pezzo", "descrizione", "cliente", "fornitore",
-        "commessa", "ordine", "protocollo", "n_colli", "peso",
-        "larghezza", "lunghezza", "altezza", "m2", "m3", "magazzino",
-        "posizione", "stato", "data_ingresso", "n_ddt_ingresso", "n_arrivo",
-        "data_uscita", "n_ddt_uscita", "mezzi_in_uscita", "buono_n",
-        "serial_number", "ns_rif", "note"
-    ]
-
+    cols = ["id_articolo","codice_articolo","descrizione","cliente","fornitore","protocollo","ordine","lunghezza","larghezza","altezza",
+            "commessa","magazzino","posizione","stato","peso","n_colli","m2",m3,"data_ingresso","data_uscita","n_arrivo",
+            "n_ddt_uscita", "mezzi_in_uscita"]
     return render_template('giacenze.html', rows=rows, cols=cols, total_colli=total_colli, total_m2=total_m2)
 
 @app.route('/bulk/edit', methods=['GET', 'POST'])
 @login_required
 def bulk_edit():
     db = SessionLocal()
-    fields_map = get_all_fields_map()
-    # Rimuovi m2 e m3 dal form
-    fields_to_show = {k: v for k, v in fields_map.items() if k not in ['m2', 'm3']}
-    
     if request.method == 'POST':
         ids_csv = request.form.get('ids', '')
         ids = [int(i) for i in ids_csv.split(',') if i.isdigit()]
@@ -1401,7 +1334,7 @@ def bulk_edit():
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
         updated_fields_count = 0
         for art in articoli:
-            for f in fields_map.keys():
+            for f in get_all_fields_map().keys():
                 v = request.form.get(f)
                 if v:
                     updated_fields_count += 1
@@ -1419,7 +1352,7 @@ def bulk_edit():
         else:
             flash("Nessun campo compilato, nessuna modifica applicata.", "info")
             
-        return redirect(url_for('giacenze', v=uuid.uuid4().hex[:6])) # Cache buster
+        return redirect(url_for('giacenze'))
 
     ids_csv = request.args.get('ids', '')
     ids = [int(i) for i in ids_csv.split(',') if i.isdigit()]
@@ -1428,7 +1361,7 @@ def bulk_edit():
         return redirect(url_for('giacenze'))
     
     rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-    return render_template('bulk_edit.html', rows=rows, ids_csv=ids_csv, fields=fields_to_show.items())
+    return render_template('bulk_edit.html', rows=rows, ids_csv=ids_csv, fields=get_all_fields_map().items())
 
 @app.post('/bulk/delete')
 @login_required
@@ -1450,7 +1383,7 @@ def bulk_delete():
     db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).delete(synchronize_session=False)
     db.commit()
     flash(f"{len(ids)} articoli e i loro allegati sono stati eliminati.", "success")
-    return redirect(url_for('giacenze', v=uuid.uuid4().hex[:6])) # Cache buster
+    return redirect(url_for('giacenze'))
 
 @app.post('/bulk/duplicate')
 @login_required
@@ -1479,7 +1412,7 @@ def bulk_duplicate():
     db.add_all(nuovi_articoli)
     db.commit()
     flash(f"{len(nuovi_articoli)} articoli duplicati con successo.", "success")
-    return redirect(url_for('giacenze', v=uuid.uuid4().hex[:6])) # Cache buster
+    return redirect(url_for('giacenze'))
 
 # --- ANTEPRIME HTML (BUONO / DDT) ---
 def _get_rows_from_ids(ids_list):
@@ -1515,45 +1448,26 @@ def ddt_preview():
 @login_required
 def get_next_ddt_number():
     return jsonify({'next_ddt': next_ddt_number()})
-    
+
 @app.route('/manage_destinatari', methods=['GET', 'POST'])
 @login_required
 def manage_destinatari():
-    dest_file = APP_DIR / "destinatari_saved.json"
-    destinatari = load_destinatari()
-    
-    if request.method == 'POST':
-        action = request.form.get('action')
-        
-        if action == 'add':
-            key_name = request.form.get('key_name')
-            if not key_name:
-                flash("Il Nome Chiave è obbligatorio.", "warning")
-            else:
-                destinatari[key_name] = {
-                    "ragione_sociale": request.form.get('ragione_sociale', ''),
-                    "indirizzo": request.form.get('indirizzo', ''),
-                    "piva": request.form.get('piva', '')
-                }
-                try:
-                    dest_file.write_text(json.dumps(destinatari, ensure_ascii=False, indent=2), encoding="utf-8")
-                    flash(f"Destinatario '{key_name}' salvato.", "success")
-                except Exception as e:
-                    flash(f"Errore salvataggio file: {e}", "danger")
-        
-        elif action == 'delete':
-            key_to_delete = request.form.get('delete_key')
-            if key_to_delete in destinatari:
-                del destinatari[key_to_delete]
-                try:
-                    dest_file.write_text(json.dumps(destinatari, ensure_ascii=False, indent=2), encoding="utf-8")
-                    flash(f"Destinatario '{key_to_delete}' eliminato.", "success")
-                except Exception as e:
-                    flash(f"Errore salvataggio file: {e}", "danger")
+    db_file = os.path.join(BASE_DIR, 'destinatari_saved.json')
 
-        return redirect(url_for('manage_destinatari'))
-        
-    return render_template('destinatari.html', destinatari=destinatari)
+    if request.method == 'POST':
+        data = request.get_json(force=True)
+        with open(db_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        return jsonify({"message": "Destinatari aggiornati con successo!"})
+
+    if os.path.exists(db_file):
+        with open(db_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    else:
+        data = []
+
+    return render_template('manage_destinatari.html', destinatari=data)
+
 
 # --- PDF E FINALIZZAZIONE DDT ---
 _styles = getSampleStyleSheet()
@@ -1590,8 +1504,8 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm, topMargin=10*mm, bottomMargin=15*mm)
     story = []
     
-    s_small_bold = ParagraphStyle(name='small_bold', fontName='Helvetica-Bold', fontSize=8, leading=10)
-    s_small = ParagraphStyle(name='small', fontName='Helvetica', fontSize=8, leading=10)
+    s_small_bold = ParagraphStyle(name='small_bold', fontName='Helvetica-Bold', fontSize=8)
+    s_small = ParagraphStyle(name='small', fontName='Helvetica', fontSize=8)
     
     if LOGO_PATH and Path(LOGO_PATH).exists():
         story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER'))
@@ -1603,27 +1517,6 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     story.append(Spacer(1, 8*mm))
     
     first_row = rows[0] if rows else Articolo()
-    
-    # Sezione Mittente e Destinatario
-    mitt_text = Paragraph("<b>Mittente</b><br/>Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)<br/>P.IVA: 02231420992", s_small)
-    dest_text = Paragraph(f"<b>Destinatario</b><br/><b>{dest.get('ragione_sociale','') or ''}</b><br/>{dest.get('indirizzo','') or ''}", s_small)
-    
-    header_data = [
-        [mitt_text, dest_text]
-    ]
-    header_table = Table(header_data, colWidths=[doc.width/2, doc.width/2], style=[
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('BOX', (0,0), (-1,-1), 0.5, colors.lightgrey),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
-        ('LEFTPADDING', (0,0), (-1,-1), 3*mm),
-        ('RIGHTPADDING', (0,0), (-1,-1), 3*mm),
-        ('TOPPADDING', (0,0), (-1,-1), 3*mm),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3*mm),
-    ])
-    story.append(header_table)
-    story.append(Spacer(1, 2*mm))
-
-    # Sezione Dati Aggiuntivi e Dati Documento
     add_data_content = [
         [Paragraph("<b>Cliente</b>", s_small_bold), Paragraph(first_row.cliente or '', s_small)],
         [Paragraph("<b>Commessa</b>", s_small_bold), Paragraph(first_row.commessa or '', s_small)],
@@ -1632,70 +1525,46 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
         [Paragraph("<b>Protocollo</b>", s_small_bold), Paragraph(first_row.protocollo or '', s_small)],
     ]
     doc_data_content = [
-        [Paragraph("<b>N. DDT</b>", s_small_bold), Paragraph(n_ddt or '', s_small)],
-        [Paragraph("<b>Data Uscita</b>", s_small_bold), Paragraph(fmt_date(data_ddt) or '', s_small)],
-        [Paragraph("<b>Targa</b>", s_small_bold), Paragraph(targa or '', s_small)],
+        [Paragraph("<b>N. DDT</b>", s_small_bold), Paragraph(n_ddt, s_small)],
+        [Paragraph("<b>Data Uscita</b>", s_small_bold), Paragraph(fmt_date(data_ddt), s_small)],
+        [Paragraph("<b>Targa</b>", s_small_bold), Paragraph(targa, s_small)],
+        [Paragraph("<b>Richiesta di:</b>", s_small_bold), Paragraph("", s_small)],
     ]
-
-    data_table = Table([
-        [Table(add_data_content, colWidths=[25*mm, doc.width/2-25*mm], style=[('VALIGN', (0,0), (-1,-1), 'TOP')]), 
-         Table(doc_data_content, colWidths=[25*mm, doc.width/2-25*mm], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])]
-    ], colWidths=[doc.width/2, doc.width/2], style=[
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('BOX', (0,0), (-1,-1), 0.5, colors.lightgrey),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
-        ('LEFTPADDING', (0,0), (-1,-1), 3*mm),
-        ('RIGHTPADDING', (0,0), (-1,-1), 3*mm),
-        ('TOPPADDING', (0,0), (-1,-1), 3*mm),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3*mm),
-    ])
-    story.append(data_table)
+    
+    header_data = [
+        [Paragraph("<b>Dati Aggiuntivi</b>", s_small_bold), Paragraph("<b>Destinatario</b>", s_small_bold)],
+        [Table(add_data_content, colWidths=[25*mm, '60%']), Paragraph(f"{dest.get('ragione_sociale','') or ''}<br/>{dest.get('indirizzo','') or ''}", s_small)]
+    ]
+    header_table = Table(header_data, colWidths=[doc.width/2, doc.width/2], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
+    
+    story.append(header_table)
     story.append(Spacer(1, 8*mm))
     
-    # Stili per il testo a capo nelle celle
-    style_cell = ParagraphStyle(name='Cell', parent=s_small, alignment=TA_LEFT)
-    style_cell_bold = ParagraphStyle(name='CellBold', parent=s_small_bold, alignment=TA_LEFT)
-
-    data = [[
-        Paragraph('ID', style_cell_bold), Paragraph('Cod.Art.', style_cell_bold), Paragraph('Descrizione', style_cell_bold),
-        Paragraph('Pezzi', style_cell_bold), Paragraph('Colli', style_cell_bold), Paragraph('Peso', style_cell_bold), Paragraph('N.Arrivo', style_cell_bold)
-    ]]
-    
+    data = [['ID','Cod.Art.','Descrizione','Pezzi','Colli','Peso','N.Arrivo']]
     tot_colli, tot_peso, tot_pezzi = 0, 0.0, 0
     for r in rows:
         pezzi = to_int_eu(form_data.get(f"pezzi_{r.id_articolo}", r.pezzo)) or 0
         colli = to_int_eu(form_data.get(f"colli_{r.id_articolo}", r.n_colli)) or 0
         peso = to_float_eu(form_data.get(f"peso_{r.id_articolo}", r.peso)) or 0.0
-        data.append([
-            Paragraph(str(r.id_articolo), style_cell), 
-            Paragraph(r.codice_articolo or '', style_cell), 
-            Paragraph(r.descrizione or '', style_cell), 
-            Paragraph(str(pezzi), style_cell), 
-            Paragraph(str(colli), style_cell), 
-            Paragraph(f"{peso:.2f}", style_cell), 
-            Paragraph(r.n_arrivo or '', style_cell)
-        ])
+        data.append([r.id_articolo, r.codice_articolo or '', r.descrizione or '', pezzi, colli, f"{peso:.2f}", r.n_arrivo or ''])
         tot_pezzi += pezzi; tot_colli += colli; tot_peso += float(peso)
     
     item_table = _pdf_table(data, col_widths=[15*mm, 35*mm, None, 15*mm, 15*mm, 18*mm, 22*mm])
     story.append(item_table)
     story.append(Spacer(1, 6*mm))
     
-    # Footer
     causale_porto_aspetto = [
-        [Paragraph("<b>Causale</b>", s_small), Paragraph(form_data.get('causale', 'TRASFERIMENTO'), s_small),
-         Paragraph("<b>Porto</b>", s_small), Paragraph(form_data.get('porto', 'FRANCO'), s_small)],
-        [Paragraph("<b>Aspetto</b>", s_small), Paragraph(form_data.get('aspetto', 'A VISTA'), s_small), '', '']
+        [Paragraph("<b>Causale</b>", s_small), Paragraph(form_data.get('causale', 'TRASFERIMENTO'), s_small)],
+        [Paragraph("<b>Porto</b>", s_small), Paragraph(form_data.get('porto', 'FRANCO'), s_small)],
+        [Paragraph("<b>Aspetto</b>", s_small), Paragraph(form_data.get('aspetto', 'A VISTA'), s_small)],
     ]
-    cpa_table = Table(causale_porto_aspetto, colWidths=[20*mm, doc.width/3-20*mm, 20*mm, doc.width/3-20*mm], style=[('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey)])
-    story.append(cpa_table)
-    story.append(Spacer(1, 8*mm))
+    cpa_table = Table(causale_porto_aspetto, colWidths=[20*mm, None], style=[('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey)])
 
     totals_text = f"<b>Totale Pezzi:</b> {tot_pezzi}<br/><b>Totale Colli:</b> {tot_colli}<br/><b>Totale Peso:</b> {tot_peso:.2f} Kg"
     firma_text = "<b>Firma Vettore:</b><br/><br/>________________________"
     
-    footer_table = Table([[Paragraph(totals_text, s_small_bold), Paragraph(firma_text, s_small_bold)]], 
-                         colWidths=[doc.width/2, doc.width/2], 
+    footer_table = Table([[cpa_table, Paragraph(totals_text, s_small_bold), Paragraph(firma_text, s_small_bold)]], 
+                         colWidths=[doc.width/3, doc.width/3, doc.width/3], 
                          style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
     story.append(footer_table)
     
@@ -1706,8 +1575,18 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     bio.seek(0)
     return bio
 
-def _generate_buono_pdf(form_data, rows):
-    buono_n = (form_data.get('buono_n') or '').strip()
+@app.post('/buono/finalize_and_get_pdf')
+@login_required
+def buono_finalize_and_get_pdf():
+    ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
+    rows = _get_rows_from_ids(ids)
+    buono_n = (request.form.get('buono_n') or '').strip()
+    db = SessionLocal()
+    if buono_n:
+        for r in rows:
+            r.buono_n = buono_n
+        db.commit()
+        flash(f"Numero Buono '{buono_n}' salvato per gli articoli selezionati.", "info")
     
     bio = io.BytesIO()
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm, topMargin=10*mm, bottomMargin=15*mm)
@@ -1725,33 +1604,21 @@ def _generate_buono_pdf(form_data, rows):
 
     d_row = rows[0] if rows else None
     meta = [
-        ["Data Emissione", form_data.get('data_em', '')],
-        ["Commessa", form_data.get('commessa', '')],
-        ["Fornitore", form_data.get('fornitore', '')],
-        ["Protocollo", form_data.get('protocollo', '')],
+        ["Data Emissione", request.form.get('data_em', '')],
+        ["Commessa", request.form.get('commessa', '')],
+        ["Fornitore", request.form.get('fornitore', '')],
+        ["Protocollo", request.form.get('protocollo', '')],
         ["N. Buono", buono_n]
     ]
     story.append(_pdf_table(meta, [35*mm, None], header=False))
     story.append(Spacer(1, 6))
     story.append(Paragraph(f"<b>Cliente:</b> {(d_row.cliente or '').upper()}", getSampleStyleSheet()['Normal']))
     story.append(Spacer(1, 8))
-    
-    s_small = ParagraphStyle(name='small', fontName='Helvetica', fontSize=8, leading=10)
-    s_small_bold = ParagraphStyle(name='small_bold', fontName='Helvetica-Bold', fontSize=8, leading=10)
-    data = [
-        [Paragraph('Ordine', s_small_bold), Paragraph('Codice Articolo', s_small_bold), Paragraph('Descrizione', s_small_bold), 
-         Paragraph('Quantità', s_small_bold), Paragraph('N.Arrivo', s_small_bold)]
-    ]
+    data = [['Ordine','Codice Articolo','Descrizione','Quantità','N.Arrivo']]
     for r in rows:
         q_val = request.form.get(f"q_{r.id_articolo}")
         quantita = to_int_eu(q_val) if q_val is not None else (r.n_colli or 1)
-        data.append([
-            Paragraph(r.ordine or '', s_small), 
-            Paragraph(r.codice_articolo or '', s_small), 
-            Paragraph(r.descrizione or '', s_small), 
-            Paragraph(str(quantita), s_small), 
-            Paragraph(r.n_arrivo or '', s_small)
-        ])
+        data.append([r.ordine or '', r.codice_articolo or '', r.descrizione or '', quantita, r.n_arrivo or ''])
     story.append(_pdf_table(data, col_widths=[25*mm, 45*mm, None, 20*mm, 25*mm]))
     
     story.append(Spacer(1, 100*mm)) 
@@ -1768,26 +1635,7 @@ def _generate_buono_pdf(form_data, rows):
 
     doc.build(story)
     bio.seek(0)
-    return bio
-
-@app.post('/buono/finalize_and_get_pdf')
-@login_required
-def buono_finalize_and_get_pdf():
-    ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
-    rows = _get_rows_from_ids(ids)
-    buono_n = (request.form.get('buono_n') or '').strip()
-    db = SessionLocal()
-    
-    if buono_n:
-        for r in rows:
-            r.buono_n = buono_n
-        db.commit()
-        flash(f"Numero Buono '{buono_n}' salvato per gli articoli selezionati.", "info")
-    
-    pdf_bio = _generate_buono_pdf(request.form, rows)
-    
-    return send_file(pdf_bio, as_attachment=True, download_name=f'Buono_{buono_n}.pdf', mimetype='application/pdf')
-
+    return send_file(bio, as_attachment=False, download_name=f'Buono_{buono_n}.pdf', mimetype='application/pdf')
 
 @app.post('/pdf/ddt')
 @login_required
@@ -1830,7 +1678,7 @@ def ddt_finalize():
     download_name = f"DDT_{n_ddt.replace('/', '-')}_{data_ddt}.pdf"
     response = send_file(pdf_bio, as_attachment=True, download_name=download_name, mimetype='application/pdf')
     
-    response.headers['X-Redirect'] = url_for('giacenze', v=uuid.uuid4().hex[:6])
+    response.headers['X-Redirect'] = url_for('giacenze')
     return response
 
 # --- ETICHETTE ---
@@ -1838,26 +1686,17 @@ def ddt_finalize():
 @login_required
 def labels_form():
     db = SessionLocal()
-    clienti = [c[0] for c in db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()]
+    # Query per ottenere la lista di clienti unici, escludendo valori vuoti o nulli
+    clienti_query = db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()
+    # Trasforma la lista di tuple in una lista semplice di stringhe
+    clienti = [c[0] for c in clienti_query]
     return render_template('labels_form.html', clienti=clienti)
-
-def _labels_clean_data(form):
-    return {k: (form.get(k) or "").strip() for k in ("cliente","fornitore","ordine","commessa",
-            "ddt_ingresso","data_ingresso","arrivo","n_colli","posizione")}
-
-@app.post('/labels_pdf')
-@login_required
-def labels_pdf():
-    d = _labels_clean_data(request.form)
     
-    # Formato personalizzato 100x62 mm in orizzontale
-    pagesize = landscape((62*mm, 100*mm))
-    bio = io.BytesIO()
-    # Margini ridotti per massimizzare lo spazio
-    doc = SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=4*mm, rightMargin=4*mm, topMargin=4*mm, bottomMargin=4*mm)
+    # Crea un PDF in formato A4 standard
+    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
     story = []
 
-    # Stile per il testo
+    # Stile per il testo dell'etichetta
     style = getSampleStyleSheet()
     label_style_left = ParagraphStyle(name='LabelLeft', parent=style['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=18, alignment=TA_LEFT)
 
@@ -1872,7 +1711,7 @@ def labels_pdf():
     ORDINE: {d.get('ordine', '')}<br/>
     COMMESSA: {d.get('commessa', '')}<br/>
     DDT: {d.get('ddt_ingresso', '')}<br/>
-    DATA ING.: {d.get('data_ingresso', '')}<br/>
+    DATA INGRESSO: {d.get('data_ingresso', '')}<br/>
     ARRIVO: {d.get('arrivo', '')}<br/>
     COLLI: {d.get('n_colli', '')}
     """
@@ -1882,6 +1721,27 @@ def labels_pdf():
     bio.seek(0)
     return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
 
+
+@app.route('/labels_pdf', methods=['POST'])
+@login_required
+def labels_pdf():
+    cliente = request.form.get('cliente')
+    formato = request.form.get('formato', '62x100')
+    anteprima = request.form.get('anteprima') == 'on'
+
+    db = SessionLocal()
+    articoli = db.query(Articolo).filter(Articolo.cliente == cliente).all()
+    if not articoli:
+        flash("Nessun articolo trovato per il cliente selezionato.", "warning")
+        return redirect(url_for('labels_form'))
+
+    pdf_path = _genera_pdf_etichetta(articoli, formato, anteprima)
+
+    if anteprima:
+        return send_file(pdf_path, mimetype='application/pdf')
+    else:
+        flash(f"Etichette per {cliente} generate correttamente.", "success")
+        return redirect(url_for('labels_form'))
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
