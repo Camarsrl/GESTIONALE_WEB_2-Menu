@@ -665,8 +665,8 @@ document.getElementById('buono-form').addEventListener('submit', function(e) {
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);
-                // Reindirizza la pagina corrente con cache buster lato JS
-                window.location.href = '{{ url_for('giacenze') }}?v=' + Date.now();
+                // Reindirizza la pagina corrente
+                window.location.href = '{{ url_for('giacenze', v=Date.now()) }}';
             });
         } else {
             alert("Si è verificato un errore durante la generazione del buono.");
@@ -1100,11 +1100,7 @@ def import_excel():
                             elif attr_name in ['n_colli', 'pezzo']:
                                 val = to_int_eu(val)
                             elif attr_name == 'data_ingresso':
-                                # Salva SEMPRE in formato YYYY-MM-DD per coerenza nel DB
-                                if isinstance(val, (datetime, date)):
-                                    val = val.strftime("%Y-%m-%d")
-                                else:
-                                    val = parse_date_ui(str(val))
+                                val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
                             setattr(new_art, attr_name, val)
                     
                     new_art.m2, new_art.m3 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)
@@ -1331,48 +1327,70 @@ def delete_attachment(att_id):
     return redirect(url_for('giacenze'))
 
 # --- VISUALIZZA GIACENZE E AZIONI MULTIPLE ---
-@app.route('/giacenze')
+@app.get('/giacenze')
 @login_required
 def giacenze():
+    db = SessionLocal()
+    try:
+        qs = db.query(Articolo).order_by(Articolo.id_articolo.desc())
+        if session.get('role') == 'client':
+            qs = qs.filter(Articolo.cliente == session['user'])
+        
+        like_cols = [
+            'codice_articolo', 'cliente', 'fornitore', 'commessa', 'descrizione', 'posizione', 'stato', 
+            'protocollo', 'n_ddt_ingresso', 'n_ddt_uscita', 'n_arrivo', 'buono_n', 'ns_rif', 
+            'serial_number', 'mezzi_in_uscita'
+        ]
+        if request.args.get('id'):
+            try: qs = qs.filter(Articolo.id_articolo == int(request.args.get('id')))
+            except ValueError: pass
+        
+        for col in like_cols:
+            v = request.args.get(col)
+            if v:
+                qs = qs.filter(getattr(Articolo, col).ilike(f"%{v}%"))
+                
+        date_filters = {
+            'data_ingresso_da': (Articolo.data_ingresso, '>='), 'data_ingresso_a': (Articolo.data_ingresso, '<='),
+            'data_uscita_da': (Articolo.data_uscita, '>='), 'data_uscita_a': (Articolo.data_uscita, '<=')
+        }
+        for arg, (col, op) in date_filters.items():
+            val = request.args.get(arg)
+            if val:
+                date_sql = parse_date_ui(val)
+                if date_sql:
+                    if op == '>=': qs = qs.filter(col >= date_sql)
+                    else: qs = qs.filter(col <= date_sql)
+        
+        rows = qs.all()
+        
+        stock_rows = [r for r in rows if not r.data_uscita]
+        total_colli = sum(r.n_colli or 0 for r in stock_rows)
+        total_m2 = sum(r.m2 or 0 for r in stock_rows)
 
-    # usa session.execute per NON caricare relazioni pesanti
-    from sqlalchemy import text
-
-    # carico SOLO le colonne necessarie
-    sql = text("""
-        SELECT id, codice_articolo, descrizione, n_colli, lunghezza, larghezza, altezza,
-               m2, m3, data_in, cliente, fornitore, note
-        FROM articoli
-        ORDER BY id DESC
-    """)
-
-    result = db.session.execute(sql)
-    rows = [dict(row) for row in result.mappings()]
-
-    # ricalcolo totali SENZA ricreare oggetti SQLAlchemy
-    total_colli = sum(r["n_colli"] or 0 for r in rows)
-    total_m2 = sum(float(r["m2"] or 0) for r in rows)
-
-    # colonne da mostrare
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore nel caricamento delle giacenze: {e}", "danger")
+        rows, total_colli, total_m2 = [], 0, 0
+    
+    # CORREZIONE: 'buono_n' e rimosse le colonne dei filtri
     cols = [
-        "id", "codice_articolo", "descrizione", "n_colli",
-        "lunghezza", "larghezza", "altezza", "m2", "m3",
-        "data_in", "cliente", "fornitore", "note"
+        "id_articolo", "codice_articolo", "pezzo", "descrizione", "cliente", "fornitore",
+        "commessa", "ordine", "protocollo", "n_colli", "peso",
+        "larghezza", "lunghezza", "altezza", "m2", "m3", "magazzino",
+        "posizione", "stato", "data_ingresso", "n_ddt_ingresso", "n_arrivo",
+        "data_uscita", "n_ddt_uscita", "mezzi_in_uscita", "buono_n",
+        "serial_number", "ns_rif", "note"
     ]
 
-    return render_template(
-        "giacenze.html",
-        rows=rows,
-        cols=cols,
-        total_colli=total_colli,
-        total_m2=round(total_m2, 3)
-    )
+    return render_template('giacenze.html', rows=rows, cols=cols, total_colli=total_colli, total_m2=total_m2)
 
 @app.route('/bulk/edit', methods=['GET', 'POST'])
 @login_required
 def bulk_edit():
     db = SessionLocal()
     fields_map = get_all_fields_map()
+    # Rimuovi m2 e m3 dal form
     fields_to_show = {k: v for k, v in fields_map.items() if k not in ['m2', 'm3']}
     
     if request.method == 'POST':
@@ -1584,6 +1602,27 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     story.append(Spacer(1, 8*mm))
     
     first_row = rows[0] if rows else Articolo()
+    
+    # Sezione Mittente e Destinatario
+    mitt_text = Paragraph("<b>Mittente</b><br/>Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)<br/>P.IVA: 02231420992", s_small)
+    dest_text = Paragraph(f"<b>Destinatario</b><br/><b>{dest.get('ragione_sociale','') or ''}</b><br/>{dest.get('indirizzo','') or ''}", s_small)
+    
+    header_data = [
+        [mitt_text, dest_text]
+    ]
+    header_table = Table(header_data, colWidths=[doc.width/2, doc.width/2], style=[
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BOX', (0,0), (-1,-1), 0.5, colors.lightgrey),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
+        ('LEFTPADDING', (0,0), (-1,-1), 3*mm),
+        ('RIGHTPADDING', (0,0), (-1,-1), 3*mm),
+        ('TOPPADDING', (0,0), (-1,-1), 3*mm),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3*mm),
+    ])
+    story.append(header_table)
+    story.append(Spacer(1, 2*mm))
+
+    # Sezione Dati Aggiuntivi e Dati Documento
     add_data_content = [
         [Paragraph("<b>Cliente</b>", s_small_bold), Paragraph(first_row.cliente or '', s_small)],
         [Paragraph("<b>Commessa</b>", s_small_bold), Paragraph(first_row.commessa or '', s_small)],
@@ -1592,25 +1631,29 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
         [Paragraph("<b>Protocollo</b>", s_small_bold), Paragraph(first_row.protocollo or '', s_small)],
     ]
     doc_data_content = [
-        [Paragraph("<b>N. DDT</b>", s_small_bold), Paragraph(n_ddt, s_small)],
-        [Paragraph("<b>Data Uscita</b>", s_small_bold), Paragraph(fmt_date(data_ddt), s_small)],
+        [Paragraph("<b>N. DDT</b>", s_small_bold), Paragraph(n_ddt or '', s_small)],
+        [Paragraph("<b>Data Uscita</b>", s_small_bold), Paragraph(fmt_date(data_ddt) or '', s_small)],
         [Paragraph("<b>Targa</b>", s_small_bold), Paragraph(targa or '', s_small)],
-        [Paragraph("<b>Richiesta di:</b>", s_small_bold), Paragraph("", s_small)],
     ]
-    
-    header_data = [
-        [Paragraph("<b>Dati Aggiuntivi</b>", s_small_bold), Paragraph("<b>Destinatario</b>", s_small_bold)],
-        [Table(add_data_content, colWidths=[25*mm, None], style=[('VALIGN', (0,0), (-1,-1), 'TOP')]),
-         Paragraph(f"{dest.get('ragione_sociale','') or ''}<br/>{dest.get('indirizzo','') or ''}", s_small)]
-    ]
-    header_table = Table(header_data, colWidths=[doc.width/2, doc.width/2], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
-    
-    story.append(header_table)
+
+    data_table = Table([
+        [Table(add_data_content, colWidths=[25*mm, doc.width/2-25*mm], style=[('VALIGN', (0,0), (-1,-1), 'TOP')]), 
+         Table(doc_data_content, colWidths=[25*mm, doc.width/2-25*mm], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])]
+    ], colWidths=[doc.width/2, doc.width/2], style=[
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BOX', (0,0), (-1,-1), 0.5, colors.lightgrey),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
+        ('LEFTPADDING', (0,0), (-1,-1), 3*mm),
+        ('RIGHTPADDING', (0,0), (-1,-1), 3*mm),
+        ('TOPPADDING', (0,0), (-1,-1), 3*mm),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3*mm),
+    ])
+    story.append(data_table)
     story.append(Spacer(1, 8*mm))
     
     # Stili per il testo a capo nelle celle
-    style_cell = ParagraphStyle(name='Cell', parent=s_small)
-    style_cell_bold = ParagraphStyle(name='CellBold', parent=s_small_bold)
+    style_cell = ParagraphStyle(name='Cell', parent=s_small, alignment=TA_LEFT)
+    style_cell_bold = ParagraphStyle(name='CellBold', parent=s_small_bold, alignment=TA_LEFT)
 
     data = [[
         Paragraph('ID', style_cell_bold), Paragraph('Cod.Art.', style_cell_bold), Paragraph('Descrizione', style_cell_bold),
@@ -1637,18 +1680,21 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     story.append(item_table)
     story.append(Spacer(1, 6*mm))
     
+    # Footer
     causale_porto_aspetto = [
-        [Paragraph("<b>Causale</b>", s_small), Paragraph(form_data.get('causale', 'TRASFERIMENTO'), s_small)],
-        [Paragraph("<b>Porto</b>", s_small), Paragraph(form_data.get('porto', 'FRANCO'), s_small)],
-        [Paragraph("<b>Aspetto</b>", s_small), Paragraph(form_data.get('aspetto', 'A VISTA'), s_small)],
+        [Paragraph("<b>Causale</b>", s_small), Paragraph(form_data.get('causale', 'TRASFERIMENTO'), s_small),
+         Paragraph("<b>Porto</b>", s_small), Paragraph(form_data.get('porto', 'FRANCO'), s_small)],
+        [Paragraph("<b>Aspetto</b>", s_small), Paragraph(form_data.get('aspetto', 'A VISTA'), s_small), '', '']
     ]
-    cpa_table = Table(causale_porto_aspetto, colWidths=[20*mm, None], style=[('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey)])
+    cpa_table = Table(causale_porto_aspetto, colWidths=[20*mm, doc.width/3-20*mm, 20*mm, doc.width/3-20*mm], style=[('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey)])
+    story.append(cpa_table)
+    story.append(Spacer(1, 8*mm))
 
     totals_text = f"<b>Totale Pezzi:</b> {tot_pezzi}<br/><b>Totale Colli:</b> {tot_colli}<br/><b>Totale Peso:</b> {tot_peso:.2f} Kg"
     firma_text = "<b>Firma Vettore:</b><br/><br/>________________________"
     
-    footer_table = Table([[cpa_table, Paragraph(totals_text, s_small_bold), Paragraph(firma_text, s_small_bold)]], 
-                         colWidths=[doc.width/3, doc.width/3, doc.width/3], 
+    footer_table = Table([[Paragraph(totals_text, s_small_bold), Paragraph(firma_text, s_small_bold)]], 
+                         colWidths=[doc.width/2, doc.width/2], 
                          style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
     story.append(footer_table)
     
@@ -1696,7 +1742,7 @@ def _generate_buono_pdf(form_data, rows):
          Paragraph('Quantità', s_small_bold), Paragraph('N.Arrivo', s_small_bold)]
     ]
     for r in rows:
-        q_val = form_data.get(f"q_{r.id_articolo}")
+        q_val = request.form.get(f"q_{r.id_articolo}")
         quantita = to_int_eu(q_val) if q_val is not None else (r.n_colli or 1)
         data.append([
             Paragraph(r.ordine or '', s_small), 
@@ -1806,6 +1852,7 @@ def labels_pdf():
     # Formato personalizzato 100x62 mm in orizzontale
     pagesize = landscape((62*mm, 100*mm))
     bio = io.BytesIO()
+    # Margini ridotti per massimizzare lo spazio
     doc = SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=4*mm, rightMargin=4*mm, topMargin=4*mm, bottomMargin=4*mm)
     story = []
 
@@ -1833,6 +1880,7 @@ def labels_pdf():
     doc.build(story)
     bio.seek(0)
     return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
+
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
