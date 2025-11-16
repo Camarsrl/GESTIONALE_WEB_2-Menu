@@ -1277,7 +1277,7 @@ def delete_attachment(att_id):
 def giacenze():
     db = SessionLocal()
     try:
-        qs = db.query(Articolo).order_by(Articolo.id_articolo.desc())
+        qs = db.query(Articolo).options(selectinload(Articolo.attachments)).order_by(Articolo.id_articolo.desc())
         if session.get('role') == 'client':
             qs = qs.filter(Articolo.cliente == session['user'])
         
