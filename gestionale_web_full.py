@@ -1327,53 +1327,43 @@ def delete_attachment(att_id):
     return redirect(url_for('giacenze'))
 
 # --- VISUALIZZA GIACENZE E AZIONI MULTIPLE ---
-@app.route('/giacenze')
+@app.get('/giacenze')
 @login_required
 def giacenze():
     db = SessionLocal()
-
     try:
-        # Query base
         qs = db.query(Articolo).order_by(Articolo.id_articolo.desc())
-
-        # Filtraggio clienti con ruolo
         if session.get('role') == 'client':
             qs = qs.filter(Articolo.cliente == session['user'])
-
-        # Filtri LIKE
+        
         like_cols = [
-            'codice_articolo', 'cliente', 'fornitore', 'commessa', 'descrizione', 
-            'posizione', 'stato', 'protocollo', 'n_ddt_ingresso', 'n_ddt_uscita', 
-            'n_arrivo', 'buono_n', 'ns_rif', 'serial_number', 'mezzi_in_uscita'
+            'codice_articolo', 'cliente', 'fornitore', 'commessa', 'descrizione', 'posizione', 'stato', 
+            'protocollo', 'n_ddt_ingresso', 'n_ddt_uscita', 'n_arrivo', 'buono_n', 'ns_rif', 
+            'serial_number', 'mezzi_in_uscita'
         ]
-
+        if request.args.get('id'):
+            try: qs = qs.filter(Articolo.id_articolo == int(request.args.get('id')))
+            except ValueError: pass
+        
         for col in like_cols:
-            val = request.args.get(col)
-            if val:
-                qs = qs.filter(getattr(Articolo, col).ilike(f"%{val}%"))
-
-        # Filtri date
+            v = request.args.get(col)
+            if v:
+                qs = qs.filter(getattr(Articolo, col).ilike(f"%{v}%"))
+                
         date_filters = {
-            'data_ingresso_da': (Articolo.data_ingresso, '>'),
-            'data_ingresso_a': (Articolo.data_ingresso, '<'),
-            'data_uscita_da': (Articolo.data_uscita, '>'),
-            'data_uscita_a': (Articolo.data_uscita, '<')
+            'data_ingresso_da': (Articolo.data_ingresso, '>='), 'data_ingresso_a': (Articolo.data_ingresso, '<='),
+            'data_uscita_da': (Articolo.data_uscita, '>='), 'data_uscita_a': (Articolo.data_uscita, '<=')
         }
-
-        for arg, (field, op) in date_filters.items():
+        for arg, (col, op) in date_filters.items():
             val = request.args.get(arg)
             if val:
                 date_sql = parse_date_ui(val)
                 if date_sql:
-                    if op == '>':
-                        qs = qs.filter(field >= date_sql)
-                    else:
-                        qs = qs.filter(field <= date_sql)
-
-        # Esecuzione query
+                    if op == '>=': qs = qs.filter(col >= date_sql)
+                    else: qs = qs.filter(col <= date_sql)
+        
         rows = qs.all()
-
-        # Calcoli totali
+        
         stock_rows = [r for r in rows if not r.data_uscita]
         total_colli = sum(r.n_colli or 0 for r in stock_rows)
         total_m2 = sum(r.m2 or 0 for r in stock_rows)
@@ -1382,25 +1372,18 @@ def giacenze():
         db.rollback()
         flash(f"Errore nel caricamento delle giacenze: {e}", "danger")
         rows, total_colli, total_m2 = [], 0, 0
-    finally:
-        db.close()
-
+    
+    # CORREZIONE: 'buono_n' e rimosse le colonne dei filtri
     cols = [
         "id_articolo", "codice_articolo", "pezzo", "descrizione", "cliente", "fornitore",
-        "commessa", "ordine", "protocollo", "n_colli", "peso", "larghezza", "lunghezza",
-        "altezza", "m2", "m3", "magazzino", "posizione", "stato", "data_ingresso",
-        "n_ddt_ingresso", "n_arrivo", "data_uscita", "n_ddt_uscita", "mezzi_in_uscita",
-        "buono_n", "serial_number", "ns_rif", "note"
+        "commessa", "ordine", "protocollo", "n_colli", "peso",
+        "larghezza", "lunghezza", "altezza", "m2", "m3", "magazzino",
+        "posizione", "stato", "data_ingresso", "n_ddt_ingresso", "n_arrivo",
+        "data_uscita", "n_ddt_uscita", "mezzi_in_uscita", "buono_n",
+        "serial_number", "ns_rif", "note"
     ]
 
-    return render_template(
-        'giacenze.html',
-        rows=rows,
-        cols=cols,
-        total_colli=total_colli,
-        total_m2=total_m2
-    )
-
+    return render_template('giacenze.html', rows=rows, cols=cols, total_colli=total_colli, total_m2=total_m2)
 
 @app.route('/bulk/edit', methods=['GET', 'POST'])
 @login_required
