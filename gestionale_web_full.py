@@ -1020,89 +1020,117 @@ def home():
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
 def import_excel():
-    db = SessionLocal()
-    
-    # Mappatura esplicita Excel Column Name (lowercase) -> SQLAlchemy Attribute Name
-    # (Adatta questi nomi alle tue intestazioni Excel reali)
+
+    # Mappatura Excel → Campi DB
     EXCEL_TO_DB_MAP = {
-        'codice_articolo': 'codice_articolo', 'pezzo': 'pezzo', 'larghezza': 'larghezza', 'lunghezza': 'lunghezza',
-        'altezza': 'altezza', 'protocollo': 'protocollo', 'ordine': 'ordine', 'commessa': 'commessa', 'magazzino': 'magazzino',
-        'fornitore': 'fornitore', 'data_ingresso': 'data_ingresso', 'n_ddt_ingresso': 'n_ddt_ingresso', 'cliente': 'cliente',
-        'descrizione': 'descrizione', 'peso': 'peso', 'n_colli': 'n_colli', 'posizione': 'posizione', 'n_arrivo': 'n_arrivo',
-        'buono_n': 'buono_n', 'note': 'note', 'serial_number': 'serial_number', 'stato': 'stato',
-        'mezzi_in_uscita': 'mezzi_in_uscita', 'n_ddt_uscita': 'n_ddt_uscita', 'ns_rif': 'ns_rif', 
-        # NOTA: M2 e M3 sono calcolati, non li includiamo nella mappa di lettura
+        'codice_articolo': 'codice_articolo',
+        'pezzo': 'pezzo',
+        'larghezza': 'larghezza',
+        'lunghezza': 'lunghezza',
+        'altezza': 'altezza',
+        'protocollo': 'protocollo',
+        'ordine': 'ordine',
+        'commessa': 'commessa',
+        'magazzino': 'magazzino',
+        'fornitore': 'fornitore',
+        'data_ingresso': 'data_ingresso',
+        'n_ddt_ingresso': 'n_ddt_ingresso',
+        'cliente': 'cliente',
+        'descrizione': 'descrizione',
+        'peso': 'peso',
+        'n_colli': 'n_colli',
+        'posizione': 'posizione',
+        'n_arrivo': 'n_arrivo',
+        'buono_n': 'buono_n',
+        'note': 'note',
+        'serial_number': 'serial_number',
+        'stato': 'stato',
+        'mezzi_in_uscita': 'mezzi_in_uscita',
+        'n_ddt_uscita': 'n_ddt_uscita',
+        'ns_rif': 'ns_rif'
+        # M2 / M3 vengono ricalcolati
     }
 
     if request.method == 'POST':
+
+        # --- Controllo file ---
         if 'excel_file' not in request.files:
             flash('Nessun file selezionato', 'warning')
             return redirect(request.url)
-            
+
         file = request.files['excel_file']
+
         if file.filename == '':
             flash('Nessun file selezionato', 'warning')
             return redirect(request.url)
-            
+
         if not file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
             flash('Formato file non supportato. Usare .xlsx, .xls o .xlsm', 'warning')
             return redirect(request.url)
-            
+
+        # --- Connessione DB ---
+        db = SessionLocal()
+
         try:
-            # 1. Lettura del file e normalizzazione colonne
+            # 1) Leggo l’Excel
             df = pd.read_excel(file, engine='openpyxl')
             original_cols = df.columns.tolist()
-            df.columns = [c.strip().lower().replace(' ', '_').replace('.', '').replace('°', '') for c in original_cols]
-            
+
+            # Normalizzazione colonne Excel → lowercase + _ invece di spazi
+            df.columns = [
+                c.strip().lower().replace(' ', '_').replace('.', '').replace('°', '')
+                for c in original_cols
+            ]
+
             imported_count = 0
-            
-            # 2. Iterazione e inserimento
+
+            # 2) Loop righe Excel
             for _, row in df.iterrows():
                 new_art = Articolo()
-                raw_data = {} # Per tenere i valori grezzi per il calcolo
 
+                # 3) Mappatura campi
                 for excel_col_name, attr_name in EXCEL_TO_DB_MAP.items():
                     if excel_col_name in row and not pd.isna(row[excel_col_name]):
                         val = row[excel_col_name]
-                        raw_data[attr_name] = val # Salva grezzo
-                        
-                        # 3. Conversione del tipo (come nelle utility)
+
+                        # Conversioni
                         if attr_name in ['larghezza', 'lunghezza', 'altezza', 'peso']:
                             val = to_float_eu(val)
                         elif attr_name in ['n_colli']:
                             val = to_int_eu(val)
                         elif attr_name in ['data_ingresso', 'data_uscita']:
-                            # Prova a formattare correttamente la data
                             val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
-                        # Per gli altri (pezzo, descrizione, ecc.) vengono assegnati come stringa
-                        
+
                         setattr(new_art, attr_name, val)
-                
-                # 4. Calcolo m2 e m3
-                lung = getattr(new_art, 'lunghezza', None)
-                larg = getattr(new_art, 'larghezza', None)
-                alt = getattr(new_art, 'altezza', None)
-                colli = getattr(new_art, 'n_colli', None)
-                
+
+                # 4) Calcolo M2 / M3
+                lung = getattr(new_art, "lunghezza", None)
+                larg = getattr(new_art, "larghezza", None)
+                alt = getattr(new_art, "altezza", None)
+                colli = getattr(new_art, "n_colli", None)
+
                 new_art.m2, new_art.m3 = calc_m2_m3(lung, larg, alt, colli)
-                
-                # 5. Aggiunta al database
+
+                # 5) Aggiungo al DB
                 db.add(new_art)
                 imported_count += 1
-                
-            db.commit() # Commit finale dopo l'aggiunta di tutte le righe
 
-            flash(f'{imported_count} articoli importati con successo dal file Excel.', 'success')
-            return redirect(url_for('giacenze'))
+            # 6) Salvataggio
+            db.commit()
+            flash(f"Import completato - Articoli importati: {imported_count}", "success")
+            return redirect(url_for("import_excel"))
 
         except Exception as e:
             db.rollback()
-            flash(f"Errore durante l'importazione. Dettagli: {e}", 'danger')
-            return redirect(request.url)
-        finally:
-            db.remove()
+            flash(f"Errore durante l'importazione: {str(e)}", "danger")
+            raise
 
+        finally:
+            db.close()
+
+    # GET request → mostro la pagina
     return render_template('import_excel.html')
+
 def get_all_fields_map():
     return {
         'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi',
