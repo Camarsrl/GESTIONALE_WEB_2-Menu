@@ -1022,68 +1022,76 @@ def import_excel():
     if session.get('role') != 'admin':
         abort(403)
 
-    profiles_path = CONFIG_FOLDER / 'mappe_excel.json'
-    if not profiles_path.exists():
-        flash('File profili (mappe_excel.json) non trovato in config/.', 'danger')
-        return render_template('import.html', profiles={})
+    from pathlib import Path
 
-    with open(profiles_path, 'r', encoding='utf-8') as f:
+    BASE_DIR = Path(__file__).resolve().parent
+    profiles_path = BASE_DIR / "config" / "mappe_excel.json"
+    if not profiles_path.exists():
+        profiles_path = BASE_DIR / "mappe_excel.json"
+
+    if not profiles_path.exists():
+        flash("File mappe_excel.json non trovato.", "danger")
+        return render_template("import.html", profiles=[])
+
+    with open(profiles_path, "r", encoding="utf-8") as f:
         profiles = json.load(f)
 
-    if request.method == 'POST':
-        file = request.files.get('file')
-        profile_name = request.form.get('profile')
+    if request.method == "POST":
+        file = request.files.get("file")
+        profile_name = request.form.get("profile")
         profile = profiles.get(profile_name)
 
-        if not file or file.filename == '' or not profile:
-            flash('File o profilo mancante.', 'warning')
+        if not file or file.filename == "" or not profile:
+            flash("File o profilo mancante.", "warning")
             return redirect(request.url)
 
         try:
             df = pd.read_excel(
                 file,
-                header=profile.get('header_row', 0),
+                header=profile.get("header_row", 0),
                 dtype=str,
-                engine='openpyxl'
-            ).fillna('')
+                engine="openpyxl"
+            ).fillna("")
 
-            col_map = profile.get('column_map', {})
+            column_map = profile.get("column_map", {})
+            colonne_valide = {c.name for c in Articolo.__table__.columns}
+
             added_count = 0
 
-            # campi validi esistenti nel modello
-            colonne_valide = set(c.name for c in Articolo.__table__.columns)
-
             for _, row in df.iterrows():
-                # se nessuna colonna mappata ha dati, salta
-                if not any(row.get(excel_col, '') for excel_col in col_map.keys()):
-                    continue
-
                 new_art = Articolo()
-
                 form_data = {}
-                for excel_col, db_col in col_map.items():
-                    if db_col in colonne_valide:
-                        raw = row.get(excel_col, '')
-                        value = str(raw).strip()
-                        # evita 'nan'/'None' come stringhe
-                        if value.lower() in ['nan', 'none', '']:
-                            value = None
-                        form_data[db_col] = value
 
+                for excel_col, db_col in column_map.items():
+                    if db_col not in colonne_valide:
+                        continue
+
+                    raw = row.get(excel_col, "")
+                    value = str(raw).strip()
+
+                    # normalizzazione coerente col gestionale desktop
+                    if value.lower() in ["nan", "none"]:
+                        value = ""
+
+                    form_data[db_col] = value
+
+                # usa la stessa logica del Tkinter
                 populate_articolo_from_form(new_art, form_data)
+
                 db.session.add(new_art)
                 added_count += 1
 
             db.session.commit()
-            flash(f'Importazione completata. {added_count} articoli aggiunti.', 'success')
-            return redirect(url_for('visualizza_giacenze'))
+            flash(f"Importazione completata: {added_count} articoli importati.", "success")
+            return redirect(url_for("visualizza_giacenze"))
+
         except Exception as e:
             db.session.rollback()
-            logging.error(f"Errore import: {e}", exc_info=True)
+            logging.error("Errore import Excel", exc_info=True)
             flash(f"Errore durante l'importazione: {e}", "danger")
             return redirect(request.url)
 
-    return render_template('import.html', profiles=profiles.keys())
+    return render_template("import.html", profiles=list(profiles.keys()))
 
 def get_all_fields_map():
     return {
