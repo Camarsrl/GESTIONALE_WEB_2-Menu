@@ -1091,7 +1091,7 @@ def import_excel():
             flash(f"Errore durante l'importazione: {e}", "danger")
             return redirect(request.url)
 
-    return render_template("import.html", profiles=list(profiles.keys()))
+    return render_template("import_excel.html", profiles=list(profiles.keys()))
 
 def get_all_fields_map():
     return {
