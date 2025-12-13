@@ -1016,7 +1016,10 @@ def logout():
 def home():
     return render_template('home.html')
 
-def import_excel():
+
+@app.route("/import_excel", methods=["GET", "POST"], endpoint="import_excel")
+@login_required
+def import_excel_route():
     if session.get('role') != 'admin':
         abort(403)
 
