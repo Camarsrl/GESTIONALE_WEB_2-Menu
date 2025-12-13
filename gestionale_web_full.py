@@ -1019,113 +1019,62 @@ def home():
 
 @app.route("/import_excel", methods=["GET", "POST"], endpoint="import_excel")
 @login_required
-def import_excel_route():
-    if session.get('role') != 'admin':
-        abort(403)
+def import_excel():
+    if request.method == 'POST':
+        if 'excel_file' not in request.files:
+            flash('Nessun file selezionato', 'warning')
+            return redirect(request.url)
+        file = request.files['excel_file']
+        if file.filename == '':
+            flash('Nessun file selezionato', 'warning')
+            return redirect(request.url)
+        if file and file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
+            try:
+                db = SessionLocal()
+                df = pd.read_excel(file, engine='openpyxl')
+                
+                df.columns = [c.strip().lower().replace(' ', '_').replace('.', '').replace('°', '') for c in df.columns]
 
-    import logging
-    from pathlib import Path
+                column_map = {
+                    'codice_articolo': 'codice_articolo', 'pezzo': 'pezzo', 'larghezza': 'larghezza', 'lunghezza': 'lunghezza',
+                    'altezza': 'altezza', 'protocollo': 'protocollo', 'ordine': 'ordine', 'commessa': 'commessa', 'magazzino': 'magazzino',
+                    'fornitore': 'fornitore', 'data_ingresso': 'data_ingresso', 'n_ddt_ingresso': 'n_ddt_ingresso', 'cliente': 'cliente',
+                    'descrizione': 'descrizione', 'peso': 'peso', 'n_colli': 'n_colli', 'posizione': 'posizione', 'n_arrivo': 'n_arrivo',
+                    'buono_n': 'buono_n', 'note': 'note', 'serial_number': 'serial_number', 'stato': 'stato',
+                    'mezzi_in_uscita': 'mezzi_in_uscita', 'ns_rif': 'ns_rif'
+                }
 
-    logging.info("=== IMPORT EXCEL: AVVIO ===")
+                imported_count = 0
+                for _, row in df.iterrows():
+                    new_art = Articolo()
+                    for col_name, attr_name in column_map.items():
+                        if col_name in row and not pd.isna(row[col_name]):
+                            val = row[col_name]
+                            if attr_name in ['larghezza', 'lunghezza', 'altezza', 'peso']:
+                                val = to_float_eu(val)
+                            elif attr_name in ['n_colli', 'pezzo']:
+                                val = to_int_eu(val)
+                            elif attr_name == 'data_ingresso':
+                                val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
+                            setattr(new_art, attr_name, val)
+                    
+                    new_art.m2, new_art.m3 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)
+                    db.add(new_art)
+                    imported_count += 1
+                
+                db.commit()
+                flash(f'{imported_count} articoli importati con successo dal file Excel.', 'success')
+                return redirect(url_for('giacenze'))
 
-    BASE_DIR = Path(__file__).resolve().parent
-    profiles_path = BASE_DIR / "config" / "mappe_excel.json"
-    if not profiles_path.exists():
-        profiles_path = BASE_DIR / "mappe_excel.json"
-
-    logging.info(f"Percorso mappe_excel.json: {profiles_path}")
-
-    if not profiles_path.exists():
-        logging.error("File mappe_excel.json NON TROVATO")
-        flash("File mappe_excel.json non trovato.", "danger")
-        return render_template("import.html", profiles=[])
-
-    with open(profiles_path, "r", encoding="utf-8") as f:
-        profiles = json.load(f)
-
-    logging.info(f"Profili disponibili: {list(profiles.keys())}")
-
-    if request.method == "POST":
-        file = request.files.get("file")
-        profile_name = request.form.get("profile")
-        profile = profiles.get(profile_name)
-
-        logging.info(f"POST import_excel - file: {file.filename if file else None}")
-        logging.info(f"POST import_excel - profile_name: {profile_name}")
-        logging.info(f"POST import_excel - profile trovato: {bool(profile)}")
-        logging.warning(f"DEBUG request.files keys: {list(request.files.keys())}")
-        logging.warning(f"DEBUG request.form keys: {list(request.form.keys())}")
-        logging.warning(f"DEBUG file obj: {request.files.get('file')}")
-        logging.warning(f"DEBUG profile: {request.form.get('profile')}")
-
-
-        if not file or file.filename == "" or not profile:
-            logging.warning("File o profilo mancante nel POST")
-            flash("File o profilo mancante.", "warning")
+            except Exception as e:
+                db.rollback()
+                flash(f"Errore durante l'importazione: {e}", 'danger')
+                return redirect(request.url)
+        else:
+            flash('Formato file non supportato. Usare .xlsx, .xls o .xlsm', 'warning')
             return redirect(request.url)
 
-        try:
-            df = pd.read_excel(
-                file,
-                header=profile.get("header_row", 0),
-                dtype=str,
-                engine="openpyxl"
-            ).fillna("")
-
-            logging.info(f"Righe Excel lette: {len(df)}")
-            logging.info(f"Colonne Excel lette: {list(df.columns)}")
-
-            column_map = profile.get("column_map", {})
-            colonne_valide = {c.name for c in Articolo.__table__.columns}
-
-            logging.info(f"Colonne DB valide: {sorted(colonne_valide)}")
-            logging.info(f"Mappatura Excel → DB: {column_map}")
-
-            added_count = 0
-            skipped_cols = set()
-
-            for row_index, row in df.iterrows():
-                new_art = Articolo()
-                form_data = {}
-
-                for excel_col, db_col in column_map.items():
-                    if db_col not in colonne_valide:
-                        skipped_cols.add(db_col)
-                        continue
-
-                    raw = row.get(excel_col, "")
-                    value = str(raw).strip()
-
-                    if value.lower() in ["nan", "none"]:
-                        value = ""
-
-                    form_data[db_col] = value
-
-                logging.debug(f"Riga {row_index} → form_data: {form_data}")
-
-                populate_articolo_from_form(new_art, form_data)
-
-                db.session.add(new_art)
-                added_count += 1
-
-            db.session.commit()
-
-            logging.info(f"IMPORT COMPLETATO - articoli importati: {added_count}")
-
-            if skipped_cols:
-                logging.warning(f"Colonne DB scartate (non esistono nel modello): {sorted(skipped_cols)}")
-
-            flash(f"Importazione completata: {added_count} articoli importati.", "success")
-            return redirect(url_for("visualizza_giacenze"))
-
-        except Exception as e:
-            db.session.rollback()
-            logging.error("ERRORE IMPORT EXCEL", exc_info=True)
-            flash(f"Errore durante l'importazione: {e}", "danger")
-            return redirect(request.url)
-
-    logging.info("GET import_excel - rendering pagina")
-    return render_template("import_excel.html", profiles=list(profiles.keys()))
+    return render_template('import_excel.html')
 
 def get_all_fields_map():
     return {
