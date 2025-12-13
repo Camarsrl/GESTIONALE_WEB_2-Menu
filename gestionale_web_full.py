@@ -1409,7 +1409,12 @@ def giacenze():
     ]
 
     return render_template(
-        'giacenze.html',rows=rows,cols=cols,total_colli=total_colli,total_m2=total_m2)
+        'giacenze.html',
+        rows=rows,
+        cols=cols,
+        total_colli=total_colli,
+        total_m2=total_m2
+    )
 
 
 @app.route('/bulk/edit', methods=['GET', 'POST'])
