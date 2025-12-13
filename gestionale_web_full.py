@@ -1016,120 +1016,72 @@ def logout():
 def home():
     return render_template('home.html')
 
-# --- IMPORTAZIONE EXCEL CORRETTA ---
-@app.route('/import_excel', methods=['GET', 'POST'])
-@login_required
 def import_excel():
+    if session.get('role') != 'admin':
+        abort(403)
 
-    # Mappatura Excel → Campi DB
-    EXCEL_TO_DB_MAP = {
-        'codice_articolo': 'codice_articolo',
-        'pezzo': 'pezzo',
-        'larghezza': 'larghezza',
-        'lunghezza': 'lunghezza',
-        'altezza': 'altezza',
-        'protocollo': 'protocollo',
-        'ordine': 'ordine',
-        'commessa': 'commessa',
-        'magazzino': 'magazzino',
-        'fornitore': 'fornitore',
-        'data_ingresso': 'data_ingresso',
-        'n_ddt_ingresso': 'n_ddt_ingresso',
-        'cliente': 'cliente',
-        'descrizione': 'descrizione',
-        'peso': 'peso',
-        'n_colli': 'n_colli',
-        'posizione': 'posizione',
-        'n_arrivo': 'n_arrivo',
-        'buono_n': 'buono_n',
-        'note': 'note',
-        'serial_number': 'serial_number',
-        'stato': 'stato',
-        'mezzi_in_uscita': 'mezzi_in_uscita',
-        'n_ddt_uscita': 'n_ddt_uscita',
-        'ns_rif': 'ns_rif'
-        # M2 / M3 vengono ricalcolati
-    }
+    profiles_path = CONFIG_FOLDER / 'mappe_excel.json'
+    if not profiles_path.exists():
+        flash('File profili (mappe_excel.json) non trovato in config/.', 'danger')
+        return render_template('import.html', profiles={})
+
+    with open(profiles_path, 'r', encoding='utf-8') as f:
+        profiles = json.load(f)
 
     if request.method == 'POST':
+        file = request.files.get('file')
+        profile_name = request.form.get('profile')
+        profile = profiles.get(profile_name)
 
-        # --- Controllo file ---
-        if 'excel_file' not in request.files:
-            flash('Nessun file selezionato', 'warning')
+        if not file or file.filename == '' or not profile:
+            flash('File o profilo mancante.', 'warning')
             return redirect(request.url)
-
-        file = request.files['excel_file']
-
-        if file.filename == '':
-            flash('Nessun file selezionato', 'warning')
-            return redirect(request.url)
-
-        if not file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
-            flash('Formato file non supportato. Usare .xlsx, .xls o .xlsm', 'warning')
-            return redirect(request.url)
-
-        # --- Connessione DB ---
-        db = SessionLocal()
 
         try:
-            # 1) Leggo l’Excel
-            df = pd.read_excel(file, engine='openpyxl')
-            original_cols = df.columns.tolist()
+            df = pd.read_excel(
+                file,
+                header=profile.get('header_row', 0),
+                dtype=str,
+                engine='openpyxl'
+            ).fillna('')
 
-            # Normalizzazione colonne Excel → lowercase + _ invece di spazi
-            df.columns = [
-                c.strip().lower().replace(' ', '_').replace('.', '').replace('°', '')
-                for c in original_cols
-            ]
+            col_map = profile.get('column_map', {})
+            added_count = 0
 
-            imported_count = 0
+            # campi validi esistenti nel modello
+            colonne_valide = set(c.name for c in Articolo.__table__.columns)
 
-            # 2) Loop righe Excel
             for _, row in df.iterrows():
+                # se nessuna colonna mappata ha dati, salta
+                if not any(row.get(excel_col, '') for excel_col in col_map.keys()):
+                    continue
+
                 new_art = Articolo()
 
-                # 3) Mappatura campi
-                for excel_col_name, attr_name in EXCEL_TO_DB_MAP.items():
-                    if excel_col_name in row and not pd.isna(row[excel_col_name]):
-                        val = row[excel_col_name]
+                form_data = {}
+                for excel_col, db_col in col_map.items():
+                    if db_col in colonne_valide:
+                        raw = row.get(excel_col, '')
+                        value = str(raw).strip()
+                        # evita 'nan'/'None' come stringhe
+                        if value.lower() in ['nan', 'none', '']:
+                            value = None
+                        form_data[db_col] = value
 
-                        # Conversioni
-                        if attr_name in ['larghezza', 'lunghezza', 'altezza', 'peso']:
-                            val = to_float_eu(val)
-                        elif attr_name in ['n_colli']:
-                            val = to_int_eu(val)
-                        elif attr_name in ['data_ingresso', 'data_uscita']:
-                            val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
+                populate_articolo_from_form(new_art, form_data)
+                db.session.add(new_art)
+                added_count += 1
 
-                        setattr(new_art, attr_name, val)
-
-                # 4) Calcolo M2 / M3
-                lung = getattr(new_art, "lunghezza", None)
-                larg = getattr(new_art, "larghezza", None)
-                alt = getattr(new_art, "altezza", None)
-                colli = getattr(new_art, "n_colli", None)
-
-                new_art.m2, new_art.m3 = calc_m2_m3(lung, larg, alt, colli)
-
-                # 5) Aggiungo al DB
-                db.add(new_art)
-                imported_count += 1
-
-            # 6) Salvataggio
-            db.commit()
-            flash(f"Import completato - Articoli importati: {imported_count}", "success")
-            return redirect(url_for("import_excel"))
-
+            db.session.commit()
+            flash(f'Importazione completata. {added_count} articoli aggiunti.', 'success')
+            return redirect(url_for('visualizza_giacenze'))
         except Exception as e:
-            db.rollback()
-            flash(f"Errore durante l'importazione: {str(e)}", "danger")
-            raise
+            db.session.rollback()
+            logging.error(f"Errore import: {e}", exc_info=True)
+            flash(f"Errore durante l'importazione: {e}", "danger")
+            return redirect(request.url)
 
-        finally:
-            db.close()
-
-    # GET request → mostro la pagina
-    return render_template('import_excel.html')
+    return render_template('import.html', profiles=profiles.keys())
 
 def get_all_fields_map():
     return {
