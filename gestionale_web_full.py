@@ -1016,32 +1016,43 @@ def logout():
 def home():
     return render_template('home.html')
 
-@app.route("/import_excel", methods=["GET", "POST"])
-@login_required
 def import_excel():
     if session.get('role') != 'admin':
         abort(403)
 
+    import logging
     from pathlib import Path
+
+    logging.info("=== IMPORT EXCEL: AVVIO ===")
 
     BASE_DIR = Path(__file__).resolve().parent
     profiles_path = BASE_DIR / "config" / "mappe_excel.json"
     if not profiles_path.exists():
         profiles_path = BASE_DIR / "mappe_excel.json"
 
+    logging.info(f"Percorso mappe_excel.json: {profiles_path}")
+
     if not profiles_path.exists():
+        logging.error("File mappe_excel.json NON TROVATO")
         flash("File mappe_excel.json non trovato.", "danger")
         return render_template("import.html", profiles=[])
 
     with open(profiles_path, "r", encoding="utf-8") as f:
         profiles = json.load(f)
 
+    logging.info(f"Profili disponibili: {list(profiles.keys())}")
+
     if request.method == "POST":
         file = request.files.get("file")
         profile_name = request.form.get("profile")
         profile = profiles.get(profile_name)
 
+        logging.info(f"POST import_excel - file: {file.filename if file else None}")
+        logging.info(f"POST import_excel - profile_name: {profile_name}")
+        logging.info(f"POST import_excel - profile trovato: {bool(profile)}")
+
         if not file or file.filename == "" or not profile:
+            logging.warning("File o profilo mancante nel POST")
             flash("File o profilo mancante.", "warning")
             return redirect(request.url)
 
@@ -1053,44 +1064,59 @@ def import_excel():
                 engine="openpyxl"
             ).fillna("")
 
+            logging.info(f"Righe Excel lette: {len(df)}")
+            logging.info(f"Colonne Excel lette: {list(df.columns)}")
+
             column_map = profile.get("column_map", {})
             colonne_valide = {c.name for c in Articolo.__table__.columns}
 
-            added_count = 0
+            logging.info(f"Colonne DB valide: {sorted(colonne_valide)}")
+            logging.info(f"Mappatura Excel → DB: {column_map}")
 
-            for _, row in df.iterrows():
+            added_count = 0
+            skipped_cols = set()
+
+            for row_index, row in df.iterrows():
                 new_art = Articolo()
                 form_data = {}
 
                 for excel_col, db_col in column_map.items():
                     if db_col not in colonne_valide:
+                        skipped_cols.add(db_col)
                         continue
 
                     raw = row.get(excel_col, "")
                     value = str(raw).strip()
 
-                    # normalizzazione coerente col gestionale desktop
                     if value.lower() in ["nan", "none"]:
                         value = ""
 
                     form_data[db_col] = value
 
-                # usa la stessa logica del Tkinter
+                logging.debug(f"Riga {row_index} → form_data: {form_data}")
+
                 populate_articolo_from_form(new_art, form_data)
 
                 db.session.add(new_art)
                 added_count += 1
 
             db.session.commit()
+
+            logging.info(f"IMPORT COMPLETATO - articoli importati: {added_count}")
+
+            if skipped_cols:
+                logging.warning(f"Colonne DB scartate (non esistono nel modello): {sorted(skipped_cols)}")
+
             flash(f"Importazione completata: {added_count} articoli importati.", "success")
             return redirect(url_for("visualizza_giacenze"))
 
         except Exception as e:
             db.session.rollback()
-            logging.error("Errore import Excel", exc_info=True)
+            logging.error("ERRORE IMPORT EXCEL", exc_info=True)
             flash(f"Errore durante l'importazione: {e}", "danger")
             return redirect(request.url)
 
+    logging.info("GET import_excel - rendering pagina")
     return render_template("import_excel.html", profiles=list(profiles.keys()))
 
 def get_all_fields_map():
