@@ -1053,6 +1053,11 @@ def import_excel_route():
         logging.info(f"POST import_excel - file: {file.filename if file else None}")
         logging.info(f"POST import_excel - profile_name: {profile_name}")
         logging.info(f"POST import_excel - profile trovato: {bool(profile)}")
+        logging.warning(f"DEBUG request.files keys: {list(request.files.keys())}")
+        logging.warning(f"DEBUG request.form keys: {list(request.form.keys())}")
+        logging.warning(f"DEBUG file obj: {request.files.get('file')}")
+        logging.warning(f"DEBUG profile: {request.form.get('profile')}")
+
 
         if not file or file.filename == "" or not profile:
             logging.warning("File o profilo mancante nel POST")
