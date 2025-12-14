@@ -1200,7 +1200,7 @@ def import_excel():
 
             db.commit()
             flash(f"Importazione completata: {added_count} articoli aggiunti.", "success")
-            return redirect(url_for("visualizza_giacenze"))
+            return redirect(url_for("giacenze"))
 
         except Exception as e:
             db.rollback()
