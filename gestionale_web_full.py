@@ -1592,7 +1592,7 @@ def giacenze():
         db.close()
 
     cols = [
-        "id_articolo","codice_articolo","descrizione","cliente","fornitore","protocollo",buono_n,
+        "id_articolo","codice_articolo","descrizione","cliente","fornitore","protocollo","buono_n",
         "lunghezza","larghezza","altezza","commessa","magazzino","posizione","stato","peso","n_colli",
         "m2","m3","data_ingresso","data_uscita","n_arrivo","n_ddt_uscita","mezzi_in_uscita"
     ]
