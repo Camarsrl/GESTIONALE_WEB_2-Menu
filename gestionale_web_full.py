@@ -2125,45 +2125,17 @@ def ddt_finalize():
     response.headers['X-Redirect'] = url_for('giacenze')
     return response
 
-# --- ETICHETTE ---
 @app.get('/labels')
 @login_required
 def labels_form():
     db = SessionLocal()
-    # Query per ottenere la lista di clienti unici, escludendo valori vuoti o nulli
-    clienti_query = db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()
-    # Trasforma la lista di tuple in una lista semplice di stringhe
-    clienti = [c[0] for c in clienti_query]
-    return render_template('labels_form.html', clienti=clienti)
-    
-    # Crea un PDF in formato A4 standard
-    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
-    story = []
-
-    # Stile per il testo dell'etichetta
-    style = getSampleStyleSheet()
-    label_style_left = ParagraphStyle(name='LabelLeft', parent=style['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=18, alignment=TA_LEFT)
-
-    # Contenuto dell'etichetta
-    if LOGO_PATH and Path(LOGO_PATH).exists():
-        story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='LEFT'))
-        story.append(Spacer(1, 4*mm))
-
-    text = f"""
-    CLIENTE: {d.get('cliente', '')}<br/>
-    FORNITORE: {d.get('fornitore', '')}<br/>
-    ORDINE: {d.get('ordine', '')}<br/>
-    COMMESSA: {d.get('commessa', '')}<br/>
-    DDT: {d.get('ddt_ingresso', '')}<br/>
-    DATA INGRESSO: {d.get('data_ingresso', '')}<br/>
-    ARRIVO: {d.get('arrivo', '')}<br/>
-    COLLI: {d.get('n_colli', '')}
-    """
-    story.append(Paragraph(text, label_style_left))
-    
-    doc.build(story)
-    bio.seek(0)
-    return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
+    try:
+        # Ottieni la lista dei clienti per il menu a tendina
+        clienti_query = db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()
+        clienti = [c[0] for c in clienti_query]
+        return render_template('labels_form.html', clienti=clienti)
+    finally:
+        db.close()
 
 def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     """Genera il PDF delle etichette per gli articoli selezionati."""
