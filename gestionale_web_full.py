@@ -1886,80 +1886,122 @@ def _copyright_para():
 
 def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     bio = io.BytesIO()
-    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm, topMargin=10*mm, bottomMargin=15*mm)
+    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
     story = []
     
-    s_small_bold = ParagraphStyle(name='small_bold', fontName='Helvetica-Bold', fontSize=8)
-    s_small = ParagraphStyle(name='small', fontName='Helvetica', fontSize=8)
+    styles = getSampleStyleSheet()
+    s_small = ParagraphStyle(name='small', parent=styles['Normal'], fontSize=9, leading=11)
+    s_bold = ParagraphStyle(name='small_bold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11)
     
+    # Logo
     if LOGO_PATH and Path(LOGO_PATH).exists():
         story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER'))
         story.append(Spacer(1, 5*mm))
 
-    title_style = ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, textColor=colors.white)
-    title_bar = Table([[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", title_style)]], colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)])
+    # Titolo
+    title_bar = Table([[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", 
+        ParagraphStyle(name='T', parent=styles['Heading1'], alignment=TA_CENTER, textColor=colors.white, fontSize=14))]], 
+        colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)])
     story.append(title_bar)
-    story.append(Spacer(1, 8*mm))
+    story.append(Spacer(1, 6*mm))
     
-    first_row = rows[0] if rows else Articolo()
-    add_data_content = [
-        [Paragraph("<b>Cliente</b>", s_small_bold), Paragraph(first_row.cliente or '', s_small)],
-        [Paragraph("<b>Commessa</b>", s_small_bold), Paragraph(first_row.commessa or '', s_small)],
-        [Paragraph("<b>Ordine</b>", s_small_bold), Paragraph(first_row.ordine or '', s_small)],
-        [Paragraph("<b>Buono</b>", s_small_bold), Paragraph(first_row.buono_n or '', s_small)],
-        [Paragraph("<b>Protocollo</b>", s_small_bold), Paragraph(first_row.protocollo or '', s_small)],
+    # --- BOX MITTENTE E DESTINATARIO ---
+    mittente_txt = """
+    <b>MITTENTE:</b><br/>
+    <b>Camar S.r.l.</b><br/>
+    Via Luigi Canepa 2<br/>
+    16165 Genova Struppa (GE)
+    """
+    
+    dest_txt = f"""
+    <b>DESTINATARIO:</b><br/>
+    <b>{dest.get('ragione_sociale','')}</b><br/>
+    {dest.get('indirizzo','').replace(chr(10), '<br/>')}
+    """
+    
+    header_data = [[Paragraph(mittente_txt, s_small), Paragraph(dest_txt, s_small)]]
+    t_head = Table(header_data, colWidths=[doc.width/2, doc.width/2])
+    t_head.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.25, colors.grey),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('PADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(t_head)
+    story.append(Spacer(1, 4*mm))
+
+    # --- DATI DOCUMENTO (incluso N. DDT e Targa) ---
+    doc_data = [
+        [Paragraph("<b>Numero DDT:</b>", s_bold), Paragraph(n_ddt, s_small),
+         Paragraph("<b>Data DDT:</b>", s_bold), Paragraph(fmt_date(data_ddt), s_small)],
+        [Paragraph("<b>Targa Mezzo:</b>", s_bold), Paragraph(targa or '', s_small),
+         Paragraph("<b>Causale:</b>", s_bold), Paragraph(form_data.get('causale',''), s_small)]
     ]
-    doc_data_content = [
-        [Paragraph("<b>N. DDT</b>", s_small_bold), Paragraph(n_ddt, s_small)],
-        [Paragraph("<b>Data Uscita</b>", s_small_bold), Paragraph(fmt_date(data_ddt), s_small)],
-        [Paragraph("<b>Targa</b>", s_small_bold), Paragraph(targa, s_small)],
-        [Paragraph("<b>Richiesta di:</b>", s_small_bold), Paragraph("", s_small)],
+    t_doc = Table(doc_data, colWidths=[25*mm, 60*mm, 25*mm, 60*mm])
+    t_doc.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('PADDING', (0,0), (-1,-1), 4),
+    ]))
+    story.append(t_doc)
+    story.append(Spacer(1, 6*mm))
+    
+    # --- TABELLA ARTICOLI (con Note) ---
+    tbl_header = [
+        Paragraph('Cod.Art.', s_bold), 
+        Paragraph('Descrizione / Note', s_bold), # Colonna unica per descr + note
+        Paragraph('Pz', s_bold), 
+        Paragraph('Colli', s_bold), 
+        Paragraph('Peso', s_bold), 
+        Paragraph('N.Arrivo', s_bold)
     ]
+    data = [tbl_header]
     
-    header_data = [
-        [Paragraph("<b>Dati Aggiuntivi</b>", s_small_bold), Paragraph("<b>Destinatario</b>", s_small_bold)],
-        [Table(add_data_content, colWidths=[25*mm, '60%']), Paragraph(f"{dest.get('ragione_sociale','') or ''}<br/>{dest.get('indirizzo','') or ''}", s_small)]
-    ]
-    header_table = Table(header_data, colWidths=[doc.width/2, doc.width/2], style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
-    
-    story.append(header_table)
-    story.append(Spacer(1, 8*mm))
-    
-    data = [['ID','Cod.Art.','Descrizione','Pezzi','Colli','Peso','N.Arrivo']]
     tot_colli, tot_peso, tot_pezzi = 0, 0.0, 0
+    
     for r in rows:
         pezzi = to_int_eu(form_data.get(f"pezzi_{r.id_articolo}", r.pezzo)) or 0
         colli = to_int_eu(form_data.get(f"colli_{r.id_articolo}", r.n_colli)) or 0
         peso = to_float_eu(form_data.get(f"peso_{r.id_articolo}", r.peso)) or 0.0
-        data.append([r.id_articolo, r.codice_articolo or '', r.descrizione or '', pezzi, colli, f"{peso:.2f}", r.n_arrivo or ''])
+        
+        # Unisci Descrizione e Note
+        descr_full = r.descrizione or ''
+        if r.note:
+            descr_full += f"<br/><i>Note: {r.note}</i>"
+            
+        row = [
+            Paragraph(r.codice_articolo or '', s_small),
+            Paragraph(descr_full, s_small),
+            Paragraph(str(pezzi), s_small),
+            Paragraph(str(colli), s_small),
+            Paragraph(f"{peso:.2f}", s_small),
+            Paragraph(r.n_arrivo or '', s_small)
+        ]
+        data.append(row)
         tot_pezzi += pezzi; tot_colli += colli; tot_peso += float(peso)
+        
+    t_items = Table(data, colWidths=[40*mm, 85*mm, 10*mm, 12*mm, 18*mm, 25*mm], repeatRows=1)
+    t_items.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'), # Allinea in alto (testo a capo)
+        ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
+        ('PADDING', (0,0), (-1,-1), 4),
+    ]))
+    story.append(t_items)
     
-    item_table = _pdf_table(data, col_widths=[15*mm, 35*mm, None, 15*mm, 15*mm, 18*mm, 22*mm])
-    story.append(item_table)
-    story.append(Spacer(1, 6*mm))
+    story.append(Spacer(1, 10*mm))
     
-    causale_porto_aspetto = [
-        [Paragraph("<b>Causale</b>", s_small), Paragraph(form_data.get('causale', 'TRASFERIMENTO'), s_small)],
-        [Paragraph("<b>Porto</b>", s_small), Paragraph(form_data.get('porto', 'FRANCO'), s_small)],
-        [Paragraph("<b>Aspetto</b>", s_small), Paragraph(form_data.get('aspetto', 'A VISTA'), s_small)],
-    ]
-    cpa_table = Table(causale_porto_aspetto, colWidths=[20*mm, None], style=[('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey)])
-
-    totals_text = f"<b>Totale Pezzi:</b> {tot_pezzi}<br/><b>Totale Colli:</b> {tot_colli}<br/><b>Totale Peso:</b> {tot_peso:.2f} Kg"
-    firma_text = "<b>Firma Vettore:</b><br/><br/>________________________"
-    
-    footer_table = Table([[cpa_table, Paragraph(totals_text, s_small_bold), Paragraph(firma_text, s_small_bold)]], 
-                         colWidths=[doc.width/3, doc.width/3, doc.width/3], 
-                         style=[('VALIGN', (0,0), (-1,-1), 'TOP')])
-    story.append(footer_table)
+    # Totali e Firma
+    tot_txt = f"<b>Totale Colli:</b> {tot_colli} &nbsp;&nbsp; <b>Totale Peso:</b> {tot_peso:.2f} Kg"
+    story.append(Paragraph(tot_txt, ParagraphStyle('Tot', parent=s_normal, fontSize=11)))
     
     story.append(Spacer(1, 15*mm))
+    story.append(Paragraph("Firma Vettore: __________________________", s_normal))
+    
     story.append(_copyright_para())
     
     doc.build(story)
     bio.seek(0)
     return bio
-
 @app.post('/buono/finalize_and_get_pdf')
 @login_required
 def buono_finalize_and_get_pdf():
