@@ -1171,8 +1171,8 @@ def import_excel():
 
             trunc_cols = [
                 "codice_articolo", "cliente", "fornitore", "commessa", "ordine",
-                "protocollo", "magazzino", "n_ddt_ingresso", "n_arrivo",
-                "buono_n", "serial_number", "n_ddt_uscita", "ns_rif",
+                "protocollo", "magazzino", "n_ddt_ingresso", "n_arrivo","data ingresso da","data ingresso a",
+                "buono_n", "serial_number", "n_ddt_uscita", "ns_rif","data uscita da", "data uscita a",
                 "stato", "mezzi_in_uscita", "pezzo", "posizione"
             ]
 
@@ -1269,7 +1269,7 @@ def import_excel():
 def get_all_fields_map():
     return {
         'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi',
-        'descrizione': 'Descrizione', 'cliente': 'Cliente',
+        'descrizione': 'Descrizione', 'cliente': 'Cliente','ordine':'Ordine',
         'protocollo': 'Protocollo', 'peso': 'Peso (Kg)',
         'n_colli': 'N° Colli', 'posizione': 'Posizione', 'stato': 'Stato',
         'n_arrivo': 'N° Arrivo', 'buono_n': 'Buono N°',
@@ -1489,7 +1489,7 @@ def giacenze():
 
         like_cols = [
             'codice_articolo', 'cliente', 'fornitore', 'commessa', 'descrizione', 'posizione', 'stato',
-            'protocollo', 'n_ddt_ingresso', 'n_ddt_uscita', 'n_arrivo', 'buono_n', 'ns_rif',
+            'protocollo', 'n_ddt_ingresso', 'n_ddt_uscita', 'n_arrivo', 'buono_n', 'ns_rif','ordine',
             'serial_number', 'mezzi_in_uscita'
         ]
 
@@ -1594,7 +1594,7 @@ def giacenze():
     cols = [
         "id_articolo","codice_articolo","descrizione","cliente","fornitore","protocollo","buono_n",
         "lunghezza","larghezza","altezza","commessa","magazzino","posizione","stato","peso","n_colli",
-        "m2","m3","data_ingresso","data_uscita","n_arrivo","n_ddt_uscita","mezzi_in_uscita"
+        "m2","m3","data_ingresso","data_uscita","n_arrivo","n_ddt_uscita","ordine","mezzi_in_uscita"
     ]
 
     return render_template(
