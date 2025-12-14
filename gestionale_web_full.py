@@ -1070,32 +1070,58 @@ def home():
 @login_required
 def import_excel():
     if request.method == 'POST':
+        # 1. Recupera il file
         file = request.files.get('excel_file')
+        
+        if not file or file.filename == '':
+            flash("Nessun file selezionato!", "warning")
+            return redirect(request.url)
+
         if file:
             try:
-                # 1. Analisi preliminare del file per trovare il profilo
+                # 2. Carica i profili dal file JSON esterno
+                mappe_path = APP_DIR / "mappe_excel.json"
+                if not mappe_path.exists():
+                    flash("File mappe_excel.json non trovato! Controlla la cartella.", "danger")
+                    return redirect(request.url)
+                
+                try:
+                    loaded_profiles = json.loads(mappe_path.read_text(encoding='utf-8'))
+                except Exception as e:
+                    flash(f"Errore lettura mappe_excel.json: {e}", "danger")
+                    return redirect(request.url)
+
+                # 3. Leggi Excel (senza header per analisi)
                 df_raw = pd.read_excel(file, header=None, engine='openpyxl')
                 
                 found_profile = None
                 header_idx = 0
+                nome_profilo = "Sconosciuto"
                 
+                # 4. Rilevamento Profilo
                 for i in range(min(5, len(df_raw))):
                     row_values = [str(val).strip().upper() for val in df_raw.iloc[i].values if pd.notna(val)]
-                    for p_name, p_data in PROFILI_MAPPATURA.items():
-                        required_cols = list(p_data['column_map'].keys())
-                        matches = sum(1 for col in required_cols if col in row_values)
-                        if matches >= 3: # Se trovi almeno 3 colonne che corrispondono
+                    for p_name, p_data in loaded_profiles.items():
+                        req_cols = list(p_data['column_map'].keys())
+                        matches = sum(1 for col in req_cols if col in row_values)
+                        if matches >= 3:
                             found_profile = p_data
                             header_idx = p_data.get('header_row', i)
-                            print(f"DEBUG: Profilo '{p_name}' rilevato alla riga {i}")
+                            nome_profilo = p_name
                             break
                     if found_profile: break
                 
+                # Fallback
                 if not found_profile:
-                    found_profile = PROFILI_MAPPATURA["Giacenze Default"]
-                    header_idx = 0
+                    nome_profilo = "Giacenze Default (Intestazione Riga 3)" # Nome esatto dal tuo JSON
+                    if nome_profilo in loaded_profiles:
+                        found_profile = loaded_profiles[nome_profilo]
+                        header_idx = found_profile.get('header_row', 2)
+                    else:
+                        flash("Nessun profilo compatibile trovato e profilo Default mancante nel JSON.", "danger")
+                        return redirect(request.url)
 
-                # 2. Lettura dati reali
+                # 5. Lettura Dati Reali
                 file.seek(0)
                 df = pd.read_excel(file, header=header_idx, engine='openpyxl')
                 col_map = found_profile['column_map']
@@ -1103,11 +1129,11 @@ def import_excel():
                 db = SessionLocal()
                 imported_count = 0
                 
-                # Lista campi limitati a 255 caratteri (per evitare crash DB)
-                limited_fields = ['codice_articolo', 'cliente', 'fornitore', 'commessa', 
-                                  'ordine', 'protocollo', 'magazzino', 'n_ddt_ingresso', 
-                                  'n_arrivo', 'buono_n', 'serial_number', 'n_ddt_uscita', 
-                                  'ns_rif', 'stato', 'mezzi_in_uscita', 'pezzo', 'posizione']
+                # Campi da troncare (String 255)
+                trunc_cols = ['codice_articolo', 'cliente', 'fornitore', 'commessa', 'ordine', 
+                              'protocollo', 'magazzino', 'n_ddt_ingresso', 'n_arrivo', 
+                              'buono_n', 'serial_number', 'n_ddt_uscita', 'ns_rif', 
+                              'stato', 'mezzi_in_uscita', 'pezzo', 'posizione']
 
                 for _, row in df.iterrows():
                     new_art = Articolo()
@@ -1116,52 +1142,44 @@ def import_excel():
                     for excel_col, db_col in col_map.items():
                         if db_col == "ID": continue
                         
-                        # Match colonna case-insensitive
-                        matching_col = next((c for c in df.columns if str(c).strip().upper() == excel_col.upper()), None)
+                        match_col = next((c for c in df.columns if str(c).strip().upper() == excel_col.upper()), None)
                         
-                        if matching_col:
-                            val = row[matching_col]
+                        if match_col:
+                            val = row[match_col]
                             if pd.notna(val) and str(val).strip() != '' and str(val).lower() != 'nan':
                                 has_data = True
                                 
                                 # Conversioni
-                                if db_col in ['n_colli', 'pezzo']:
-                                    val = to_int_eu(val)
-                                elif db_col in ['peso', 'larghezza', 'lunghezza', 'altezza', 'm2', 'm3']:
-                                    val = to_float_eu(val)
-                                elif db_col in ['data_ingresso', 'data_uscita']:
-                                    val = str(val).split(' ')[0][:32] # Taglia data se troppo lunga
+                                if db_col in ['n_colli', 'pezzo']: val = to_int_eu(val)
+                                elif db_col in ['peso', 'larghezza', 'lunghezza', 'altezza', 'm2', 'm3']: val = to_float_eu(val)
+                                elif db_col in ['data_ingresso', 'data_uscita']: 
+                                    val = str(val).split(' ')[0][:32]
                                 else:
                                     val = str(val).strip()
-                                    # --- PROTEZIONE CRASH: TRONCAMENTO ---
-                                    if db_col in limited_fields and len(val) > 255:
-                                        val = val[:255] # Taglia a 255 caratteri
+                                    # TRONCAMENTO SICUREZZA
+                                    if db_col in trunc_cols and len(val) > 255:
+                                        val = val[:255]
                                 
-                                if hasattr(new_art, db_col):
-                                    setattr(new_art, db_col, val)
+                                if hasattr(new_art, db_col): setattr(new_art, db_col, val)
                     
                     if has_data:
-                        # Calcoli Auto
-                        if not new_art.m2: 
-                            new_art.m2 = round((new_art.larghezza or 0) * (new_art.lunghezza or 0) * (new_art.n_colli or 1), 3)
-                        if not new_art.m3: 
-                            new_art.m3 = round((new_art.m2 or 0) * (new_art.altezza or 0), 3)
-                        
-                        if not new_art.stato:
-                            new_art.stato = 'In giacenza'
-                            
+                        if not new_art.m2: new_art.m2 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)[0]
+                        if not new_art.m3: new_art.m3 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)[1]
+                        if not new_art.stato: new_art.stato = 'In giacenza'
                         db.add(new_art)
                         imported_count += 1
 
                 db.commit()
-                flash(f'Importazione completata! {imported_count} articoli aggiunti.', 'success')
-                return redirect(url_for('giacenze'))
+                flash(f'Importazione completata! {imported_count} articoli aggiunti (Profilo: {nome_profilo}).', 'success')
+                
+                # --- CORREZIONE REINDIRIZZAMENTO ---
+                return redirect(url_for('giacenze')) # Era visualizza_giacenze
 
             except Exception as e:
                 db.rollback()
-                print(f"ERRORE IMPORT: {e}")
                 flash(f"Errore Importazione: {e}", 'danger')
                 return redirect(request.url)
+                
     return render_template('import_excel.html')
 def get_all_fields_map():
     return {
