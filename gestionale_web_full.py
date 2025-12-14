@@ -97,7 +97,7 @@ class Articolo(Base):
     pezzo = Column(String(255))
     larghezza = Column(Float); lunghezza = Column(Float); altezza = Column(Float)
     m2 = Column(Float); m3 = Column(Float)
-    protocollo = Column(String(255)); ordine = Column(String(255)); commessa = Column(String(255))
+    protocollo = Column(String(255)); commessa = Column(String(255))
     magazzino = Column(String(255)); fornitore = Column(String(255))
     data_ingresso = Column(String(32)); n_ddt_ingresso = Column(String(255))
     cliente = Column(String(255)); descrizione = Column(Text); peso = Column(Float); n_colli = Column(Integer)
