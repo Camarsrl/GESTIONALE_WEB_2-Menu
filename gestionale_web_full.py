@@ -1997,154 +1997,106 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     doc.build(story)
     bio.seek(0)
     return bio
+
+
 @app.post('/buono/finalize_and_get_pdf')
 @login_required
 def buono_finalize_and_get_pdf():
-    # 1. Recupera gli ID selezionati
     ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
     rows = _get_rows_from_ids(ids)
     
-    # 2. Recupera l'azione (preview o save) e il numero buono
-    action = request.form.get('action', 'preview') # Default preview se non specificato
-    raw_buono_n = request.form.get('buono_n')
+    action = request.form.get('action', 'preview')
     
-    # Pulisce il numero buono: se è vuoto o 'None' (case insensitive), diventa stringa vuota
-    if raw_buono_n and raw_buono_n.strip().lower() != 'none':
-        buono_n = raw_buono_n.strip()
-    else:
-        buono_n = ""
+    # Gestione "None" -> stringa vuota
+    raw_buono = request.form.get('buono_n')
+    buono_n = raw_buono.strip() if raw_buono and raw_buono.lower() != 'none' else ""
     
-    # 3. Aggiorna il DB SOLO se l'azione è 'save' E c'è un numero buono valido
+    # Salva solo se richiesto e se c'è un numero
     if action == 'save' and buono_n:
         db = SessionLocal()
         try:
             for r in rows:
                 r.buono_n = buono_n
             db.commit()
-            flash(f"Numero Buono '{buono_n}' salvato per gli articoli selezionati.", "info")
-        except Exception as e:
-            db.rollback()
-            flash(f"Errore salvataggio Buono: {e}", "danger")
+            flash(f"Numero Buono '{buono_n}' salvato.", "info")
         finally:
             db.close()
     
-    # 4. Setup PDF
+    # Genera PDF
     bio = io.BytesIO()
-    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm, topMargin=10*mm, bottomMargin=15*mm)
+    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
     story = []
-
-    # Stili per il testo
+    
     styles = getSampleStyleSheet()
-    s_normal = styles['Normal']
-    s_small = ParagraphStyle(name='small', parent=s_normal, fontSize=9, leading=11)
-    s_bold = ParagraphStyle(name='small_bold', parent=s_normal, fontName='Helvetica-Bold', fontSize=9, leading=11)
-
+    s_small = ParagraphStyle(name='small', parent=styles['Normal'], fontSize=9, leading=11)
+    s_bold = ParagraphStyle(name='small_bold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11)
+    
     # Logo
     if LOGO_PATH and Path(LOGO_PATH).exists():
-        logo = Image(LOGO_PATH, width=60*mm, height=20*mm, hAlign='CENTER')
-        story.append(logo)
+        story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER'))
         story.append(Spacer(1, 5*mm))
 
     # Titolo
-    title_style = ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, textColor=colors.white)
-    title_bar = Table([[Paragraph("BUONO DI PRELIEVO", title_style)]], colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)])
-    story.append(title_bar)
-    story.append(Spacer(1, 8*mm))
-
-    d_row = rows[0] if rows else None
+    title = Table([[Paragraph("BUONO DI PRELIEVO", ParagraphStyle('T', parent=styles['Heading1'], alignment=TA_CENTER, textColor=colors.white, fontSize=14))]], 
+                  colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)])
+    story.append(title)
+    story.append(Spacer(1, 6*mm))
     
-    # Tabella Dati Testata (Meta)
+    # Dati Testata (Simile al PDF inviato)
     meta_data = [
-        [Paragraph("<b>Data Emissione</b>", s_bold), Paragraph(request.form.get('data_em', ''), s_small)],
-        [Paragraph("<b>Commessa</b>", s_bold), Paragraph(request.form.get('commessa', ''), s_small)],
-        [Paragraph("<b>Fornitore</b>", s_bold), Paragraph(request.form.get('fornitore', ''), s_small)],
-        [Paragraph("<b>Protocollo</b>", s_bold), Paragraph(request.form.get('protocollo', ''), s_small)],
-        [Paragraph("<b>N. Buono</b>", s_bold), Paragraph(buono_n, s_small)]
+        [Paragraph("<b>Data Emissione:</b>", s_bold), Paragraph(request.form.get('data_em',''), s_small)],
+        [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(request.form.get('commessa',''), s_small)],
+        [Paragraph("<b>Fornitore:</b>", s_bold), Paragraph(request.form.get('fornitore',''), s_small)],
+        [Paragraph("<b>Protocollo:</b>", s_bold), Paragraph(request.form.get('protocollo',''), s_small)],
+        [Paragraph("<b>N. Buono:</b>", s_bold), Paragraph(buono_n, s_small)]
     ]
-    # Usiamo una tabella manuale per controllare meglio gli stili
-    meta_table = Table(meta_data, colWidths=[40*mm, None], style=[
-        ('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey),
-        ('BACKGROUND', (0,0), (0,-1), colors.whitesmoke),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('LEFTPADDING', (0,0), (-1,-1), 5),
-        ('RIGHTPADDING', (0,0), (-1,-1), 5),
-    ])
-    story.append(meta_table)
+    t_meta = Table(meta_data, colWidths=[35*mm, 100*mm])
+    t_meta.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE')]))
+    story.append(t_meta)
     story.append(Spacer(1, 6*mm))
     
     # Cliente
-    if d_row:
-        story.append(Paragraph(f"<b>Cliente:</b> {(d_row.cliente or '').upper()}", s_normal))
-        story.append(Spacer(1, 6*mm))
+    d_row = rows[0] if rows else None
+    cliente_txt = (d_row.cliente or '').upper() if d_row else ""
+    story.append(Paragraph(f"<b>Cliente:</b> {cliente_txt}", ParagraphStyle('Client', parent=styles['Normal'], fontSize=12)))
+    story.append(Spacer(1, 6*mm))
     
-    # --- TABELLA ARTICOLI ---
-    # Intestazioni (usando Paragraph per lo stile)
-    tbl_header = [
-        Paragraph('Ordine', s_bold), 
-        Paragraph('Codice Articolo', s_bold), 
-        Paragraph('Descrizione', s_bold), 
-        Paragraph('Q.tà', s_bold), 
-        Paragraph('N.Arrivo', s_bold)
-    ]
-    
-    data = [tbl_header]
+    # Tabella Articoli
+    header = [Paragraph('Ordine', s_bold), Paragraph('Codice Articolo', s_bold), Paragraph('Descrizione', s_bold), Paragraph('Q.tà', s_bold), Paragraph('N.Arrivo', s_bold)]
+    data = [header]
     
     for r in rows:
         q_val = request.form.get(f"q_{r.id_articolo}")
-        quantita = to_int_eu(q_val) if q_val is not None else (r.n_colli or 1)
-        
-        # Le celle sono Paragraph per permettere al testo di andare a capo
-        row_data = [
+        quantita = to_int_eu(q_val) if q_val else (r.n_colli or 1)
+        row = [
             Paragraph(r.ordine or '', s_small),
             Paragraph(r.codice_articolo or '', s_small),
             Paragraph(r.descrizione or '', s_small),
             Paragraph(str(quantita), s_small),
             Paragraph(r.n_arrivo or '', s_small)
         ]
-        data.append(row_data)
-    
-    # Definisci larghezze colonne (Totale ~180mm per stare nei margini)
-    col_widths = [30*mm, 45*mm, 65*mm, 15*mm, 25*mm]
-    
-    t = Table(data, colWidths=col_widths, repeatRows=1)
-    t.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'TOP'), # Fondamentale: allinea in alto se il testo va a capo
+        data.append(row)
+        
+    t_items = Table(data, colWidths=[30*mm, 45*mm, 80*mm, 15*mm, 20*mm], repeatRows=1)
+    t_items.setStyle(TableStyle([
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-        ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke), # Sfondo testata
-        ('LEFTPADDING', (0,0), (-1,-1), 4),
-        ('RIGHTPADDING', (0,0), (-1,-1), 4),
-        ('TOPPADDING', (0,0), (-1,-1), 4),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'), # Allinea in alto per il testo a capo
+        ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
+        ('Padding', (0,0), (-1,-1), 4)
     ]))
-    story.append(t)
+    story.append(t_items)
+    story.append(Spacer(1, 20*mm))
     
-    story.append(Spacer(1, 30*mm)) 
-
     # Firme
-    signature_style = ParagraphStyle(name='Signature', fontName='Helvetica', fontSize=10)
-    sig_data = [
-        [Paragraph("Firma Magazzino:<br/><br/>____________________________", signature_style), 
-         Paragraph("Firma Cliente:<br/><br/>____________________________", signature_style)]
-    ]
-    story.append(Table(sig_data, colWidths=[doc.width/2, doc.width/2], style=[('VALIGN', (0,0), (-1,-1), 'TOP')]))
+    t_sig = Table([[Paragraph("Firma Magazzino:<br/><br/>__________________", s_small), Paragraph("Firma Cliente:<br/><br/>__________________", s_small)]], colWidths=[doc.width/2, doc.width/2])
+    story.append(t_sig)
     
-    story.append(Spacer(1, 15*mm))
-    story.append(_copyright_para())
-
     doc.build(story)
     bio.seek(0)
     
-    # 5. Restituisci il file
-    # Se action è 'save', scarica come allegato. Se 'preview', mostra nel browser.
-    download_name = f'Buono_{buono_n if buono_n else "Anteprima"}.pdf'
-    as_attachment = (action == 'save')
-    
-    return send_file(
-        bio, 
-        as_attachment=as_attachment, 
-        download_name=download_name, 
-        mimetype='application/pdf'
-                )
+    filename = f'Buono_{buono_n if buono_n else "Anteprima"}.pdf'
+    return send_file(bio, as_attachment=(action=='save'), download_name=filename, mimetype='application/pdf')
+
 @app.post('/pdf/ddt')
 @login_required
 def pdf_ddt():
