@@ -1270,7 +1270,7 @@ def get_all_fields_map():
     return {
         'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi',
         'descrizione': 'Descrizione', 'cliente': 'Cliente',
-        'protocollo': 'Protocollo', 'ordine': 'Ordine', 'peso': 'Peso (Kg)',
+        'protocollo': 'Protocollo', 'peso': 'Peso (Kg)',
         'n_colli': 'N° Colli', 'posizione': 'Posizione', 'stato': 'Stato',
         'n_arrivo': 'N° Arrivo', 'buono_n': 'Buono N°',
         'fornitore': 'Fornitore', 'magazzino': 'Magazzino',
