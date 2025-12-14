@@ -1066,153 +1066,103 @@ def home():
     return render_template('home.html')
 
 
-@app.route("/import_excel", methods=["GET", "POST"], endpoint="import_excel")
+@app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
 def import_excel():
-    import json
-    import logging
-    from pathlib import Path
-
-    # 1. Controllo Ruolo
-    if session.get("role") != "admin":
-        abort(403)
-
-    logging.info("=== IMPORT EXCEL: AVVIO ===")
-
-    # 2. Caricamento Profili (mappe_excel.json)
-    BASE_DIR = Path(__file__).resolve().parent
-    profiles_path = BASE_DIR / "config" / "mappe_excel.json"
-    if not profiles_path.exists():
-        profiles_path = BASE_DIR / "mappe_excel.json"
-
-    if not profiles_path.exists():
-        flash("File mappe_excel.json non trovato.", "danger")
-        return render_template("import_excel.html", profiles=[])
-
-    try:
-        with open(profiles_path, "r", encoding="utf-8") as f:
-            profiles = json.load(f)
-    except Exception as e:
-        flash(f"Errore lettura profili: {e}", "danger")
-        return render_template("import_excel.html", profiles=[])
-
-    # 3. Gestione Richiesta POST (Caricamento File)
-    if request.method == "POST":
-        db = SessionLocal() # Apro la sessione qui per poter fare rollback dopo
-        try:
-            # Recupero file e profilo dal form
-            file = request.files.get("file") or request.files.get("excel_file")
-            profile_name = request.form.get("profile")
-            profile = profiles.get(profile_name)
-
-            if not file or file.filename == "" or not profile:
-                flash("File o profilo mancante.", "warning")
-                return redirect(request.url)
-
-            # Lettura Excel
-            df = pd.read_excel(
-                file,
-                header=profile.get("header_row", 0),
-                dtype=str,
-                engine="openpyxl"
-            ).fillna("")
-
-            # Normalizzazione colonne Excel e Mappatura
-            excel_lower = {str(c).strip().lower(): c for c in df.columns}
-            column_map = profile.get("column_map", {})
-            cols_to_rename = {}
-            
-            for excel_col, db_col in column_map.items():
-                if db_col in ("m2", "m3"): continue
-                key = str(excel_col).strip().lower()
-                if key in excel_lower:
-                    cols_to_rename[excel_lower[key]] = db_col
-
-            if not cols_to_rename:
-                flash("Nessuna colonna corrispondente trovata nel file.", "danger")
-                return redirect(request.url)
-
-            # Rinomina colonne nel DataFrame
-            df = df[list(cols_to_rename.keys())].rename(columns=cols_to_rename)
-            
-            # --- Funzione interna per convertire e salvare i dati ---
-            def _populate_article(art, data_row):
-                # Definisco le colonne valide del DB
-                valid_cols = {c.name for c in Articolo.__table__.columns}
+    if request.method == 'POST':
+        file = request.files.get('excel_file')
+        if file:
+            try:
+                # 1. Analisi preliminare del file per trovare il profilo
+                df_raw = pd.read_excel(file, header=None, engine='openpyxl')
                 
-                for col_name, val in data_row.items():
-                    if col_name not in valid_cols: continue
+                found_profile = None
+                header_idx = 0
+                
+                for i in range(min(5, len(df_raw))):
+                    row_values = [str(val).strip().upper() for val in df_raw.iloc[i].values if pd.notna(val)]
+                    for p_name, p_data in PROFILI_MAPPATURA.items():
+                        required_cols = list(p_data['column_map'].keys())
+                        matches = sum(1 for col in required_cols if col in row_values)
+                        if matches >= 3: # Se trovi almeno 3 colonne che corrispondono
+                            found_profile = p_data
+                            header_idx = p_data.get('header_row', i)
+                            print(f"DEBUG: Profilo '{p_name}' rilevato alla riga {i}")
+                            break
+                    if found_profile: break
+                
+                if not found_profile:
+                    found_profile = PROFILI_MAPPATURA["Giacenze Default"]
+                    header_idx = 0
+
+                # 2. Lettura dati reali
+                file.seek(0)
+                df = pd.read_excel(file, header=header_idx, engine='openpyxl')
+                col_map = found_profile['column_map']
+                
+                db = SessionLocal()
+                imported_count = 0
+                
+                # Lista campi limitati a 255 caratteri (per evitare crash DB)
+                limited_fields = ['codice_articolo', 'cliente', 'fornitore', 'commessa', 
+                                  'ordine', 'protocollo', 'magazzino', 'n_ddt_ingresso', 
+                                  'n_arrivo', 'buono_n', 'serial_number', 'n_ddt_uscita', 
+                                  'ns_rif', 'stato', 'mezzi_in_uscita', 'pezzo', 'posizione']
+
+                for _, row in df.iterrows():
+                    new_art = Articolo()
+                    has_data = False
                     
-                    # Pulizia valore
-                    val_str = str(val).strip()
-                    if val_str.lower() in ("nan", "none", ""):
-                        val_str = None
-                    
-                    # Conversione Tipi
-                    if col_name in ["lunghezza", "larghezza", "altezza", "peso", "m2", "m3"]:
-                        try:
-                            # Tenta conversione float (gestisce virgola e punto)
-                            if val_str:
-                                setattr(art, col_name, float(val_str.replace(",", ".")))
-                            else:
-                                setattr(art, col_name, None)
-                        except: setattr(art, col_name, None)
-                    
-                    elif col_name in ["n_colli", "pezzo"]:
-                        try:
-                            if val_str:
-                                setattr(art, col_name, int(float(val_str.replace(",", "."))))
-                            else:
-                                setattr(art, col_name, None)
-                        except: setattr(art, col_name, None)
+                    for excel_col, db_col in col_map.items():
+                        if db_col == "ID": continue
                         
-                    elif col_name in ["data_ingresso", "data_uscita"]:
-                        # Se è una data, prendi solo la parte YYYY-MM-DD
-                        if val_str:
-                            setattr(art, col_name, val_str.split(" ")[0])
-                        else:
-                            setattr(art, col_name, None)
-                    else:
-                        # Testo semplice
-                        setattr(art, col_name, val_str)
+                        # Match colonna case-insensitive
+                        matching_col = next((c for c in df.columns if str(c).strip().upper() == excel_col.upper()), None)
+                        
+                        if matching_col:
+                            val = row[matching_col]
+                            if pd.notna(val) and str(val).strip() != '' and str(val).lower() != 'nan':
+                                has_data = True
+                                
+                                # Conversioni
+                                if db_col in ['n_colli', 'pezzo']:
+                                    val = to_int_eu(val)
+                                elif db_col in ['peso', 'larghezza', 'lunghezza', 'altezza', 'm2', 'm3']:
+                                    val = to_float_eu(val)
+                                elif db_col in ['data_ingresso', 'data_uscita']:
+                                    val = str(val).split(' ')[0][:32] # Taglia data se troppo lunga
+                                else:
+                                    val = str(val).strip()
+                                    # --- PROTEZIONE CRASH: TRONCAMENTO ---
+                                    if db_col in limited_fields and len(val) > 255:
+                                        val = val[:255] # Taglia a 255 caratteri
+                                
+                                if hasattr(new_art, db_col):
+                                    setattr(new_art, db_col, val)
+                    
+                    if has_data:
+                        # Calcoli Auto
+                        if not new_art.m2: 
+                            new_art.m2 = round((new_art.larghezza or 0) * (new_art.lunghezza or 0) * (new_art.n_colli or 1), 3)
+                        if not new_art.m3: 
+                            new_art.m3 = round((new_art.m2 or 0) * (new_art.altezza or 0), 3)
+                        
+                        if not new_art.stato:
+                            new_art.stato = 'In giacenza'
+                            
+                        db.add(new_art)
+                        imported_count += 1
 
-                # Calcolo automatico M2/M3 se mancano
-                try:
-                    if not art.m2 or art.m2 == 0:
-                        l = art.lunghezza or 0
-                        w = art.larghezza or 0
-                        c = art.n_colli or 1
-                        art.m2 = round(l * w * c, 3)
-                    if not art.m3 or art.m3 == 0:
-                        m2 = art.m2 or 0
-                        h = art.altezza or 0
-                        art.m3 = round(m2 * h, 3)
-                except: pass
+                db.commit()
+                flash(f'Importazione completata! {imported_count} articoli aggiunti.', 'success')
+                return redirect(url_for('giacenze'))
 
-            # Ciclo sulle righe e salvataggio
-            added_count = 0
-            for _, row in df.iterrows():
-                new_art = Articolo()
-                # Passiamo la riga come dizionario alla funzione di popolamento
-                _populate_article(new_art, row.to_dict())
-                db.add(new_art)
-                added_count += 1
-
-            db.commit()
-            flash(f"Importazione completata: {added_count} articoli aggiunti.", "success")
-            return redirect(url_for("giacenze"))
-
-        except Exception as e:
-            db.rollback()
-            logging.error(f"Errore Importazione: {e}", exc_info=True)
-            flash(f"Errore durante l'importazione: {str(e)}", "danger")
-            return redirect(request.url)
-        finally:
-            db.close()
-
-    # 4. Gestione Richiesta GET (Mostra form)
-    # Corretto il nome del template: import_excel.html
-    return render_template("import_excel.html", profiles=list(profiles.keys()))
+            except Exception as e:
+                db.rollback()
+                print(f"ERRORE IMPORT: {e}")
+                flash(f"Errore Importazione: {e}", 'danger')
+                return redirect(request.url)
+    return render_template('import_excel.html')
 def get_all_fields_map():
     return {
         'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi',
