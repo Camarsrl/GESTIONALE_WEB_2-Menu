@@ -2037,6 +2037,30 @@ def labels_pdf():
         flash(f"Etichette per {cliente} generate correttamente.", "success")
         return redirect(url_for('labels_form'))
 
+# --- FIX DATABASE SCHEMA (Esegui all'avvio) ---
+def fix_db_schema():
+    """Tenta di correggere i tipi di colonna nel DB reale."""
+    try:
+        from sqlalchemy import text
+        db = SessionLocal()
+        # Forza codice_articolo a VARCHAR se non lo è
+        db.execute(text("ALTER TABLE articoli ALTER COLUMN codice_articolo TYPE VARCHAR(255) USING codice_articolo::varchar;"))
+        # Forza altri campi che potrebbero essere sbagliati
+        db.execute(text("ALTER TABLE articoli ALTER COLUMN commessa TYPE VARCHAR(255) USING commessa::varchar;"))
+        db.execute(text("ALTER TABLE articoli ALTER COLUMN ordine TYPE VARCHAR(255) USING ordine::varchar;"))
+        db.execute(text("ALTER TABLE articoli ALTER COLUMN posizione TYPE VARCHAR(255) USING posizione::varchar;"))
+        db.execute(text("ALTER TABLE articoli ALTER COLUMN n_arrivo TYPE VARCHAR(255) USING n_arrivo::varchar;"))
+        db.execute(text("ALTER TABLE articoli ALTER COLUMN n_ddt_ingresso TYPE VARCHAR(255) USING n_ddt_ingresso::varchar;"))
+        db.commit()
+        print("✅ SCHEMA DB CORRETTO: Colonne chiave convertite in VARCHAR.")
+    except Exception as e:
+        print(f"⚠️ Tentativo fix schema ignorato (potrebbe essere già ok o db sqlite): {e}")
+    finally:
+        db.close()
+
+# Esegui il fix all'avvio
+fix_db_schema()
+
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
