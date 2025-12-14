@@ -1181,6 +1181,7 @@ def import_excel():
                 return redirect(request.url)
                 
     return render_template('import_excel.html')
+
 def get_all_fields_map():
     return {
         'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi',
