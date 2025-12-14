@@ -1066,121 +1066,205 @@ def home():
     return render_template('home.html')
 
 
-@app.route('/import_excel', methods=['GET', 'POST'])
+@app.route("/import_excel", methods=["GET", "POST"], endpoint="import_excel")
 @login_required
 def import_excel():
-    if request.method == 'POST':
-        # 1. Recupera il file
-        file = request.files.get('excel_file')
-        
-        if not file or file.filename == '':
-            flash("Nessun file selezionato!", "warning")
-            return redirect(request.url)
+    import json
+    import logging
+    from pathlib import Path
 
-        if file:
-            try:
-                # 2. Carica i profili dal file JSON esterno
-                mappe_path = APP_DIR / "mappe_excel.json"
-                if not mappe_path.exists():
-                    flash("File mappe_excel.json non trovato! Controlla la cartella.", "danger")
-                    return redirect(request.url)
-                
-                try:
-                    loaded_profiles = json.loads(mappe_path.read_text(encoding='utf-8'))
-                except Exception as e:
-                    flash(f"Errore lettura mappe_excel.json: {e}", "danger")
-                    return redirect(request.url)
+    # se vuoi admin-only, sblocca queste 2 righe:
+    # if session.get("role") != "admin":
+    #     abort(403)
 
-                # 3. Leggi Excel (senza header per analisi)
-                df_raw = pd.read_excel(file, header=None, engine='openpyxl')
-                
-                found_profile = None
-                header_idx = 0
-                nome_profilo = "Sconosciuto"
-                
-                # 4. Rilevamento Profilo
-                for i in range(min(5, len(df_raw))):
-                    row_values = [str(val).strip().upper() for val in df_raw.iloc[i].values if pd.notna(val)]
-                    for p_name, p_data in loaded_profiles.items():
-                        req_cols = list(p_data['column_map'].keys())
-                        matches = sum(1 for col in req_cols if col in row_values)
-                        if matches >= 3:
-                            found_profile = p_data
-                            header_idx = p_data.get('header_row', i)
-                            nome_profilo = p_name
-                            break
-                    if found_profile: break
-                
-                # Fallback
-                if not found_profile:
-                    nome_profilo = "Giacenze Default (Intestazione Riga 3)" # Nome esatto dal tuo JSON
-                    if nome_profilo in loaded_profiles:
-                        found_profile = loaded_profiles[nome_profilo]
-                        header_idx = found_profile.get('header_row', 2)
-                    else:
-                        flash("Nessun profilo compatibile trovato e profilo Default mancante nel JSON.", "danger")
-                        return redirect(request.url)
+    db = None  # IMPORTANTISSIMO: per non rompere nel except
 
-                # 5. Lettura Dati Reali
-                file.seek(0)
-                df = pd.read_excel(file, header=header_idx, engine='openpyxl')
-                col_map = found_profile['column_map']
-                
-                db = SessionLocal()
-                imported_count = 0
-                
-                # Campi da troncare (String 255)
-                trunc_cols = ['codice_articolo', 'cliente', 'fornitore', 'commessa', 'ordine', 
-                              'protocollo', 'magazzino', 'n_ddt_ingresso', 'n_arrivo', 
-                              'buono_n', 'serial_number', 'n_ddt_uscita', 'ns_rif', 
-                              'stato', 'mezzi_in_uscita', 'pezzo', 'posizione']
+    try:
+        if request.method == "POST":
+            # 1) Recupera il file (accetto sia excel_file che file)
+            file = request.files.get("excel_file") or request.files.get("file")
 
-                for _, row in df.iterrows():
-                    new_art = Articolo()
-                    has_data = False
-                    
-                    for excel_col, db_col in col_map.items():
-                        if db_col == "ID": continue
-                        
-                        match_col = next((c for c in df.columns if str(c).strip().upper() == excel_col.upper()), None)
-                        
-                        if match_col:
-                            val = row[match_col]
-                            if pd.notna(val) and str(val).strip() != '' and str(val).lower() != 'nan':
-                                has_data = True
-                                
-                                # Conversioni
-                                if db_col in ['n_colli', 'pezzo']: val = to_int_eu(val)
-                                elif db_col in ['peso', 'larghezza', 'lunghezza', 'altezza', 'm2', 'm3']: val = to_float_eu(val)
-                                elif db_col in ['data_ingresso', 'data_uscita']: 
-                                    val = str(val).split(' ')[0][:32]
-                                else:
-                                    val = str(val).strip()
-                                    # TRONCAMENTO SICUREZZA
-                                    if db_col in trunc_cols and len(val) > 255:
-                                        val = val[:255]
-                                
-                                if hasattr(new_art, db_col): setattr(new_art, db_col, val)
-                    
-                    if has_data:
-                        if not new_art.m2: new_art.m2 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)[0]
-                        if not new_art.m3: new_art.m3 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)[1]
-                        if not new_art.stato: new_art.stato = 'In giacenza'
-                        db.add(new_art)
-                        imported_count += 1
+            logging.warning(f"[IMPORT] request.files keys={list(request.files.keys())}")
+            logging.warning(f"[IMPORT] request.form keys={list(request.form.keys())}")
+            logging.info(f"[IMPORT] file={(file.filename if file else None)}")
 
-                db.commit()
-                flash(f'Importazione completata! {imported_count} articoli aggiunti (Profilo: {nome_profilo}).', 'success')
-                
-                # --- CORREZIONE REINDIRIZZAMENTO ---
-                return redirect(url_for('giacenze')) # Era visualizza_giacenze
-
-            except Exception as e:
-                db.rollback()
-                flash(f"Errore Importazione: {e}", 'danger')
+            if not file or file.filename == "":
+                flash("Nessun file selezionato!", "warning")
                 return redirect(request.url)
-                
-    return render_template('import_excel.html')
+
+            # 2) Carica profili mappe_excel.json (config/ oppure root)
+            BASE_DIR = Path(__file__).resolve().parent
+            mappe_path = BASE_DIR / "config" / "mappe_excel.json"
+            if not mappe_path.exists():
+                mappe_path = BASE_DIR / "mappe_excel.json"
+
+            logging.info(f"[IMPORT] mappe_path={mappe_path}")
+
+            if not mappe_path.exists():
+                flash("File mappe_excel.json non trovato! Controlla la cartella.", "danger")
+                return redirect(request.url)
+
+            try:
+                loaded_profiles = json.loads(mappe_path.read_text(encoding="utf-8"))
+            except Exception as e:
+                flash(f"Errore lettura mappe_excel.json: {e}", "danger")
+                return redirect(request.url)
+
+            logging.info(f"[IMPORT] profili disponibili={list(loaded_profiles.keys())}")
+
+            # 3) Leggi Excel senza header per rilevare profilo
+            df_raw = pd.read_excel(file, header=None, engine="openpyxl")
+            logging.info(f"[IMPORT] df_raw rows={len(df_raw)} cols={len(df_raw.columns)}")
+
+            found_profile = None
+            header_idx = 0
+            nome_profilo = "Sconosciuto"
+
+            # 4) Rilevamento Profilo (prime 5 righe)
+            for i in range(min(5, len(df_raw))):
+                row_values = [
+                    str(val).strip().upper()
+                    for val in df_raw.iloc[i].values
+                    if pd.notna(val)
+                ]
+
+                for p_name, p_data in loaded_profiles.items():
+                    req_cols = list((p_data.get("column_map") or {}).keys())
+                    if not req_cols:
+                        continue
+
+                    matches = sum(1 for col in req_cols if str(col).strip().upper() in row_values)
+
+                    if matches >= 3:
+                        found_profile = p_data
+                        header_idx = p_data.get("header_row", i)
+                        nome_profilo = p_name
+                        break
+
+                if found_profile:
+                    break
+
+            # Fallback profilo default
+            if not found_profile:
+                nome_profilo = "Giacenze Default (Intestazione Riga 3)"  # deve esistere nel JSON
+                if nome_profilo in loaded_profiles:
+                    found_profile = loaded_profiles[nome_profilo]
+                    header_idx = found_profile.get("header_row", 2)
+                    logging.warning(f"[IMPORT] Nessun profilo rilevato: uso fallback '{nome_profilo}' header_idx={header_idx}")
+                else:
+                    flash("Nessun profilo compatibile trovato e profilo Default mancante nel JSON.", "danger")
+                    return redirect(request.url)
+
+            # 5) Lettura dati reali con header corretto
+            file.seek(0)
+            df = pd.read_excel(file, header=header_idx, engine="openpyxl")
+            df.columns = [str(c) for c in df.columns]
+            col_map = found_profile.get("column_map", {})
+
+            logging.info(f"[IMPORT] Profilo usato='{nome_profilo}' header_idx={header_idx}")
+            logging.info(f"[IMPORT] Colonne excel lette={list(df.columns)}")
+            logging.info(f"[IMPORT] Colonne mappate profilo={list(col_map.keys())}")
+
+            # 6) DB
+            db = SessionLocal()
+            imported_count = 0
+
+            trunc_cols = [
+                "codice_articolo", "cliente", "fornitore", "commessa", "ordine",
+                "protocollo", "magazzino", "n_ddt_ingresso", "n_arrivo",
+                "buono_n", "serial_number", "n_ddt_uscita", "ns_rif",
+                "stato", "mezzi_in_uscita", "pezzo", "posizione"
+            ]
+
+            # Per match robusto: mappa colonna Excel normalizzata -> colonna reale
+            df_cols_upper = {str(c).strip().upper(): c for c in df.columns}
+
+            for idx, row in df.iterrows():
+                new_art = Articolo()
+                has_data = False
+
+                for excel_col, db_col in col_map.items():
+                    if db_col == "ID":
+                        continue
+
+                    excel_key = str(excel_col).strip().upper()
+                    match_col = df_cols_upper.get(excel_key)
+
+                    if match_col is None:
+                        continue
+
+                    val = row.get(match_col)
+
+                    if pd.notna(val) and str(val).strip() != "" and str(val).strip().lower() != "nan":
+                        has_data = True
+
+                        # Conversioni
+                        if db_col in ["n_colli", "pezzo"]:
+                            val = to_int_eu(val)
+                        elif db_col in ["peso", "larghezza", "lunghezza", "altezza", "m2", "m3"]:
+                            val = to_float_eu(val)
+                        elif db_col in ["data_ingresso", "data_uscita"]:
+                            # mantengo solo yyyy-mm-dd (o stringa breve)
+                            val = str(val).split(" ")[0][:32]
+                        else:
+                            val = str(val).strip()
+                            if db_col in trunc_cols and len(val) > 255:
+                                val = val[:255]
+
+                        if hasattr(new_art, db_col):
+                            setattr(new_art, db_col, val)
+
+                if has_data:
+                    # calcolo m2/m3
+                    try:
+                        if not getattr(new_art, "m2", None):
+                            new_art.m2 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)[0]
+                        if not getattr(new_art, "m3", None):
+                            new_art.m3 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)[1]
+                    except Exception as e:
+                        logging.warning(f"[IMPORT] calc_m2_m3 failed row={idx}: {e}")
+
+                    if not getattr(new_art, "stato", None):
+                        new_art.stato = "In giacenza"
+
+                    if imported_count < 3:
+                        logging.warning(
+                            f"[IMPORT] SAMPLE row={idx} -> codice={getattr(new_art,'codice_articolo',None)!r} "
+                            f"descr={getattr(new_art,'descrizione',None)!r} cliente={getattr(new_art,'cliente',None)!r}"
+                        )
+
+                    db.add(new_art)
+                    imported_count += 1
+
+            db.commit()
+            flash(f"Importazione completata! {imported_count} articoli aggiunti (Profilo: {nome_profilo}).", "success")
+            return redirect(url_for("giacenze"))  # ✅ CORRETTO
+
+        # GET: mostra pagina import (se vuoi passare i profili al template, eccoli)
+        # (non obbligatorio, ma utile)
+        try:
+            BASE_DIR = Path(__file__).resolve().parent
+            mappe_path = BASE_DIR / "config" / "mappe_excel.json"
+            if not mappe_path.exists():
+                mappe_path = BASE_DIR / "mappe_excel.json"
+            profiles_list = list(json.loads(mappe_path.read_text(encoding="utf-8")).keys()) if mappe_path.exists() else []
+        except Exception:
+            profiles_list = []
+
+        return render_template("import_excel.html", profiles=profiles_list)
+
+    except Exception as e:
+        logging.error(f"[IMPORT] Errore Importazione: {e}", exc_info=True)
+        if db is not None:
+            db.rollback()
+        flash(f"Errore Importazione: {e}", "danger")
+        return redirect(request.url)
+
+    finally:
+        if db is not None:
+            db.close()
+            logging.info("[IMPORT] DB session closed")
+
 
 def get_all_fields_map():
     return {
