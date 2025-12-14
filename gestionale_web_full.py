@@ -1135,84 +1135,132 @@ def upload_mappe_json():
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
 def import_excel():
+    import logging
     mappe = load_mappe()
     profiles = list(mappe.keys()) if mappe else []
 
     if request.method == 'POST':
+        logging.warning("[IMPORT] request.files keys=%s", list(request.files.keys()))
+        logging.warning("[IMPORT] request.form keys=%s", list(request.form.keys()))
+
         profile_name = request.form.get('profile')
+        logging.warning("[IMPORT] profile selezionato=%r", profile_name)
+
         if not profile_name or profile_name not in mappe:
             flash("Seleziona un profilo valido.", "warning")
             return redirect(request.url)
-        
+
         if 'excel_file' not in request.files:
             flash('Nessun file selezionato', 'warning')
             return redirect(request.url)
+
         file = request.files['excel_file']
-        if file.filename == '':
+        if not file or file.filename == '':
             flash('Nessun file selezionato', 'warning')
             return redirect(request.url)
 
-        if file and file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
-            db = SessionLocal()
-            try:
-                # Carica configurazione profilo
-                config = mappe[profile_name]
-                header_row_idx = int(config.get('header_row', 1)) - 1 # Excel 1-based -> Pandas 0-based
-                column_map = config.get('column_map', {})
-
-                # Leggi Excel
-                df = pd.read_excel(file, engine='openpyxl', header=header_row_idx)
-                
-                # Normalizza i nomi colonne dell'Excel per il confronto (rimuovi spazi e maiuscole)
-                # Ma per la mappatura usiamo le chiavi esatte del JSON se possibile, o facciamo un match case-insensitive
-                df_cols_upper = {str(c).strip().upper(): c for c in df.columns}
-                
-                imported_count = 0
-                for _, row in df.iterrows():
-                    new_art = Articolo()
-                    has_data = False
-                    
-                    # Itera sulla mappa definita nel JSON
-                    # Chiave JSON (es. "N.BUONO") -> Valore DB (es. "buono_n")
-                    for excel_header, db_field in column_map.items():
-                        # Cerca la colonna nel DF ignorando maiuscole/minuscole
-                        col_name_in_df = df_cols_upper.get(str(excel_header).strip().upper())
-                        
-                        if col_name_in_df is not None:
-                            val = row[col_name_in_df]
-                            if not pd.isna(val) and str(val).strip() != "":
-                                # Conversione tipi
-                                if db_field in ['larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3']:
-                                    val = to_float_eu(val)
-                                elif db_field in ['n_colli', 'pezzo']:
-                                    val = to_int_eu(val)
-                                elif db_field in ['data_ingresso', 'data_uscita']:
-                                    val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
-                                
-                                setattr(new_art, db_field, val)
-                                has_data = True
-                    
-                    if has_data:
-                        # Calcolo automatico se non presenti
-                        if not new_art.m2 or new_art.m2 == 0:
-                            new_art.m2, new_art.m3 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)
-                        
-                        db.add(new_art)
-                        imported_count += 1
-                
-                db.commit()
-                flash(f'{imported_count} articoli importati con successo con la mappa \'{profile_name}\'.', 'success')
-                return redirect(url_for('giacenze', v=uuid.uuid4().hex[:6]))
-
-            except Exception as e:
-                db.rollback()
-                flash(f"Errore durante l'importazione: {e}", 'danger')
-                return redirect(request.url)
-            finally:
-                db.close()
-        else:
+        if not file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
             flash('Formato file non supportato.', 'warning')
             return redirect(request.url)
+
+        db = SessionLocal()
+        try:
+            config = mappe[profile_name]
+            header_row_idx = int(config.get('header_row', 1)) - 1  # excel 1-based -> pandas 0-based
+            column_map = config.get('column_map', {}) or {}
+
+            logging.warning("[IMPORT] header_row (excel 1-based)=%s -> pandas header idx=%s",
+                            config.get('header_row', 1), header_row_idx)
+            logging.warning("[IMPORT] column_map keys=%s", list(column_map.keys()))
+
+            # 🔁 IMPORTANT: torna a inizio file prima di leggere
+            file.stream.seek(0)
+
+            df = pd.read_excel(file, engine='openpyxl', header=header_row_idx)
+            logging.warning("[IMPORT] df shape=%s", df.shape)
+            logging.warning("[IMPORT] df.columns (raw)=%s", [str(c) for c in df.columns])
+
+            # normalizzazione colonne excel
+            df_cols_upper = {str(c).strip().upper(): c for c in df.columns}
+
+            # ✅ diagnostica match colonne mappa vs excel
+            requested = [str(k).strip().upper() for k in column_map.keys()]
+            matched = [k for k in requested if k in df_cols_upper]
+            missing = [k for k in requested if k not in df_cols_upper]
+
+            logging.warning("[IMPORT] colonne richieste (mappa)=%s", requested)
+            logging.warning("[IMPORT] colonne matchate=%s", matched)
+            logging.warning("[IMPORT] colonne NON trovate=%s", missing)
+
+            imported_count = 0
+            sample_logged = 0
+
+            for idx, row in df.iterrows():
+                new_art = Articolo()
+                has_data = False
+
+                for excel_header, db_field in column_map.items():
+                    key = str(excel_header).strip().upper()
+                    col_name_in_df = df_cols_upper.get(key)
+
+                    if col_name_in_df is None:
+                        continue
+
+                    val = row[col_name_in_df]
+                    if pd.isna(val) or str(val).strip() == "":
+                        continue
+
+                    # conversioni
+                    if db_field in ['larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3']:
+                        val = to_float_eu(val)
+                    elif db_field in ['n_colli', 'pezzo']:
+                        val = to_int_eu(val)
+                    elif db_field in ['data_ingresso', 'data_uscita']:
+                        val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
+                    else:
+                        val = str(val).strip()
+
+                    if hasattr(new_art, db_field):
+                        setattr(new_art, db_field, val)
+                        has_data = True
+                    else:
+                        logging.error("[IMPORT] DB field NON esiste nel modello: %r (da excel header=%r)", db_field, excel_header)
+
+                if has_data:
+                    # calcolo m2/m3 se mancanti
+                    if not new_art.m2 or new_art.m2 == 0:
+                        new_art.m2, new_art.m3 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)
+
+                    db.add(new_art)
+                    imported_count += 1
+
+                    # sample log (prime 3 righe importate)
+                    if sample_logged < 3:
+                        logging.warning(
+                            "[IMPORT] SAMPLE row=%s -> codice=%r descr=%r cliente=%r protocollo=%r buono_n=%r ordine=%r",
+                            idx,
+                            getattr(new_art, "codice_articolo", None),
+                            getattr(new_art, "descrizione", None),
+                            getattr(new_art, "cliente", None),
+                            getattr(new_art, "protocollo", None),
+                            getattr(new_art, "buono_n", None),
+                            getattr(new_art, "ordine", None),
+                        )
+                        sample_logged += 1
+
+            db.commit()
+            logging.warning("[IMPORT] COMMIT OK - imported_count=%s (profilo=%r)", imported_count, profile_name)
+
+            flash(f"{imported_count} articoli importati con successo con la mappa '{profile_name}'.", "success")
+            return redirect(url_for('giacenze', v=uuid.uuid4().hex[:6]))
+
+        except Exception as e:
+            db.rollback()
+            logging.exception("[IMPORT] ERRORE durante import")
+            flash(f"Errore durante l'importazione: {e}", "danger")
+            return redirect(request.url)
+        finally:
+            db.close()
 
     return render_template('import_excel.html', profiles=profiles)
 
