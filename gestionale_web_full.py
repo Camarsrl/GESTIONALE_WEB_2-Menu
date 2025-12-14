@@ -854,7 +854,7 @@ IMPORT_EXCEL_HTML = """
 {% endblock %}
 """
 
-MAPPE_HTML = """
+MAPPE_EXCEL_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="container">
