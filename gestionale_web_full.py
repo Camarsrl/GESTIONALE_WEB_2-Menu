@@ -2214,37 +2214,32 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 def labels_pdf():
     cliente = request.form.get('cliente')
     formato = request.form.get('formato', '62x100')
-    # Checkbox: se presente vale 'on', altrimenti None
     anteprima = request.form.get('anteprima') == 'on'
 
     db = SessionLocal()
     try:
-        # Seleziona tutti gli articoli del cliente
+        # Seleziona gli articoli del cliente specificato
         articoli = db.query(Articolo).filter(Articolo.cliente == cliente).all()
         
         if not articoli:
             flash("Nessun articolo trovato per il cliente selezionato.", "warning")
             return redirect(url_for('labels_form'))
 
-        # Chiama la funzione helper (ora definita)
+        # Chiama la funzione helper che abbiamo creato sopra
         pdf_bio = _genera_pdf_etichetta(articoli, formato, anteprima)
 
-        # Se anteprima, mostra nel browser, altrimenti scarica
-        as_attachment = not anteprima
-        filename = f"Etichette_{cliente}.pdf"
-
-        return send_file(
-            pdf_bio, 
-            as_attachment=as_attachment, 
-            download_name=filename, 
-            mimetype='application/pdf'
-        )
+        # Scarica o mostra il PDF
+        if anteprima:
+            return send_file(pdf_bio, mimetype='application/pdf')
+        else:
+            filename = f"Etichette_{cliente}.pdf"
+            return send_file(pdf_bio, as_attachment=True, download_name=filename, mimetype='application/pdf')
+            
     except Exception as e:
         flash(f"Errore generazione etichette: {e}", "danger")
         return redirect(url_for('labels_form'))
     finally:
         db.close()
-
 
 # --- FIX DATABASE SCHEMA (Esegui all'avvio per correggere tipi colonne) ---
 def fix_db_schema():
