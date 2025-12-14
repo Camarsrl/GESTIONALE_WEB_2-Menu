@@ -4,6 +4,12 @@ Camar • Gestionale Web – build aggiornata (Ottobre 2025)
 © Copyright Alessia Moncalvo
 Tutti i diritti riservati.
 """
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+
 
 import os, io, re, json, uuid
 from datetime import datetime, date
