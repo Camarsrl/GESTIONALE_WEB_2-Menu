@@ -994,7 +994,6 @@ CALCOLA_COSTI_HTML = """
 {% endblock %}
 """
 
-# Dizionario dei template per il loader di Jinja
 templates = {
     'base.html': BASE_HTML,
     'login.html': LOGIN_HTML,
@@ -1007,6 +1006,10 @@ templates = {
     'labels_form.html': LABELS_FORM_HTML,
     'labels_preview.html': LABELS_PREVIEW_HTML,
     'import_excel.html': IMPORT_EXCEL_HTML,
+
+    # ✅ AGGIUNGI QUESTA RIGA
+    'mappe_excel.html': MAPPE_EXCEL_HTML,
+
     'export_client.html': EXPORT_CLIENT_HTML,
     'destinatari.html': DESTINATARI_HTML,
     'calcola_costi.html': CALCOLA_COSTI_HTML
