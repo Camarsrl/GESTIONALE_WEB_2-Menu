@@ -2005,19 +2005,35 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
 @app.post('/buono/finalize_and_get_pdf')
 @login_required
 def buono_finalize_and_get_pdf():
+    # 1. Recupera gli ID selezionati
     ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
     rows = _get_rows_from_ids(ids)
-    buono_n = (request.form.get('buono_n') or '').strip()
     
-    # Aggiorna il DB con il numero buono
-    db = SessionLocal()
-    if buono_n:
-        for r in rows:
-            r.buono_n = buono_n
-        db.commit()
-        flash(f"Numero Buono '{buono_n}' salvato per gli articoli selezionati.", "info")
+    # 2. Recupera l'azione (preview o save) e il numero buono
+    action = request.form.get('action', 'preview') # Default preview se non specificato
+    raw_buono_n = request.form.get('buono_n')
     
-    # Setup PDF
+    # Pulisce il numero buono: se è vuoto o 'None' (case insensitive), diventa stringa vuota
+    if raw_buono_n and raw_buono_n.strip().lower() != 'none':
+        buono_n = raw_buono_n.strip()
+    else:
+        buono_n = ""
+    
+    # 3. Aggiorna il DB SOLO se l'azione è 'save' E c'è un numero buono valido
+    if action == 'save' and buono_n:
+        db = SessionLocal()
+        try:
+            for r in rows:
+                r.buono_n = buono_n
+            db.commit()
+            flash(f"Numero Buono '{buono_n}' salvato per gli articoli selezionati.", "info")
+        except Exception as e:
+            db.rollback()
+            flash(f"Errore salvataggio Buono: {e}", "danger")
+        finally:
+            db.close()
+    
+    # 4. Setup PDF
     bio = io.BytesIO()
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm, topMargin=10*mm, bottomMargin=15*mm)
     story = []
@@ -2062,8 +2078,9 @@ def buono_finalize_and_get_pdf():
     story.append(Spacer(1, 6*mm))
     
     # Cliente
-    story.append(Paragraph(f"<b>Cliente:</b> {(d_row.cliente or '').upper()}", s_normal))
-    story.append(Spacer(1, 6*mm))
+    if d_row:
+        story.append(Paragraph(f"<b>Cliente:</b> {(d_row.cliente or '').upper()}", s_normal))
+        story.append(Spacer(1, 6*mm))
     
     # --- TABELLA ARTICOLI ---
     # Intestazioni (usando Paragraph per lo stile)
@@ -2121,8 +2138,18 @@ def buono_finalize_and_get_pdf():
 
     doc.build(story)
     bio.seek(0)
-    return send_file(bio, as_attachment=False, download_name=f'Buono_{buono_n}.pdf', mimetype='application/pdf')
-
+    
+    # 5. Restituisci il file
+    # Se action è 'save', scarica come allegato. Se 'preview', mostra nel browser.
+    download_name = f'Buono_{buono_n if buono_n else "Anteprima"}.pdf'
+    as_attachment = (action == 'save')
+    
+    return send_file(
+        bio, 
+        as_attachment=as_attachment, 
+        download_name=download_name, 
+        mimetype='application/pdf'
+                )
 @app.post('/pdf/ddt')
 @login_required
 def pdf_ddt():
