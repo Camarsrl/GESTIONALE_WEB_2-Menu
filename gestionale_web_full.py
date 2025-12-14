@@ -1135,6 +1135,8 @@ templates = {
 
     # ✅ AGGIUNGI QUESTA RIGA
     'mappe_excel.html': MAPPE_EXCEL_HTML,
+    'invia_email.html': INVIA_EMAIL_HTML,
+ 
 
     'export_client.html': EXPORT_CLIENT_HTML,
     'destinatari.html': DESTINATARI_HTML,
