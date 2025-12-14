@@ -632,18 +632,24 @@ BULK_EDIT_HTML = """
 </div>
 {% endblock %}
 """
-
 BUONO_PREVIEW_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <form method="post" id="buono-form" action="{{ url_for('buono_finalize_and_get_pdf') }}">
     <input type="hidden" name="ids" value="{{ ids }}">
+    <input type="hidden" name="action" id="form-action" value="preview">
+
     <div class="card p-3">
         <div class="d-flex align-items-center gap-3 mb-3">
             {% if logo_url %}<img src="{{ logo_url }}" style="height:40px">{% endif %}
             <h5 class="flex-grow-1 text-center m-0">BUONO DI PRELIEVO</h5>
             <div class="btn-group">
-                <button type="submit" class="btn btn-primary"><i class="bi bi-file-earmark-check"></i> Genera e Salva Buono</button>
+                <button type="button" class="btn btn-outline-primary" onclick="submitBuono('preview')">
+                    <i class="bi bi-eye"></i> Anteprima PDF
+                </button>
+                <button type="button" class="btn btn-primary" onclick="submitBuono('save')">
+                    <i class="bi bi-file-earmark-check"></i> Genera e Salva
+                </button>
                 <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
             </div>
         </div>
@@ -676,28 +682,17 @@ BUONO_PREVIEW_HTML = """
 {% endblock %}
 {% block extra_js %}
 <script>
-document.getElementById('buono-form').addEventListener('submit', function(e) {
-    e.preventDefault();
-    const formData = new FormData(this);
-    fetch('{{ url_for("buono_finalize_and_get_pdf") }}', {
-        method: 'POST',
-        body: formData
-    })
-    .then(resp => {
-        if (resp.ok) {
-            resp.blob().then(blob => {
-                const url = window.URL.createObjectURL(blob);
-                window.open(url, '_blank');
-                window.location.href = '{{ url_for('giacenze') }}';
-            });
-        } else {
-            alert("Si è verificato un errore durante la generazione del buono.");
-        }
-    }).catch(err => {
-        console.error('Error:', err);
-        alert("Errore di rete o del server.");
-    });
-});
+function submitBuono(actionType) {
+    const form = document.getElementById('buono-form');
+    document.getElementById('form-action').value = actionType;
+    
+    if (actionType === 'preview') {
+        form.target = '_blank'; // Apre in nuova scheda
+    } else {
+        form.target = '_self'; // Scarica nella stessa pagina
+    }
+    form.submit();
+}
 </script>
 {% endblock %}
 """
