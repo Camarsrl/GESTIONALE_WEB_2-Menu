@@ -1956,49 +1956,108 @@ def _copyright_para():
 
 def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     bio = io.BytesIO()
+    # Margini ottimizzati
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
     story = []
     
+    # Stili
     styles = getSampleStyleSheet()
-    s_small = ParagraphStyle(name='small', parent=styles['Normal'], fontSize=9, leading=11)
-    s_bold = ParagraphStyle(name='small_bold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11)
+    s_normal = styles['Normal']
+    s_small = ParagraphStyle(name='small', parent=s_normal, fontSize=9, leading=11)
+    s_bold = ParagraphStyle(name='small_bold', parent=s_normal, fontName='Helvetica-Bold', fontSize=9, leading=11)
+    s_title_box = ParagraphStyle(name='box_title', parent=s_bold, fontSize=10, leading=12, spaceAfter=2)
     
-    # Logo
+    # 1. Logo
     if LOGO_PATH and Path(LOGO_PATH).exists():
         story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER'))
         story.append(Spacer(1, 5*mm))
 
-    # Titolo
-    story.append(Table([[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", ParagraphStyle('T', parent=styles['Heading1'], alignment=TA_CENTER, textColor=colors.white, fontSize=14))]], 
-                  colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)]))
-    story.append(Spacer(1, 6*mm))
+    # 2. Titolo DDT
+    title_tbl = Table([[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", 
+        ParagraphStyle('T', parent=styles['Heading1'], alignment=TA_CENTER, textColor=colors.white, fontSize=14))]], 
+        colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)])
+    story.append(title_tbl)
+    story.append(Spacer(1, 5*mm))
     
-    # Mittente (Fisso) e Destinatario
-    mittente_txt = "<b>Camar S.r.l.</b><br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)<br/>P.IVA: 02231420992"
-    dest_txt = f"<b>{dest.get('ragione_sociale','')}</b><br/>{dest.get('indirizzo','').replace(chr(10), '<br/>')}"
+    # 3. PRIMA FASCIA: MITTENTE e DESTINATARIO
+    mittente_html = """
+    <b>Camar S.r.l.</b><br/>
+    Via Luigi Canepa 2<br/>
+    16165 Genova Struppa (GE)<br/>
+    P.IVA: 02231420992
+    """
     
-    t_head = Table([
-        [Paragraph("<b>MITTENTE</b>", s_bold), Paragraph("<b>DESTINATARIO</b>", s_bold)],
-        [Paragraph(mittente_txt, s_small), Paragraph(dest_txt, s_small)]
-    ], colWidths=[doc.width/2, doc.width/2])
-    t_head.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.25, colors.grey), ('VALIGN', (0,0), (-1,-1), 'TOP'), ('PADDING', (0,0), (-1,-1), 6)]))
-    story.append(t_head)
+    dest_ragione = dest.get('ragione_sociale') or "Destinatario Generico"
+    dest_indirizzo = dest.get('indirizzo', '').replace(chr(10), '<br/>')
+    dest_html = f"<b>{dest_ragione}</b><br/>{dest_indirizzo}"
+    
+    # Tabella Mittente/Destinatario
+    data_header = [
+        [Paragraph("MITTENTE", s_title_box), Paragraph("DESTINATARIO", s_title_box)],
+        [Paragraph(mittente_html, s_small), Paragraph(dest_html, s_small)]
+    ]
+    t_header = Table(data_header, colWidths=[doc.width/2, doc.width/2])
+    t_header.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.25, colors.grey),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('PADDING', (0,0), (-1,-1), 6),
+        ('BACKGROUND', (0,0), (1,0), colors.whitesmoke) # Sfondo leggero titoli
+    ]))
+    story.append(t_header)
     story.append(Spacer(1, 4*mm))
 
-    # Dati Documento
-    doc_data = [
-        [Paragraph("<b>N. DDT:</b> " + n_ddt, s_small), Paragraph("<b>Data:</b> " + fmt_date(data_ddt), s_small)],
-        [Paragraph("<b>Targa:</b> " + (targa or ''), s_small), Paragraph("<b>Causale:</b> " + form_data.get('causale',''), s_small)]
+    # 4. SECONDA FASCIA: DATI AGGIUNTIVI (Sinistra) e DATI TRASPORTO (Destra)
+    # Recuperiamo i dati dal primo articolo della lista (assumendo siano omogenei per il DDT)
+    first_row = rows[0] if rows else Articolo()
+    
+    # Colonna Sinistra: Dati Aggiuntivi (Cliente, Commessa, Ordine, Buono, Protocollo)
+    dati_agg_html = [
+        [Paragraph("<b>Cliente:</b>", s_bold), Paragraph(first_row.cliente or '', s_small)],
+        [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(first_row.commessa or '', s_small)],
+        [Paragraph("<b>Ordine:</b>", s_bold), Paragraph(first_row.ordine or '', s_small)],
+        [Paragraph("<b>Buono:</b>", s_bold), Paragraph(first_row.buono_n or '', s_small)],
+        [Paragraph("<b>Protocollo:</b>", s_bold), Paragraph(first_row.protocollo or '', s_small)],
     ]
-    t_doc = Table(doc_data, colWidths=[doc.width/2, doc.width/2])
-    t_doc.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('PADDING', (0,0), (-1,-1), 4)]))
-    story.append(t_doc)
+    # Creiamo una sotto-tabella per allineare bene etichette e valori
+    tbl_dati_agg = Table(dati_agg_html, colWidths=[25*mm, 60*mm])
+    tbl_dati_agg.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('PADDING', (0,0), (-1,-1), 1)]))
+
+    # Colonna Destra: Dati Trasporto (N. DDT, Data, Targa, Causale)
+    dati_trasp_html = [
+        [Paragraph("<b>N. DDT:</b>", s_bold), Paragraph(n_ddt, s_small)],
+        [Paragraph("<b>Data:</b>", s_bold), Paragraph(fmt_date(data_ddt), s_small)],
+        [Paragraph("<b>Targa:</b>", s_bold), Paragraph(targa or '', s_small)],
+        [Paragraph("<b>Causale:</b>", s_bold), Paragraph(form_data.get('causale', 'TRASFERIMENTO'), s_small)],
+        [Paragraph("<b>Porto:</b>", s_bold), Paragraph(form_data.get('porto', 'FRANCO'), s_small)],
+        [Paragraph("<b>Aspetto:</b>", s_bold), Paragraph(form_data.get('aspetto', 'A VISTA'), s_small)],
+    ]
+    tbl_dati_trasp = Table(dati_trasp_html, colWidths=[25*mm, 60*mm])
+    tbl_dati_trasp.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('PADDING', (0,0), (-1,-1), 1)]))
+
+    # Tabella Contenitore per le due colonne
+    data_middle = [
+        [Paragraph("Dati Aggiuntivi", s_title_box), Paragraph("Dati Trasporto", s_title_box)],
+        [tbl_dati_agg, tbl_dati_trasp]
+    ]
+    t_middle = Table(data_middle, colWidths=[doc.width/2, doc.width/2])
+    t_middle.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+    ]))
+    story.append(t_middle)
     story.append(Spacer(1, 6*mm))
     
-    # Articoli
+    # 5. TABELLA ARTICOLI
     tbl_header = [
-        Paragraph('ID', s_bold), Paragraph('Cod.Art.', s_bold), Paragraph('Descrizione / Note', s_bold),
-        Paragraph('Pz', s_bold), Paragraph('Colli', s_bold), Paragraph('Peso', s_bold), Paragraph('N.Arrivo', s_bold)
+        Paragraph('ID', s_bold), 
+        Paragraph('Cod.Art.', s_bold), 
+        Paragraph('Descrizione / Note', s_bold),
+        Paragraph('Pz', s_bold), 
+        Paragraph('Colli', s_bold), 
+        Paragraph('Peso', s_bold), 
+        Paragraph('N.Arrivo', s_bold)
     ]
     data = [tbl_header]
     tot_colli, tot_peso, tot_pezzi = 0, 0.0, 0
@@ -2008,32 +2067,45 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
         colli = to_int_eu(form_data.get(f"colli_{r.id_articolo}", r.n_colli)) or 0
         peso = to_float_eu(form_data.get(f"peso_{r.id_articolo}", r.peso)) or 0.0
         
-        # Unisci Descrizione e Note (se presenti)
         descr = r.descrizione or ''
         if r.note: descr += f"<br/><i>Note: {r.note}</i>"
             
         data.append([
-            Paragraph(str(r.id_articolo), s_small), Paragraph(r.codice_articolo or '', s_small), Paragraph(descr, s_small),
-            Paragraph(str(pezzi), s_small), Paragraph(str(colli), s_small), Paragraph(f"{peso:.2f}", s_small), Paragraph(r.n_arrivo or '', s_small)
+            Paragraph(str(r.id_articolo), s_small), 
+            Paragraph(r.codice_articolo or '', s_small), 
+            Paragraph(descr, s_small),
+            Paragraph(str(pezzi), s_small), 
+            Paragraph(str(colli), s_small), 
+            Paragraph(f"{peso:.2f}", s_small), 
+            Paragraph(r.n_arrivo or '', s_small)
         ])
         tot_pezzi += pezzi; tot_colli += colli; tot_peso += float(peso)
         
     t_items = Table(data, colWidths=[12*mm, 35*mm, 80*mm, 10*mm, 12*mm, 18*mm, 23*mm], repeatRows=1)
     t_items.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke), ('Padding', (0,0), (-1,-1), 4)
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey), 
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke), 
+        ('PADDING', (0,0), (-1,-1), 4)
     ]))
     story.append(t_items)
     
     story.append(Spacer(1, 10*mm))
-    # Footer Totali e Firma
-    story.append(Paragraph(f"<b>Totale Colli:</b> {tot_colli} &nbsp;&nbsp; <b>Totale Peso:</b> {tot_peso:.2f} Kg", s_small))
-    story.append(Spacer(1, 10*mm))
-    story.append(Paragraph("Firma Vettore: __________________________", s_small))
+    
+    # 6. TOTALI E FIRMA
+    tot_txt = f"<b>Totale Pezzi:</b> {tot_pezzi} &nbsp;&nbsp; <b>Totale Colli:</b> {tot_colli} &nbsp;&nbsp; <b>Totale Peso:</b> {tot_peso:.2f} Kg"
+    
+    footer_data = [
+        [Paragraph(tot_txt, s_normal), Paragraph("<b>Firma Vettore:</b><br/><br/>__________________________", s_normal)]
+    ]
+    t_footer = Table(footer_data, colWidths=[doc.width*0.6, doc.width*0.4])
+    t_footer.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP')]))
+    story.append(t_footer)
     
     doc.build(story)
     bio.seek(0)
     return bio
+
 
 @app.post('/buono/finalize_and_get_pdf')
 @login_required
