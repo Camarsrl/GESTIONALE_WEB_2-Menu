@@ -809,71 +809,60 @@ IMPORT_EXCEL_HTML = """
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-8 col-lg-6">
-        <div class="card p-4 shadow-sm">
-
-            <h3>
-                <i class="bi bi-file-earmark-arrow-up"></i>
-                Importa Articoli da Excel
-            </h3>
+        <div class="card p-4">
+            <h3><i class="bi bi-file-earmark-arrow-up"></i> Importa Articoli da Excel</h3>
             <hr>
-
-            <p class="text-muted">
-                Carica un file Excel (.xlsx, .xls, .xlsm) per aggiungere nuovi articoli in blocco.
-                Seleziona il profilo di mappatura corretto (da <code>mappe_excel.json</code>).
-            </p>
-
-            {% if not profiles %}
-            <div class="alert alert-warning">
-                <strong>Nessun profilo disponibile.</strong><br>
-                Controlla che <code>mappe_excel.json</code> esista e contenga almeno un profilo.
-            </div>
-            {% endif %}
-
+            <p class="text-muted">Seleziona il profilo di importazione (Mappa) e carica il file Excel.</p>
             <form method="post" enctype="multipart/form-data">
-
-                <!-- PROFILO -->
                 <div class="mb-3">
-                    <label class="form-label">Profilo di importazione</label>
-                    <select class="form-select" name="profile" required>
-                        <option value="">-- Seleziona profilo --</option>
+                    <label class="form-label">Seleziona Mappa Excel</label>
+                    <select name="profile" class="form-select" required>
+                        <option value="" disabled selected>-- Scegli un profilo --</option>
                         {% for p in profiles %}
-                            <option value="{{ p }}">{{ p }}</option>
+                        <option value="{{ p }}">{{ p }}</option>
                         {% endfor %}
                     </select>
+                    <div class="form-text"><a href="{{ url_for('manage_mappe') }}">Gestisci o aggiorna le mappe (JSON)</a></div>
                 </div>
-
-                <!-- FILE -->
                 <div class="mb-3">
-                    <label class="form-label">File Excel</label>
-                    <input
-                        class="form-control"
-                        type="file"
-                        name="file"
-                        accept=".xlsx,.xls,.xlsm"
-                        required
-                    >
+                    <label for="excel_file" class="form-label">File Excel (.xlsx, .xlsm)</label>
+                    <input class="form-control" type="file" id="excel_file" name="excel_file" accept=".xlsx,.xls,.xlsm" required>
                 </div>
-
-                <div class="d-flex gap-2">
-                    <button type="submit" class="btn btn-primary">
-                        <i class="bi bi-cloud-arrow-up"></i> Carica e Importa
-                    </button>
-                    <a href="{{ url_for('home') }}" class="btn btn-secondary">
-                        Annulla
-                    </a>
-                </div>
-
+                <button type="submit" class="btn btn-primary">Carica e Importa</button>
+                <a href="{{ url_for('home') }}" class="btn btn-secondary">Annulla</a>
             </form>
-
-            <div class="alert alert-info mt-4 mb-0">
-                <strong>Nota:</strong><br>
-                <small>
-                    Le colonne del file Excel vengono lette in base al profilo selezionato.
-                    I dettagli di eventuali colonne mancanti sono visibili nei log.
-                </small>
-            </div>
-
         </div>
+    </div>
+</div>
+{% endblock %}
+"""
+
+MAPPE_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="container">
+    <div class="card p-4">
+        <h3><i class="bi bi-gear"></i> Gestione Mappe Excel (JSON)</h3>
+        <hr>
+        <p>Qui puoi visualizzare o aggiornare il file <code>mappe_excel.json</code> che definisce come leggere i file Excel.</p>
+        
+        <form method="post">
+            <div class="mb-3">
+                <label class="form-label">Contenuto JSON corrente:</label>
+                <textarea name="json_content" class="form-control" rows="15" style="font-family: monospace; font-size: 12px;">{{ content }}</textarea>
+            </div>
+            <button type="submit" class="btn btn-success">Salva Modifiche</button>
+            <a href="{{ url_for('import_excel') }}" class="btn btn-secondary">Torna all'Import</a>
+        </form>
+
+        <hr class="my-4">
+        <h5>Oppure carica un nuovo file .json</h5>
+        <form method="post" enctype="multipart/form-data" action="{{ url_for('upload_mappe_json') }}">
+             <div class="input-group mb-3">
+                <input type="file" class="form-control" name="json_file" accept=".json" required>
+                <button class="btn btn-outline-primary" type="submit">Carica File</button>
+             </div>
+        </form>
     </div>
 </div>
 {% endblock %}
