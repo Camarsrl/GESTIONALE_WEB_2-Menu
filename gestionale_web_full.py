@@ -110,19 +110,45 @@ def ensure_articoli_columns():
 class Articolo(Base):
     __tablename__ = "articoli"
     id_articolo = Column(Integer, Identity(start=1), primary_key=True)
-    codice_articolo = Column(String(255))
-    ordine = Column(String(255), nullable=True)
-    pezzo = Column(String(255))
-    larghezza = Column(Float); lunghezza = Column(Float); altezza = Column(Float)
-    m2 = Column(Float); m3 = Column(Float)
-    protocollo = Column(String(255)); commessa = Column(String(255))
-    magazzino = Column(String(255)); fornitore = Column(String(255))
-    data_ingresso = Column(String(32)); n_ddt_ingresso = Column(String(255))
-    cliente = Column(String(255)); descrizione = Column(Text); peso = Column(Float); n_colli = Column(Integer)
-    posizione = Column(String(255)); n_arrivo = Column(String(255)); buono_n = Column(String(255)); note = Column(Text)
+    
+    # Dati identificativi (Usa Text per evitare limiti di lunghezza)
+    codice_articolo = Column(Text) 
+    descrizione = Column(Text)
+    cliente = Column(Text)
+    fornitore = Column(Text)
+    magazzino = Column(String(255))
+    
+    # Riferimenti documenti
+    protocollo = Column(Text)
+    ordine = Column(Text)
+    commessa = Column(Text)
+    buono_n = Column(Text)
+    n_arrivo = Column(Text)
+    ns_rif = Column(String(255))
     serial_number = Column(String(255))
-    data_uscita = Column(String(32)); n_ddt_uscita = Column(String(255)); ns_rif = Column(String(255))
-    stato = Column(String(255)); mezzi_in_uscita = Column(String(255))
+    
+    # Dati dimensionali e quantità
+    pezzo = Column(String(255))
+    n_colli = Column(Integer)
+    peso = Column(Float)
+    larghezza = Column(Float)
+    lunghezza = Column(Float)
+    altezza = Column(Float)
+    m2 = Column(Float)
+    m3 = Column(Float)
+    
+    # Logistica e Stato
+    posizione = Column(String(255))
+    stato = Column(String(255))
+    note = Column(Text)
+    mezzi_in_uscita = Column(String(255))
+    
+    # Date e DDT
+    data_ingresso = Column(String(32))
+    n_ddt_ingresso = Column(Text)
+    data_uscita = Column(String(32))
+    n_ddt_uscita = Column(Text)
+
     attachments = relationship("Attachment", back_populates="articolo", cascade="all, delete-orphan", passive_deletes=True)
 
 class Attachment(Base):
