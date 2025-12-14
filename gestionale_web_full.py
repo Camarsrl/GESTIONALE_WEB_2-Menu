@@ -2165,6 +2165,77 @@ def labels_form():
     bio.seek(0)
     return send_file(bio, as_attachment=False, download_name='etichetta.pdf', mimetype='application/pdf')
 
+def _genera_pdf_etichetta(articoli, formato, anteprima=False):
+    """Genera il PDF delle etichette per gli articoli selezionati."""
+    bio = io.BytesIO()
+    
+    # Impostazione formato pagina
+    if formato == '62x100':
+        # Formato per stampante termica (es. Brother QL-800)
+        # 100mm larghezza, 62mm altezza (orientamento landscape)
+        W, H = 100*mm, 62*mm 
+        pagesize = (W, H)
+        margin = 2*mm
+    else:
+        # Formato A4 classico per stampante ufficio
+        pagesize = A4
+        margin = 10*mm
+
+    doc = SimpleDocTemplate(bio, pagesize=pagesize, 
+                            leftMargin=margin, rightMargin=margin, 
+                            topMargin=margin, bottomMargin=margin)
+    story = []
+    
+    # Stili
+    styles = getSampleStyleSheet()
+    # Stile per i titoli dei campi (es. "CLIENTE:")
+    s_label = ParagraphStyle(name='LabelKey', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, leading=12)
+    # Stile per i valori (es. "FINCANTIERI")
+    s_val = ParagraphStyle(name='LabelVal', parent=styles['Normal'], fontName='Helvetica', fontSize=11, leading=12)
+
+    for art in articoli:
+        # Logo (opzionale, solo se esiste)
+        if LOGO_PATH and Path(LOGO_PATH).exists():
+            # Ridimensiona il logo per stare nell'etichetta
+            img_width = 35*mm if formato == '62x100' else 50*mm
+            img_height = 10*mm if formato == '62x100' else 15*mm
+            img = Image(LOGO_PATH, width=img_width, height=img_height, hAlign='LEFT')
+            story.append(img)
+            story.append(Spacer(1, 2*mm))
+        
+        # Dati da stampare
+        # Usiamo una tabella per allineare bene etichette e valori
+        dati = [
+            [Paragraph("CLIENTE:", s_label), Paragraph(art.cliente or '', s_val)],
+            [Paragraph("FORNITORE:", s_label), Paragraph(art.fornitore or '', s_val)],
+            [Paragraph("ORDINE:", s_label), Paragraph(art.ordine or '', s_val)],
+            [Paragraph("COMMESSA:", s_label), Paragraph(art.commessa or '', s_val)],
+            [Paragraph("DDT ING.:", s_label), Paragraph(art.n_ddt_ingresso or '', s_val)],
+            [Paragraph("DATA ING.:", s_label), Paragraph(art.data_ingresso or '', s_val)],
+            [Paragraph("ARRIVO:", s_label), Paragraph(art.n_arrivo or '', s_val)],
+            [Paragraph("COLLI:", s_label), Paragraph(str(art.n_colli or ''), s_val)],
+            [Paragraph("POSIZIONE:", s_label), Paragraph(art.posizione or '', s_val)],
+        ]
+        
+        # Larghezza colonne in base al formato
+        col_widths = [25*mm, 68*mm] if formato == '62x100' else [40*mm, 120*mm]
+        
+        t = Table(dati, colWidths=col_widths)
+        t.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ]))
+        story.append(t)
+        
+        # Salto pagina: ogni articolo va su una nuova etichetta
+        story.append(PageBreak())
+
+    doc.build(story)
+    bio.seek(0)
+    return bio
 
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
