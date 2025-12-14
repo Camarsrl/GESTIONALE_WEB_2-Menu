@@ -1785,22 +1785,41 @@ def get_next_ddt_number():
 @app.route('/manage_destinatari', methods=['GET', 'POST'])
 @login_required
 def manage_destinatari():
-    db_file = os.path.join(BASE_DIR, 'destinatari_saved.json')
-
+    dest_file = APP_DIR / "destinatari_saved.json"
+    destinatari = load_destinatari()
+    
     if request.method == 'POST':
-        data = request.get_json(force=True)
-        with open(db_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-        return jsonify({"message": "Destinatari aggiornati con successo!"})
+        # Se stiamo eliminando
+        if 'delete_key' in request.form:
+            key_to_delete = request.form.get('delete_key')
+            if key_to_delete in destinatari:
+                del destinatari[key_to_delete]
+                try:
+                    dest_file.write_text(json.dumps(destinatari, ensure_ascii=False, indent=4), encoding="utf-8")
+                    flash(f"Destinatario '{key_to_delete}' eliminato.", "success")
+                except Exception as e:
+                    flash(f"Errore salvataggio file: {e}", "danger")
+        
+        # Se stiamo aggiungendo
+        else:
+            key_name = request.form.get('key_name')
+            if not key_name:
+                flash("Il Nome Chiave è obbligatorio.", "warning")
+            else:
+                destinatari[key_name] = {
+                    "ragione_sociale": request.form.get('ragione_sociale', ''),
+                    "indirizzo": request.form.get('indirizzo', ''),
+                    "piva": request.form.get('piva', '')
+                }
+                try:
+                    dest_file.write_text(json.dumps(destinatari, ensure_ascii=False, indent=4), encoding="utf-8")
+                    flash(f"Destinatario '{key_name}' salvato.", "success")
+                except Exception as e:
+                    flash(f"Errore salvataggio file: {e}", "danger")
 
-    if os.path.exists(db_file):
-        with open(db_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-    else:
-        data = []
-
-    return render_template('manage_destinatari.html', destinatari=data)
-
+        return redirect(url_for('manage_destinatari'))
+        
+    return render_template('destinatari.html', destinatari=destinatari)
 
 # --- PDF E FINALIZZAZIONE DDT ---
 _styles = getSampleStyleSheet()
