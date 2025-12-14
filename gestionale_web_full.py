@@ -899,8 +899,6 @@ MAPPE_EXCEL_HTML = """
 </div>
 {% endblock %}
 """
-
-
 EXPORT_CLIENT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
