@@ -829,31 +829,46 @@ IMPORT_EXCEL_HTML = """
         <div class="card p-4">
             <h3><i class="bi bi-file-earmark-arrow-up"></i> Importa Articoli da Excel</h3>
             <hr>
-            <p class="text-muted">Seleziona il profilo di importazione (Mappa) e carica il file Excel.</p>
+            
+            {% if not profiles %}
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle"></i> <strong>Attenzione:</strong> Nessun profilo di importazione trovato. 
+                <br>Carica prima il file <code>mappe_excel.json</code> nella sezione <a href="{{ url_for('manage_mappe') }}">Gestisci Mappe</a>.
+            </div>
+            {% else %}
+            <p class="text-muted">Seleziona il profilo di mappatura corretto per il tuo file.</p>
             <form method="post" enctype="multipart/form-data">
                 <div class="mb-3">
-                    <label class="form-label">Seleziona Mappa Excel</label>
+                    <label class="form-label fw-bold">1. Seleziona Profilo Mappa</label>
                     <select name="profile" class="form-select" required>
-                        <option value="" disabled selected>-- Scegli un profilo --</option>
+                        <option value="" disabled selected>-- Scegli dalla lista --</option>
                         {% for p in profiles %}
                         <option value="{{ p }}">{{ p }}</option>
                         {% endfor %}
                     </select>
-                    <div class="form-text"><a href="{{ url_for('manage_mappe') }}">Gestisci o aggiorna le mappe (JSON)</a></div>
+                    <div class="form-text">Profili caricati: {{ profiles|length }}</div>
                 </div>
+                
                 <div class="mb-3">
-                    <label for="excel_file" class="form-label">File Excel (.xlsx, .xlsm)</label>
+                    <label for="excel_file" class="form-label fw-bold">2. Carica File Excel</label>
                     <input class="form-control" type="file" id="excel_file" name="excel_file" accept=".xlsx,.xls,.xlsm" required>
                 </div>
-                <button type="submit" class="btn btn-primary">Carica e Importa</button>
-                <a href="{{ url_for('home') }}" class="btn btn-secondary">Annulla</a>
+                
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-primary btn-lg">Avvia Importazione</button>
+                    <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">Annulla</a>
+                </div>
             </form>
+            {% endif %}
+            
+            <div class="mt-4 text-center">
+                <a href="{{ url_for('manage_mappe') }}" class="small text-decoration-none"><i class="bi bi-gear"></i> Gestisci file mappe_excel.json</a>
+            </div>
         </div>
     </div>
 </div>
 {% endblock %}
 """
-
 MAPPE_EXCEL_HTML = """
 {% extends 'base.html' %}
 {% block content %}
