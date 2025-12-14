@@ -228,15 +228,34 @@ def load_destinatari():
     data = {}
     if DESTINATARI_JSON.exists():
         try:
-            data = json.loads(DESTINATARI_JSON.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                data = {f"Destinatario {i+1}": v for i, v in enumerate(data)}
-        except Exception: pass
+            content = DESTINATARI_JSON.read_text(encoding="utf-8")
+            raw_data = json.loads(content)
+            
+            # Se il JSON è una lista (vecchio formato), lo convertiamo in dizionario
+            if isinstance(raw_data, list):
+                for item in raw_data:
+                    # Usa il campo 'Cliente' come chiave, o genera un nome se manca
+                    key = item.get("Cliente") or item.get("ragione_sociale") or "Destinatario Sconosciuto"
+                    data[key] = {
+                        "ragione_sociale": item.get("ragione_sociale") or item.get("Cliente", ""),
+                        "indirizzo": item.get("indirizzo", ""),
+                        "piva": item.get("piva", "")
+                    }
+            else:
+                data = raw_data
+        except Exception:
+            data = {}
+            
     if not data:
-        data = {"Sede Cliente": {"ragione_sociale": "Cliente S.p.A.", "indirizzo": "Via Esempio 1, 16100 Genova", "piva": "IT00000000000"}}
-        DESTINATARI_JSON.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        # Dati di default se il file è vuoto o corrotto
+        data = {
+            "Sede Cliente": {
+                "ragione_sociale": "Cliente S.p.A.", 
+                "indirizzo": "Via Esempio 1, 16100 Genova", 
+                "piva": "IT00000000000"
+            }
+        }
     return data
-
 def next_ddt_number():
     PROG_FILE = APP_DIR / "progressivi_ddt.json"
     y = str(date.today().year)[-2:]
