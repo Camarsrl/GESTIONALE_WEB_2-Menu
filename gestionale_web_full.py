@@ -89,6 +89,23 @@ else:
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 Base = declarative_base()
 
+from sqlalchemy import text
+import logging
+
+def ensure_articoli_columns():
+    """Aggiunge colonne mancanti su Postgres (senza Alembic)."""
+    try:
+        db = SessionLocal()
+        try:
+            db.execute(text('ALTER TABLE articoli ADD COLUMN IF NOT EXISTS ordine VARCHAR(255);'))
+            db.commit()
+            logging.info("[DB] ensure_articoli_columns OK (ordine)")
+        finally:
+            db.close()
+    except Exception:
+        logging.exception("[DB] ensure_articoli_columns FAILED")
+
+
 # --- MODELLI ---
 class Articolo(Base):
     __tablename__ = "articoli"
