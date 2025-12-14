@@ -808,27 +808,76 @@ IMPORT_EXCEL_HTML = """
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-8 col-lg-6">
-        <div class="card p-4">
-            <h3><i class="bi bi-file-earmark-arrow-up"></i> Importa Articoli da Excel</h3>
+        <div class="card p-4 shadow-sm">
+
+            <h3>
+                <i class="bi bi-file-earmark-arrow-up"></i>
+                Importa Articoli da Excel
+            </h3>
             <hr>
-            <p class="text-muted">Carica un file Excel (.xlsx, .xls, .xlsm) per aggiungere nuovi articoli in blocco. Assicurati che il file abbia una riga di intestazione con i nomi delle colonne corretti.</p>
-            <form method="post" enctype="multipart/form-data">
-                <div class="mb-3">
-                    <label for="excel_file" class="form-label">Seleziona il file Excel</label>
-                    <input class="form-control" type="file" id="excel_file" name="excel_file" accept=".xlsx,.xls,.xlsm" required>
-                </div>
-                <button type="submit" class="btn btn-primary">Carica e Importa</button>
-                <a href="{{ url_for('home') }}" class="btn btn-secondary">Annulla</a>
-            </form>
-            <div class="alert alert-info mt-4">
-                <strong>Nomi colonne suggeriti:</strong><br>
-                <small><code>Codice Articolo, Pezzo, Larghezza, Lunghezza, Altezza, Protocollo, Ordine, Commessa, Magazzino, Fornitore, Data Ingresso, N. DDT Ingresso, Cliente, Descrizione, Peso, N. Colli, Posizione, N. Arrivo, Buono N., Note, Serial Number, Stato, Mezzi in Uscita, NS Rif</code></small>
+
+            <p class="text-muted">
+                Carica un file Excel (.xlsx, .xls, .xlsm) per aggiungere nuovi articoli in blocco.
+                Seleziona il profilo di mappatura corretto (da <code>mappe_excel.json</code>).
+            </p>
+
+            {% if not profiles %}
+            <div class="alert alert-warning">
+                <strong>Nessun profilo disponibile.</strong><br>
+                Controlla che <code>mappe_excel.json</code> esista e contenga almeno un profilo.
             </div>
+            {% endif %}
+
+            <form method="post" enctype="multipart/form-data">
+
+                <!-- PROFILO -->
+                <div class="mb-3">
+                    <label class="form-label">Profilo di importazione</label>
+                    <select class="form-select" name="profile" required>
+                        <option value="">-- Seleziona profilo --</option>
+                        {% for p in profiles %}
+                            <option value="{{ p }}">{{ p }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- FILE -->
+                <div class="mb-3">
+                    <label class="form-label">File Excel</label>
+                    <input
+                        class="form-control"
+                        type="file"
+                        name="file"
+                        accept=".xlsx,.xls,.xlsm"
+                        required
+                    >
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-cloud-arrow-up"></i> Carica e Importa
+                    </button>
+                    <a href="{{ url_for('home') }}" class="btn btn-secondary">
+                        Annulla
+                    </a>
+                </div>
+
+            </form>
+
+            <div class="alert alert-info mt-4 mb-0">
+                <strong>Nota:</strong><br>
+                <small>
+                    Le colonne del file Excel vengono lette in base al profilo selezionato.
+                    I dettagli di eventuali colonne mancanti sono visibili nei log.
+                </small>
+            </div>
+
         </div>
     </div>
 </div>
 {% endblock %}
 """
+
 
 EXPORT_CLIENT_HTML = """
 {% extends 'base.html' %}
