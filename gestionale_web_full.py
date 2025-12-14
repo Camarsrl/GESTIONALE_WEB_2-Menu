@@ -94,6 +94,7 @@ class Articolo(Base):
     __tablename__ = "articoli"
     id_articolo = Column(Integer, Identity(start=1), primary_key=True)
     codice_articolo = Column(String(255))
+    ordine = Column(String(255))
     pezzo = Column(String(255))
     larghezza = Column(Float); lunghezza = Column(Float); altezza = Column(Float)
     m2 = Column(Float); m3 = Column(Float)
