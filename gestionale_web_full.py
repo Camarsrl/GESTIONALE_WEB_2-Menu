@@ -1933,6 +1933,8 @@ def buono_finalize_and_get_pdf():
     ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
     rows = _get_rows_from_ids(ids)
     buono_n = (request.form.get('buono_n') or '').strip()
+    
+    # Aggiorna il DB con il numero buono
     db = SessionLocal()
     if buono_n:
         for r in rows:
@@ -1940,41 +1942,98 @@ def buono_finalize_and_get_pdf():
         db.commit()
         flash(f"Numero Buono '{buono_n}' salvato per gli articoli selezionati.", "info")
     
+    # Setup PDF
     bio = io.BytesIO()
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm, topMargin=10*mm, bottomMargin=15*mm)
     story = []
 
+    # Stili per il testo
+    styles = getSampleStyleSheet()
+    s_normal = styles['Normal']
+    s_small = ParagraphStyle(name='small', parent=s_normal, fontSize=9, leading=11)
+    s_bold = ParagraphStyle(name='small_bold', parent=s_normal, fontName='Helvetica-Bold', fontSize=9, leading=11)
+
+    # Logo
     if LOGO_PATH and Path(LOGO_PATH).exists():
         logo = Image(LOGO_PATH, width=60*mm, height=20*mm, hAlign='CENTER')
         story.append(logo)
         story.append(Spacer(1, 5*mm))
 
+    # Titolo
     title_style = ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, textColor=colors.white)
     title_bar = Table([[Paragraph("BUONO DI PRELIEVO", title_style)]], colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)])
     story.append(title_bar)
     story.append(Spacer(1, 8*mm))
 
     d_row = rows[0] if rows else None
-    meta = [
-        ["Data Emissione", request.form.get('data_em', '')],
-        ["Commessa", request.form.get('commessa', '')],
-        ["Fornitore", request.form.get('fornitore', '')],
-        ["Protocollo", request.form.get('protocollo', '')],
-        ["N. Buono", buono_n]
+    
+    # Tabella Dati Testata (Meta)
+    meta_data = [
+        [Paragraph("<b>Data Emissione</b>", s_bold), Paragraph(request.form.get('data_em', ''), s_small)],
+        [Paragraph("<b>Commessa</b>", s_bold), Paragraph(request.form.get('commessa', ''), s_small)],
+        [Paragraph("<b>Fornitore</b>", s_bold), Paragraph(request.form.get('fornitore', ''), s_small)],
+        [Paragraph("<b>Protocollo</b>", s_bold), Paragraph(request.form.get('protocollo', ''), s_small)],
+        [Paragraph("<b>N. Buono</b>", s_bold), Paragraph(buono_n, s_small)]
     ]
-    story.append(_pdf_table(meta, [35*mm, None], header=False))
-    story.append(Spacer(1, 6))
-    story.append(Paragraph(f"<b>Cliente:</b> {(d_row.cliente or '').upper()}", getSampleStyleSheet()['Normal']))
-    story.append(Spacer(1, 8))
-    data = [['Ordine','Codice Articolo','Descrizione','Quantità','N.Arrivo']]
+    # Usiamo una tabella manuale per controllare meglio gli stili
+    meta_table = Table(meta_data, colWidths=[40*mm, None], style=[
+        ('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey),
+        ('BACKGROUND', (0,0), (0,-1), colors.whitesmoke),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 5),
+        ('RIGHTPADDING', (0,0), (-1,-1), 5),
+    ])
+    story.append(meta_table)
+    story.append(Spacer(1, 6*mm))
+    
+    # Cliente
+    story.append(Paragraph(f"<b>Cliente:</b> {(d_row.cliente or '').upper()}", s_normal))
+    story.append(Spacer(1, 6*mm))
+    
+    # --- TABELLA ARTICOLI ---
+    # Intestazioni (usando Paragraph per lo stile)
+    tbl_header = [
+        Paragraph('Ordine', s_bold), 
+        Paragraph('Codice Articolo', s_bold), 
+        Paragraph('Descrizione', s_bold), 
+        Paragraph('Q.tà', s_bold), 
+        Paragraph('N.Arrivo', s_bold)
+    ]
+    
+    data = [tbl_header]
+    
     for r in rows:
         q_val = request.form.get(f"q_{r.id_articolo}")
         quantita = to_int_eu(q_val) if q_val is not None else (r.n_colli or 1)
-        data.append([r.ordine or '', r.codice_articolo or '', r.descrizione or '', quantita, r.n_arrivo or ''])
-    story.append(_pdf_table(data, col_widths=[25*mm, 45*mm, None, 20*mm, 25*mm]))
+        
+        # Le celle sono Paragraph per permettere al testo di andare a capo
+        row_data = [
+            Paragraph(r.ordine or '', s_small),
+            Paragraph(r.codice_articolo or '', s_small),
+            Paragraph(r.descrizione or '', s_small),
+            Paragraph(str(quantita), s_small),
+            Paragraph(r.n_arrivo or '', s_small)
+        ]
+        data.append(row_data)
     
-    story.append(Spacer(1, 100*mm)) 
+    # Definisci larghezze colonne (Totale ~180mm per stare nei margini)
+    col_widths = [30*mm, 45*mm, 65*mm, 15*mm, 25*mm]
+    
+    t = Table(data, colWidths=col_widths, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'), # Fondamentale: allinea in alto se il testo va a capo
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke), # Sfondo testata
+        ('LEFTPADDING', (0,0), (-1,-1), 4),
+        ('RIGHTPADDING', (0,0), (-1,-1), 4),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+    ]))
+    story.append(t)
+    
+    story.append(Spacer(1, 30*mm)) 
 
+    # Firme
     signature_style = ParagraphStyle(name='Signature', fontName='Helvetica', fontSize=10)
     sig_data = [
         [Paragraph("Firma Magazzino:<br/><br/>____________________________", signature_style), 
