@@ -1053,6 +1053,73 @@ CALCOLA_COSTI_HTML = """
 {% endblock %}
 """
 
+INVIA_EMAIL_HTML = """
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card p-4">
+            <h4 class="mb-3"><i class="bi bi-envelope"></i> Invia Email con Allegati</h4>
+            
+            {% if selected_ids %}
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> Hai selezionato <strong>{{ selected_ids.split(',')|length }}</strong> articoli. 
+                Verrà generato e allegato un PDF di riepilogo/DDT e gli eventuali allegati presenti (foto/documenti).
+            </div>
+            {% endif %}
+
+            <form method="post" enctype="multipart/form-data">
+                <input type="hidden" name="selected_ids" value="{{ selected_ids }}">
+                
+                <div class="mb-3">
+                    <label class="form-label">Destinatario (Email)</label>
+                    <input type="email" name="destinatario" class="form-control" required placeholder="cliente@esempio.com">
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">Oggetto</label>
+                    <input type="text" name="oggetto" class="form-control" value="Documentazione Merce - Camar S.r.l." required>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">Messaggio</label>
+                    <textarea name="messaggio" rows="5" class="form-control">Buongiorno,
+
+In allegato inviamo la documentazione relativa alla merce in oggetto.
+
+Cordiali saluti,
+Camar S.r.l.</textarea>
+                </div>
+
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="genera_ddt" id="genera_ddt" checked>
+                        <label class="form-check-label" for="genera_ddt">
+                            Genera e allega PDF Riepilogo/DDT
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="allega_file" id="allega_file" checked>
+                        <label class="form-check-label" for="allega_file">
+                            Includi allegati esistenti (Foto/PDF caricati sugli articoli)
+                        </label>
+                    </div>
+                </div>
+
+                <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                    <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> Invia Email</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+"""
+
+
+
+
 templates = {
     'base.html': BASE_HTML,
     'login.html': LOGIN_HTML,
