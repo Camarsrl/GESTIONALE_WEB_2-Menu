@@ -2030,29 +2030,41 @@ def labels_pdf():
     else:
         flash(f"Etichette per {cliente} generate correttamente.", "success")
         return redirect(url_for('labels_form'))
-
-# --- FIX DATABASE SCHEMA (Esegui all'avvio) ---
+# --- FIX DATABASE SCHEMA (Esegui all'avvio per correggere tipi colonne) ---
 def fix_db_schema():
-    """Tenta di correggere i tipi di colonna nel DB reale."""
+    """
+    Corregge i tipi di colonna nel database PostgreSQL per evitare errori di lunghezza.
+    Converte le colonne critiche da VARCHAR(255) a TEXT.
+    """
     try:
         from sqlalchemy import text
         db = SessionLocal()
-        # Forza codice_articolo a VARCHAR se non lo è
-        db.execute(text("ALTER TABLE articoli ALTER COLUMN codice_articolo TYPE VARCHAR(255) USING codice_articolo::varchar;"))
-        # Forza altri campi che potrebbero essere sbagliati
-        db.execute(text("ALTER TABLE articoli ALTER COLUMN commessa TYPE VARCHAR(255) USING commessa::varchar;"))
-        db.execute(text("ALTER TABLE articoli ALTER COLUMN ordine TYPE VARCHAR(255) USING ordine::varchar;"))
-        db.execute(text("ALTER TABLE articoli ALTER COLUMN posizione TYPE VARCHAR(255) USING posizione::varchar;"))
-        db.execute(text("ALTER TABLE articoli ALTER COLUMN n_arrivo TYPE VARCHAR(255) USING n_arrivo::varchar;"))
-        db.execute(text("ALTER TABLE articoli ALTER COLUMN n_ddt_ingresso TYPE VARCHAR(255) USING n_ddt_ingresso::varchar;"))
+        # Elenco delle colonne che potrebbero contenere testi lunghi
+        cols_to_fix = [
+            'codice_articolo', 'descrizione', 'note', 'commessa', 
+            'ordine', 'protocollo', 'buono_n', 'n_arrivo', 
+            'n_ddt_ingresso', 'n_ddt_uscita', 'cliente', 'fornitore'
+        ]
+        
+        for col in cols_to_fix:
+            try:
+                # Comando SQL per convertire la colonna in TEXT (senza limiti)
+                # "TYPE TEXT" è lo standard Postgres per stringhe di lunghezza arbitraria
+                # "USING ...::text" serve per castare i dati esistenti
+                query = text(f"ALTER TABLE articoli ALTER COLUMN {col} TYPE TEXT USING {col}::text;")
+                db.execute(query)
+            except Exception as e:
+                # Se la colonna non esiste o c'è un altro errore, lo ignoriamo e passiamo alla prossima
+                print(f"⚠️ Warning fix colonna {col}: {e}")
+        
         db.commit()
-        print("✅ SCHEMA DB CORRETTO: Colonne chiave convertite in VARCHAR.")
+        print("✅ SCHEMA DB AGGIORNATO: Colonne di testo convertite in TEXT (no limiti lunghezza).")
     except Exception as e:
-        print(f"⚠️ Tentativo fix schema ignorato (potrebbe essere già ok o db sqlite): {e}")
+        print(f"⚠️ Errore generale durante il fix dello schema: {e}")
     finally:
         db.close()
 
-# Esegui il fix all'avvio
+# Esegui il fix immediatamente quando il file viene importato/avviato
 fix_db_schema()
 
 # --- AVVIO FLASK APP ---
