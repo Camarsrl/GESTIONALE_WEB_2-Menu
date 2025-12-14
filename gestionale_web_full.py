@@ -1344,10 +1344,9 @@ def giacenze():
 
         if applied_dates:
             logging.info(f"Filtri DATE applicati: {applied_dates}")
+            tot_filtered = qs.order_by(None).with_entities(func.count(Articolo.id_articolo)).scalar()
+            logging.info(f"Totale righe dopo filtri: {tot_filtered}")
 
-        # Conteggio con filtri (prima di fare .all())
-        tot_filtered = qs.with_entities(func.count(Articolo.id_articolo)).scalar()
-        logging.info(f"Totale righe dopo filtri: {tot_filtered}")
 
         # Scarica righe
         rows = qs.all()
