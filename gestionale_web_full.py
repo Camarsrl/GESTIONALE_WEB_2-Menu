@@ -2315,11 +2315,13 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     s_val = ParagraphStyle(name='LabelVal', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
 
     for art in articoli:
+        # Logo
         if LOGO_PATH and Path(LOGO_PATH).exists():
             img = Image(LOGO_PATH, width=35*mm, height=10*mm, hAlign='LEFT')
             story.append(img)
             story.append(Spacer(1, 2*mm))
         
+        # Dati etichetta
         dati = [
             [Paragraph("CLIENTE:", s_label), Paragraph(art.cliente or '', s_val)],
             [Paragraph("FORNITORE:", s_label), Paragraph(art.fornitore or '', s_val)],
@@ -2341,6 +2343,8 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             ('BOTTOMPADDING', (0,0), (-1,-1), 0),
         ]))
         story.append(t)
+        
+        # Salto pagina: fondamentale per etichette singole
         story.append(PageBreak())
 
     doc.build(story)
