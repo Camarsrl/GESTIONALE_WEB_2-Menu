@@ -1147,52 +1147,50 @@ def import_excel():
     if request.method == 'GET':
         return render_template('mappe_excel.html', profiles=profiles)
 
-    logging.warning(f"[IMPORT] request.files keys={list(request.files.keys())}")
-    logging.warning(f"[IMPORT] request.form  keys={list(request.form.keys())}")
+    # ---------------- POST ----------------
+    logging.warning("[IMPORT] request.files keys=%s", list(request.files.keys()))
+    logging.warning("[IMPORT] request.form keys=%s", list(request.form.keys()))
 
     profile_name = request.form.get('profile')
-    logging.warning(f"[IMPORT] profile selezionato={profile_name!r}")
+    logging.warning("[IMPORT] profile selezionato=%r", profile_name)
 
     if not profile_name or profile_name not in mappe:
         flash("Seleziona un profilo valido.", "warning")
         return redirect(request.url)
 
     if 'excel_file' not in request.files:
-        flash("Nessun file selezionato", "warning")
+        flash('Nessun file selezionato', 'warning')
         return redirect(request.url)
 
     file = request.files['excel_file']
     if not file or file.filename == '':
-        flash("Nessun file selezionato", "warning")
+        flash('Nessun file selezionato', 'warning')
         return redirect(request.url)
 
-    fname = (file.filename or "").lower()
-    if not fname.endswith(('.xlsx', '.xls', '.xlsm')):
-        flash("Formato file non supportato.", "warning")
+    if not file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
+        flash('Formato file non supportato.', 'warning')
         return redirect(request.url)
 
     config = mappe[profile_name]
     column_map = config.get('column_map', {}) or {}
 
-    logging.warning(f"[IMPORT] column_map keys={list(column_map.keys())}")
-
     if not column_map:
         flash("Mappa colonne vuota nel profilo selezionato.", "danger")
         return redirect(request.url)
 
-    # --- NORMALIZZAZIONE header (per match robusto) ---
-    def norm(s: str) -> str:
+    # ---- Normalizzazione robusta intestazioni (spazi, NBSP, case) ----
+    def norm(s):
         s = "" if s is None else str(s)
-        s = s.replace("\u00a0", " ")            # NBSP
-        s = re.sub(r"\s+", " ", s.strip())      # spazi multipli
+        s = s.replace("\u00a0", " ")          # NBSP
+        s = re.sub(r"\s+", " ", s.strip())
         return s.upper()
 
     required_headers = [norm(h) for h in column_map.keys() if norm(h) not in ("ID", "")]
-    logging.warning(f"[IMPORT] colonne richieste (norm)={required_headers}")
+    logging.warning("[IMPORT] colonne richieste (norm)=%s", required_headers)
 
-    # --- 1) Trova automaticamente FOGLIO + RIGA HEADER ---
+    # ---- AUTO-DETECT: foglio + riga header (1-based) ----
     best_sheet = None
-    best_header_row_1based = None
+    best_header_row_1b = None
     best_score = -1
 
     try:
@@ -1201,6 +1199,7 @@ def import_excel():
 
         for ws_name in wb.sheetnames:
             ws = wb[ws_name]
+
             # scansione prime 30 righe, prime 50 colonne
             for r_idx, row in enumerate(
                 ws.iter_rows(min_row=1, max_row=30, min_col=1, max_col=50, values_only=True),
@@ -1212,55 +1211,60 @@ def import_excel():
                 if score > best_score:
                     best_score = score
                     best_sheet = ws_name
-                    best_header_row_1based = r_idx
+                    best_header_row_1b = r_idx
 
-        logging.warning(f"[IMPORT] auto-detect: best_sheet={best_sheet!r} best_header_row={best_header_row_1based} score={best_score}")
+        logging.warning("[IMPORT] auto-detect: best_sheet=%r best_header_row_1based=%r score=%s",
+                        best_sheet, best_header_row_1b, best_score)
 
     except Exception:
-        logging.error("[IMPORT] ERRORE durante auto-detect sheet/header", exc_info=True)
+        logging.exception("[IMPORT] ERRORE durante auto-detect sheet/header")
         best_sheet = None
-        best_header_row_1based = None
+        best_header_row_1b = None
         best_score = -1
 
-    # fallback: usa header_row del JSON se auto-detect non convincente
-    json_header_1based = int(config.get('header_row', 1))
-    if not best_sheet or not best_header_row_1based or best_score < 3:
-        best_sheet = config.get("sheet_name_or_index", 0)
-        best_header_row_1based = json_header_1based
-        logging.warning(f"[IMPORT] fallback: sheet={best_sheet!r} header_row_1based={best_header_row_1based}")
+    # fallback: se auto-detect non trova niente di buono, usa config
+    json_header_1b = int(config.get('header_row', 1))
+    if not best_sheet or not best_header_row_1b or best_score < 3:
+        best_sheet = config.get("sheet_name_or_index", 0)  # se nel json non c'è, 0
+        best_header_row_1b = json_header_1b
+        logging.warning("[IMPORT] fallback: sheet=%r header_row_1based=%r",
+                        best_sheet, best_header_row_1b)
 
-    header_row_idx = best_header_row_1based - 1  # pandas 0-based
+    header_row_idx = int(best_header_row_1b) - 1  # pandas 0-based
 
-    # --- 2) Leggi Excel con sheet + header corretti ---
+    logging.warning("[IMPORT] header scelto: excel 1-based=%s -> pandas idx=%s", best_header_row_1b, header_row_idx)
+    logging.warning("[IMPORT] column_map keys=%s", list(column_map.keys()))
+
+    # 🔁 IMPORTANT: torna a inizio file prima di leggere con pandas
+    file.stream.seek(0)
+
     db = SessionLocal()
     try:
-        file.stream.seek(0)
         df = pd.read_excel(
             file,
             engine='openpyxl',
             sheet_name=best_sheet,
-            header=header_row_idx
+            header=header_row_idx,
+            dtype=object
         )
 
-        logging.warning(f"[IMPORT] df shape={df.shape}")
-        logging.warning(f"[IMPORT] df.columns (raw)={list(df.columns)[:60]}")
+        logging.warning("[IMPORT] df shape=%s", df.shape)
+        logging.warning("[IMPORT] df.columns (raw)=%s", [str(c) for c in df.columns][:60])
 
-        # mappa colonne del DF normalizzate -> nome reale colonna
+        # mappa colonne DF normalizzate -> nome reale
         df_cols_norm = {norm(c): c for c in df.columns}
 
-        matched = []
-        missing = []
-        for excel_header in column_map.keys():
-            hnorm = norm(excel_header)
-            if hnorm in df_cols_norm:
-                matched.append(excel_header)
-            else:
-                missing.append(excel_header)
+        # diagnostica match colonne mappa vs excel
+        requested_norm = [norm(k) for k in column_map.keys()]
+        matched = [k for k in requested_norm if k in df_cols_norm]
+        missing = [k for k in requested_norm if k not in df_cols_norm]
 
-        logging.warning(f"[IMPORT] colonne matchate={matched}")
-        logging.warning(f"[IMPORT] colonne NON trovate={missing}")
+        logging.warning("[IMPORT] colonne richieste (mappa norm)=%s", requested_norm)
+        logging.warning("[IMPORT] colonne matchate (norm)=%s", matched)
+        logging.warning("[IMPORT] colonne NON trovate (norm)=%s", missing)
 
         imported_count = 0
+        sample_logged = 0
 
         for idx, row in df.iterrows():
             new_art = Articolo()
@@ -1275,7 +1279,6 @@ def import_excel():
                     continue
 
                 val = row.get(real_col)
-
                 if pd.isna(val) or str(val).strip() == "":
                     continue
 
@@ -1286,17 +1289,19 @@ def import_excel():
                     val = to_int_eu(val)
                 elif db_field in ['data_ingresso', 'data_uscita']:
                     if isinstance(val, (datetime, date)):
-                        val = val
+                        pass
                     else:
-                        # se arriva stringa, prova parse
                         val = parse_date_ui(str(val)) or str(val)
+                else:
+                    val = str(val).strip()
 
-                # assegna sul modello solo se il campo esiste
                 if hasattr(new_art, db_field):
                     setattr(new_art, db_field, val)
                     has_data = True
+                else:
+                    logging.error("[IMPORT] DB field NON esiste nel modello: %r (da excel header=%r)", db_field, excel_header)
 
-            # obbligatorio: se manca codice_articolo, non inserisco
+            # ✅ se manca codice_articolo, non inserire (evita righe sporche)
             codice = getattr(new_art, "codice_articolo", None)
             if not codice or str(codice).strip() == "":
                 continue
@@ -1314,26 +1319,29 @@ def import_excel():
                 db.add(new_art)
                 imported_count += 1
 
-                # log sample prime 3 righe
-                if imported_count <= 3:
+                # sample log (prime 3 righe importate)
+                if sample_logged < 3:
                     logging.warning(
-                        "[IMPORT] SAMPLE row=%s codice=%r buono_n=%r protocollo=%r ordine=%r",
+                        "[IMPORT] SAMPLE row=%s -> codice=%r descr=%r cliente=%r protocollo=%r buono_n=%r ordine=%r",
                         idx,
                         getattr(new_art, "codice_articolo", None),
-                        getattr(new_art, "buono_n", None),
+                        getattr(new_art, "descrizione", None),
+                        getattr(new_art, "cliente", None),
                         getattr(new_art, "protocollo", None),
+                        getattr(new_art, "buono_n", None),
                         getattr(new_art, "ordine", None),
                     )
+                    sample_logged += 1
 
         db.commit()
-        logging.warning(f"[IMPORT] COMMIT OK - imported_count={imported_count} (profilo={profile_name!r})")
+        logging.warning("[IMPORT] COMMIT OK - imported_count=%s (profilo=%r)", imported_count, profile_name)
 
         flash(f"{imported_count} articoli importati con successo con la mappa '{profile_name}'.", "success")
         return redirect(url_for('giacenze', v=uuid.uuid4().hex[:6]))
 
     except Exception as e:
         db.rollback()
-        logging.error("[IMPORT] ERRORE IMPORT", exc_info=True)
+        logging.exception("[IMPORT] ERRORE durante import")
         flash(f"Errore durante l'importazione: {e}", "danger")
         return redirect(request.url)
 
