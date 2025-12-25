@@ -648,24 +648,26 @@ BULK_EDIT_HTML = """
 BUONO_PREVIEW_HTML = """
 {% extends 'base.html' %}
 {% block content %}
-<form method="post" id="buono-form" action="{{ url_for('buono_finalize_and_get_pdf') }}">
-    <input type="hidden" name="ids" value="{{ ids }}">
-    <input type="hidden" name="action" id="form-action" value="preview">
-
-    <div class="card p-3">
-        <div class="d-flex align-items-center gap-3 mb-3">
-            {% if logo_url %}<img src="{{ logo_url }}" style="height:40px">{% endif %}
-            <h5 class="flex-grow-1 text-center m-0">BUONO DI PRELIEVO</h5>
-            <div class="btn-group">
-                <button type="button" class="btn btn-outline-primary" onclick="submitBuono('preview')">
-                    <i class="bi bi-eye"></i> Anteprima PDF
-                </button>
-                <button type="button" class="btn btn-primary" onclick="submitBuono('save')">
-                    <i class="bi bi-file-earmark-check"></i> Genera e Salva
-                </button>
-                <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
-            </div>
+<div class="card p-3">
+    <div class="d-flex align-items-center gap-3 mb-3">
+        {% if logo_url %}<img src="{{ logo_url }}" style="height:40px">{% endif %}
+        <h5 class="flex-grow-1 text-center m-0">BUONO DI PRELIEVO</h5>
+        
+        <div class="btn-group">
+            <button type="button" class="btn btn-outline-primary" onclick="submitBuono('preview')">
+                <i class="bi bi-eye"></i> Anteprima PDF
+            </button>
+            <button type="button" class="btn btn-success" onclick="submitBuono('save')">
+                <i class="bi bi-file-earmark-check"></i> Genera e Salva
+            </button>
+            <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
         </div>
+    </div>
+
+    <form id="buono-form">
+        <input type="hidden" name="ids" value="{{ ids }}">
+        <input type="hidden" name="action" id="form-action" value="preview">
+
         <div class="row g-3">
             <div class="col-md-3"><label class="form-label">N. Buono</label><input name="buono_n" class="form-control" value="{{ meta.buono_n }}"></div>
             <div class="col-md-3"><label class="form-label">Data Emissione</label><input name="data_em" class="form-control" value="{{ meta.data_em }}" readonly></div>
@@ -675,14 +677,24 @@ BUONO_PREVIEW_HTML = """
         </div>
         <hr>
         <div class="table-responsive">
-            <table class="table table-sm table-bordered">
-                <thead><tr><th>Ordine</th><th>Codice Articolo</th><th>Descrizione</th><th>Quantità</th><th>N.Arrivo</th></tr></thead>
+            <table class="table table-sm table-bordered align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Ordine</th>
+                        <th>Codice Articolo</th>
+                        <th>Descrizione</th>
+                        <th style="width: 250px;">Note (Editabili)</th>
+                        <th style="width: 80px;">Quantità</th>
+                        <th>N.Arrivo</th>
+                    </tr>
+                </thead>
                 <tbody>
                     {% for r in rows %}
                     <tr>
                         <td>{{ r.ordine or '' }}</td>
                         <td>{{ r.codice_articolo or '' }}</td>
                         <td>{{ r.descrizione or '' }}</td>
+                        <td><textarea class="form-control form-control-sm" name="note_{{ r.id_articolo }}" rows="1">{{ r.note or '' }}</textarea></td>
                         <td><input name="q_{{ r.id_articolo }}" class="form-control form-control-sm" value="{{ r.n_colli or 1 }}"></td>
                         <td>{{ r.n_arrivo or '' }}</td>
                     </tr>
@@ -690,21 +702,39 @@ BUONO_PREVIEW_HTML = """
                 </tbody>
             </table>
         </div>
-    </div>
-</form>
+    </form>
+</div>
 {% endblock %}
 {% block extra_js %}
 <script>
 function submitBuono(actionType) {
     const form = document.getElementById('buono-form');
     document.getElementById('form-action').value = actionType;
-    
+    const formData = new FormData(form);
+
     if (actionType === 'preview') {
-        form.target = '_blank'; // Apre in nuova scheda
+        // Anteprima in nuova scheda (con parametri GET per semplicità)
+        const params = new URLSearchParams(formData);
+        window.open('{{ url_for("buono_finalize_and_get_pdf") }}?' + params.toString(), '_blank');
     } else {
-        form.target = '_self'; // Scarica nella stessa pagina
+        // Salva: Fetch POST e download
+        fetch('{{ url_for("buono_finalize_and_get_pdf") }}', { method: 'POST', body: formData })
+        .then(resp => {
+            if (resp.ok) return resp.blob();
+            throw new Error('Errore salvataggio');
+        })
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'Buono_Prelievo.pdf';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1000);
+        })
+        .catch(alert);
     }
-    form.submit();
 }
 </script>
 {% endblock %}
