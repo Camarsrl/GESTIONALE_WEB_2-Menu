@@ -1530,7 +1530,84 @@ def calcola_costi():
         mese_selezionato=mese_selezionato
     )
 
+@app.route('/invia_email', methods=['GET', 'POST'])
+@login_required
+def invia_email():
+    if request.method == 'GET':
+        selected_ids = request.args.get('ids', '')
+        return render_template('invia_email.html', selected_ids=selected_ids)
 
+    # POST: Invio Email
+    selected_ids = request.form.get('selected_ids', '')
+    destinatario = request.form.get('destinatario')
+    oggetto = request.form.get('oggetto')
+    messaggio = request.form.get('messaggio')
+    genera_ddt = 'genera_ddt' in request.form
+    allega_file = 'allega_file' in request.form
+
+    ids_list = [int(i) for i in selected_ids.split(',') if i.isdigit()]
+    if not ids_list:
+        flash("Nessun articolo selezionato.", "warning")
+        return redirect(url_for('giacenze'))
+
+    # Configurazione SMTP (Defaults o Variabili d'ambiente)
+    SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
+    SMTP_USER = os.environ.get("SMTP_USER", "") # Metti qui la tua email se testi in locale
+    SMTP_PASS = os.environ.get("SMTP_PASS", "")
+
+    if not SMTP_USER or not SMTP_PASS:
+        flash("Configurazione email mancante (SMTP_USER/PASS). Controlla le impostazioni del server.", "warning")
+        # Per test, simuliamo il successo
+        return redirect(url_for('giacenze'))
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SMTP_USER
+        msg['To'] = destinatario
+        msg['Subject'] = oggetto
+        msg.attach(MIMEText(messaggio, 'plain'))
+
+        db = SessionLocal()
+        rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
+
+        # 1. Genera DDT al volo e allegalo
+        if genera_ddt and rows:
+            # Dati fittizi per il DDT volante
+            dest_data = {"ragione_sociale": rows[0].cliente or "Cliente", "indirizzo": ""}
+            pdf_bio = _generate_ddt_pdf("RIEPILOGO", date.today(), "", dest_data, rows, {})
+            part = MIMEBase('application', "octet-stream")
+            part.set_payload(pdf_bio.getvalue())
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', 'attachment; filename="Riepilogo_Merce.pdf"')
+            msg.attach(part)
+
+        # 2. Allega file caricati (foto/doc)
+        if allega_file:
+            for r in rows:
+                for att in r.attachments:
+                    path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / att.filename
+                    if path.exists():
+                        with open(path, "rb") as f:
+                            part = MIMEBase('application', "octet-stream")
+                            part.set_payload(f.read())
+                        encoders.encode_base64(part)
+                        part.add_header('Content-Disposition', f'attachment; filename="{att.filename}"')
+                        msg.attach(part)
+        db.close()
+
+        # Connessione al Server e Invio
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASS)
+        server.send_message(msg)
+        server.quit()
+
+        flash(f"Email inviata correttamente a {destinatario}", "success")
+    except Exception as e:
+        flash(f"Errore durante l'invio: {e}", "danger")
+
+    return redirect(url_for('giacenze'))
 
 # --- GESTIONE ARTICOLI (CRUD) ---
 @app.get('/new')
