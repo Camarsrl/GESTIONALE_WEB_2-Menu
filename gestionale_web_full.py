@@ -2275,34 +2275,79 @@ def pdf_ddt():
 @login_required
 def ddt_finalize():
     db = SessionLocal()
-    ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
-    n_ddt = request.form.get('n_ddt', '').strip()
-    data_ddt = request.form.get('data_ddt', date.today().isoformat())
-    
-    articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-    for art in articoli:
-        art.data_uscita = data_ddt
-        art.n_ddt_uscita = n_ddt
-        art.stato = 'USCITO'
-        art.pezzo = to_int_eu(request.form.get(f"pezzi_{art.id_articolo}", art.pezzo))
-        art.n_colli = to_int_eu(request.form.get(f"colli_{art.id_articolo}", art.n_colli))
-        art.peso = to_float_eu(request.form.get(f"peso_{art.id_articolo}", art.peso))
-    db.commit()
-    
-    dest = load_destinatari().get(request.form.get('dest_key'), {})
-    pdf_bio = _generate_ddt_pdf(
-        n_ddt=n_ddt, data_ddt=data_ddt, targa=request.form.get('targa'),
-        dest=dest, rows=articoli, form_data=request.form
-    )
-    
-    flash(f"{len(articoli)} articoli scaricati. DDT N.{n_ddt} generato.", "success")
-    
-    download_name = f"DDT_{n_ddt.replace('/', '-')}_{data_ddt}.pdf"
-    response = send_file(pdf_bio, as_attachment=True, download_name=download_name, mimetype='application/pdf')
-    
-    response.headers['X-Redirect'] = url_for('giacenze')
-    return response
+    try:
+        # Recupera dati dal form
+        ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
+        action = request.form.get('action', 'preview')
+        
+        # Recupera dati testata DDT
+        n_ddt = request.form.get('n_ddt', '').strip()
+        data_ddt_str = request.form.get('data_ddt', date.today().isoformat())
+        try:
+            data_ddt = datetime.strptime(data_ddt_str, "%Y-%m-%d").date()
+        except:
+            data_ddt = date.today()
 
+        articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+        
+        # Aggiorna gli oggetti in memoria con i dati del form (per il PDF)
+        # Se è 'finalize', salviamo anche nel DB.
+        for art in articoli:
+            # 1. Recupera valori modificati dall'utente (Input nel form)
+            nuovi_pezzi = to_int_eu(request.form.get(f"pezzi_{art.id_articolo}", art.pezzo))
+            nuovi_colli = to_int_eu(request.form.get(f"colli_{art.id_articolo}", art.n_colli))
+            nuovo_peso = to_float_eu(request.form.get(f"peso_{art.id_articolo}", art.peso))
+            nuove_note = request.form.get(f"note_{art.id_articolo}") # Note editate
+
+            # Aggiorniamo l'oggetto in memoria per il PDF
+            art.pezzo = nuovi_pezzi
+            art.n_colli = nuovi_colli
+            art.peso = nuovo_peso
+            if nuove_note is not None:
+                art.note = nuove_note
+
+            # 2. SE FINALIZZA: Salviamo nel DB
+            if action == 'finalize':
+                art.data_uscita = data_ddt.strftime("%d/%m/%Y")
+                art.n_ddt_uscita = n_ddt
+                # art.stato = 'USCITO'  <-- RIMOSSO: Lo stato non cambia!
+        
+        if action == 'finalize':
+            db.commit()
+            flash(f"DDT N.{n_ddt} finalizzato per {len(articoli)} articoli.", "success")
+        
+        # Generazione PDF
+        dest_key = request.form.get('dest_key')
+        dest = load_destinatari().get(dest_key, {})
+        
+        pdf_bio = _generate_ddt_pdf(
+            n_ddt=n_ddt, 
+            data_ddt=data_ddt, 
+            targa=request.form.get('targa'),
+            dest=dest, 
+            rows=articoli, 
+            form_data=request.form
+        )
+        
+        # Nome file
+        safe_n_ddt = n_ddt.replace('/', '-')
+        filename = f"DDT_{safe_n_ddt}_{data_ddt}.pdf"
+        
+        # Restituisce il PDF
+        # Se anteprima -> inline (browser), Se finalize -> attachment (scarica)
+        return send_file(
+            pdf_bio, 
+            as_attachment=(action == 'finalize'), 
+            download_name=filename, 
+            mimetype='application/pdf'
+        )
+
+    except Exception as e:
+        db.rollback()
+        # In caso di errore AJAX, Flask restituirà 500, gestito dal JS alert
+        raise e
+    finally:
+        db.close()
 @app.get('/labels')
 @login_required
 def labels_form():
