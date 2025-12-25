@@ -6,6 +6,7 @@ Tutti i diritti riservati.
 """
 import os
 import io
+import re  # <--- Questa è la libreria mancante!
 import uuid
 import json
 import logging
@@ -14,16 +15,17 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime, date
 
-# Importazioni Flask e Database
+# Importazioni Flask e Login
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, session, jsonify
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+
+# Importazioni Database (SQLAlchemy)
 from sqlalchemy import create_engine, Column, Integer, String, Text, Float, ForeignKey, or_, Identity, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.sql import func
 
 # --- IMPORTAZIONI PDF (ReportLab) ---
-# Qui mancava PageBreak che causava l'errore nelle etichette
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import mm
 from reportlab.lib import colors
