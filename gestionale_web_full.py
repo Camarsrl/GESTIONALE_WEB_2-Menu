@@ -664,7 +664,7 @@ BUONO_PREVIEW_HTML = """
         </div>
     </div>
 
-    <form id="buono-form">
+    <form id="buono-form" method="POST" action="{{ url_for('buono_finalize_and_get_pdf') }}">
         <input type="hidden" name="ids" value="{{ ids }}">
         <input type="hidden" name="action" id="form-action" value="preview">
 
@@ -710,18 +710,21 @@ BUONO_PREVIEW_HTML = """
 function submitBuono(actionType) {
     const form = document.getElementById('buono-form');
     document.getElementById('form-action').value = actionType;
-    const formData = new FormData(form);
 
     if (actionType === 'preview') {
-        // Anteprima in nuova scheda (con parametri GET per semplicità)
-        const params = new URLSearchParams(formData);
-        window.open('{{ url_for("buono_finalize_and_get_pdf") }}?' + params.toString(), '_blank');
+        // ANTEPRIMA: Apre nuova scheda inviando i dati via POST (evita errori URL troppo lunghi)
+        form.target = '_blank';
+        form.submit();
     } else {
-        // Salva: Fetch POST e download
-        fetch('{{ url_for("buono_finalize_and_get_pdf") }}', { method: 'POST', body: formData })
+        // SALVA: Usa fetch per scaricare e poi reindirizzare
+        // Reset target per non aprire nuove schede
+        form.target = '_self'; 
+        const formData = new FormData(form);
+
+        fetch(form.action, { method: 'POST', body: formData })
         .then(resp => {
             if (resp.ok) return resp.blob();
-            throw new Error('Errore salvataggio');
+            throw new Error('Errore nel salvataggio');
         })
         .then(blob => {
             const url = window.URL.createObjectURL(blob);
@@ -731,9 +734,11 @@ function submitBuono(actionType) {
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
+            
+            // Redirect dopo il download
             setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1000);
         })
-        .catch(alert);
+        .catch(err => alert("Errore: " + err));
     }
 }
 </script>
