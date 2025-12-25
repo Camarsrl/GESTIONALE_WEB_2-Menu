@@ -6,7 +6,7 @@ Tutti i diritti riservati.
 """
 import os
 import io
-import re  # <--- Questa è la libreria mancante!
+import re
 import uuid
 import json
 import logging
@@ -22,7 +22,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 # Importazioni Database (SQLAlchemy)
 from sqlalchemy import create_engine, Column, Integer, String, Text, Float, ForeignKey, or_, Identity, Boolean
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship
+# AGGIUNTO scoped_session QUI SOTTO:
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session
 from sqlalchemy.sql import func
 
 # --- IMPORTAZIONI PDF (ReportLab) ---
