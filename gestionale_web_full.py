@@ -713,21 +713,25 @@ function submitBuono(actionType) {
 DDT_PREVIEW_HTML = """
 {% extends 'base.html' %}
 {% block content %}
-<form method="post" id="ddt-form">
-    <input type="hidden" name="ids" value="{{ ids }}">
-    <div class="card p-3">
-        <div class="d-flex align-items-center gap-3 mb-3">
-            {% if logo_url %}<img src="{{ logo_url }}" style="height:40px">{% endif %}
-            <h5 class="flex-grow-1 text-center m-0">DOCUMENTO DI TRASPORTO</h5>
-            <div class="btn-group">
-                <button type="button" class="btn btn-primary" onclick="submitDdtPreview()">
-                    <i class="bi bi-printer"></i> Genera PDF (Anteprima)
-                </button>
-                <button type="submit" class="btn btn-success" formaction="{{ url_for('ddt_finalize') }}">
-                    <i class="bi bi-check-circle-fill"></i> Finalizza e Scarica DDT
-                </button>
-            </div>
+<div class="card p-3">
+    <div class="d-flex align-items-center gap-3 mb-3">
+        {% if logo_url %}<img src="{{ logo_url }}" style="height:40px">{% endif %}
+        <h5 class="flex-grow-1 text-center m-0">DOCUMENTO DI TRASPORTO</h5>
+        
+        <div class="btn-group">
+            <button type="button" class="btn btn-outline-primary" onclick="submitDdt('preview')">
+                <i class="bi bi-eye"></i> Anteprima PDF
+            </button>
+            <button type="button" class="btn btn-success" onclick="submitDdt('finalize')">
+                <i class="bi bi-check-circle-fill"></i> Finalizza e Scarica
+            </button>
         </div>
+    </div>
+
+    <form id="ddt-form">
+        <input type="hidden" name="ids" value="{{ ids }}">
+        <input type="hidden" name="action" id="action_type" value="preview">
+        
         <div class="row g-3">
             <div class="col-md-4">
                 <label class="form-label">Destinatario</label>
@@ -737,34 +741,51 @@ DDT_PREVIEW_HTML = """
                         <option value="{{ k }}">{{ k }} - {{ v.ragione_sociale }}</option>
                         {% endfor %}
                     </select>
-                    <a href="{{ url_for('manage_destinatari') }}" class="btn btn-outline-secondary" title="Gestisci Destinatari"><i class="bi bi-pencil"></i></a>
+                    <a href="{{ url_for('manage_destinatari') }}" class="btn btn-outline-secondary" target="_blank"><i class="bi bi-pencil"></i></a>
                 </div>
             </div>
             <div class="col-md-3">
                  <label class="form-label">N. DDT</label>
                  <div class="input-group">
                     <input name="n_ddt" id="n_ddt_input" class="form-control" value="{{ n_ddt }}">
-                    <button class="btn btn-outline-secondary" type="button" id="get-next-ddt" title="Ottieni prossimo numero">
+                    <button class="btn btn-outline-secondary" type="button" id="get-next-ddt" title="Genera Nuovo Numero">
                         <i class="bi bi-arrow-clockwise"></i>
                     </button>
                 </div>
             </div>
             <div class="col-md-2"><label class="form-label">Data DDT</label><input name="data_ddt" type="date" class="form-control" value="{{ oggi }}"></div>
             <div class="col-md-3"><label class="form-label">Targa</label><input name="targa" class="form-control"></div>
-            <div class="col-md-3"><label class="form-label">Causale</label><input name="causale" class="form-control" value="TRASFERIMENTO"></div>
-            <div class="col-md-3"><label class="form-label">Porto</label><input name="porto" class="form-control" value="FRANCO"></div>
-            <div class="col-md-3"><label class="form-label">Aspetto</label><input name="aspetto" class="form-control" value="A VISTA"></div>
+            
+            <div class="col-md-4"><label class="form-label">Causale</label><input name="causale" class="form-control" value="TRASFERIMENTO"></div>
+            <div class="col-md-4"><label class="form-label">Porto</label><input name="porto" class="form-control" value="FRANCO"></div>
+            <div class="col-md-4"><label class="form-label">Aspetto</label><input name="aspetto" class="form-control" value="A VISTA"></div>
         </div>
         <hr>
         <div class="table-responsive">
             <table class="table table-sm table-bordered align-middle">
-                <thead><tr><th>ID</th><th>Cod.Art.</th><th>Descrizione</th><th style="width:90px">Pezzi</th><th style="width:90px">Colli</th><th style="width:90px">Peso</th><th>N.Arrivo</th></tr></thead>
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 50px;">ID</th>
+                        <th>Cod.Art.</th>
+                        <th>Descrizione</th>
+                        <th style="width: 250px;">Note (Editabili)</th>
+                        <th style="width: 70px;">Pezzi</th>
+                        <th style="width: 70px;">Colli</th>
+                        <th style="width: 80px;">Peso</th>
+                        <th>N.Arrivo</th>
+                    </tr>
+                </thead>
                 <tbody>
                     {% for r in rows %}
                     <tr>
                         <td>{{ r.id_articolo }}</td>
                         <td>{{ r.codice_articolo or '' }}</td>
                         <td>{{ r.descrizione or '' }}</td>
+                        
+                        <td>
+                            <textarea class="form-control form-control-sm" name="note_{{ r.id_articolo }}" rows="1" style="resize:vertical">{{ r.note or '' }}</textarea>
+                        </td>
+                        
                         <td><input class="form-control form-control-sm" name="pezzi_{{ r.id_articolo }}" value="{{ r.pezzo or 1 }}"></td>
                         <td><input class="form-control form-control-sm" name="colli_{{ r.id_articolo }}" value="{{ r.n_colli or 1 }}"></td>
                         <td><input class="form-control form-control-sm" name="peso_{{ r.id_articolo }}" value="{{ r.peso or '' }}"></td>
@@ -774,66 +795,67 @@ DDT_PREVIEW_HTML = """
                 </tbody>
             </table>
         </div>
-    </div>
-</form>
+    </form>
+</div>
 {% endblock %}
 {% block extra_js %}
 <script>
-function submitDdtPreview() {
-    const form = document.getElementById('ddt-form');
-    form.action = '{{ url_for('pdf_ddt') }}';
-    form.target = '_blank';
-    form.submit();
-}
+// Aggiorna numero DDT
 document.getElementById('get-next-ddt').addEventListener('click', function() {
     fetch('{{ url_for('get_next_ddt_number') }}')
         .then(response => response.json())
-        .then(data => {
-            document.getElementById('n_ddt_input').value = data.next_ddt;
-        })
-        .catch(error => console.error('Error fetching next DDT number:', error));
+        .then(data => { document.getElementById('n_ddt_input').value = data.next_ddt; });
 });
-document.getElementById('ddt-form').addEventListener('submit', function(e) {
-    if (this.action.endsWith('{{ url_for('ddt_finalize') }}')) {
-        e.preventDefault();
-        const formData = new FormData(this);
-        fetch(this.action, {
+
+function submitDdt(action) {
+    const form = document.getElementById('ddt-form');
+    document.getElementById('action_type').value = action; // Imposta azione (preview/finalize)
+    const formData = new FormData(form);
+
+    if (action === 'preview') {
+        // ANTEPRIMA: Apre in nuova scheda (Blob URL)
+        fetch('{{ url_for("ddt_finalize") }}', {
+            method: 'POST',
+            body: formData
+        })
+        .then(resp => resp.blob())
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            window.open(url, '_blank'); // Apre il PDF in una nuova tab
+        })
+        .catch(err => alert("Errore generazione anteprima: " + err));
+    
+    } else {
+        // FINALIZZA: Scarica il file e poi reindirizza
+        fetch('{{ url_for("ddt_finalize") }}', {
             method: 'POST',
             body: formData
         })
         .then(resp => {
             if (resp.ok) {
-                const redirectUrl = resp.headers.get('X-Redirect');
-                const contentDisposition = resp.headers.get('content-disposition');
-                let filename = "download.pdf";
-                if (contentDisposition) {
-                    const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-                    if (filenameMatch && filenameMatch.length > 1) {
-                        filename = filenameMatch[1];
-                    }
-                }
-                resp.blob().then(blob => {
+                return resp.blob().then(blob => {
+                    // 1. Scarica il file automaticamente
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
-                    a.style.display = 'none';
                     a.href = url;
-                    a.download = filename;
+                    a.download = 'DDT_Finale.pdf'; // Nome temporaneo, il server ne manda uno migliore ma questo è fallback
                     document.body.appendChild(a);
                     a.click();
+                    a.remove();
                     window.URL.revokeObjectURL(url);
-                    if (redirectUrl) {
-                        window.location.href = redirectUrl;
-                    }
+                    
+                    // 2. Torna alla Home (Giacenze) dopo breve attesa
+                    setTimeout(() => {
+                        window.location.href = '{{ url_for("giacenze") }}';
+                    }, 1500);
                 });
             } else {
-                alert("Si è verificato un errore durante la finalizzazione del DDT.");
+                alert("Errore durante la finalizzazione.");
             }
-        }).catch(err => {
-            console.error('Error:', err);
-            alert("Errore di rete o del server.");
-        });
+        })
+        .catch(err => alert("Errore di rete: " + err));
     }
-});
+}
 </script>
 {% endblock %}
 """
