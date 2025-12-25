@@ -2232,103 +2232,54 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     doc.build(story)
     bio.seek(0)
     return bio
+    
 @app.post('/buono/finalize_and_get_pdf')
+@app.route('/buono/finalize_and_get_pdf', methods=['GET', 'POST']) # Supporto GET per anteprima
 @login_required
 def buono_finalize_and_get_pdf():
-    ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
+    req_data = request.form if request.method == 'POST' else request.args
+    ids = [int(i) for i in req_data.get('ids','').split(',') if i.isdigit()]
     rows = _get_rows_from_ids(ids)
     
-    action = request.form.get('action', 'preview')
+    action = req_data.get('action', 'preview')
     
-    # Gestione "None" -> stringa vuota
-    raw_buono = request.form.get('buono_n')
+    raw_buono = req_data.get('buono_n')
     buono_n = raw_buono.strip() if raw_buono and raw_buono.lower() != 'none' else ""
-    
-    # Salva solo se richiesto e se c'è un numero
-    if action == 'save' and buono_n:
+
+    # Aggiorna SEMPRE le note in memoria per il PDF
+    for r in rows:
+        note_val = req_data.get(f"note_{r.id_articolo}")
+        if note_val is not None:
+            r.note = note_val # Aggiorna oggetto in memoria
+
+    # Se SALVA, scrivi tutto nel DB (Numero Buono e Note)
+    if action == 'save' and request.method == 'POST':
         db = SessionLocal()
         try:
-            for r in rows:
-                r.buono_n = buono_n
+            db_rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+            for db_art in db_rows:
+                if buono_n: db_art.buono_n = buono_n
+                # Salva le note modificate nel Buono
+                new_note = req_data.get(f"note_{db_art.id_articolo}")
+                if new_note is not None:
+                    db_art.note = new_note
             db.commit()
-            flash(f"Numero Buono '{buono_n}' salvato.", "info")
+            flash(f"Buono salvato.", "info")
         finally:
             db.close()
     
     # Genera PDF
-    bio = io.BytesIO()
-    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
-    story = []
+    form_data = dict(req_data)
+    form_data['buono_n'] = buono_n
     
-    styles = getSampleStyleSheet()
-    s_small = ParagraphStyle(name='small', parent=styles['Normal'], fontSize=9, leading=11)
-    s_bold = ParagraphStyle(name='small_bold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11)
+    pdf_bio = _generate_buono_pdf(form_data, rows)
     
-    # Logo
-    if LOGO_PATH and Path(LOGO_PATH).exists():
-        story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER'))
-        story.append(Spacer(1, 5*mm))
-
-    # Titolo
-    title = Table([[Paragraph("BUONO DI PRELIEVO", ParagraphStyle('T', parent=styles['Heading1'], alignment=TA_CENTER, textColor=colors.white, fontSize=14))]], 
-                  colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)])
-    story.append(title)
-    story.append(Spacer(1, 6*mm))
-    
-    # Dati Testata (Simile al PDF inviato)
-    meta_data = [
-        [Paragraph("<b>Data Emissione:</b>", s_bold), Paragraph(request.form.get('data_em',''), s_small)],
-        [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(request.form.get('commessa',''), s_small)],
-        [Paragraph("<b>Fornitore:</b>", s_bold), Paragraph(request.form.get('fornitore',''), s_small)],
-        [Paragraph("<b>Protocollo:</b>", s_bold), Paragraph(request.form.get('protocollo',''), s_small)],
-        [Paragraph("<b>N. Buono:</b>", s_bold), Paragraph(buono_n, s_small)]
-    ]
-    t_meta = Table(meta_data, colWidths=[35*mm, 100*mm])
-    t_meta.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE')]))
-    story.append(t_meta)
-    story.append(Spacer(1, 6*mm))
-    
-    # Cliente
-    d_row = rows[0] if rows else None
-    cliente_txt = (d_row.cliente or '').upper() if d_row else ""
-    story.append(Paragraph(f"<b>Cliente:</b> {cliente_txt}", ParagraphStyle('Client', parent=styles['Normal'], fontSize=12)))
-    story.append(Spacer(1, 6*mm))
-    
-    # Tabella Articoli
-    header = [Paragraph('Ordine', s_bold), Paragraph('Codice Articolo', s_bold), Paragraph('Descrizione', s_bold), Paragraph('Q.tà', s_bold), Paragraph('N.Arrivo', s_bold)]
-    data = [header]
-    
-    for r in rows:
-        q_val = request.form.get(f"q_{r.id_articolo}")
-        quantita = to_int_eu(q_val) if q_val else (r.n_colli or 1)
-        row = [
-            Paragraph(r.ordine or '', s_small),
-            Paragraph(r.codice_articolo or '', s_small),
-            Paragraph(r.descrizione or '', s_small),
-            Paragraph(str(quantita), s_small),
-            Paragraph(r.n_arrivo or '', s_small)
-        ]
-        data.append(row)
-        
-    t_items = Table(data, colWidths=[30*mm, 45*mm, 80*mm, 15*mm, 20*mm], repeatRows=1)
-    t_items.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'), # Allinea in alto per il testo a capo
-        ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
-        ('Padding', (0,0), (-1,-1), 4)
-    ]))
-    story.append(t_items)
-    story.append(Spacer(1, 20*mm))
-    
-    # Firme
-    t_sig = Table([[Paragraph("Firma Magazzino:<br/><br/>__________________", s_small), Paragraph("Firma Cliente:<br/><br/>__________________", s_small)]], colWidths=[doc.width/2, doc.width/2])
-    story.append(t_sig)
-    
-    doc.build(story)
-    bio.seek(0)
-    
-    filename = f'Buono_{buono_n if buono_n else "Anteprima"}.pdf'
-    return send_file(bio, as_attachment=(action=='save'), download_name=filename, mimetype='application/pdf')
+    return send_file(
+        pdf_bio, 
+        as_attachment=(action == 'save'), 
+        download_name=f'Buono_{buono_n}.pdf', 
+        mimetype='application/pdf'
+    )
 
 @app.post('/pdf/ddt')
 @login_required
