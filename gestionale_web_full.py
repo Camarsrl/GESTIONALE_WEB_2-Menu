@@ -2099,19 +2099,21 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     bio = io.BytesIO()
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
     story = []
+    
     styles = getSampleStyleSheet()
-    s_small = ParagraphStyle('s', parent=styles['Normal'], fontSize=9)
-    s_bold = ParagraphStyle('b', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9)
-    s_note = ParagraphStyle('n', parent=styles['Normal'], fontSize=9, fontName='Helvetica-Oblique', spaceBefore=2)
+    s_normal = styles['Normal']
+    s_small = ParagraphStyle('s', parent=s_normal, fontSize=9)
+    s_bold = ParagraphStyle('b', parent=s_normal, fontName='Helvetica-Bold', fontSize=9)
+    s_note = ParagraphStyle('n', parent=s_normal, fontSize=9, fontName='Helvetica-Oblique', spaceBefore=2)
 
-    # 1. Intestazione (Logo + Titolo)
+    # 1. Intestazione
     if LOGO_PATH and Path(LOGO_PATH).exists():
         story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER')); story.append(Spacer(1, 5*mm))
     story.append(Table([[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", ParagraphStyle('T', parent=styles['Heading1'], alignment=TA_CENTER, textColor=colors.white, fontSize=14))]], 
                   colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)]))
     story.append(Spacer(1, 5*mm))
 
-    # 2. Mittente e Destinatario
+    # 2. Mittente / Destinatario
     dest_str = f"<b>{dest.get('ragione_sociale','')}</b><br/>{dest.get('indirizzo','').replace(chr(10),'<br/>')}"
     t_head = Table([
         [Paragraph("<b>MITTENTE</b><br/>Camar S.r.l.<br/>Via Luigi Canepa 2<br/>16165 Genova", s_small),
@@ -2120,7 +2122,7 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     t_head.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.25, colors.grey), ('VALIGN', (0,0), (-1,-1), 'TOP'), ('PADDING', (0,0), (-1,-1), 6)]))
     story.append(t_head); story.append(Spacer(1, 4*mm))
 
-    # 3. Dati
+    # 3. Dati Testata
     first = rows[0] if rows else Articolo()
     t_data = Table([
         [Paragraph(f"<b>Cliente:</b> {first.cliente}<br/><b>Commessa:</b> {first.commessa}<br/><b>Ordine:</b> {first.ordine}<br/><b>Buono:</b> {first.buono_n}", s_small),
@@ -2129,20 +2131,20 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     t_data.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey), ('VALIGN', (0,0), (-1,-1), 'TOP')]))
     story.append(t_data); story.append(Spacer(1, 6*mm))
 
-    # 4. Tabella Articoli (SENZA NOTE dentro)
+    # 4. Tabella Articoli
     header = [Paragraph(c, s_bold) for c in ['ID', 'Cod.Art.', 'Descrizione', 'Pz', 'Colli', 'Peso', 'N.Arr']]
     data = [header]
     tot_pezzi, tot_colli, tot_peso = 0, 0, 0.0
-    note_list = [] # Raccoglitore per le note
+    note_list = [] 
 
     for r in rows:
         pezzi = to_int_eu(form_data.get(f"pezzi_{r.id_articolo}", r.pezzo)) or 0
         colli = to_int_eu(form_data.get(f"colli_{r.id_articolo}", r.n_colli)) or 0
         peso = to_float_eu(form_data.get(f"peso_{r.id_articolo}", r.peso)) or 0.0
         
-        # Se ci sono note, le salviamo per dopo
+        # LOGICA NOTE AGGIORNATA: Solo testo nota, senza codice articolo
         if r.note and r.note.strip():
-            note_list.append(f"• {r.codice_articolo}: {r.note}")
+            note_list.append(f"• {r.note}")
 
         data.append([
             Paragraph(str(r.id_articolo), s_small), Paragraph(r.codice_articolo or '', s_small), Paragraph(r.descrizione or '', s_small),
@@ -2153,14 +2155,14 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     story.append(Table(data, colWidths=[12*mm, 35*mm, 80*mm, 10*mm, 12*mm, 18*mm, 23*mm], repeatRows=1, 
                        style=[('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('VALIGN', (0,0), (-1,-1), 'TOP'), ('PADDING', (0,0), (-1,-1), 4)]))
     
-    # 5. Sezione Note (FUORI DALLA TABELLA)
+    # 5. Sezione Note (Sotto tabella)
     if note_list:
         story.append(Spacer(1, 4*mm))
         story.append(Paragraph("<b>NOTE:</b>", s_bold))
         for nota in note_list:
             story.append(Paragraph(nota, s_note))
 
-    # 6. Totali
+    # 6. Footer
     story.append(Spacer(1, 10*mm))
     story.append(Paragraph(f"<b>Totale Pezzi:</b> {tot_pezzi} &nbsp; <b>Colli:</b> {tot_colli} &nbsp; <b>Peso:</b> {tot_peso:.2f} Kg", s_small))
     story.append(Spacer(1, 10*mm))
