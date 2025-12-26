@@ -1670,7 +1670,7 @@ def edit_record(id_articolo):
             return redirect(url_for('giacenze'))
 
         if request.method == 'POST':
-            # Campi testuali
+            # Aggiorna campi testuali
             articolo.codice_articolo = request.form.get('codice_articolo', '')
             articolo.descrizione = request.form.get('descrizione', '')
             articolo.cliente = request.form.get('cliente', '')
@@ -1683,14 +1683,14 @@ def edit_record(id_articolo):
             articolo.magazzino = request.form.get('magazzino', '')
             articolo.posizione = request.form.get('posizione', '')
             
-            # Date (gestione stringa vuota)
+            # Gestione Date (se stringa vuota, metti None)
             d_in = request.form.get('data_ingresso')
             articolo.data_ingresso = d_in if d_in else None
             
             d_out = request.form.get('data_uscita')
             articolo.data_uscita = d_out if d_out else None
             
-            # Numerici (usa helper to_int/float che gestisce errori)
+            # Gestione Numerici (con helper per evitare errori)
             articolo.pezzo = to_int_eu(request.form.get('pezzo'))
             articolo.n_colli = to_int_eu(request.form.get('n_colli'))
             articolo.peso = to_float_eu(request.form.get('peso'))
@@ -1701,7 +1701,12 @@ def edit_record(id_articolo):
             flash("Articolo aggiornato correttamente.", "success")
             return redirect(url_for('giacenze'))
 
-        return render_template('edit.html', articolo=articolo)
+        # FIX QUI: Passo 'row' invece di 'articolo' perché l'HTML usa 'row'
+        return render_template('edit.html', row=articolo) 
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore modifica: {e}", "danger")
+        return redirect(url_for('giacenze'))
     finally:
         db.close()
 
