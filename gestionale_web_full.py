@@ -1949,42 +1949,49 @@ def giacenze():
 @login_required
 def bulk_edit():
     db = SessionLocal()
-    if request.method == 'POST':
-        ids_csv = request.form.get('ids', '')
-        ids = [int(i) for i in ids_csv.split(',') if i.isdigit()]
-        
+    try:
+        # Recupera IDs (da query string o form)
+        ids = request.args.getlist('ids') or request.form.getlist('ids')
+        if not ids:
+            flash("Nessun articolo selezionato.", "warning")
+            return redirect(url_for('giacenze'))
+
+        ids = [int(i) for i in ids if i.isdigit()]
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-        updated_fields_count = 0
-        for art in articoli:
-            for f in get_all_fields_map().keys():
-                v = request.form.get(f)
-                if v:
-                    updated_fields_count += 1
-                    if f in ('data_ingresso','data_uscita'):
-                        v = parse_date_ui(v)
-                    elif f in ('larghezza','lunghezza','altezza','peso'):
-                        v = to_float_eu(v)
-                    elif f in ('n_colli', 'pezzo'):
-                        v = to_int_eu(v)
-                    setattr(art, f, v)
-        
-        if updated_fields_count > 0:
-            db.commit()
-            flash(f"{len(articoli)} articoli aggiornati con successo.", "success")
-        else:
-            flash("Nessun campo compilato, nessuna modifica applicata.", "info")
+
+        if request.method == 'POST':
+            # Campi da aggiornare massivamente (solo se compilati)
+            fields_to_update = {
+                'cliente': request.form.get('cliente'),
+                'commessa': request.form.get('commessa'),
+                'magazzino': request.form.get('magazzino'),
+                'posizione': request.form.get('posizione'),
+                'stato': request.form.get('stato'),
+                'data_uscita': request.form.get('data_uscita'),
+                'n_ddt_uscita': request.form.get('n_ddt_uscita')
+            }
             
-        return redirect(url_for('giacenze'))
+            count = 0
+            for art in articoli:
+                updated = False
+                for field, value in fields_to_update.items():
+                    if value: # Se l'utente ha scritto qualcosa nel campo
+                        setattr(art, field, value)
+                        updated = True
+                if updated: count += 1
+            
+            if count > 0:
+                db.commit()
+                flash(f"{count} articoli aggiornati.", "success")
+            else:
+                flash("Nessuna modifica effettuata (campi vuoti).", "info")
+                
+            return redirect(url_for('giacenze'))
 
-    ids_csv = request.args.get('ids', '')
-    ids = [int(i) for i in ids_csv.split(',') if i.isdigit()]
-    if not ids:
-        flash("Nessun articolo selezionato per la modifica.", "warning")
-        return redirect(url_for('giacenze'))
-    
-    rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-    return render_template('bulk_edit.html', rows=rows, ids_csv=ids_csv, fields=get_all_fields_map().items())
-
+        return render_template('bulk_edit.html', articoli=articoli, ids=ids)
+    finally:
+        db.close()
+        
 @app.post('/bulk/delete')
 @login_required
 def bulk_delete():
