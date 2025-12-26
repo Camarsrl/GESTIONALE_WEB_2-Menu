@@ -2170,54 +2170,59 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     bio.seek(0)
     return bio
     
-@app.post('/buono/finalize_and_get_pdf')
-@app.route('/buono/finalize_and_get_pdf', methods=['GET', 'POST']) # Supporto GET per anteprima
+@app.route('/buono/finalize_and_get_pdf', methods=['POST'])
 @login_required
 def buono_finalize_and_get_pdf():
-    req_data = request.form if request.method == 'POST' else request.args
-    ids = [int(i) for i in req_data.get('ids','').split(',') if i.isdigit()]
-    rows = _get_rows_from_ids(ids)
-    
-    action = req_data.get('action', 'preview')
-    
-    raw_buono = req_data.get('buono_n')
-    buono_n = raw_buono.strip() if raw_buono and raw_buono.lower() != 'none' else ""
+    db = SessionLocal()
+    try:
+        req_data = request.form
+        ids = [int(i) for i in req_data.get('ids','').split(',') if i.isdigit()]
+        
+        # Ricarichiamo gli articoli dalla sessione attuale per poterli modificare
+        rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+        
+        action = req_data.get('action', 'preview')
+        
+        raw_buono = req_data.get('buono_n')
+        buono_n = raw_buono.strip() if raw_buono and raw_buono.lower() != 'none' else ""
 
-    # Aggiorna SEMPRE le note in memoria per il PDF
-    for r in rows:
-        note_val = req_data.get(f"note_{r.id_articolo}")
-        if note_val is not None:
-            r.note = note_val # Aggiorna oggetto in memoria
+        # AGGIORNA I DATI IN MEMORIA (Note e Buono)
+        # Questo serve sia per l'anteprima (vedere le note scritte) che per il salvataggio
+        for r in rows:
+            # Aggiorna N. Buono
+            if buono_n: 
+                r.buono_n = buono_n
+            
+            # Aggiorna Note (dal form)
+            note_val = req_data.get(f"note_{r.id_articolo}")
+            if note_val is not None:
+                r.note = note_val
 
-    # Se SALVA, scrivi tutto nel DB (Numero Buono e Note)
-    if action == 'save' and request.method == 'POST':
-        db = SessionLocal()
-        try:
-            db_rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-            for db_art in db_rows:
-                if buono_n: db_art.buono_n = buono_n
-                # Salva le note modificate nel Buono
-                new_note = req_data.get(f"note_{db_art.id_articolo}")
-                if new_note is not None:
-                    db_art.note = new_note
+        # SE AZIONE = SAVE -> SALVA NEL DB
+        if action == 'save':
             db.commit()
             flash(f"Buono salvato.", "info")
-        finally:
-            db.close()
-    
-    # Genera PDF
-    form_data = dict(req_data)
-    form_data['buono_n'] = buono_n
-    
-    pdf_bio = _generate_buono_pdf(form_data, rows)
-    
-    return send_file(
-        pdf_bio, 
-        as_attachment=(action == 'save'), 
-        download_name=f'Buono_{buono_n}.pdf', 
-        mimetype='application/pdf'
-    )
+        
+        # Genera PDF usando gli oggetti 'rows' che ora contengono le note aggiornate
+        form_data = dict(req_data)
+        form_data['buono_n'] = buono_n
+        
+        pdf_bio = _generate_buono_pdf(form_data, rows)
+        
+        return send_file(
+            pdf_bio, 
+            as_attachment=(action == 'save'), 
+            download_name=f'Buono_{buono_n}.pdf', 
+            mimetype='application/pdf'
+        )
 
+    except Exception as e:
+        db.rollback()
+        # Log dell'errore per debugging
+        print(f"ERRORE BUONO: {e}")
+        return f"Errore server: {e}", 500
+    finally:
+        db.close()
 @app.post('/pdf/ddt')
 @login_required
 def pdf_ddt():
