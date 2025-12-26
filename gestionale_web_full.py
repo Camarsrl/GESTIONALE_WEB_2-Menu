@@ -1670,45 +1670,40 @@ def edit_record(id_articolo):
             return redirect(url_for('giacenze'))
 
         if request.method == 'POST':
-            # Aggiorna campi
-            articolo.codice_articolo = request.form.get('codice_articolo')
-            articolo.descrizione = request.form.get('descrizione')
-            articolo.cliente = request.form.get('cliente')
-            articolo.fornitore = request.form.get('fornitore')
-            articolo.commessa = request.form.get('commessa')
-            articolo.protocollo = request.form.get('protocollo')
-            articolo.buono_n = request.form.get('buono_n')
+            # Campi testuali
+            articolo.codice_articolo = request.form.get('codice_articolo', '')
+            articolo.descrizione = request.form.get('descrizione', '')
+            articolo.cliente = request.form.get('cliente', '')
+            articolo.fornitore = request.form.get('fornitore', '')
+            articolo.commessa = request.form.get('commessa', '')
+            articolo.protocollo = request.form.get('protocollo', '')
+            articolo.buono_n = request.form.get('buono_n', '')
+            articolo.note = request.form.get('note', '')
+            articolo.stato = request.form.get('stato', '')
+            articolo.magazzino = request.form.get('magazzino', '')
+            articolo.posizione = request.form.get('posizione', '')
             
-            # Date
-            articolo.data_ingresso = request.form.get('data_ingresso')
-            articolo.data_uscita = request.form.get('data_uscita')
+            # Date (gestione stringa vuota)
+            d_in = request.form.get('data_ingresso')
+            articolo.data_ingresso = d_in if d_in else None
             
-            # Numerici
+            d_out = request.form.get('data_uscita')
+            articolo.data_uscita = d_out if d_out else None
+            
+            # Numerici (usa helper to_int/float che gestisce errori)
             articolo.pezzo = to_int_eu(request.form.get('pezzo'))
             articolo.n_colli = to_int_eu(request.form.get('n_colli'))
             articolo.peso = to_float_eu(request.form.get('peso'))
             articolo.m2 = to_float_eu(request.form.get('m2'))
             articolo.m3 = to_float_eu(request.form.get('m3'))
-            
-            # Note e altri campi
-            articolo.note = request.form.get('note')
-            articolo.stato = request.form.get('stato')
-            articolo.magazzino = request.form.get('magazzino')
-            articolo.posizione = request.form.get('posizione')
 
             db.commit()
-            flash("Articolo aggiornato con successo.", "success")
-            return redirect(url_for('giacenze')) # Ritorna sempre alla lista
+            flash("Articolo aggiornato correttamente.", "success")
+            return redirect(url_for('giacenze'))
 
         return render_template('edit.html', articolo=articolo)
-    except Exception as e:
-        db.rollback()
-        flash(f"Errore modifica: {e}", "danger")
-        return redirect(url_for('giacenze'))
     finally:
         db.close()
-
-
 
 @app.route('/edit/<int:id>', methods=['GET','POST'])
 @login_required
