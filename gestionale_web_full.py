@@ -711,28 +711,14 @@ function submitBuono(actionType) {
     const form = document.getElementById('buono-form');
     document.getElementById('form-action').value = actionType;
 
-    if (actionType === 'preview') {
-        form.target = '_blank'; // Anteprima in nuova scheda
-        form.submit();
-    } else {
-        form.target = '_self'; // Salva scaricando
-        const formData = new FormData(form);
-        fetch(form.action, { method: 'POST', body: formData })
-        .then(resp => {
-            if (resp.ok) return resp.blob();
-            throw new Error('Errore salvataggio');
-        })
-        .then(blob => {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'Buono_Prelievo.pdf';
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1000);
-        })
-        .catch(err => alert("Errore: " + err));
+    // Se salviamo, scarichiamo in una nuova scheda e poi ricarichiamo la home
+    // Se anteprima, apriamo solo nuova scheda
+    form.target = '_blank';
+    form.submit();
+    
+    if (actionType === 'save') {
+        // Dopo un secondo, torna alla home per aggiornare i dati
+        setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1500);
     }
 }
 </script>
