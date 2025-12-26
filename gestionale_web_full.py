@@ -403,145 +403,144 @@ HOME_HTML = """
 GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3 no-print">
-    <h4 class="m-0">📦 Visualizza Giacenze</h4>
-    <a href="{{ url_for('new_row') }}" class="btn btn-success"><i class="bi bi-plus-circle"></i> Aggiungi Articolo</a>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3><i class="bi bi-box-seam"></i> Magazzino e Giacenze</h3>
+    <div class="d-flex gap-2">
+       <a href="{{ url_for('nuovo_record') }}" class="btn btn-success"><i class="bi bi-plus-lg"></i> Nuovo Ingresso</a>
+       <a href="{{ url_for('labels_form') }}" class="btn btn-info text-white"><i class="bi bi-tags"></i> Etichette</a>
+       <a href="{{ url_for('calcola_costi') }}" class="btn btn-warning text-dark"><i class="bi bi-calculator"></i> Calcoli</a>
+    </div>
 </div>
-<div class="accordion mb-3 no-print" id="accordionFiltri">
-    <div class="accordion-item">
-        <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="false" aria-controls="collapseOne">
-                Mostra/Nascondi Filtri di Ricerca
-            </button>
-        </h2>
-        <div id="collapseOne" class="accordion-collapse collapse" data-bs-parent="#accordionFiltri">
-            <div class="accordion-body">
-                <form class="row g-2 align-items-end" method="get">
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">Cliente</label><input name="cliente" value="{{ request.args.get('cliente', '') }}" class="form-control form-control-sm"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">Fornitore</label><input name="fornitore" value="{{ request.args.get('fornitore', '') }}" class="form-control form-control-sm"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">Commessa</label><input name="commessa" value="{{ request.args.get('commessa', '') }}" class="form-control form-control-sm"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">Descrizione</label><input name="descrizione" value="{{ request.args.get('descrizione', '') }}" class="form-control form-control-sm"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">Posizione</label><input name="posizione" value="{{ request.args.get('posizione', '') }}" class="form-control form-control-sm"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">Stato</label><input name="stato" value="{{ request.args.get('stato', '') }}" class="form-control form-control-sm"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">Protocollo</label><input name="protocollo" value="{{ request.args.get('protocollo', '') }}" class="form-control form-control-sm"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">N. DDT Ingresso</label><input name="n_ddt_ingresso" value="{{ request.args.get('n_ddt_ingresso', '') }}" class="form-control form-control-sm"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">N. DDT Uscita</label><input name="n_ddt_uscita" value="{{ request.args.get('n_ddt_uscita', '') }}" class="form-control form-control-sm"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">N. Arrivo</label><input name="n_arrivo" value="{{ request.args.get('n_arrivo', '') }}" class="form-control form-control-sm"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">N. Buono</label><input name="buono_n" value="{{ request.args.get('buono_n', '') }}" class="form-control form-control-sm"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">NS Rif.</label><input name="ns_rif" value="{{ request.args.get('ns_rif', '') }}" class="form-control form-control-sm"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">Serial Number</label><input name="serial_number" value="{{ request.args.get('serial_number', '') }}" class="form-control form-control-sm"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">Mezzo Uscito</label><input name="mezzi_in_uscita" value="{{ request.args.get('mezzi_in_uscita', '') }}" class="form-control form-control-sm"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">Ingresso Da</label><input name="data_ingresso_da" value="{{ request.args.get('data_ingresso_da', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">Ingresso A</label><input name="data_ingresso_a" value="{{ request.args.get('data_ingresso_a', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">Uscita Da</label><input name="data_uscita_da" value="{{ request.args.get('data_uscita_da', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
-                    <div class="col-lg-2 col-md-4"><label class="form-label small">Uscita A</label><input name="data_uscita_a" value="{{ request.args.get('data_uscita_a', '') }}" class="form-control form-control-sm" placeholder="gg/mm/aaaa"></div>
-                    <div class="col-lg-2 col-md-4 d-grid"><button class="btn btn-primary btn-sm mt-3">Filtra</button></div>
-                    <div class="col-lg-2 col-md-4 d-grid"><a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm mt-3">Pulisci Filtri</a></div>
-                </form>
-            </div>
+
+<div class="card mb-3">
+    <div class="card-header bg-light" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#filterBody">
+        <i class="bi bi-funnel"></i> Filtri di Ricerca (Clicca per espandere)
+    </div>
+    <div id="filterBody" class="collapse {% if request.args %}show{% endif %}">
+        <div class="card-body">
+            <form method="get" class="row g-2">
+                <div class="col-md-2"><input name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
+                <div class="col-md-2"><input name="commessa" class="form-control form-control-sm" placeholder="Commessa" value="{{ request.args.get('commessa','') }}"></div>
+                <div class="col-md-2"><input name="descrizione" class="form-control form-control-sm" placeholder="Descrizione" value="{{ request.args.get('descrizione','') }}"></div>
+                <div class="col-md-2"><input name="posizione" class="form-control form-control-sm" placeholder="Posizione" value="{{ request.args.get('posizione','') }}"></div>
+                <div class="col-md-2"><input name="buono_n" class="form-control form-control-sm" placeholder="N. Buono" value="{{ request.args.get('buono_n','') }}"></div>
+                <div class="col-md-2"><input name="protocollo" class="form-control form-control-sm" placeholder="Protocollo" value="{{ request.args.get('protocollo','') }}"></div>
+                <div class="col-md-2"><input name="n_ddt_ingresso" class="form-control form-control-sm" placeholder="DDT Ingresso" value="{{ request.args.get('n_ddt_ingresso','') }}"></div>
+                <div class="col-md-2"><input name="n_ddt_uscita" class="form-control form-control-sm" placeholder="DDT Uscita" value="{{ request.args.get('n_ddt_uscita','') }}"></div>
+                <div class="col-md-2">
+                    <select name="stato" class="form-select form-select-sm">
+                        <option value="">Tutti gli stati</option>
+                        <option value="DOGANALE" {% if request.args.get('stato')=='DOGANALE' %}selected{% endif %}>DOGANALE</option>
+                        <option value="NAZIONALE" {% if request.args.get('stato')=='NAZIONALE' %}selected{% endif %}>NAZIONALE</option>
+                        <option value="USCITO" {% if request.args.get('stato')=='USCITO' %}selected{% endif %}>USCITO</option>
+                    </select>
+                </div>
+                <div class="col-12 mt-2">
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i> Cerca</button>
+                    <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm">Reset</a>
+                </div>
+            </form>
         </div>
     </div>
 </div>
-<div class="card p-3">
-    <div class="d-flex flex-wrap gap-2 mb-3 no-print border-bottom pb-3">
-        <button class="btn btn-outline-secondary btn-sm" onclick="return submitForm('{{ url_for('buono_preview') }}', 'post')"><i class="bi bi-receipt"></i> Crea Buono</button>
-        <button class="btn btn-outline-secondary btn-sm" onclick="return submitForm('{{ url_for('ddt_preview') }}', 'post')"><i class="bi bi-truck"></i> Crea DDT</button>
-        {% if session.get('role') == 'admin' %}
-        <button class="btn btn-outline-primary btn-sm" onclick="return submitForm('{{ url_for('bulk_duplicate') }}', 'post')"><i class="bi bi-copy"></i> Duplica Selezionati</button>
-        <button class="btn btn-info btn-sm text-white" onclick="return submitForm('{{ url_for('bulk_edit') }}', 'get')"><i class="bi bi-pencil-square"></i> Modifica Multipla</button>
-        <button class="btn btn-danger btn-sm" onclick="return submitDeleteForm()"><i class="bi bi-trash"></i> Elimina Selezionati</button>
-        {% endif %}
+
+<form method="POST" id="mainForm">
+    <div class="btn-toolbar mb-2 gap-2 p-2 bg-white sticky-top border-bottom" style="z-index: 900;">
+        <button type="submit" formaction="{{ url_for('buono_preview') }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-file-earmark-text"></i> Crea Buono
+        </button>
+        <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">
+            <i class="bi bi-truck"></i> Crea DDT
+        </button>
+        
+        <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="GET" class="btn btn-warning btn-sm">
+            <i class="bi bi-envelope"></i> Invia Email
+        </button>
+
+        <button type="submit" formaction="{{ url_for('duplicate_rows') }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-files"></i> Duplica
+        </button>
+        <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">
+            <i class="bi bi-pencil-square"></i> Modifica Multipla
+        </button>
+        <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare le righe selezionate?')">
+            <i class="bi bi-trash"></i> Elimina
+        </button>
     </div>
-    <form id="selection-form" method="post">
-        <div class="table-container">
-            <table class="table table-sm table-hover table-compact table-bordered table-striped align-middle">
-                <thead class="table-light">
-                    <tr>
-                        <th class="no-print" style="width:28px"><input type="checkbox" id="checkall"></th>
-                        {% for c in cols %}<th>{{ c.replace('_', ' ') | title }}</th>{% endfor %}
-                        <th>Allegati</th>
-                        <th class="no-print">Azione</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for r in rows %}
-                    <tr class="{% if r.data_uscita %}text-muted{% endif %}">
-                        <td class="no-print"><input type="checkbox" name="ids" class="sel" value="{{ r.id_articolo }}"></td>
-                        {% for c in cols %}
-                            {% set v = getattr(r, c) %}
-                            <td>{% if c in ['data_ingresso','data_uscita'] %}{{ v|fmt_date }}{% else %}{{ v or '' }}{% endif %}</td>
-                        {% endfor %}
-                        <td>
-                            {% for a in r.attachments %}
-                            <a class="badge text-bg-secondary text-decoration-none" href="{{ url_for('media', att_id=a.id) }}" target="_blank">
-                                <i class="bi {% if a.kind == 'doc' %}bi-file-pdf{% else %}bi-image{% endif %}"></i>
-                            </a>
-                            {% endfor %}
-                        </td>
-                        <td class="no-print"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('edit_row', id=r.id_articolo) }}">Modifica</a></td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="{{ cols|length + 3 }}" class="text-center text-muted">Nessun articolo trovato con i filtri attuali.</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-                <tfoot class="no-print">
-                    <tr class="table-light fw-bold">
-                        <td colspan="10" class="text-end">Totali Merce in Giacenza (filtrata):</td>
-                        <td colspan="2">Colli: {{ total_colli }}</td>
-                        <td colspan="2">M²: {{ "%.3f"|format(total_m2) }}</td>
-                        <td colspan="4"></td>
-                    </tr>
-                </tfoot>
-            </table>
-        </div>
-    </form>
-</div>
-{% endblock %}
-{% block extra_js %}
+
+    <div class="table-responsive" style="max-height: 70vh; overflow-y: auto;">
+        <table class="table table-striped table-hover table-sm align-middle" style="font-size: 0.9rem;">
+            <thead class="table-light sticky-top" style="top: 0; z-index: 800;">
+                <tr>
+                    <th><input type="checkbox" onclick="toggleAll(this)"></th>
+                    <th>Id</th>
+                    <th>Codice</th>
+                    <th>Descrizione</th>
+                    <th>Cliente</th>
+                    <th>Fornitore</th>
+                    <th>Protocollo</th>
+                    <th>Buono N</th>
+                    <th>Commessa</th>
+                    <th>Magazzino</th>
+                    <th>Pos</th>
+                    <th>Stato</th>
+                    <th>Peso</th>
+                    <th>N.Colli</th>
+                    <th>Data Ing.</th>
+                    <th>N.Arr</th>
+                    <th>Azioni</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in rows %}
+                <tr>
+                    <td><input type="checkbox" name="ids" value="{{ r.id_articolo }}"></td>
+                    <td>{{ r.id_articolo }}</td>
+                    <td class="fw-bold">{{ r.codice_articolo or '' }}</td>
+                    <td style="max-width: 250px;" class="text-truncate" title="{{ r.descrizione }}">{{ r.descrizione or '' }}</td>
+                    <td>{{ r.cliente or '' }}</td>
+                    <td>{{ r.fornitore or '' }}</td>
+                    <td>{{ r.protocollo or '' }}</td>
+                    <td class="fw-bold text-primary">{{ r.buono_n or '' }}</td>
+                    <td>{{ r.commessa or '' }}</td>
+                    <td>{{ r.magazzino or '' }}</td>
+                    <td>{{ r.posizione or '' }}</td>
+                    <td>
+                        <span class="badge {% if r.stato=='DOGANALE' %}bg-warning text-dark{% elif r.stato=='NAZIONALE' %}bg-success{% elif r.stato=='USCITO' %}bg-secondary{% else %}bg-light text-dark border{% endif %}">
+                            {{ r.stato or 'N/D' }}
+                        </span>
+                    </td>
+                    <td>{{ r.peso or '' }}</td>
+                    <td>{{ r.n_colli or '' }}</td>
+                    <td>{{ r.data_ingresso or '' }}</td>
+                    <td>{{ r.n_arrivo or '' }}</td>
+                    <td>
+                        <a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}" class="btn btn-sm btn-outline-primary py-0 px-1">Modifica</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot class="table-light sticky-bottom">
+                <tr>
+                    <td colspan="17" class="fw-bold">
+                        Totali (Filtrati): Colli: {{ total_colli }} | M²: {{ total_m2 }} | Peso: {{ total_peso }}
+                    </td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</form>
+
 <script>
-    document.getElementById('checkall').addEventListener('change', e => {
-        document.querySelectorAll('.sel').forEach(cb => cb.checked = e.target.checked);
-    });
-    function getSelectedIds() {
-        return [...document.querySelectorAll('.sel:checked')].map(x => x.value);
+function toggleAll(source) {
+    checkboxes = document.getElementsByName('ids');
+    for(var i=0, n=checkboxes.length;i<n;i++) {
+        checkboxes[i].checked = source.checked;
     }
-    function submitForm(actionUrl, method) {
-        const ids = getSelectedIds();
-        if (ids.length === 0) {
-            alert('Seleziona almeno una riga');
-            return false;
-        }
-        const form = document.getElementById('selection-form');
-        form.action = actionUrl;
-        form.method = method;
-        if (method.toLowerCase() === 'get') {
-            form.querySelectorAll('input.get-param').forEach(el => el.remove());
-            const hiddenInput = document.createElement('input');
-            hiddenInput.type = 'hidden';
-            hiddenInput.name = 'ids';
-            hiddenInput.value = ids.join(',');
-            hiddenInput.className = 'get-param';
-            form.appendChild(hiddenInput);
-        }
-        form.submit();
-        return true;
-    }
-    function submitDeleteForm() {
-        const ids = getSelectedIds();
-        if (ids.length === 0) {
-            alert('Seleziona almeno una riga');
-            return;
-        }
-        if (confirm(`Sei sicuro di voler eliminare definitivamente ${ids.length} articoli selezionati? L'azione è irreversibile.`)) {
-            submitForm('{{ url_for("bulk_delete") }}', 'post');
-        }
-    }
+}
 </script>
 {% endblock %}
 """
-
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
