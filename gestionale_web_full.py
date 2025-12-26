@@ -744,7 +744,6 @@ function submitBuono(actionType) {
 {% endblock %}
 """
 
-
 DDT_PREVIEW_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -755,17 +754,21 @@ DDT_PREVIEW_HTML = """
         
         <div class="btn-group">
             <button type="button" class="btn btn-outline-primary" onclick="submitDdt('preview')">
-                <i class="bi bi-eye"></i> Anteprima PDF
+                <i class="bi bi-printer"></i> Anteprima PDF
             </button>
             <button type="button" class="btn btn-success" onclick="submitDdt('finalize')">
                 <i class="bi bi-check-circle-fill"></i> Finalizza e Scarica
             </button>
+            <a href="{{ url_for('invia_email', ids=ids) }}" class="btn btn-warning">
+                <i class="bi bi-envelope"></i> Invia Email
+            </a>
+            <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
         </div>
     </div>
 
-    <form id="ddt-form">
+    <form id="ddt-form" method="POST" action="{{ url_for('ddt_finalize') }}">
         <input type="hidden" name="ids" value="{{ ids }}">
-        <input type="hidden" name="action" id="action_type" value="preview">
+        <input type="hidden" name="action" id="action_field" value="preview">
         
         <div class="row g-3">
             <div class="col-md-4">
@@ -783,9 +786,7 @@ DDT_PREVIEW_HTML = """
                  <label class="form-label">N. DDT</label>
                  <div class="input-group">
                     <input name="n_ddt" id="n_ddt_input" class="form-control" value="{{ n_ddt }}">
-                    <button class="btn btn-outline-secondary" type="button" id="get-next-ddt" title="Genera Nuovo Numero">
-                        <i class="bi bi-arrow-clockwise"></i>
-                    </button>
+                    <button class="btn btn-outline-secondary" type="button" id="get-next-ddt" title="Nuovo Numero"><i class="bi bi-arrow-clockwise"></i></button>
                 </div>
             </div>
             <div class="col-md-2"><label class="form-label">Data DDT</label><input name="data_ddt" type="date" class="form-control" value="{{ oggi }}"></div>
@@ -800,13 +801,9 @@ DDT_PREVIEW_HTML = """
             <table class="table table-sm table-bordered align-middle">
                 <thead class="table-light">
                     <tr>
-                        <th style="width: 50px;">ID</th>
-                        <th>Cod.Art.</th>
-                        <th>Descrizione</th>
+                        <th>ID</th> <th>Cod.Art.</th> <th>Descrizione</th>
                         <th style="width: 250px;">Note (Editabili)</th>
-                        <th style="width: 70px;">Pezzi</th>
-                        <th style="width: 70px;">Colli</th>
-                        <th style="width: 80px;">Peso</th>
+                        <th style="width: 70px;">Pezzi</th> <th style="width: 70px;">Colli</th> <th style="width: 80px;">Peso</th>
                         <th>N.Arrivo</th>
                     </tr>
                 </thead>
@@ -816,11 +813,7 @@ DDT_PREVIEW_HTML = """
                         <td>{{ r.id_articolo }}</td>
                         <td>{{ r.codice_articolo or '' }}</td>
                         <td>{{ r.descrizione or '' }}</td>
-                        
-                        <td>
-                            <textarea class="form-control form-control-sm" name="note_{{ r.id_articolo }}" rows="1" style="resize:vertical">{{ r.note or '' }}</textarea>
-                        </td>
-                        
+                        <td><textarea class="form-control form-control-sm" name="note_{{ r.id_articolo }}" rows="1">{{ r.note or '' }}</textarea></td>
                         <td><input class="form-control form-control-sm" name="pezzi_{{ r.id_articolo }}" value="{{ r.pezzo or 1 }}"></td>
                         <td><input class="form-control form-control-sm" name="colli_{{ r.id_articolo }}" value="{{ r.n_colli or 1 }}"></td>
                         <td><input class="form-control form-control-sm" name="peso_{{ r.id_articolo }}" value="{{ r.peso or '' }}"></td>
@@ -835,60 +828,38 @@ DDT_PREVIEW_HTML = """
 {% endblock %}
 {% block extra_js %}
 <script>
-// Aggiorna numero DDT
 document.getElementById('get-next-ddt').addEventListener('click', function() {
-    fetch('{{ url_for('get_next_ddt_number') }}')
-        .then(response => response.json())
-        .then(data => { document.getElementById('n_ddt_input').value = data.next_ddt; });
+    fetch('{{ url_for('get_next_ddt_number') }}').then(r => r.json()).then(d => { document.getElementById('n_ddt_input').value = d.next_ddt; });
 });
 
-function submitDdt(action) {
+function submitDdt(actionType) {
     const form = document.getElementById('ddt-form');
-    document.getElementById('action_type').value = action; // Imposta azione (preview/finalize)
-    const formData = new FormData(form);
+    document.getElementById('action_field').value = actionType;
 
-    if (action === 'preview') {
-        // ANTEPRIMA: Apre in nuova scheda (Blob URL)
-        fetch('{{ url_for("ddt_finalize") }}', {
-            method: 'POST',
-            body: formData
-        })
-        .then(resp => resp.blob())
-        .then(blob => {
-            const url = window.URL.createObjectURL(blob);
-            window.open(url, '_blank'); // Apre il PDF in una nuova tab
-        })
-        .catch(err => alert("Errore generazione anteprima: " + err));
-    
+    if (actionType === 'preview') {
+        form.target = '_blank';
+        form.submit();
     } else {
-        // FINALIZZA: Scarica il file e poi reindirizza
-        fetch('{{ url_for("ddt_finalize") }}', {
-            method: 'POST',
-            body: formData
-        })
+        form.target = '_self';
+        const formData = new FormData(form);
+        const url = form.getAttribute('action'); // FIX JS
+        
+        fetch(url, { method: 'POST', body: formData })
         .then(resp => {
-            if (resp.ok) {
-                return resp.blob().then(blob => {
-                    // 1. Scarica il file automaticamente
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'DDT_Finale.pdf'; // Nome temporaneo, il server ne manda uno migliore ma questo è fallback
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
-                    window.URL.revokeObjectURL(url);
-                    
-                    // 2. Torna alla Home (Giacenze) dopo breve attesa
-                    setTimeout(() => {
-                        window.location.href = '{{ url_for("giacenze") }}';
-                    }, 1500);
-                });
-            } else {
-                alert("Errore durante la finalizzazione.");
-            }
+            if (resp.ok) return resp.blob();
+            throw new Error('Errore finalizzazione');
         })
-        .catch(err => alert("Errore di rete: " + err));
+        .then(blob => {
+            const urlBlob = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = urlBlob;
+            a.download = 'DDT_Finale.pdf';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(urlBlob);
+            setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1500);
+        })
+        .catch(err => alert("Errore: " + err));
     }
 }
 </script>
