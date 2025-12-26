@@ -2174,35 +2174,31 @@ def buono_finalize_and_get_pdf():
         req_data = request.form
         ids = [int(i) for i in req_data.get('ids','').split(',') if i.isdigit()]
         
-        # Ricarichiamo gli articoli dalla sessione attuale per poterli modificare
         rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-        
         action = req_data.get('action', 'preview')
         
+        # Gestione Numero Buono
         raw_buono = req_data.get('buono_n')
         buono_n = raw_buono.strip() if raw_buono and raw_buono.lower() != 'none' else ""
 
-        # AGGIORNA I DATI IN MEMORIA (Note e Buono)
-        # Questo serve sia per l'anteprima (vedere le note scritte) che per il salvataggio
+        # Aggiorna dati in memoria (Note e Buono)
         for r in rows:
-            # Aggiorna N. Buono
-            if buono_n: 
-                r.buono_n = buono_n
-            
-            # Aggiorna Note (dal form)
+            if buono_n: r.buono_n = buono_n
+            # Recupera la nota modificata dal form
             note_val = req_data.get(f"note_{r.id_articolo}")
             if note_val is not None:
                 r.note = note_val
 
-        # SE AZIONE = SAVE -> SALVA NEL DB
+        # Se Salva, scrivi nel DB
         if action == 'save':
             db.commit()
             flash(f"Buono salvato.", "info")
         
-        # Genera PDF usando gli oggetti 'rows' che ora contengono le note aggiornate
+        # Prepara dati per il PDF
         form_data = dict(req_data)
         form_data['buono_n'] = buono_n
         
+        # Genera il PDF (Ora la funzione esiste!)
         pdf_bio = _generate_buono_pdf(form_data, rows)
         
         return send_file(
@@ -2214,11 +2210,12 @@ def buono_finalize_and_get_pdf():
 
     except Exception as e:
         db.rollback()
-        # Log dell'errore per debugging
-        print(f"ERRORE BUONO: {e}")
+        # Stampa l'errore nei log del server per capire cosa succede
+        print(f"ERRORE BUONO: {e}") 
         return f"Errore server: {e}", 500
     finally:
         db.close()
+        
 @app.post('/pdf/ddt')
 @login_required
 def pdf_ddt():
