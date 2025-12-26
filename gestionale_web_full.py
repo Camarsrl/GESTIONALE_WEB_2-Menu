@@ -666,7 +666,7 @@ BUONO_PREVIEW_HTML = """
 
     <form id="buono-form" method="POST" action="{{ url_for('buono_finalize_and_get_pdf') }}">
         <input type="hidden" name="ids" value="{{ ids }}">
-        <input type="hidden" name="action" id="form-action" value="preview">
+        <input type="hidden" name="action" id="action_field" value="preview">
 
         <div class="row g-3">
             <div class="col-md-3"><label class="form-label">N. Buono</label><input name="buono_n" class="form-control" value="{{ meta.buono_n }}"></div>
@@ -709,21 +709,41 @@ BUONO_PREVIEW_HTML = """
 <script>
 function submitBuono(actionType) {
     const form = document.getElementById('buono-form');
-    document.getElementById('form-action').value = actionType;
+    // Imposta il valore nel campo hidden
+    document.getElementById('action_field').value = actionType;
 
-    // Se salviamo, scarichiamo in una nuova scheda e poi ricarichiamo la home
-    // Se anteprima, apriamo solo nuova scheda
-    form.target = '_blank';
-    form.submit();
-    
-    if (actionType === 'save') {
-        // Dopo un secondo, torna alla home per aggiornare i dati
-        setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1500);
+    if (actionType === 'preview') {
+        form.target = '_blank';
+        form.submit();
+    } else {
+        form.target = '_self';
+        const formData = new FormData(form);
+        // FIX: Usa getAttribute per evitare il conflitto con l'input name="action"
+        const url = form.getAttribute('action'); 
+        
+        fetch(url, { method: 'POST', body: formData })
+        .then(resp => {
+            if (resp.ok) return resp.blob();
+            throw new Error('Errore salvataggio');
+        })
+        .then(blob => {
+            const urlBlob = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = urlBlob;
+            a.download = 'Buono_Prelievo.pdf';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(urlBlob);
+            // Redirect dopo 1 secondo
+            setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1000);
+        })
+        .catch(err => alert("Errore: " + err));
     }
 }
 </script>
 {% endblock %}
 """
+
 
 DDT_PREVIEW_HTML = """
 {% extends 'base.html' %}
