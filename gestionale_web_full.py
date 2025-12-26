@@ -712,19 +712,15 @@ function submitBuono(actionType) {
     document.getElementById('form-action').value = actionType;
 
     if (actionType === 'preview') {
-        // ANTEPRIMA: Apre nuova scheda inviando i dati via POST (evita errori URL troppo lunghi)
-        form.target = '_blank';
+        form.target = '_blank'; // Anteprima in nuova scheda
         form.submit();
     } else {
-        // SALVA: Usa fetch per scaricare e poi reindirizzare
-        // Reset target per non aprire nuove schede
-        form.target = '_self'; 
+        form.target = '_self'; // Salva scaricando
         const formData = new FormData(form);
-
         fetch(form.action, { method: 'POST', body: formData })
         .then(resp => {
             if (resp.ok) return resp.blob();
-            throw new Error('Errore nel salvataggio');
+            throw new Error('Errore salvataggio');
         })
         .then(blob => {
             const url = window.URL.createObjectURL(blob);
@@ -734,8 +730,6 @@ function submitBuono(actionType) {
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
-            
-            // Redirect dopo il download
             setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1000);
         })
         .catch(err => alert("Errore: " + err));
