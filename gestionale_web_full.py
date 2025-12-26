@@ -2089,6 +2089,105 @@ def _copyright_para():
     tiny_style.fontSize = 7; tiny_style.textColor = colors.grey; tiny_style.alignment = TA_CENTER
     return Paragraph("Camar S.r.l. - Gestionale Web - © Alessia Moncalvo", tiny_style)
 
+def _generate_buono_pdf(form_data, rows):
+    bio = io.BytesIO()
+    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
+    story = []
+    
+    styles = getSampleStyleSheet()
+    s_normal = styles['Normal']
+    s_small = ParagraphStyle(name='small', parent=s_normal, fontSize=9, leading=11)
+    s_bold = ParagraphStyle(name='small_bold', parent=s_normal, fontName='Helvetica-Bold', fontSize=9, leading=11)
+
+    # Logo
+    if LOGO_PATH and Path(LOGO_PATH).exists():
+        story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER'))
+        story.append(Spacer(1, 5*mm))
+
+    # Titolo
+    title_style = ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, textColor=colors.white)
+    title_bar = Table([[Paragraph("BUONO DI PRELIEVO", title_style)]], colWidths=[doc.width], style=[('BACKGROUND', (0,0), (-1,-1), PRIMARY_COLOR), ('PADDING', (0,0), (-1,-1), 6)])
+    story.append(title_bar)
+    story.append(Spacer(1, 8*mm))
+
+    d_row = rows[0] if rows else None
+    
+    # Dati Testata
+    meta_data = [
+        [Paragraph("<b>Data Emissione</b>", s_bold), Paragraph(form_data.get('data_em', ''), s_small)],
+        [Paragraph("<b>Commessa</b>", s_bold), Paragraph(form_data.get('commessa', ''), s_small)],
+        [Paragraph("<b>Fornitore</b>", s_bold), Paragraph(form_data.get('fornitore', ''), s_small)],
+        [Paragraph("<b>Protocollo</b>", s_bold), Paragraph(form_data.get('protocollo', ''), s_small)],
+        [Paragraph("<b>N. Buono</b>", s_bold), Paragraph(form_data.get('buono_n', ''), s_small)]
+    ]
+    meta_table = Table(meta_data, colWidths=[40*mm, None], style=[
+        ('GRID', (0,0), (-1,-1), 0.25, colors.lightgrey),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 5),
+        ('RIGHTPADDING', (0,0), (-1,-1), 5),
+    ])
+    story.append(meta_table)
+    story.append(Spacer(1, 6*mm))
+    
+    # Cliente
+    if d_row:
+        story.append(Paragraph(f"<b>Cliente:</b> {(d_row.cliente or '').upper()}", s_normal))
+        story.append(Spacer(1, 6*mm))
+    
+    # Tabella Articoli
+    tbl_header = [
+        Paragraph('Ordine', s_bold), 
+        Paragraph('Codice Articolo', s_bold), 
+        Paragraph('Descrizione / Note', s_bold), 
+        Paragraph('Q.tà', s_bold), 
+        Paragraph('N.Arrivo', s_bold)
+    ]
+    
+    data = [tbl_header]
+    
+    for r in rows:
+        q_val = form_data.get(f"q_{r.id_articolo}")
+        quantita = q_val if q_val is not None else (r.n_colli or 1)
+        
+        # Unisci Descrizione e Note (se presenti)
+        desc_full = r.descrizione or ''
+        if r.note:
+            desc_full += f"<br/><i>Note: {r.note}</i>"
+
+        row_data = [
+            Paragraph(r.ordine or '', s_small),
+            Paragraph(r.codice_articolo or '', s_small),
+            Paragraph(desc_full, s_small),
+            Paragraph(str(quantita), s_small),
+            Paragraph(r.n_arrivo or '', s_small)
+        ]
+        data.append(row_data)
+    
+    t = Table(data, colWidths=[30*mm, 45*mm, 65*mm, 15*mm, 25*mm], repeatRows=1)
+    t.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
+        ('LEFTPADDING', (0,0), (-1,-1), 4),
+        ('RIGHTPADDING', (0,0), (-1,-1), 4),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+    ]))
+    story.append(t)
+    
+    story.append(Spacer(1, 30*mm)) 
+
+    # Firme
+    sig_data = [
+        [Paragraph("Firma Magazzino:<br/><br/>____________________________", s_small), 
+         Paragraph("Firma Cliente:<br/><br/>____________________________", s_small)]
+    ]
+    story.append(Table(sig_data, colWidths=[doc.width/2, doc.width/2], style=[('VALIGN', (0,0), (-1,-1), 'TOP')]))
+    
+    doc.build(story)
+    bio.seek(0)
+    return bio
+
 def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     bio = io.BytesIO()
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
