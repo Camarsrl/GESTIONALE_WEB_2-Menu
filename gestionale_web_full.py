@@ -1755,6 +1755,26 @@ def edit_row(id):
 
     return render_template('edit.html', row=row, fields=get_all_fields_map().items())
 
+
+@app.route('/new', methods=['GET', 'POST'])
+@login_required
+def nuovo_articolo(): # Il nome della funzione deve essere 'nuovo_articolo'
+    if request.method == 'POST':
+        db = SessionLocal()
+        try:
+            art = Articolo()
+            # ... (logica salvataggio simile a edit_record) ...
+            art.codice_articolo = request.form.get('codice_articolo')
+            # ...
+            
+            db.add(art)
+            db.commit()
+            flash("Articolo creato.", "success")
+            return redirect(url_for('giacenze'))
+        finally:
+            db.close()
+    return render_template('edit.html', row=None) # row=None indica nuovo
+
 # --- MEDIA & ALLEGATI ---
 @app.get('/media/<int:att_id>')
 @login_required
