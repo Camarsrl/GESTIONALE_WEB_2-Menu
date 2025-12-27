@@ -175,6 +175,24 @@ class Attachment(Base):
 Base.metadata.create_all(engine)
 # --- CONFIGURAZIONE UTENTI ---
 
+# Carica gli utenti all'avvio
+USERS_DB = get_users()
+
+# --- GESTIONE LOGIN (Flask-Login) ---
+class User(UserMixin):
+    def __init__(self, id, role):
+        self.id = id
+        self.role = role
+
+@login_manager.user_loader
+def load_user(user_id):
+    # Ricarica gli utenti ogni volta per beccare modifiche al file senza riavviare
+    current_db = get_users()
+    if user_id in current_db:
+        role = 'admin' if user_id in ADMIN_USERS else 'client'
+        return User(user_id, role)
+    return None
+
 # 1. Lista Utenti di Default (Backup se il file non si carica)
 DEFAULT_USERS = {
     'DE WAVE': 'Struppa01', 
@@ -216,23 +234,7 @@ def get_users():
     
     return DEFAULT_USERS
 
-# Carica gli utenti all'avvio
-USERS_DB = get_users()
 
-# --- GESTIONE LOGIN (Flask-Login) ---
-class User(UserMixin):
-    def __init__(self, id, role):
-        self.id = id
-        self.role = role
-
-@login_manager.user_loader
-def load_user(user_id):
-    # Ricarica gli utenti ogni volta per beccare modifiche al file senza riavviare
-    current_db = get_users()
-    if user_id in current_db:
-        role = 'admin' if user_id in ADMIN_USERS else 'client'
-        return User(user_id, role)
-    return None
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
