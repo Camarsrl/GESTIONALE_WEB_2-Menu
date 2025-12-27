@@ -1308,7 +1308,7 @@ templates = {
 
     'export_client.html': EXPORT_CLIENT_HTML,
     'destinatari.html': DESTINATARI_HTML,
-    'calcola_costi.html': CALCOLA_COSTI_HTML
+    'calcoli.html': CALCOLI_HTML  
 }
 
 # ========================================================
