@@ -2630,32 +2630,30 @@ def labels_form():
 def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     bio = io.BytesIO()
     if formato == '62x100':
-        pagesize = (100*mm, 62*mm)
-        margin = 2*mm
+        pagesize = (100*mm, 62*mm); margin = 2*mm
     else:
-        pagesize = A4
-        margin = 10*mm
+        pagesize = A4; margin = 10*mm
 
     doc = SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=margin, rightMargin=margin, topMargin=margin, bottomMargin=margin)
     story = []
     styles = getSampleStyleSheet()
-    s_label = ParagraphStyle(name='LK', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
-    s_val = ParagraphStyle(name='LV', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
-    s_val_bold = ParagraphStyle(name='LVB', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, leading=12)
+    s_label = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
+    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
+    s_val_bold = ParagraphStyle('VB', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, leading=12)
 
     for art in articoli:
-        totale = int(art.n_colli) if art.n_colli else 1
-        if totale < 1: totale = 1
+        tot = int(art.n_colli) if art.n_colli else 1
+        if tot < 1: tot = 1
 
-        for i in range(1, totale + 1):
+        for i in range(1, tot + 1):
             if LOGO_PATH and Path(LOGO_PATH).exists():
                 story.append(Image(LOGO_PATH, width=35*mm, height=10*mm, hAlign='LEFT'))
                 story.append(Spacer(1, 2*mm))
             
-            # FORMATO RICHIESTO: 10/25 N.1
-            arrivo_base = art.n_arrivo or ''
-            arrivo_str = f"{arrivo_base} N.{i}"
-            collo_str = f"{i} / {totale}"
+            # FORMATO ARRIVO: 10/25 N.1, 10/25 N.2 ...
+            arr_base = art.n_arrivo or ''
+            arr_str = f"{arr_base} N.{i}"
+            collo_str = f"{i} / {tot}"
 
             dati = [
                 [Paragraph("CLIENTE:", s_label), Paragraph(art.cliente or '', s_val)],
@@ -2664,7 +2662,9 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 [Paragraph("COMMESSA:", s_label), Paragraph(art.commessa or '', s_val)],
                 [Paragraph("DDT ING.:", s_label), Paragraph(art.n_ddt_ingresso or '', s_val)],
                 [Paragraph("DATA ING.:", s_label), Paragraph(fmt_date(art.data_ingresso), s_val)],
-                [Paragraph("ARRIVO:", s_label), Paragraph(arrivo_str, s_val_bold)], # Qui appare N.1, N.2...
+                # Arrivo Modificato
+                [Paragraph("ARRIVO:", s_label), Paragraph(arr_str, s_val_bold)],
+                # Collo
                 [Paragraph("COLLO:", s_label), Paragraph(collo_str, s_val_bold)],
                 [Paragraph("POSIZIONE:", s_label), Paragraph(art.posizione or '', s_val)],
             ]
@@ -2676,7 +2676,6 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     doc.build(story)
     bio.seek(0)
     return bio
-
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
 app.jinja_env.globals['getattr'] = getattr
