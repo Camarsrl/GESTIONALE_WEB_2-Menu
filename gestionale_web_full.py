@@ -471,6 +471,89 @@ HOME_HTML = """
 </div>
 {% endblock %}
 """
+CALCOLI_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid">
+    <h3><i class="bi bi-calculator"></i> Report Costi Magazzino (M² per cliente)</h3>
+    
+    <div class="card mb-4" style="background-color: #f0f0f0; border: 1px solid #ccc;">
+        <div class="card-body py-3">
+            <form method="POST">
+                <div class="row g-3 align-items-center">
+                    
+                    <div class="col-auto">
+                        <label class="fw-bold">Data da:</label>
+                    </div>
+                    <div class="col-auto">
+                        <input type="date" name="data_da" class="form-control form-control-sm" required value="{{ data_da }}">
+                    </div>
+                    
+                    <div class="col-auto">
+                        <label class="fw-bold">Data a:</label>
+                    </div>
+                    <div class="col-auto">
+                        <input type="date" name="data_a" class="form-control form-control-sm" required value="{{ data_a }}">
+                    </div>
+
+                    <div class="col-auto ms-4">
+                        <label class="fw-bold">Cliente (contiene):</label>
+                    </div>
+                    <div class="col-auto">
+                        <input type="text" name="cliente" class="form-control form-control-sm" value="{{ cliente_filtro }}">
+                    </div>
+
+                    <div class="col-auto ms-4">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="raggruppamento" value="mese" id="rmese" {% if raggruppamento=='mese' %}checked{% endif %}>
+                            <label class="form-check-label" for="rmese">Per mese</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="raggruppamento" value="giorno" id="rgiorno" {% if raggruppamento=='giorno' %}checked{% endif %}>
+                            <label class="form-check-label" for="rgiorno">Per giorno</label>
+                        </div>
+                    </div>
+
+                    <div class="col-auto ms-auto">
+                        <button type="submit" class="btn btn-secondary border-dark px-4" style="background-color: #e0e0e0; color: black;">Calcola</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if risultati %}
+    <div class="table-responsive bg-white border">
+        <table class="table table-bordered table-striped table-hover table-sm mb-0">
+            <thead class="table-light">
+                <tr class="text-center align-middle">
+                    <th>Mese/Giorno</th>
+                    <th>Cliente</th>
+                    <th>M² * giorni</th>
+                    <th>M² medio</th>
+                    <th>Giorni</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in risultati %}
+                <tr>
+                    <td class="text-center">{{ row.periodo }}</td>
+                    <td>{{ row.cliente }}</td>
+                    <td class="text-end">{{ row.m2_tot }}</td>
+                    <td class="text-end fw-bold">{{ row.m2_medio }}</td>
+                    <td class="text-center">{{ row.giorni }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% elif request.method == 'POST' %}
+    <div class="alert alert-warning">Nessun dato trovato per i criteri selezionati.</div>
+    {% endif %}
+</div>
+{% endblock %}
+"""
+
 GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
