@@ -2615,54 +2615,36 @@ def labels_form():
     finally:
         db.close()
 
+# --- FUNZIONE ETICHETTE AGGIORNATA (Arrivo 10/25 N.1) ---
 def _genera_pdf_etichetta(articoli, formato, anteprima=False):
-    """Genera etichette: 1 pagina per ogni collo (es. 5 colli = 5 etichette)."""
     bio = io.BytesIO()
-    
-    # Impostazioni Formato
     if formato == '62x100':
-        W, H = 100*mm, 62*mm 
-        pagesize = (W, H)
+        pagesize = (100*mm, 62*mm)
         margin = 2*mm
     else:
         pagesize = A4
         margin = 10*mm
 
-    doc = SimpleDocTemplate(bio, pagesize=pagesize, 
-                            leftMargin=margin, rightMargin=margin, 
-                            topMargin=margin, bottomMargin=margin)
+    doc = SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=margin, rightMargin=margin, topMargin=margin, bottomMargin=margin)
     story = []
-    
     styles = getSampleStyleSheet()
-    s_label = ParagraphStyle(name='LabelKey', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
-    s_val = ParagraphStyle(name='LabelVal', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
-    # Stile grassetto per evidenziare Arrivo e Numero Collo
-    s_val_bold = ParagraphStyle(name='LabelValB', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, leading=12)
+    s_label = ParagraphStyle(name='LK', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
+    s_val = ParagraphStyle(name='LV', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
+    s_val_bold = ParagraphStyle(name='LVB', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, leading=12)
 
     for art in articoli:
-        # Calcola numero colli (minimo 1)
-        try:
-            totale_colli = int(art.n_colli) if art.n_colli else 1
-        except:
-            totale_colli = 1
-        
-        if totale_colli < 1: totale_colli = 1
+        totale = int(art.n_colli) if art.n_colli else 1
+        if totale < 1: totale = 1
 
-        # CICLO: Genera una pagina per ogni collo (da 1 a N)
-        for i in range(1, totale_colli + 1):
-            
-            # Logo
+        for i in range(1, totale + 1):
             if LOGO_PATH and Path(LOGO_PATH).exists():
-                img = Image(LOGO_PATH, width=35*mm, height=10*mm, hAlign='LEFT')
-                story.append(img)
+                story.append(Image(LOGO_PATH, width=35*mm, height=10*mm, hAlign='LEFT'))
                 story.append(Spacer(1, 2*mm))
             
-            # Scrittura Arrivo con progressivo (es. "176/25 (N.3)")
+            # FORMATO RICHIESTO: 10/25 N.1
             arrivo_base = art.n_arrivo or ''
-            arrivo_str = f"{arrivo_base}  (N.{i})"
-            
-            # Scrittura Collo (es. "3 / 5")
-            collo_str = f"{i} / {totale_colli}"
+            arrivo_str = f"{arrivo_base} N.{i}"
+            collo_str = f"{i} / {totale}"
 
             dati = [
                 [Paragraph("CLIENTE:", s_label), Paragraph(art.cliente or '', s_val)],
@@ -2670,33 +2652,24 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 [Paragraph("ORDINE:", s_label), Paragraph(art.ordine or '', s_val)],
                 [Paragraph("COMMESSA:", s_label), Paragraph(art.commessa or '', s_val)],
                 [Paragraph("DDT ING.:", s_label), Paragraph(art.n_ddt_ingresso or '', s_val)],
-                [Paragraph("DATA ING.:", s_label), Paragraph(fmt_date(art.data_ingresso) if art.data_ingresso else '', s_val)],
-                
-                # Arrivo con N. Progressivo
-                [Paragraph("ARRIVO:", s_label), Paragraph(arrivo_str, s_val_bold)],
-                
-                # Contatore Colli
-                [Paragraph("N. COLLO:", s_label), Paragraph(collo_str, s_val_bold)],
-                
+                [Paragraph("DATA ING.:", s_label), Paragraph(fmt_date(art.data_ingresso), s_val)],
+                [Paragraph("ARRIVO:", s_label), Paragraph(arrivo_str, s_val_bold)], # Qui appare N.1, N.2...
+                [Paragraph("COLLO:", s_label), Paragraph(collo_str, s_val_bold)],
                 [Paragraph("POSIZIONE:", s_label), Paragraph(art.posizione or '', s_val)],
             ]
-            
             t = Table(dati, colWidths=[25*mm, 68*mm])
-            t.setStyle(TableStyle([
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                ('LEFTPADDING', (0,0), (-1,-1), 0),
-                ('RIGHTPADDING', (0,0), (-1,-1), 0),
-                ('TOPPADDING', (0,0), (-1,-1), 0),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-            ]))
+            t.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('PADDING', (0,0), (-1,-1), 0)]))
             story.append(t)
-            
-            # Salto pagina obbligatorio per ogni collo
             story.append(PageBreak())
 
     doc.build(story)
     bio.seek(0)
     return bio
+
+# --- CONFIGURAZIONE FINALE E AVVIO ---
+app.jinja_loader = DictLoader(templates)
+app.jinja_env.globals['getattr'] = getattr
+app.jinja_env.filters['fmt_date'] = fmt_date
     
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
