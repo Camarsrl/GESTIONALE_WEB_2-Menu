@@ -540,75 +540,152 @@ function toggleAll(source) {
 </script>
 {% endblock %}
 """
-
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
-<div class="card p-4">
-    <h5><i class="bi bi-pencil"></i> {{ 'Modifica' if row.id_articolo else 'Nuovo' }} Articolo {% if row.id_articolo %}#{{ row.id_articolo }}{% endif %}</h5>
-    <hr>
-    <form method="post" enctype="multipart/form-data">
-        <div class="row g-3">
-            {% for label, name in fields %}
-            <div class="col-md-4">
-                <label class="form-label">{{ label }}</label>
-                <input name="{{ name }}" value="{{ getattr(row, name, '') or '' }}" class="form-control">
-            </div>
-            {% endfor %}
-        </div>
-        <div class="mt-4 d-flex gap-2">
-            <button class="btn btn-primary"><i class="bi bi-save"></i> Salva Modifiche</button>
-            <a class="btn btn-secondary" href="{{ url_for('giacenze') }}">Annulla</a>
-        </div>
-    </form>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3><i class="bi bi-pencil-square"></i> {% if row %}Modifica Articolo #{{ row.id_articolo }}{% else %}Nuovo Articolo{% endif %}</h3>
+    <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Torna alla Lista</a>
 </div>
-{% if row.id_articolo %}
-<div class="card p-4 mt-4">
-    <h6><i class="bi bi-paperclip"></i> Allegati</h6>
-    <form method="post" enctype="multipart/form-data" class="my-3">
-         <div class="mb-3">
-            <label class="form-label">Carica nuovi file (PDF/Immagini)</label>
-            <div class="dropzone" id="dz">Trascina qui i file o clicca per selezionare</div>
-            <input type="file" id="fi" name="files" multiple class="form-control mt-2" style="display:none" accept="application/pdf,image/*">
-         </div>
-         <button class="btn btn-success btn-sm">Carica Allegati</button>
+
+<form method="post" class="card p-4 shadow-sm">
+    <div class="row g-3">
+        <div class="col-md-3">
+            <label class="form-label fw-bold">Codice Articolo</label>
+            <input type="text" name="codice_articolo" class="form-control" value="{{ row.codice_articolo or '' }}">
+        </div>
+        <div class="col-md-5">
+            <label class="form-label fw-bold">Descrizione</label>
+            <input type="text" name="descrizione" class="form-control" value="{{ row.descrizione or '' }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Stato</label>
+            <select name="stato" class="form-select">
+                <option value="DOGANALE" {% if row.stato == 'DOGANALE' %}selected{% endif %}>DOGANALE</option>
+                <option value="NAZIONALE" {% if row.stato == 'NAZIONALE' %}selected{% endif %}>NAZIONALE</option>
+                <option value="USCITO" {% if row.stato == 'USCITO' %}selected{% endif %}>USCITO</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Commessa</label>
+            <input type="text" name="commessa" class="form-control" value="{{ row.commessa or '' }}">
+        </div>
+
+        <div class="col-md-4">
+            <label class="form-label">Cliente</label>
+            <input type="text" name="cliente" class="form-control" value="{{ row.cliente or '' }}">
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">Fornitore</label>
+            <input type="text" name="fornitore" class="form-control" value="{{ row.fornitore or '' }}">
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">Protocollo</label>
+            <input type="text" name="protocollo" class="form-control" value="{{ row.protocollo or '' }}">
+        </div>
+
+        <div class="col-md-3">
+            <label class="form-label">N. Buono</label>
+            <input type="text" name="buono_n" class="form-control" value="{{ row.buono_n or '' }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Magazzino</label>
+            <input type="text" name="magazzino" class="form-control" value="{{ row.magazzino or 'STRUPPA' }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Posizione</label>
+            <input type="text" name="posizione" class="form-control" value="{{ row.posizione or '' }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Ordine</label>
+            <input type="text" name="ordine" class="form-control" value="{{ row.ordine or '' }}">
+        </div>
+
+        <div class="col-md-3">
+            <label class="form-label">Data Ingresso</label>
+            <input type="date" name="data_ingresso" class="form-control" value="{{ row.data_ingresso or '' }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">DDT Ingresso</label>
+            <input type="text" name="n_ddt_ingresso" class="form-control" value="{{ row.n_ddt_ingresso or '' }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Data Uscita</label>
+            <input type="date" name="data_uscita" class="form-control" value="{{ row.data_uscita or '' }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">DDT Uscita</label>
+            <input type="text" name="n_ddt_uscita" class="form-control" value="{{ row.n_ddt_uscita or '' }}">
+        </div>
+
+        <div class="col-md-2">
+            <label class="form-label">Pezzi</label>
+            <input type="number" name="pezzo" class="form-control" value="{{ row.pezzo or 0 }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Colli</label>
+            <input type="number" name="n_colli" class="form-control" value="{{ row.n_colli or 0 }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Peso (Kg)</label>
+            <input type="number" step="0.01" name="peso" class="form-control" value="{{ row.peso or 0 }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">M³</label>
+            <input type="number" step="0.001" name="m3" class="form-control" value="{{ row.m3 or 0 }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">N. Arrivo</label>
+            <input type="text" name="n_arrivo" class="form-control" value="{{ row.n_arrivo or '' }}">
+        </div>
+
+        <div class="col-12">
+            <label class="form-label">Note</label>
+            <textarea name="note" class="form-control" rows="3">{{ row.note or '' }}</textarea>
+        </div>
+    </div>
+
+    <div class="mt-4 text-end">
+        <button type="submit" class="btn btn-primary px-5"><i class="bi bi-save"></i> Salva Modifiche</button>
+    </div>
+</form>
+
+{% if row %}
+<div class="card mt-4 p-4 shadow-sm">
+    <h5><i class="bi bi-paperclip"></i> Allegati</h5>
+    <hr>
+    
+    <form action="{{ url_for('upload_file', id_articolo=row.id_articolo) }}" method="post" enctype="multipart/form-data" class="mb-3">
+        <div class="input-group">
+            <input type="file" name="file" class="form-control" required>
+            <button type="submit" class="btn btn-outline-primary">Carica</button>
+        </div>
     </form>
-    <ul class="list-group">
-        {% for a in row.attachments %}
-        <li class="list-group-item d-flex justify-content-between align-items-center">
-            <div>
-                <span class="badge text-bg-light me-2">{{ a.kind }}</span>
-                <a href="{{ url_for('media', att_id=a.id) }}" target="_blank">{{ a.filename }}</a>
+
+    <div class="row">
+        {% for att in row.attachments %}
+        <div class="col-md-3 mb-3">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    {% if att.kind == 'photo' %}
+                        <img src="{{ url_for('serve_uploaded_file', filename=att.filename) }}" class="img-fluid mb-2" style="max-height: 100px;">
+                    {% else %}
+                        <i class="bi bi-file-earmark-pdf text-danger" style="font-size: 3rem;"></i>
+                    {% endif %}
+                    <p class="small text-truncate" title="{{ att.filename }}">{{ att.filename }}</p>
+                    <a href="{{ url_for('serve_uploaded_file', filename=att.filename) }}" target="_blank" class="btn btn-sm btn-primary">Apri</a>
+                    <a href="{{ url_for('delete_file', id_file=att.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Eliminare?')">Elimina</a>
+                </div>
             </div>
-            <a class="btn btn-sm btn-outline-danger" href="{{ url_for('delete_attachment', att_id=a.id) }}"><i class="bi bi-trash"></i></a>
-        </li>
+        </div>
         {% else %}
-        <li class="list-group-item text-muted">Nessun allegato presente</li>
+        <p class="text-muted">Nessun allegato presente.</p>
         {% endfor %}
-    </ul>
+    </div>
 </div>
 {% endif %}
-{% endblock %}
-{% block extra_js %}
-<script>
-const dz = document.getElementById('dz'), fi = document.getElementById('fi');
-if(dz && fi) {
-    dz.addEventListener('click', () => fi.click());
-    dz.addEventListener('dragover', e => { e.preventDefault(); dz.style.backgroundColor = '#dbeafe'; });
-    dz.addEventListener('dragleave', () => dz.style.backgroundColor = '#eef4ff');
-    dz.addEventListener('drop', e => {
-        e.preventDefault();
-        fi.files = e.dataTransfer.files;
-        dz.textContent = `${e.dataTransfer.files.length} file selezionati`;
-        dz.style.backgroundColor = '#eef4ff';
-    });
-    fi.addEventListener('change', () => {
-        if(fi.files.length > 0) {
-            dz.textContent = `${fi.files.length} file selezionati`;
-        }
-    });
-}
-</script>
+
 {% endblock %}
 """
 
