@@ -399,14 +399,13 @@ HOME_HTML = """
 </div>
 {% endblock %}
 """
-
 GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h3><i class="bi bi-box-seam"></i> Magazzino e Giacenze</h3>
     <div class="d-flex gap-2">
-       <a href="{{ url_for('nuovo_record') }}" class="btn btn-success"><i class="bi bi-plus-lg"></i> Nuovo Ingresso</a>
+       <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-success"><i class="bi bi-plus-lg"></i> Nuovo Ingresso</a>
        <a href="{{ url_for('labels_form') }}" class="btn btn-info text-white"><i class="bi bi-tags"></i> Etichette</a>
        <a href="{{ url_for('calcola_costi') }}" class="btn btn-warning text-dark"><i class="bi bi-calculator"></i> Calcoli</a>
     </div>
@@ -541,6 +540,7 @@ function toggleAll(source) {
 </script>
 {% endblock %}
 """
+
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
