@@ -2965,6 +2965,104 @@ def fix_db_schema():
 # Esegui il fix immediatamente quando il file viene importato/avviato
 fix_db_schema()
 
+from collections import defaultdict
+from datetime import timedelta
+
+def _parse_data_db_helper(data_str):
+    """Converte stringa data DB in oggetto date (Gestisce formati misti)."""
+    if not data_str: return None
+    formati = ["%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y"]
+    for fmt in formati:
+        try:
+            return datetime.strptime(str(data_str).strip(), fmt).date()
+        except (ValueError, AttributeError):
+            continue
+    return None
+
+def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento):
+    """
+    Core logic: Calcola M2 per ogni giorno di occupazione.
+    Materiale contato dal giorno ingresso fino al giorno PRIMA dell'uscita.
+    """
+    m2_per_giorno = defaultdict(float)
+
+    for art in articoli:
+        # Parsing sicuro dei dati
+        try:
+            m2 = float(str(art.m2).replace(',', '.')) if art.m2 else 0.0
+        except: m2 = 0.0
+        
+        if m2 <= 0: continue
+
+        d_ingr = _parse_data_db_helper(art.data_ingresso)
+        if not d_ingr: continue
+
+        d_usc = _parse_data_db_helper(art.data_uscita)
+
+        # Periodo attivo dell'articolo
+        inizio_attivo = max(d_ingr, data_da)
+        
+        if d_usc:
+            # Conta fino al giorno prima dell'uscita
+            fine_attivo = min(d_usc - timedelta(days=1), data_a)
+        else:
+            # Ancora dentro
+            fine_attivo = data_a
+
+        if fine_attivo < inizio_attivo:
+            continue
+
+        # Ciclo giorni
+        curr = inizio_attivo
+        cliente_key = (art.cliente or "SCONOSCIUTO").upper()
+        
+        while curr <= fine_attivo:
+            m2_per_giorno[(cliente_key, curr)] += m2
+            curr += timedelta(days=1)
+
+    # Aggregazione Risultati
+    risultati_finali = []
+    
+    if raggruppamento == 'giorno':
+        # Ordina per Cliente, Data
+        sorted_keys = sorted(m2_per_giorno.keys(), key=lambda k: (k[0], k[1]))
+        for cliente, giorno in sorted_keys:
+            val_m2 = m2_per_giorno[(cliente, giorno)]
+            risultati_finali.append({
+                'periodo': giorno.strftime("%d/%m/%Y"),
+                'cliente': cliente,
+                'm2_tot': f"{val_m2:.3f}",
+                'm2_medio': f"{val_m2:.3f}",
+                'giorni': 1
+            })
+    else:
+        # Raggruppa per Mese
+        agg_mese = defaultdict(lambda: {'m2_sum': 0.0, 'giorni_set': set()})
+        
+        for (cliente, giorno), val_m2 in m2_per_giorno.items():
+            key_mese = (cliente, giorno.year, giorno.month)
+            agg_mese[key_mese]['m2_sum'] += val_m2
+            agg_mese[key_mese]['giorni_set'].add(giorno)
+            
+        # Ordina per Anno, Mese, Cliente
+        sorted_keys = sorted(agg_mese.keys(), key=lambda k: (k[1], k[2], k[0]))
+        
+        for (cliente, anno, mese) in sorted_keys:
+            dati = agg_mese[(cliente, anno, mese)]
+            num_giorni = len(dati['giorni_set'])
+            m2_tot = dati['m2_sum']
+            m2_medio = m2_tot / num_giorni if num_giorni > 0 else 0.0
+            
+            risultati_finali.append({
+                'periodo': f"{mese:02d}/{anno}",
+                'cliente': cliente,
+                'm2_tot': f"{m2_tot:.3f}",
+                'm2_medio': f"{m2_medio:.3f}",
+                'giorni': num_giorni
+            })
+            
+    return risultati_finali
+
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
