@@ -750,31 +750,46 @@ BULK_EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="card p-4">
-    <h5><i class="bi bi-pencil-square"></i> Modifica Multipla</h5>
-    <p class="text-muted">Stai modificando {{ rows|length }} articoli selezionati. Lascia un campo vuoto per non modificarlo.</p>
+    <h5><i class="bi bi-pencil-square"></i> Modifica Multipla ({{ rows|length }} articoli)</h5>
+    <p class="text-muted small">Seleziona i campi da aggiornare spuntando la casella corrispondente.</p>
     <hr>
     <form method="post">
         <input type="hidden" name="ids" value="{{ ids_csv }}">
+        <input type="hidden" name="save_bulk" value="true">
+        
         <div class="row g-3">
             {% for label, name in fields %}
             <div class="col-md-4">
-                <label class="form-label">{{ label }}</label>
-                <input name="{{ name }}" class="form-control form-control-sm" placeholder="Nuovo valore per tutti...">
+                <div class="input-group">
+                    <div class="input-group-text">
+                        <input class="form-check-input mt-0" type="checkbox" name="chk_{{ name }}" value="1" 
+                               onchange="document.getElementById('in_{{ name }}').disabled = !this.checked">
+                    </div>
+                    <span class="input-group-text bg-white" style="min-width: 100px;">{{ label }}</span>
+                    <input type="text" id="in_{{ name }}" name="{{ name }}" class="form-control" disabled placeholder="Nuovo valore...">
+                </div>
             </div>
             {% endfor %}
         </div>
-        <div class="mt-4 d-flex gap-2">
-            <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> Applica Modifiche</button>
+        
+        <div class="mt-4 d-flex gap-2 justify-content-end">
             <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
+            <button type="submit" class="btn btn-primary px-4"><i class="bi bi-save"></i> Applica Modifiche</button>
         </div>
     </form>
-    <hr>
-    <h6>Articoli Selezionati</h6>
-    <ul class="list-group list-group-flush">
-    {% for row in rows %}
-        <li class="list-group-item"><b>ID {{ row.id_articolo }}</b>: {{ row.codice_articolo or 'N/D' }} - {{ row.descrizione or 'N/D' }}</li>
-    {% endfor %}
-    </ul>
+    
+    <div class="mt-4">
+        <h6 class="text-muted border-bottom pb-2">Articoli che verranno modificati:</h6>
+        <div style="max-height: 200px; overflow-y: auto;">
+            <ul class="list-group list-group-flush small">
+            {% for row in rows %}
+                <li class="list-group-item py-1">
+                    <b>ID {{ row.id_articolo }}</b>: {{ row.codice_articolo or 'N/D' }} - {{ row.descrizione or 'N/D' }}
+                </li>
+            {% endfor %}
+            </ul>
+        </div>
+    </div>
 </div>
 {% endblock %}
 """
