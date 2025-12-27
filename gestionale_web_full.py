@@ -2204,32 +2204,58 @@ def bulk_delete():
 @app.post('/bulk/duplicate')
 @login_required
 def bulk_duplicate():
+    # Controllo Permessi
     if session.get('role') != 'admin':
-        flash("Non hai i permessi per eseguire questa azione.", "danger")
+        flash("Non hai i permessi per duplicare.", "danger")
         return redirect(url_for('giacenze'))
-        
-    ids = [int(i) for i in request.form.getlist('ids') if i.isdigit()]
+
+    ids = request.form.getlist('ids')
     if not ids:
-        flash("Nessun articolo selezionato per la duplicazione.", "warning")
+        flash("Nessun articolo selezionato.", "warning")
         return redirect(url_for('giacenze'))
-    
+
     db = SessionLocal()
-    articoli_da_duplicare = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-    
-    nuovi_articoli = []
-    mapper = inspect(Articolo)
-    for originale in articoli_da_duplicare:
-        nuovo = Articolo()
-        for column in mapper.attrs:
-            if column.key not in ['id_articolo', 'attachments']:
-                setattr(nuovo, column.key, getattr(originale, column.key))
-        nuovi_articoli.append(nuovo)
-
-    db.add_all(nuovi_articoli)
-    db.commit()
-    flash(f"{len(nuovi_articoli)} articoli duplicati con successo.", "success")
+    try:
+        count = 0
+        for id_str in ids:
+            if not id_str.isdigit(): continue
+            original = db.query(Articolo).get(int(id_str))
+            if original:
+                # Clona tutti i campi tranne ID
+                new_art = Articolo(
+                    codice_articolo=original.codice_articolo,
+                    descrizione=original.descrizione,
+                    cliente=original.cliente,
+                    fornitore=original.fornitore,
+                    commessa=original.commessa,
+                    protocollo=original.protocollo,
+                    buono_n=original.buono_n,
+                    ordine=original.ordine,
+                    data_ingresso=original.data_ingresso,
+                    n_ddt_ingresso=original.n_ddt_ingresso,
+                    data_uscita=original.data_uscita,
+                    n_ddt_uscita=original.n_ddt_uscita,
+                    pezzo=original.pezzo,
+                    n_colli=original.n_colli,
+                    peso=original.peso,
+                    m2=original.m2,
+                    m3=original.m3,
+                    n_arrivo=original.n_arrivo,
+                    stato=original.stato,
+                    magazzino=original.magazzino,
+                    posizione=original.posizione,
+                    note=original.note
+                )
+                db.add(new_art)
+                count += 1
+        db.commit()
+        flash(f"{count} articoli duplicati.", "success")
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore duplicazione: {e}", "danger")
+    finally:
+        db.close()
     return redirect(url_for('giacenze'))
-
 # --- ANTEPRIME HTML (BUONO / DDT) ---
 def _get_rows_from_ids(ids_list):
     if not ids_list: return []
