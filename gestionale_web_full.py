@@ -1317,8 +1317,9 @@ templates = {
     'calcola_costi.html': CALCOLA_COSTI_HTML
 }
 
-# --- APP FLASK ---
-app = Flask(__name__)
+# ========================================================
+# CONFIGURAZIONE FINALE (SENZA RICREARE L'APP)
+# ========================================================
 app.jinja_loader = DictLoader(templates)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.jinja_env.globals['getattr'] = getattr
