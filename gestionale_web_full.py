@@ -2031,13 +2031,11 @@ def giacenze():
         total_m2=total_m2
     )
 
-
 @app.route('/bulk/edit', methods=['GET', 'POST'])
 @login_required
 def bulk_edit():
     db = SessionLocal()
     try:
-        # Recupera IDs
         ids = request.args.getlist('ids') or request.form.getlist('ids')
         if not ids:
             flash("Nessun articolo selezionato.", "warning")
@@ -2046,45 +2044,42 @@ def bulk_edit():
         ids = [int(i) for i in ids if i.isdigit()]
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
 
-        # Se è un POST e c'è il flag di salvataggio
+        # Campi disponibili per la modifica multipla
+        editable_fields = [
+            ('Cliente', 'cliente'), ('Fornitore', 'fornitore'),
+            ('Commessa', 'commessa'), ('Magazzino', 'magazzino'),
+            ('Posizione', 'posizione'), ('Stato', 'stato'),
+            ('Buono N.', 'buono_n'), ('Data Uscita', 'data_uscita'),
+            ('DDT Uscita', 'n_ddt_uscita')
+        ]
+
         if request.method == 'POST' and request.form.get('save_bulk') == 'true':
-            fields_to_update = {
-                'cliente': request.form.get('cliente'),
-                'commessa': request.form.get('commessa'),
-                'magazzino': request.form.get('magazzino'),
-                'posizione': request.form.get('posizione'),
-                'stato': request.form.get('stato'),
-                'data_uscita': request.form.get('data_uscita'),
-                'n_ddt_uscita': request.form.get('n_ddt_uscita')
-            }
-            
-            count = 0
-            for art in articoli:
-                updated = False
-                for field, value in fields_to_update.items():
-                    if value and value.strip(): # Solo se c'è testo
-                        setattr(art, field, value)
-                        updated = True
-                if updated: count += 1
-            
-            if count > 0:
+            updates = {}
+            for _, field_name in editable_fields:
+                # Controlla se la checkbox è attiva
+                if request.form.get(f'chk_{field_name}'):
+                    val = request.form.get(field_name)
+                    # Gestione date
+                    if field_name == 'data_uscita' and val:
+                        val = parse_date_ui(val)
+                    updates[field_name] = val
+
+            if updates:
+                count = 0
+                for art in articoli:
+                    for k, v in updates.items():
+                        setattr(art, k, v)
+                    count += 1
                 db.commit()
-                flash(f"{count} articoli aggiornati.", "success")
+                flash(f"{count} articoli aggiornati con successo.", "success")
             else:
-                flash("Nessuna modifica effettuata.", "info")
-                
+                flash("Nessun campo selezionato per la modifica.", "info")
+            
             return redirect(url_for('giacenze'))
 
-        # Se è GET o primo POST (da giacenze), mostra form
-        return render_template('bulk_edit.html', 
-                               rows=articoli, 
-                               ids_csv=",".join(map(str, ids)),
-                               fields=[('Cliente', 'cliente'), ('Commessa', 'commessa'), 
-                                       ('Magazzino', 'magazzino'), ('Posizione', 'posizione'), 
-                                       ('Stato', 'stato')])
+        return render_template('bulk_edit.html', rows=articoli, ids_csv=",".join(map(str, ids)), fields=editable_fields)
     finally:
         db.close()
-
 @app.post('/delete_rows')
 @login_required
 def delete_rows():
