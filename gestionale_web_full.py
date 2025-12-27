@@ -2021,7 +2021,7 @@ def giacenze():
 def bulk_edit():
     db = SessionLocal()
     try:
-        # Recupera IDs (da query string o form)
+        # Recupera IDs
         ids = request.args.getlist('ids') or request.form.getlist('ids')
         if not ids:
             flash("Nessun articolo selezionato.", "warning")
@@ -2030,8 +2030,8 @@ def bulk_edit():
         ids = [int(i) for i in ids if i.isdigit()]
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
 
-        if request.method == 'POST':
-            # Campi da aggiornare massivamente (solo se compilati)
+        # Se è un POST e c'è il flag di salvataggio
+        if request.method == 'POST' and request.form.get('save_bulk') == 'true':
             fields_to_update = {
                 'cliente': request.form.get('cliente'),
                 'commessa': request.form.get('commessa'),
@@ -2046,7 +2046,7 @@ def bulk_edit():
             for art in articoli:
                 updated = False
                 for field, value in fields_to_update.items():
-                    if value: # Se l'utente ha scritto qualcosa nel campo
+                    if value and value.strip(): # Solo se c'è testo
                         setattr(art, field, value)
                         updated = True
                 if updated: count += 1
@@ -2055,11 +2055,17 @@ def bulk_edit():
                 db.commit()
                 flash(f"{count} articoli aggiornati.", "success")
             else:
-                flash("Nessuna modifica effettuata (campi vuoti).", "info")
+                flash("Nessuna modifica effettuata.", "info")
                 
             return redirect(url_for('giacenze'))
 
-        return render_template('bulk_edit.html', articoli=articoli, ids=ids)
+        # Se è GET o primo POST (da giacenze), mostra form
+        return render_template('bulk_edit.html', 
+                               rows=articoli, 
+                               ids_csv=",".join(map(str, ids)),
+                               fields=[('Cliente', 'cliente'), ('Commessa', 'commessa'), 
+                                       ('Magazzino', 'magazzino'), ('Posizione', 'posizione'), 
+                                       ('Stato', 'stato')])
     finally:
         db.close()
 
