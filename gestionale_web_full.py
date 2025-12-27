@@ -2628,54 +2628,125 @@ def labels_form():
 
 # --- FUNZIONE ETICHETTE AGGIORNATA (Arrivo 10/25 N.1) ---
 def _genera_pdf_etichetta(articoli, formato, anteprima=False):
+    """
+    Genera etichette PDF ottimizzate per 100x62mm.
+    Ogni collo genera una pagina distinta nel PDF.
+    """
     bio = io.BytesIO()
+    
+    # --- IMPOSTAZIONI FORMATO ---
     if formato == '62x100':
-        pagesize = (100*mm, 62*mm); margin = 2*mm
+        # Formato Etichetta Termica (10cm x 6.2cm)
+        # Invertiamo W e H perché reportlab gestisce width/height
+        W, H = 100*mm, 62*mm 
+        pagesize = (W, H)
+        # Margini minimi per sfruttare tutto lo spazio
+        top_margin = 1*mm
+        bottom_margin = 1*mm
+        left_margin = 2*mm
+        right_margin = 2*mm
     else:
-        pagesize = A4; margin = 10*mm
+        # Formato A4 (per test o stampanti normali)
+        pagesize = A4
+        top_margin = 10*mm
+        bottom_margin = 10*mm
+        left_margin = 10*mm
+        right_margin = 10*mm
 
-    doc = SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=margin, rightMargin=margin, topMargin=margin, bottomMargin=margin)
+    doc = SimpleDocTemplate(bio, pagesize=pagesize, 
+                            leftMargin=left_margin, rightMargin=right_margin, 
+                            topMargin=top_margin, bottomMargin=bottom_margin)
     story = []
+    
+    # --- STILI PERSONALIZZATI COMPATTI ---
     styles = getSampleStyleSheet()
-    s_label = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
-    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
-    s_val_bold = ParagraphStyle('VB', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, leading=12)
+    
+    # Stile per le Etichette (Chiave): Es. "CLIENTE:" - Font piccolo, grassetto
+    s_key = ParagraphStyle(name='LabelKey', parent=styles['Normal'], 
+                           fontName='Helvetica-Bold', fontSize=8, leading=9)
+    
+    # Stile per i Valori: Es. "FINCANTIERI" - Font leggermente più grande
+    s_val = ParagraphStyle(name='LabelVal', parent=styles['Normal'], 
+                           fontName='Helvetica', fontSize=9, leading=10)
+    
+    # Stile per dati Critici (Arrivo, Collo): Grande e Grassetto
+    s_big = ParagraphStyle(name='LabelBig', parent=styles['Normal'], 
+                           fontName='Helvetica-Bold', fontSize=11, leading=12)
 
     for art in articoli:
-        tot = int(art.n_colli) if art.n_colli else 1
-        if tot < 1: tot = 1
+        # Calcola numero colli (minimo 1)
+        try:
+            totale_colli = int(art.n_colli) if art.n_colli else 1
+        except:
+            totale_colli = 1
+        
+        if totale_colli < 1: totale_colli = 1
 
-        for i in range(1, tot + 1):
-            if LOGO_PATH and Path(LOGO_PATH).exists():
-                story.append(Image(LOGO_PATH, width=35*mm, height=10*mm, hAlign='LEFT'))
-                story.append(Spacer(1, 2*mm))
+        # --- CICLO: Una pagina per ogni collo ---
+        for i in range(1, totale_colli + 1):
             
-            # FORMATO ARRIVO: 10/25 N.1, 10/25 N.2 ...
-            arr_base = art.n_arrivo or ''
-            arr_str = f"{arr_base} N.{i}"
-            collo_str = f"{i} / {tot}"
+            # 1. LOGO (Opzionale, ridimensionato per non rubare spazio)
+            if LOGO_PATH and Path(LOGO_PATH).exists():
+                # Logo alto massimo 8mm per lasciare spazio ai dati
+                img = Image(LOGO_PATH, width=30*mm, height=8*mm, hAlign='LEFT')
+                story.append(img)
+                story.append(Spacer(1, 1*mm)) # Spazio minimo dopo il logo
+            
+            # 2. PREPARAZIONE DATI
+            # Formato Arrivo: "10/25 N.1"
+            arrivo_base = art.n_arrivo or ''
+            arrivo_str = f"{arrivo_base}  (N.{i})"
+            
+            # Formato Collo: "1 / 5"
+            collo_str = f"{i} / {totale_colli}"
 
+            # 3. COSTRUZIONE TABELLA DATI
+            # Usiamo Paragraph per gestire testi lunghi che vanno a capo
             dati = [
-                [Paragraph("CLIENTE:", s_label), Paragraph(art.cliente or '', s_val)],
-                [Paragraph("FORNITORE:", s_label), Paragraph(art.fornitore or '', s_val)],
-                [Paragraph("ORDINE:", s_label), Paragraph(art.ordine or '', s_val)],
-                [Paragraph("COMMESSA:", s_label), Paragraph(art.commessa or '', s_val)],
-                [Paragraph("DDT ING.:", s_label), Paragraph(art.n_ddt_ingresso or '', s_val)],
-                [Paragraph("DATA ING.:", s_label), Paragraph(fmt_date(art.data_ingresso), s_val)],
-                # Arrivo Modificato
-                [Paragraph("ARRIVO:", s_label), Paragraph(arr_str, s_val_bold)],
-                # Collo
-                [Paragraph("COLLO:", s_label), Paragraph(collo_str, s_val_bold)],
-                [Paragraph("POSIZIONE:", s_label), Paragraph(art.posizione or '', s_val)],
+                [Paragraph("CLIENTE:", s_key), Paragraph(art.cliente or '', s_val)],
+                [Paragraph("FORNITORE:", s_key), Paragraph(art.fornitore or '', s_val)],
+                [Paragraph("ORDINE:", s_key), Paragraph(art.ordine or '', s_val)],
+                [Paragraph("COMMESSA:", s_key), Paragraph(art.commessa or '', s_val)],
+                [Paragraph("DDT ING.:", s_key), Paragraph(art.n_ddt_ingresso or '', s_val)],
+                [Paragraph("DATA ING.:", s_key), Paragraph(fmt_date(art.data_ingresso), s_val)],
+                
+                # Righe evidenziate
+                [Paragraph("ARRIVO:", s_key), Paragraph(arrivo_str, s_big)],
+                [Paragraph("N. COLLO:", s_key), Paragraph(collo_str, s_big)],
+                
+                [Paragraph("POSIZIONE:", s_key), Paragraph(art.posizione or '', s_val)],
             ]
-            t = Table(dati, colWidths=[25*mm, 68*mm])
-            t.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('PADDING', (0,0), (-1,-1), 0)]))
+            
+            # Calcolo larghezza colonne: 
+            # Colonna 1 (Etichette): 22mm
+            # Colonna 2 (Valori): Resto della pagina (circa 70mm su 100mm totali)
+            col_widths = [22*mm, 72*mm]
+
+            t = Table(dati, colWidths=col_widths)
+            
+            # Stile Tabella: Rimuovi bordi e riduci padding a zero per compattare
+            t.setStyle(TableStyle([
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),      # Allinea tutto in alto
+                ('LEFTPADDING', (0,0), (-1,-1), 0),     # Niente padding sx
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),    # Niente padding dx
+                ('TOPPADDING', (0,0), (-1,-1), 0),      # Niente spazio sopra riga
+                ('BOTTOMPADDING', (0,0), (-1,-1), 1),   # 1mm sotto riga
+            ]))
+            
             story.append(t)
+            
+            # Salto pagina: fondamentale per stampare etichette separate
             story.append(PageBreak())
 
-    doc.build(story)
-    bio.seek(0)
-    return bio
+    try:
+        doc.build(story)
+        bio.seek(0)
+        return bio
+    except Exception as e:
+        print(f"Errore generazione PDF: {e}")
+        # Ritorna un PDF vuoto o con errore in caso di crash layout
+        return io.BytesIO()
+        
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
 app.jinja_env.globals['getattr'] = getattr
