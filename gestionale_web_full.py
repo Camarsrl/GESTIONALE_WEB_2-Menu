@@ -456,7 +456,7 @@ GIACENZE_HTML = """
             <i class="bi bi-envelope"></i> Invia Email
         </button>
 
-        <button type="submit" formaction="{{ url_for('duplicate_rows') }}" class="btn btn-outline-primary btn-sm">
+        <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-outline-primary btn-sm">
             <i class="bi bi-files"></i> Duplica
         </button>
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">
