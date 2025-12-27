@@ -2566,10 +2566,10 @@ def labels_form():
         db.close()
 
 def _genera_pdf_etichetta(articoli, formato, anteprima=False):
-    """Genera il PDF delle etichette."""
+    """Genera etichette multiple: 1 pagina per ogni collo (es. 5 colli = 5 etichette)."""
     bio = io.BytesIO()
     
-    # Formato Etichetta (100x62mm orizzontale)
+    # Impostazioni Formato
     if formato == '62x100':
         W, H = 100*mm, 62*mm 
         pagesize = (W, H)
@@ -2586,44 +2586,68 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     styles = getSampleStyleSheet()
     s_label = ParagraphStyle(name='LabelKey', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
     s_val = ParagraphStyle(name='LabelVal', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
+    # Stile grassetto per evidenziare Arrivo e Collo
+    s_val_bold = ParagraphStyle(name='LabelValB', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, leading=12)
 
     for art in articoli:
-        # Logo
-        if LOGO_PATH and Path(LOGO_PATH).exists():
-            img = Image(LOGO_PATH, width=35*mm, height=10*mm, hAlign='LEFT')
-            story.append(img)
-            story.append(Spacer(1, 2*mm))
+        # Calcola numero colli (minimo 1)
+        try:
+            totale_colli = int(art.n_colli) if art.n_colli else 1
+        except:
+            totale_colli = 1
         
-        # Dati etichetta
-        dati = [
-            [Paragraph("CLIENTE:", s_label), Paragraph(art.cliente or '', s_val)],
-            [Paragraph("FORNITORE:", s_label), Paragraph(art.fornitore or '', s_val)],
-            [Paragraph("ORDINE:", s_label), Paragraph(art.ordine or '', s_val)],
-            [Paragraph("COMMESSA:", s_label), Paragraph(art.commessa or '', s_val)],
-            [Paragraph("DDT ING.:", s_label), Paragraph(art.n_ddt_ingresso or '', s_val)],
-            [Paragraph("DATA ING.:", s_label), Paragraph(art.data_ingresso or '', s_val)],
-            [Paragraph("ARRIVO:", s_label), Paragraph(art.n_arrivo or '', s_val)],
-            [Paragraph("COLLI:", s_label), Paragraph(str(art.n_colli or ''), s_val)],
-            [Paragraph("POSIZIONE:", s_label), Paragraph(art.posizione or '', s_val)],
-        ]
-        
-        t = Table(dati, colWidths=[25*mm, 68*mm])
-        t.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('LEFTPADDING', (0,0), (-1,-1), 0),
-            ('RIGHTPADDING', (0,0), (-1,-1), 0),
-            ('TOPPADDING', (0,0), (-1,-1), 0),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-        ]))
-        story.append(t)
-        
-        # Salto pagina: fondamentale per etichette singole
-        story.append(PageBreak())
+        if totale_colli < 1: totale_colli = 1
+
+        # CICLO: Genera una pagina per ogni collo
+        for i in range(1, totale_colli + 1):
+            
+            # Logo
+            if LOGO_PATH and Path(LOGO_PATH).exists():
+                img = Image(LOGO_PATH, width=35*mm, height=10*mm, hAlign='LEFT')
+                story.append(img)
+                story.append(Spacer(1, 2*mm))
+            
+            # Formattazione Arrivo con numero progressivo (es. 176/25 N.3)
+            arrivo_base = art.n_arrivo or ''
+            arrivo_str = f"{arrivo_base}  (N.{i})"
+            
+            # Formattazione riga Collo (es. 3 di 5)
+            collo_str = f"{i} / {totale_colli}"
+
+            dati = [
+                [Paragraph("CLIENTE:", s_label), Paragraph(art.cliente or '', s_val)],
+                [Paragraph("FORNITORE:", s_label), Paragraph(art.fornitore or '', s_val)],
+                [Paragraph("ORDINE:", s_label), Paragraph(art.ordine or '', s_val)],
+                [Paragraph("COMMESSA:", s_label), Paragraph(art.commessa or '', s_val)],
+                [Paragraph("DDT ING.:", s_label), Paragraph(art.n_ddt_ingresso or '', s_val)],
+                [Paragraph("DATA ING.:", s_label), Paragraph(fmt_date(art.data_ingresso) if art.data_ingresso else '', s_val)],
+                
+                # Arrivo con progressivo
+                [Paragraph("ARRIVO:", s_label), Paragraph(arrivo_str, s_val_bold)],
+                
+                # Numero collo corrente
+                [Paragraph("COLLO:", s_label), Paragraph(collo_str, s_val_bold)],
+                
+                [Paragraph("POSIZIONE:", s_label), Paragraph(art.posizione or '', s_val)],
+            ]
+            
+            t = Table(dati, colWidths=[25*mm, 68*mm])
+            t.setStyle(TableStyle([
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('LEFTPADDING', (0,0), (-1,-1), 0),
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+            ]))
+            story.append(t)
+            
+            # Salto pagina per la prossima etichetta
+            story.append(PageBreak())
 
     doc.build(story)
     bio.seek(0)
     return bio
-
+    
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
 def labels_pdf():
