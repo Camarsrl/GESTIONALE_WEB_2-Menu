@@ -2544,6 +2544,7 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     doc.build(story)
     bio.seek(0)
     return bio
+ 
 @app.route('/buono/finalize_and_get_pdf', methods=['POST'])
 @login_required
 def buono_finalize_and_get_pdf():
