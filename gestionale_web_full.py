@@ -1344,17 +1344,34 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        user = (request.form.get('user') or '').strip().upper()
-        pwd = request.form.get('pwd') or ''
-        users = get_users()
-        if user in users and users[user] == pwd:
-            session['user'] = user
-            session['role'] = 'admin' if user in ADMIN_USERS else 'client'
-            flash(f"Benvenuto {user}", "success")
-            return redirect(url_for('home'))
+        # Supporta sia 'username' che 'user' come nomi campo nel form
+        username = (request.form.get('username') or request.form.get('user') or '').strip().upper()
+        password = (request.form.get('password') or request.form.get('pwd') or '').strip()
+        
+        users_db = get_users()
+        
+        if username in users_db and users_db[username] == password:
+            # 1. Crea l'oggetto utente
+            role = 'admin' if username in ADMIN_USERS else 'client'
+            user = User(username, role)
+            
+            # 2. PUNTO FONDAMENTALE: Effettua il login formale con Flask-Login
+            login_user(user)
+            
+            # 3. Imposta variabili di sessione accessorie
+            session['role'] = role
+            session['user_name'] = username
+            
+            flash(f"Benvenuto {username}", "success")
+            
+            # 4. Reindirizza alla pagina richiesta o alle giacenze
+            next_page = request.args.get('next')
+            if not next_page or not next_page.startswith('/'):
+                next_page = url_for('giacenze')
+            return redirect(next_page)
         else:
             flash("Credenziali non valide", "danger")
-            return redirect(url_for('login'))
+            
     return render_template('login.html')
 
 @app.route('/logout')
