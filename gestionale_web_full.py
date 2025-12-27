@@ -163,16 +163,6 @@ def load_user(user_id):
         return User(user_id, role)
     return None
 
-# Funzione login_required custom (per sicurezza extra sulle rotte)
-def login_required_custom(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        if not session.get('user'):
-            flash("Effettua il login per accedere", "warning")
-            return redirect(url_for("login"))
-        return fn(*args, **kwargs)
-    return wrapper
-
 # --- UTILS ---
 def is_blank(v):
     try:
