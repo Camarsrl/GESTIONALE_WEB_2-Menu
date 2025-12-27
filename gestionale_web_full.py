@@ -1565,12 +1565,11 @@ def calcola_costi():
 @login_required
 def invia_email():
     if request.method == 'GET':
-        # Se arriviamo dalla home con le checkbox selezionate
         selected_ids = request.args.getlist('ids')
         ids_str = ",".join(selected_ids)
         return render_template('invia_email.html', selected_ids=ids_str)
 
-    # POST: Invio effettivo
+    # POST: Invio
     selected_ids = request.form.get('selected_ids', '')
     destinatario = request.form.get('destinatario')
     oggetto = request.form.get('oggetto')
@@ -1578,19 +1577,19 @@ def invia_email():
     genera_ddt = 'genera_ddt' in request.form
     allega_file = 'allega_file' in request.form
     
-    # Recupera file caricati manualmente
+    # Allegati dal PC
     allegati_extra = request.files.getlist('allegati_extra')
 
     ids_list = [int(i) for i in selected_ids.split(',') if i.isdigit()]
     
-    # Configurazione SMTP (Defaults o Env)
+    # SMTP
     SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
     SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
     SMTP_USER = os.environ.get("SMTP_USER", "")
     SMTP_PASS = os.environ.get("SMTP_PASS", "")
 
     if not SMTP_USER or not SMTP_PASS:
-        flash("Configurazione email mancante. Contatta l'amministratore.", "warning")
+        flash("Configurazione email mancante.", "warning")
         return redirect(url_for('giacenze'))
 
     try:
@@ -1600,13 +1599,12 @@ def invia_email():
         msg['Subject'] = oggetto
         msg.attach(MIMEText(messaggio, 'plain'))
 
-        # 1. Genera PDF DDT al volo
+        # 1. PDF DDT
         if genera_ddt and ids_list:
             db = SessionLocal()
             rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
             if rows:
                 dest_data = {"ragione_sociale": rows[0].cliente or "Cliente", "indirizzo": ""}
-                # Generiamo un PDF temporaneo
                 pdf_bio = _generate_ddt_pdf("RIEPILOGO", date.today(), "", dest_data, rows, {})
                 part = MIMEBase('application', "octet-stream")
                 part.set_payload(pdf_bio.getvalue())
@@ -1615,7 +1613,7 @@ def invia_email():
                 msg.attach(part)
             db.close()
 
-        # 2. Allega file esistenti nel DB
+        # 2. Allegati DB
         if allega_file and ids_list:
             db = SessionLocal()
             rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
@@ -1631,7 +1629,7 @@ def invia_email():
                         msg.attach(part)
             db.close()
 
-        # 3. Allega file caricati dall'utente (Extra)
+        # 3. Allegati Extra (Dal PC)
         for file in allegati_extra:
             if file and file.filename:
                 part = MIMEBase('application', "octet-stream")
@@ -1640,16 +1638,15 @@ def invia_email():
                 part.add_header('Content-Disposition', f'attachment; filename="{file.filename}"')
                 msg.attach(part)
 
-        # Connessione SMTP e Invio
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
         server.send_message(msg)
         server.quit()
 
-        flash(f"Email inviata con successo a {destinatario}", "success")
+        flash(f"Email inviata a {destinatario}", "success")
     except Exception as e:
-        flash(f"Errore invio email: {e}", "danger")
+        flash(f"Errore invio: {e}", "danger")
 
     return redirect(url_for('giacenze'))
     
