@@ -173,26 +173,98 @@ class Attachment(Base):
     articolo = relationship("Articolo", back_populates="attachments")
 
 Base.metadata.create_all(engine)
+# --- CONFIGURAZIONE UTENTI ---
 
-# --- UTENTI ---
+# 1. Lista Utenti di Default (Backup se il file non si carica)
 DEFAULT_USERS = {
-    'DE WAVE': 'Struppa01', 'FINCANTIERI': 'Struppa02', 'DE WAVE REFITTING': 'Struppa03',
-    'SGDP': 'Struppa04', 'WINGECO': 'Struppa05', 'AMICO': 'Struppa06', 'DUFERCO': 'Struppa07',
-    'SCORZA': 'Struppa08', 'MARINE INTERIORS': 'Struppa09', 'OPS': '271214',
-    'CUSTOMS': 'Balleydier01', 'TAZIO': 'Balleydier02', 'DIEGO': 'Balleydier03', 'ADMIN': 'admin123',
+    'DE WAVE': 'Struppa01', 
+    'FINCANTIERI': 'Struppa02', 
+    'DE WAVE REFITTING': 'Struppa03',
+    'SGDP': 'Struppa04', 
+    'WINGECO': 'Struppa05', 
+    'AMICO': 'Struppa06', 
+    'DUFERCO': 'Struppa07',
+    'SCORZA': 'Struppa08', 
+    'MARINE INTERIORS': 'Struppa09',
+    'OPS': '271214',
+    'CUSTOMS': 'Balleydier01', 
+    'TAZIO': 'Balleydier02', 
+    'DIEGO': 'Balleydier03', 
+    'ADMIN': 'admin123'
 }
+
+# 2. Utenti con permessi AMMINISTRATORE (Possono modificare tutto)
 ADMIN_USERS = {'ADMIN', 'OPS', 'CUSTOMS', 'TAZIO', 'DIEGO'}
 
 def get_users():
-    fp = APP_DIR / "password Utenti Gestionale.txt"
-    if fp.exists():
-        try:
-            raw = fp.read_text(encoding="utf-8", errors="ignore")
-            pairs = re.findall(r"'([^']+)'\s*:\s*'([^']+)'", raw)
-            m = {k.strip().upper(): v.strip() for k, v in pairs}
-            if m: return m
-        except Exception: pass
+    """Carica gli utenti dal file di testo se esiste, altrimenti usa i default."""
+    try:
+        # Cerca il file nella stessa cartella del programma
+        fp = Path("password Utenti Gestionale.txt")
+        if fp.exists():
+            content = fp.read_text(encoding="utf-8", errors="ignore")
+            # Cerca coppie 'UTENTE': 'PASSWORD' usando una espressione regolare
+            # Questo sistema è flessibile sugli spazi
+            pairs = re.findall(r"'([^']+)'\s*[:=]\s*'?([^']+)'?", content)
+            
+            if pairs:
+                loaded_users = {k.strip().upper(): v.strip() for k, v in pairs}
+                print(f"Caricati {len(loaded_users)} utenti da file.")
+                return loaded_users
+    except Exception as e:
+        print(f"Errore lettura file utenti: {e}")
+    
     return DEFAULT_USERS
+
+# Carica gli utenti all'avvio
+USERS_DB = get_users()
+
+# --- GESTIONE LOGIN (Flask-Login) ---
+class User(UserMixin):
+    def __init__(self, id, role):
+        self.id = id
+        self.role = role
+
+@login_manager.user_loader
+def load_user(user_id):
+    # Ricarica gli utenti ogni volta per beccare modifiche al file senza riavviare
+    current_db = get_users()
+    if user_id in current_db:
+        role = 'admin' if user_id in ADMIN_USERS else 'client'
+        return User(user_id, role)
+    return None
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip().upper()
+        password = request.form.get('password', '').strip()
+        
+        # Ricarica DB utenti fresco
+        users_db = get_users()
+        
+        if username in users_db and users_db[username] == password:
+            role = 'admin' if username in ADMIN_USERS else 'client'
+            user = User(username, role)
+            login_user(user)
+            
+            session['role'] = role
+            session['user_name'] = username
+            
+            flash(f"Benvenuto {username}", "success")
+            return redirect(url_for('giacenze'))
+        else:
+            flash("Credenziali non valide", "danger")
+            
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    session.clear()
+    flash("Logout effettuato.", "info")
+    return redirect(url_for('login'))
 
 # --- UTILS ---
 def is_blank(v):
