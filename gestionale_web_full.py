@@ -12,19 +12,22 @@ import json
 import logging
 import calendar
 import pandas as pd
+import smtplib
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+from collections import defaultdict
+from functools import wraps
 
 # Importazioni Flask e Login
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, session, jsonify, render_template_string, abort
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # Importazioni Database (SQLAlchemy)
-from sqlalchemy import create_engine, Column, Integer, String, Text, Float, ForeignKey, or_, Identity, Boolean
-# AGGIUNTO scoped_session QUI SOTTO:
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session
+from sqlalchemy import create_engine, Column, Integer, String, Text, Float, ForeignKey, or_, Identity, Boolean, text
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session, selectinload
 from sqlalchemy.sql import func
+from sqlalchemy.exc import IntegrityError
 
 # --- IMPORTAZIONI PDF (ReportLab) ---
 from reportlab.lib.pagesizes import A4, landscape
@@ -35,19 +38,133 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 
 # --- IMPORTAZIONI EMAIL ---
-import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 
-# Jinja loader for in-memory templates
+# Jinja loader
 from jinja2 import DictLoader
 
-# --- AUTH ---
-from functools import wraps
+# ========================================================
+# 1. INIZIALIZZAZIONE APP E LOGIN MANAGER (ORDINE CORRETTO)
+# ========================================================
+app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "chiave_segreta_super_sicura")
 
-def login_required(fn):
+# Inizializza LoginManager SUBITO
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+# ========================================================
+# 2. CONFIGURAZIONE PATH E FILES
+# ========================================================
+APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
+STATIC_DIR = APP_DIR / "static"
+MEDIA_DIR = APP_DIR / "media"
+DOCS_DIR = MEDIA_DIR / "docs"
+PHOTOS_DIR = MEDIA_DIR / "photos"
+
+# Crea cartelle se non esistono
+for d in (STATIC_DIR, MEDIA_DIR, DOCS_DIR, PHOTOS_DIR):
+    d.mkdir(parents=True, exist_ok=True)
+
+def _discover_logo_path():
+    for name in ("logo.png", "logo.jpg", "logo.jpeg", "logo camar.jpg", "logo_camar.png"):
+        p = STATIC_DIR / name
+        if p.exists(): return str(p)
+    return None
+
+LOGO_PATH = _discover_logo_path()
+
+# ========================================================
+# 3. CONFIGURAZIONE DATABASE
+# ========================================================
+DB_URL = os.environ.get("DATABASE_URL")
+if not DB_URL:
+    DB_URL = f"sqlite:///{APP_DIR / 'magazzino.db'}"
+else:
+    if DB_URL.startswith("postgres://"):
+        DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
+
+def _normalize_db_url(u: str) -> str:
+    if u.startswith("mysql://"): u = "mysql+pymysql://" + u[len("mysql://"):]
+    return u
+
+engine = create_engine(_normalize_db_url(DB_URL), future=True, echo=False)
+SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
+Base = declarative_base()
+
+# ========================================================
+# 4. DEFINIZIONE MODELLI
+# ========================================================
+class Articolo(Base):
+    __tablename__ = "articoli"
+    id_articolo = Column(Integer, Identity(start=1), primary_key=True)
+    codice_articolo = Column(Text); descrizione = Column(Text)
+    cliente = Column(Text); fornitore = Column(Text); magazzino = Column(String(255))
+    protocollo = Column(Text); ordine = Column(Text); commessa = Column(Text)
+    buono_n = Column(Text); n_arrivo = Column(Text); ns_rif = Column(String(255))
+    serial_number = Column(String(255)); pezzo = Column(String(255))
+    n_colli = Column(Integer); peso = Column(Float)
+    larghezza = Column(Float); lunghezza = Column(Float); altezza = Column(Float)
+    m2 = Column(Float); m3 = Column(Float); posizione = Column(String(255))
+    stato = Column(String(255)); note = Column(Text); mezzi_in_uscita = Column(String(255))
+    data_ingresso = Column(String(32)); n_ddt_ingresso = Column(Text)
+    data_uscita = Column(String(32)); n_ddt_uscita = Column(Text)
+    attachments = relationship("Attachment", back_populates="articolo", cascade="all, delete-orphan", passive_deletes=True)
+
+class Attachment(Base):
+    __tablename__ = "attachments"
+    id = Column(Integer, Identity(start=1), primary_key=True)
+    articolo_id = Column(Integer, ForeignKey("articoli.id_articolo", ondelete='CASCADE'), nullable=False)
+    kind = Column(String(10)); filename = Column(String(512))
+    articolo = relationship("Articolo", back_populates="attachments")
+
+Base.metadata.create_all(engine)
+
+# ========================================================
+# 5. GESTIONE UTENTI (Definizione PRIMA dell'uso)
+# ========================================================
+DEFAULT_USERS = {
+    'DE WAVE': 'Struppa01', 'FINCANTIERI': 'Struppa02', 'DE WAVE REFITTING': 'Struppa03',
+    'SGDP': 'Struppa04', 'WINGECO': 'Struppa05', 'AMICO': 'Struppa06', 'DUFERCO': 'Struppa07',
+    'SCORZA': 'Struppa08', 'MARINE INTERIORS': 'Struppa09', 'OPS': '271214',
+    'CUSTOMS': 'Balleydier01', 'TAZIO': 'Balleydier02', 'DIEGO': 'Balleydier03', 'ADMIN': 'admin123'
+}
+ADMIN_USERS = {'ADMIN', 'OPS', 'CUSTOMS', 'TAZIO', 'DIEGO'}
+
+def get_users():
+    """Legge utenti dal file txt o usa i default."""
+    try:
+        fp = APP_DIR / "password Utenti Gestionale.txt"
+        if fp.exists():
+            content = fp.read_text(encoding="utf-8", errors="ignore")
+            pairs = re.findall(r"'([^']+)'\s*[:=]\s*'?([^']+)'?", content)
+            if pairs:
+                return {k.strip().upper(): v.strip().replace("'", "") for k, v in pairs}
+    except Exception as e:
+        print(f"Errore lettura file utenti: {e}")
+    return DEFAULT_USERS
+
+# ORA possiamo chiamarla, perché è stata definita sopra
+USERS_DB = get_users()
+
+class User(UserMixin):
+    def __init__(self, id, role):
+        self.id = id; self.role = role
+
+@login_manager.user_loader
+def load_user(user_id):
+    users_db = get_users() 
+    if user_id in users_db:
+        role = 'admin' if user_id in ADMIN_USERS else 'client'
+        return User(user_id, role)
+    return None
+
+# Funzione login_required custom (per sicurezza extra sulle rotte)
+def login_required_custom(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if not session.get('user'):
@@ -55,218 +172,6 @@ def login_required(fn):
             return redirect(url_for("login"))
         return fn(*args, **kwargs)
     return wrapper
-
-# --- PATH / LOGO (Robust configuration for Render) ---
-APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
-APP_DIR.mkdir(parents=True, exist_ok=True)
-
-STATIC_DIR = APP_DIR / "static"
-STATIC_DIR.mkdir(exist_ok=True)
-
-MEDIA_DIR = APP_DIR / "media"
-DOCS_DIR = MEDIA_DIR / "docs"
-PHOTOS_DIR = MEDIA_DIR / "photos"
-for d in (DOCS_DIR, PHOTOS_DIR):
-    d.mkdir(parents=True, exist_ok=True)
-
-def _discover_logo_path():
-    for name in ("logo.png", "logo.jpg", "logo.jpeg", "logo camar.jpg", "logo_camar.png"):
-        p = STATIC_DIR / name
-        if p.exists():
-            return str(p)
-    p = os.environ.get("LOGO_PATH")
-    return p if p and Path(p).exists() else None
-
-LOGO_PATH = _discover_logo_path()
-
-# --- DATABASE ---
-os.environ["DATABASE_URL"] = "postgresql://magazzino_1pgq_user:SrXIOLyspVI2RUSx51r7ZMq8usa0K8WD@dpg-d348i73uibrs73fagoa0-a/magazzino_1pgq"
-
-DB_URL = (os.environ.get("DATABASE_URL") or "").strip()
-
-def _normalize_db_url(u: str) -> str:
-    if not u: return u
-    if u.startswith("mysql://"):
-        u = "mysql+pymysql://" + u[len("mysql://"):]
-    if re.search(r"<[^>]+>", u):
-        raise ValueError("DATABASE_URL contiene segnaposto non sostituiti.")
-    return u
-
-if DB_URL:
-    DB_URL = _normalize_db_url(DB_URL)
-    engine = create_engine(DB_URL, future=True, pool_pre_ping=True)
-else:
-    sqlite_path = APP_DIR / "magazzino.db"
-    engine = create_engine(f"sqlite:///{sqlite_path}", future=True)
-
-SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
-Base = declarative_base()
-
-from sqlalchemy import text
-import logging
-
-def ensure_articoli_columns():
-    """Aggiunge colonne mancanti su Postgres (senza Alembic)."""
-    try:
-        db = SessionLocal()
-        try:
-            db.execute(text('ALTER TABLE articoli ADD COLUMN IF NOT EXISTS ordine VARCHAR(255);'))
-            db.commit()
-            logging.info("[DB] ensure_articoli_columns OK (ordine)")
-        finally:
-            db.close()
-    except Exception:
-        logging.exception("[DB] ensure_articoli_columns FAILED")
-
-
-# --- MODELLI ---
-class Articolo(Base):
-    __tablename__ = "articoli"
-    id_articolo = Column(Integer, Identity(start=1), primary_key=True)
-    
-    # Dati identificativi (Usa Text per evitare limiti di lunghezza)
-    codice_articolo = Column(Text) 
-    descrizione = Column(Text)
-    cliente = Column(Text)
-    fornitore = Column(Text)
-    magazzino = Column(String(255))
-    
-    # Riferimenti documenti
-    protocollo = Column(Text)
-    ordine = Column(Text)
-    commessa = Column(Text)
-    buono_n = Column(Text)
-    n_arrivo = Column(Text)
-    ns_rif = Column(String(255))
-    serial_number = Column(String(255))
-    
-    # Dati dimensionali e quantità
-    pezzo = Column(String(255))
-    n_colli = Column(Integer)
-    peso = Column(Float)
-    larghezza = Column(Float)
-    lunghezza = Column(Float)
-    altezza = Column(Float)
-    m2 = Column(Float)
-    m3 = Column(Float)
-    
-    # Logistica e Stato
-    posizione = Column(String(255))
-    stato = Column(String(255))
-    note = Column(Text)
-    mezzi_in_uscita = Column(String(255))
-    
-    # Date e DDT
-    data_ingresso = Column(String(32))
-    n_ddt_ingresso = Column(Text)
-    data_uscita = Column(String(32))
-    n_ddt_uscita = Column(Text)
-
-    attachments = relationship("Attachment", back_populates="articolo", cascade="all, delete-orphan", passive_deletes=True)
-
-class Attachment(Base):
-    __tablename__ = "attachments"
-    id = Column(Integer, Identity(start=1), primary_key=True)
-    articolo_id = Column(Integer, ForeignKey("articoli.id_articolo", ondelete='CASCADE'), nullable=False)
-    kind = Column(String(10))
-    filename = Column(String(512))
-    articolo = relationship("Articolo", back_populates="attachments")
-
-Base.metadata.create_all(engine)
-# --- CONFIGURAZIONE UTENTI ---
-
-# Carica gli utenti all'avvio
-USERS_DB = get_users()
-
-# --- GESTIONE LOGIN (Flask-Login) ---
-class User(UserMixin):
-    def __init__(self, id, role):
-        self.id = id
-        self.role = role
-
-@login_manager.user_loader
-def load_user(user_id):
-    # Ricarica gli utenti ogni volta per beccare modifiche al file senza riavviare
-    current_db = get_users()
-    if user_id in current_db:
-        role = 'admin' if user_id in ADMIN_USERS else 'client'
-        return User(user_id, role)
-    return None
-
-# 1. Lista Utenti di Default (Backup se il file non si carica)
-DEFAULT_USERS = {
-    'DE WAVE': 'Struppa01', 
-    'FINCANTIERI': 'Struppa02', 
-    'DE WAVE REFITTING': 'Struppa03',
-    'SGDP': 'Struppa04', 
-    'WINGECO': 'Struppa05', 
-    'AMICO': 'Struppa06', 
-    'DUFERCO': 'Struppa07',
-    'SCORZA': 'Struppa08', 
-    'MARINE INTERIORS': 'Struppa09',
-    'OPS': '271214',
-    'CUSTOMS': 'Balleydier01', 
-    'TAZIO': 'Balleydier02', 
-    'DIEGO': 'Balleydier03', 
-    'ADMIN': 'admin123'
-}
-
-# 2. Utenti con permessi AMMINISTRATORE (Possono modificare tutto)
-ADMIN_USERS = {'ADMIN', 'OPS', 'CUSTOMS', 'TAZIO', 'DIEGO'}
-
-def get_users():
-    """Carica gli utenti dal file di testo se esiste, altrimenti usa i default."""
-    try:
-        # Cerca il file nella stessa cartella del programma
-        fp = Path("password Utenti Gestionale.txt")
-        if fp.exists():
-            content = fp.read_text(encoding="utf-8", errors="ignore")
-            # Cerca coppie 'UTENTE': 'PASSWORD' usando una espressione regolare
-            # Questo sistema è flessibile sugli spazi
-            pairs = re.findall(r"'([^']+)'\s*[:=]\s*'?([^']+)'?", content)
-            
-            if pairs:
-                loaded_users = {k.strip().upper(): v.strip() for k, v in pairs}
-                print(f"Caricati {len(loaded_users)} utenti da file.")
-                return loaded_users
-    except Exception as e:
-        print(f"Errore lettura file utenti: {e}")
-    
-    return DEFAULT_USERS
-
-
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form.get('username', '').strip().upper()
-        password = request.form.get('password', '').strip()
-        
-        # Ricarica DB utenti fresco
-        users_db = get_users()
-        
-        if username in users_db and users_db[username] == password:
-            role = 'admin' if username in ADMIN_USERS else 'client'
-            user = User(username, role)
-            login_user(user)
-            
-            session['role'] = role
-            session['user_name'] = username
-            
-            flash(f"Benvenuto {username}", "success")
-            return redirect(url_for('giacenze'))
-        else:
-            flash("Credenziali non valide", "danger")
-            
-    return render_template('login.html')
-
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    session.clear()
-    flash("Logout effettuato.", "info")
-    return redirect(url_for('login'))
 
 # --- UTILS ---
 def is_blank(v):
