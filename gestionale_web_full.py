@@ -455,15 +455,16 @@ GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <style>
-    /* Stile personalizzato per tabella compatta e senza grassetto */
-    .table-sm td, .table-sm th { font-size: 0.8rem !important; font-weight: normal !important; }
-    .table-sm .fw-bold { font-weight: normal !important; } /* Sovrascrive eventuali classi bootstrap */
+    /* Stile compatto e pulito per la tabella */
+    .table-sm td, .table-sm th { font-size: 0.85rem !important; font-weight: normal; vertical-align: middle; }
+    .table-sm th { background-color: #f8f9fa; font-weight: 600; border-bottom: 2px solid #dee2e6; }
+    .fw-bold { font-weight: 600 !important; } /* Solo dove esplicitamente richiesto */
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h3><i class="bi bi-box-seam"></i> Magazzino e Giacenze</h3>
     <div class="d-flex gap-2">
-       <a href="{{ url_for('new_row') }}" class="btn btn-success"><i class="bi bi-plus-lg"></i> Nuovo Ingresso</a>
+       <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-success"><i class="bi bi-plus-lg"></i> Nuovo Ingresso</a>
        <a href="{{ url_for('labels_form') }}" class="btn btn-info text-white"><i class="bi bi-tags"></i> Etichette</a>
        <a href="{{ url_for('calcola_costi') }}" class="btn btn-warning text-dark"><i class="bi bi-calculator"></i> Calcoli</a>
     </div>
@@ -552,11 +553,11 @@ GIACENZE_HTML = """
                     <td><input type="checkbox" name="ids" value="{{ r.id_articolo }}"></td>
                     <td>{{ r.id_articolo }}</td>
                     <td>{{ r.codice_articolo or '' }}</td>
-                    <td style="max-width: 250px;" class="text-truncate" title="{{ r.descrizione }}">{{ r.descrizione or '' }}</td>
+                    <td class="text-truncate" style="max-width: 250px;" title="{{ r.descrizione }}">{{ r.descrizione or '' }}</td>
                     <td>{{ r.cliente or '' }}</td>
                     <td>{{ r.fornitore or '' }}</td>
                     <td>{{ r.protocollo or '' }}</td>
-                    <td class="text-primary">{{ r.buono_n or '' }}</td>
+                    <td class="fw-bold text-primary">{{ r.buono_n or '' }}</td>
                     <td>{{ r.commessa or '' }}</td>
                     <td>{{ r.magazzino or '' }}</td>
                     <td>{{ r.posizione or '' }}</td>
