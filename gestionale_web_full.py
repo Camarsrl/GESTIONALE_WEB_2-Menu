@@ -2147,6 +2147,37 @@ def bulk_edit():
         return render_template('bulk_edit.html', articoli=articoli, ids=ids)
     finally:
         db.close()
+
+@app.post('/delete_rows')
+@login_required
+def delete_rows():
+    # Controllo Permessi: Solo Admin può cancellare
+    if session.get('role') != 'admin':
+        flash("Non hai i permessi per eliminare le righe.", "danger")
+        return redirect(url_for('giacenze'))
+
+    ids = request.form.getlist('ids')
+    if not ids:
+        flash("Nessuna riga selezionata per l'eliminazione.", "warning")
+        return redirect(url_for('giacenze'))
+
+    db = SessionLocal()
+    try:
+        # Filtra solo ID numerici validi
+        clean_ids = [int(x) for x in ids if x.isdigit()]
+        
+        # Esegue la cancellazione
+        affected = db.query(Articolo).filter(Articolo.id_articolo.in_(clean_ids)).delete(synchronize_session=False)
+        db.commit()
+        
+        flash(f"Eliminati {affected} articoli.", "success")
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore durante l'eliminazione: {e}", "danger")
+    finally:
+        db.close()
+        
+    return redirect(url_for('giacenze'))
         
 @app.post('/bulk/delete')
 @login_required
