@@ -2440,112 +2440,165 @@ def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     story = []
     
     styles = getSampleStyleSheet()
-    s_small = ParagraphStyle('s', parent=styles['Normal'], fontSize=9, leading=11)
-    s_bold = ParagraphStyle('b', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11)
-    
-    # 1. Logo
+    s_norm = styles['Normal']
+    s_small = ParagraphStyle('s', parent=s_norm, fontSize=8, leading=10)
+    s_bold = ParagraphStyle('b', parent=s_small, fontName='Helvetica-Bold')
+    s_white_head = ParagraphStyle('wh', parent=s_bold, textColor=colors.white, fontSize=10, alignment=TA_CENTER)
+    s_blue_title = ParagraphStyle('bt', parent=styles['Heading1'], alignment=TA_CENTER, fontSize=14, textColor=colors.white)
+
+    # --- 1. Logo ---
     if LOGO_PATH and Path(LOGO_PATH).exists():
         story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER'))
-        story.append(Spacer(1, 5*mm))
+    story.append(Spacer(1, 4*mm))
 
-    # 2. Titolo
-    story.append(Paragraph("<b>DOCUMENTO DI TRASPORTO (DDT)</b>", ParagraphStyle('T', parent=styles['Title'], fontSize=14, textColor=colors.black)))
-    story.append(Spacer(1, 5*mm))
-    
-    # 3. Mittente/Destinatario
-    dest_ragione = dest.get('ragione_sociale') or "Destinatario Generico"
+    # --- 2. Titolo Blu (DOCUMENTO DI TRASPORTO) ---
+    t_title = Table([[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", s_blue_title)]], colWidths=[190*mm])
+    t_title.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#4F81BD")), # Blu tipo Excel/Word
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('PADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(t_title)
+    story.append(Spacer(1, 2*mm))
+
+    # --- 3. Mittente e Destinatario (Riquadri) ---
+    dest_ragione = dest.get('ragione_sociale') or "Destinatario"
     dest_ind = dest.get('indirizzo', '').replace('\n', '<br/>')
     
-    t_head = Table([
-        [Paragraph("<b>MITTENTE:</b><br/>Camar S.r.l.<br/>Via Luigi Canepa 2<br/>16165 Genova", s_small),
-         Paragraph(f"<b>DESTINATARIO:</b><br/>{dest_ragione}<br/>{dest_ind}", s_small)]
-    ], colWidths=[95*mm, 95*mm])
+    # Cella Mittente
+    txt_mitt = "<b>Mittente</b><br/>Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)"
+    # Cella Destinatario
+    txt_dest = f"<b>Destinatario</b><br/>{dest_ragione}<br/>{dest_ind}"
     
-    # FIX QUI: Lista di tuple corretta
-    t_head.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+    data_md = [[Paragraph(txt_mitt, s_small), Paragraph(txt_dest, s_small)]]
+    t_md = Table(data_md, colWidths=[95*mm, 95*mm])
+    t_md.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('PADDING', (0,0), (-1,-1), 6)
+        ('PADDING', (0,0), (-1,-1), 6),
     ]))
-    story.append(t_head); story.append(Spacer(1, 5*mm))
-    
-    # 4. Testata DDT
+    story.append(t_md)
+    story.append(Spacer(1, 2*mm))
+
+    # --- 4. Dati Aggiuntivi (Barra Blu + Griglia) ---
+    # Barra Blu
+    t_bar = Table([[Paragraph("Dati Aggiuntivi", ParagraphStyle('w', parent=s_bold, textColor=colors.white))]], colWidths=[190*mm])
+    t_bar.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#4F81BD")), ('PADDING', (0,0), (-1,-1), 2)]))
+    story.append(t_bar)
+
+    # Dati
     first = rows[0] if rows else None
     commessa = first.commessa if first else ""
+    ordine = first.ordine if first else ""
     buono = first.buono_n if first else ""
-    
-    head_data = [
-        [Paragraph(f"<b>N. DDT:</b> {n_ddt}", s_small), Paragraph(f"<b>Data:</b> {fmt_date(data_ddt)}", s_small)],
-        [Paragraph(f"<b>Targa:</b> {targa or ''}", s_small), Paragraph(f"<b>Causale:</b> {form_data.get('causale','')}", s_small)],
-        [Paragraph(f"<b>Commessa:</b> {commessa}", s_small), Paragraph(f"<b>Buono Rif.:</b> {buono}", s_small)]
+    protocollo = first.protocollo if first else ""
+
+    # Griglia: Commessa, Ordine, Buono, Protocollo | N.DDT, Data, Targa
+    dati_agg = [
+        [Paragraph("<b>Commessa</b>", s_small), Paragraph(commessa, s_small), Paragraph("<b>N. DDT</b>", s_small), Paragraph(n_ddt, s_small)],
+        [Paragraph("<b>Ordine</b>", s_small), Paragraph(ordine, s_small), Paragraph("<b>Data Uscita</b>", s_small), Paragraph(fmt_date(data_ddt), s_small)],
+        [Paragraph("<b>Buono</b>", s_small), Paragraph(buono, s_small), Paragraph("<b>Targa</b>", s_small), Paragraph(targa or "", s_small)],
+        [Paragraph("<b>Protocollo</b>", s_small), Paragraph(protocollo, s_small), "", ""]
     ]
-    t_data = Table(head_data, colWidths=[95*mm, 95*mm])
-    t_data.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+    t_agg = Table(dati_agg, colWidths=[25*mm, 70*mm, 25*mm, 70*mm])
+    t_agg.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('PADDING', (0,0), (-1,-1), 4)
+        ('PADDING', (0,0), (-1,-1), 3),
     ]))
-    story.append(t_data); story.append(Spacer(1, 5*mm))
+    story.append(t_agg)
+    story.append(Spacer(1, 5*mm))
+
+    # --- 5. Articoli nel DDT ---
+    story.append(Paragraph("<b>Articoli nel DDT</b>", ParagraphStyle('h', parent=s_norm, fontSize=10, spaceAfter=2)))
     
-    # 5. Righe
-    header = [Paragraph(x, s_bold) for x in ['Codice', 'Descrizione', 'Pz', 'Colli', 'Peso', 'N.Arr']]
-    data = [header]
+    header = [Paragraph(x, s_bold) for x in ['ID', 'Cod.Art.', 'Descrizione', 'Pezzi', 'Colli', 'Peso', 'N.Arrivo']]
+    data_rows = [header]
     
-    tot_p = tot_c = tot_w = 0
+    tot_pezzi = 0
+    tot_colli = 0
+    tot_peso = 0.0
+    note_list = []
+
     for r in rows:
+        # Prende i dati aggiornati dal form
         pz = to_int_eu(form_data.get(f"pezzi_{r.id_articolo}", r.pezzo)) or 0
         cl = to_int_eu(form_data.get(f"colli_{r.id_articolo}", r.n_colli)) or 0
-        we = to_float_eu(form_data.get(f"peso_{r.id_articolo}", r.peso)) or 0
+        we = to_float_eu(form_data.get(f"peso_{r.id_articolo}", r.peso)) or 0.0
         
-        tot_p += pz; tot_c += cl; tot_w += we
+        tot_pezzi += pz
+        tot_colli += cl
+        tot_peso += we
         
-        desc = r.descrizione or ''
+        # Note
         note = form_data.get(f"note_{r.id_articolo}") or r.note
-        if note: desc += f" | {note}"
+        if note and note.strip():
+            note_list.append(f"ID {r.id_articolo}: {note}")
 
-        data.append([
+        data_rows.append([
+            Paragraph(str(r.id_articolo), s_small),
             Paragraph(r.codice_articolo or '', s_small),
-            Paragraph(desc, s_small),
+            Paragraph(r.descrizione or '', s_small),
             str(pz),
             str(cl),
-            f"{we:.2f}",
+            f"{we:.0f}", # Peso intero come nel tuo esempio
             Paragraph(r.n_arrivo or '', s_small)
         ])
-        
-    t_items = Table(data, colWidths=[35*mm, 85*mm, 15*mm, 15*mm, 20*mm, 20*mm], repeatRows=1)
+
+    t_items = Table(data_rows, colWidths=[15*mm, 35*mm, 75*mm, 15*mm, 15*mm, 15*mm, 20*mm], repeatRows=1)
     t_items.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke), # Intestazione grigia
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-        ('PADDING', (0,0), (-1,-1), 3)
+        ('PADDING', (0,0), (-1,-1), 4),
     ]))
     story.append(t_items)
     
-    # 6. Totali e Footer
-    story.append(Spacer(1, 10*mm))
-    
+    # Note DDT
+    if note_list:
+        story.append(Spacer(1, 3*mm))
+        story.append(Paragraph("<b>Note DDT:</b>", s_bold))
+        for n in note_list:
+            story.append(Paragraph(n, ParagraphStyle('n', parent=s_small, fontName='Helvetica-Oblique')))
+
+    story.append(Spacer(1, 5*mm))
+
+    # --- 6. Footer (Causale, Porto, Aspetto) ---
+    causale = form_data.get('causale') or "TRASFERIMENTO"
+    porto = form_data.get('porto') or "FRANCO"
+    aspetto = form_data.get('aspetto') or "A VISTA"
+
     footer_data = [
-        [
-            Paragraph(f"<b>Tot. Pezzi:</b> {tot_p}", s_small),
-            Paragraph(f"<b>Tot. Colli:</b> {tot_c}", s_small),
-            Paragraph(f"<b>Tot. Peso:</b> {tot_w:.2f} Kg", s_small),
-            Paragraph("", s_small)
-        ],
-        [
-            Paragraph(f"Porto: {form_data.get('porto','FRANCO')}", s_small),
-            Paragraph(f"Aspetto: {form_data.get('aspetto','A VISTA')}", s_small),
-            Paragraph("Firma Vettore: _________________", s_small),
-            Paragraph("", s_small)
-        ]
+        [Paragraph("<b>Causale</b>", s_bold), Paragraph(causale, s_small)],
+        [Paragraph("<b>Porto</b>", s_bold), Paragraph(porto, s_small)],
+        [Paragraph("<b>Aspetto</b>", s_bold), Paragraph(aspetto, s_small)]
     ]
-    t_foot = Table(footer_data, colWidths=[47*mm, 47*mm, 47*mm, 47*mm])
-    t_foot.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke)
+    t_foot_info = Table(footer_data, colWidths=[30*mm, 160*mm])
+    t_foot_info.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
     ]))
-    story.append(t_foot)
+    story.append(t_foot_info)
     
+    story.append(Spacer(1, 5*mm))
+
+    # --- 7. Totali e Firma ---
+    # Tabella a 2 colonne: Totali a sinistra, Firma a destra
+    left_totals = [
+        [Paragraph(f"<b>Totale Colli:</b> {tot_colli}", s_norm)],
+        [Paragraph(f"<b>Totale Peso:</b> {tot_peso:.0f}", s_norm)]
+    ]
+    t_totals = Table(left_totals, colWidths=[80*mm])
+    
+    right_sig = [
+        [Paragraph("Firma Vettore: _______________________", s_norm)]
+    ]
+    t_sig = Table(right_sig, colWidths=[80*mm])
+    
+    # Contenitore finale
+    t_final = Table([[t_totals, t_sig]], colWidths=[95*mm, 95*mm])
+    story.append(t_final)
+
     doc.build(story)
     bio.seek(0)
     return bio
