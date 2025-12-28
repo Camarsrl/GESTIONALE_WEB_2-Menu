@@ -1910,39 +1910,46 @@ def giacenze():
 def bulk_edit():
     db = SessionLocal()
     try:
+        # Recupera IDs
         ids = request.args.getlist('ids') or request.form.getlist('ids')
         if not ids:
             flash("Nessun articolo selezionato.", "warning")
             return redirect(url_for('giacenze'))
 
-        ids = [int(i) for i in ids if i.isdigit()]
+        # Pulisci e verifica IDs
+        ids = [int(i) for i in ids if str(i).isdigit()]
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
 
-        # LISTA COMPLETA CAMPI MODIFICABILI
+        # Configurazione campi
         editable_fields = [
             ('Cliente', 'cliente'), ('Fornitore', 'fornitore'),
             ('Codice Articolo', 'codice_articolo'), ('Descrizione', 'descrizione'),
             ('Commessa', 'commessa'), ('Ordine', 'ordine'), ('Protocollo', 'protocollo'),
             ('Magazzino', 'magazzino'), ('Posizione', 'posizione'), ('Stato', 'stato'),
-            ('Pezzi', 'pezzo'), ('N. Colli', 'n_colli'),('N. Arrivo', 'n_arrivo'), ('Serial Number', 'serial_number'),
+            ('Pezzi', 'pezzo'), ('N. Colli', 'n_colli'),
             ('Lunghezza', 'lunghezza'), ('Larghezza', 'larghezza'), ('Altezza', 'altezza'),
-            ('Buono N.', 'buono_n'), ('Data Uscita', 'data_uscita'), ('DDT Uscita', 'n_ddt_uscita')
+            ('Buono N.', 'buono_n'), ('Data Uscita', 'data_uscita'), ('DDT Uscita', 'n_ddt_uscita'),
+            ('N. Arrivo', 'n_arrivo'), ('Serial Number', 'serial_number')
         ]
 
+        # LOGICA SALVATAGGIO
         if request.method == 'POST' and request.form.get('save_bulk') == 'true':
             updates = {}
             for _, field_name in editable_fields:
-                # Se la checkbox chk_nomecampo è spuntata
+                # Controlla se la checkbox relativa è stata spuntata
+                # Nel form HTML le checkbox hanno nome "chk_{field_name}"
                 if request.form.get(f'chk_{field_name}'):
-                    val = request.form.get(field_name)
+                    raw_val = request.form.get(field_name)
                     
-                    # Conversioni Numeriche
-                    if field_name in ['n_colli', 'pezzo']: 
-                        val = to_int_eu(val)
-                    elif field_name in ['lunghezza', 'larghezza', 'altezza']: 
-                        val = to_float_eu(val)
-                    elif field_name == 'data_uscita' and val:
-                        val = parse_date_ui(val)
+                    # Gestione valori vuoti e conversioni
+                    if field_name in ['n_colli', 'pezzo']:
+                        val = to_int_eu(raw_val)
+                    elif field_name in ['lunghezza', 'larghezza', 'altezza']:
+                        val = to_float_eu(raw_val)
+                    elif field_name == 'data_uscita' and raw_val:
+                        val = parse_date_ui(raw_val)
+                    else:
+                        val = raw_val
                         
                     updates[field_name] = val
 
@@ -1952,23 +1959,23 @@ def bulk_edit():
                     for k, v in updates.items():
                         setattr(art, k, v)
                     
-                    # Ricalcolo automatico M2/M3 se tocchi le dimensioni o i colli
+                    # Ricalcolo automatico M2/M3 se necessario
                     if any(x in updates for x in ['lunghezza', 'larghezza', 'altezza', 'n_colli']):
                         m2, m3 = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, art.n_colli)
                         art.m2 = m2
                         art.m3 = m3
-                    
                     count += 1
+                
                 db.commit()
-                flash(f"{count} articoli aggiornati.", "success")
+                flash(f"{count} articoli aggiornati con successo.", "success")
             else:
                 flash("Nessun campo selezionato per la modifica.", "info")
+            
             return redirect(url_for('giacenze'))
 
         return render_template('bulk_edit.html', rows=articoli, ids_csv=",".join(map(str, ids)), fields=editable_fields)
     finally:
         db.close()
-        
 @app.post('/delete_rows')
 @login_required
 def delete_rows():
