@@ -1874,8 +1874,7 @@ def delete_attachment(att_id):
     return redirect(url_for('giacenze'))
 
 
-# --- VISUALIZZA GIACENZE E AZIONI MULTIPLE ---
-@app.get('/giacenze')
+@app.route('/giacenze', methods=['GET', 'POST'])
 @login_required
 def giacenze():
     import logging
@@ -1884,139 +1883,89 @@ def giacenze():
 
     db = SessionLocal()
     try:
-        logging.info("=== GIACENZE: INIZIO ===")
-        logging.info(f"Args ricevuti: {dict(request.args)}")
-        logging.info(f"Session user={session.get('user')} role={session.get('role')}")
-
         # Query base
         qs = db.query(Articolo).options(selectinload(Articolo.attachments)).order_by(Articolo.id_articolo.desc())
 
-        # Conteggio totale DB (senza filtri)
-        tot_db = db.query(func.count(Articolo.id_articolo)).scalar()
-        logging.info(f"Totale articoli nel DB: {tot_db}")
-
-        # Restrizione client (se attiva)
+        # 1. Filtro Cliente (Sicurezza + Input)
         if session.get('role') == 'client':
-            qs = qs.filter(Articolo.cliente == session['user'])
-            logging.info("Filtro CLIENT attivo: Articolo.cliente == session['user']")
+            qs = qs.filter(Articolo.cliente.ilike(f"%{current_user.id}%"))
+        elif request.args.get('cliente'):
+            qs = qs.filter(Articolo.cliente.ilike(f"%{request.args.get('cliente')}%"))
 
-        like_cols = [
-            'codice_articolo', 'cliente', 'fornitore', 'commessa', 'descrizione', 'posizione', 'stato',
-            'protocollo', 'n_ddt_ingresso', 'n_ddt_uscita', 'n_arrivo', 'buono_n', 'ns_rif','ordine',
-            'serial_number', 'mezzi_in_uscita'
+        # 2. Filtri Testuali (Tutti quelli richiesti)
+        text_filters = [
+            'commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo', 
+            'fornitore', 'ordine', 'magazzino', 'mezzi_in_uscita', 'stato',
+            'n_ddt_ingresso', 'n_ddt_uscita'
         ]
-
-        # Filtro per ID
-        if request.args.get('id'):
-            try:
-                qs = qs.filter(Articolo.id_articolo == int(request.args.get('id')))
-                logging.info(f"Filtro ID: {request.args.get('id')}")
-            except ValueError:
-                logging.warning(f"Filtro ID ignorato (non numerico): {request.args.get('id')}")
-
-        # Filtri LIKE
-        applied_like = {}
-        for col in like_cols:
-            v = request.args.get(col)
-            if v:
-                qs = qs.filter(getattr(Articolo, col).ilike(f"%{v}%"))
-                applied_like[col] = v
-
-        if applied_like:
-            logging.info(f"Filtri LIKE applicati: {applied_like}")
-
-        # Filtri date
-        date_filters = {
-            'data_ingresso_da': (Articolo.data_ingresso, '>='), 'data_ingresso_a': (Articolo.data_ingresso, '<='),
-            'data_uscita_da': (Articolo.data_uscita, '>='), 'data_uscita_a': (Articolo.data_uscita, '<=')
-        }
-
-        applied_dates = {}
-        for arg, (col, op) in date_filters.items():
-            val = request.args.get(arg)
+        
+        args = request.args
+        for field in text_filters:
+            val = args.get(field)
             if val:
-                date_sql = parse_date_ui(val)
-                if date_sql:
-                    if op == '>=':
-                        qs = qs.filter(col >= date_sql)
-                    else:
-                        qs = qs.filter(col <= date_sql)
-                    applied_dates[arg] = val
-                else:
-                    logging.warning(f"Filtro data ignorato (parse fallito): {arg}={val}")
+                qs = qs.filter(getattr(Articolo, field).ilike(f"%{val}%"))
 
-        if applied_dates:
-            logging.info(f"Filtri DATE applicati: {applied_dates}")
-            tot_filtered = qs.order_by(None).with_entities(func.count(Articolo.id_articolo)).scalar()
-            logging.info(f"Totale righe dopo filtri: {tot_filtered}")
+        # Eseguiamo la query (otteniamo tutte le righe che matchano i testi)
+        rows_raw = qs.all()
+        
+        # 3. Filtri DATE (Fatti in Python per sicurezza formato dd/mm/yyyy)
+        rows = []
+        
+        # Helper per convertire date utente (YYYY-MM-DD)
+        def get_date_obj(k): 
+            v = args.get(k)
+            return datetime.strptime(v, "%Y-%m-%d").date() if v else None
 
+        d_ing_da = get_date_obj('data_ing_da')
+        d_ing_a = get_date_obj('data_ing_a')
+        d_usc_da = get_date_obj('data_usc_da')
+        d_usc_a = get_date_obj('data_usc_a')
 
-        # Scarica righe
-        rows = qs.all()
-        logging.info(f"Rows caricate in memoria: {len(rows)}")
+        for r in rows_raw:
+            keep = True
+            
+            # Filtro Data Ingresso
+            if d_ing_da or d_ing_a:
+                r_ing = parse_date_ui(r.data_ingresso) # Restituisce stringa YYYY-MM-DD o None
+                if r_ing:
+                    r_ing_dt = datetime.strptime(r_ing, "%Y-%m-%d").date()
+                    if d_ing_da and r_ing_dt < d_ing_da: keep = False
+                    if d_ing_a and r_ing_dt > d_ing_a: keep = False
+                elif d_ing_da or d_ing_a: # Se ho filtri data ma la riga non ha data
+                    keep = False
+            
+            # Filtro Data Uscita
+            if keep and (d_usc_da or d_usc_a):
+                r_usc = parse_date_ui(r.data_uscita)
+                if r_usc:
+                    r_usc_dt = datetime.strptime(r_usc, "%Y-%m-%d").date()
+                    if d_usc_da and r_usc_dt < d_usc_da: keep = False
+                    if d_usc_a and r_usc_dt > d_usc_a: keep = False
+                elif d_usc_da or d_usc_a:
+                    keep = False
+            
+            if keep:
+                rows.append(r)
 
-        # ✅ Diagnosi: quante righe hanno campi valorizzati (non vuoti)
-        def count_non_empty(colname: str) -> int:
-            col = getattr(Articolo, colname)
-            return db.query(func.count(Articolo.id_articolo)).filter(
-                col.isnot(None),
-                func.length(func.trim(col)) > 0
-            ).scalar()
-
-        try:
-            con_codice = count_non_empty("codice_articolo")
-            con_descr = count_non_empty("descrizione")
-            con_cliente = count_non_empty("cliente")
-            logging.info(f"DB non-vuoti -> codice_articolo: {con_codice}, descrizione: {con_descr}, cliente: {con_cliente}")
-        except Exception:
-            logging.warning("Non riesco a contare campi non-vuoti (colonne non stringa o errore)", exc_info=True)
-
-        # ✅ Sample ultime 5 righe per capire cosa c’è DAVVERO nel DB
-        sample = (
-            db.query(Articolo)
-            .order_by(Articolo.id_articolo.desc())
-            .limit(5)
-            .all()
-        )
-        for a in sample:
-            logging.info(
-                "SAMPLE id=%s codice=%r descr=%r cliente=%r fornitore=%r",
-                a.id_articolo,
-                getattr(a, "codice_articolo", None),
-                getattr(a, "descrizione", None),
-                getattr(a, "cliente", None),
-                getattr(a, "fornitore", None),
-            )
-
-        # Calcoli stock
+        # Calcolo Totali
         stock_rows = [r for r in rows if not r.data_uscita]
-        total_colli = sum(r.n_colli for r in stock_rows if r.n_colli)
-        total_m2 = sum(r.m2 for r in stock_rows if r.m2)
+        total_colli = sum((r.n_colli or 0) for r in stock_rows)
+        total_m2 = sum((r.m2 or 0) for r in stock_rows)
+        total_peso = sum((r.peso or 0) for r in stock_rows)
 
-        logging.info(f"Totali stock -> colli={total_colli}, m2={total_m2}")
-        logging.info("=== GIACENZE: FINE OK ===")
-
+        return render_template(
+            'giacenze.html',
+            rows=rows,
+            total_colli=total_colli,
+            total_m2=f"{total_m2:.2f}",
+            total_peso=f"{total_peso:.2f}"
+        )
     except Exception as e:
-        db.rollback()
-        logging.error("ERRORE GIACENZE", exc_info=True)
-        flash(f"Errore nel caricamento delle giacenze: {e}", "danger")
-        rows, total_colli, total_m2 = [], 0, 0
+        logging.error(f"Errore giacenze: {e}")
+        flash(f"Errore caricamento dati: {e}", "danger")
+        return render_template('giacenze.html', rows=[], total_colli=0, total_m2="0", total_peso="0")
     finally:
         db.close()
-
-    cols = [
-        "id_articolo","codice_articolo","descrizione","cliente","fornitore","protocollo","buono_n",
-        "lunghezza","larghezza","altezza","commessa","magazzino","posizione","stato","peso","n_colli",
-        "m2","m3","data_ingresso","data_uscita","n_arrivo","n_ddt_uscita","ordine","mezzi_in_uscita"
-    ]
-
-    return render_template(
-        'giacenze.html',
-        rows=rows,
-        cols=cols,
-        total_colli=total_colli,
-        total_m2=total_m2
-    )
 
 @app.route('/bulk/edit', methods=['GET', 'POST'])
 @login_required
