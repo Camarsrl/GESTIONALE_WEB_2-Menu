@@ -2186,39 +2186,55 @@ def _generate_buono_pdf(form_data, rows):
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
     story = []
     
-    # STILI STANDARD (NERO)
     styles = getSampleStyleSheet()
-    s_norm = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=9, leading=11, textColor=colors.black)
+    s_norm = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=9, leading=11)
     s_bold = ParagraphStyle('Bold', parent=s_norm, fontName='Helvetica-Bold')
-    s_title = ParagraphStyle('Title', parent=styles['Heading1'], alignment=TA_CENTER, fontSize=14, textColor=colors.black, spaceAfter=10)
+    s_title = ParagraphStyle('Title', parent=styles['Heading1'], alignment=TA_CENTER, fontSize=16, spaceAfter=10, textColor=colors.black)
 
-    # Logo
+    # 1. Logo e Titolo
     if LOGO_PATH and Path(LOGO_PATH).exists():
         story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER'))
         story.append(Spacer(1, 5*mm))
 
     story.append(Paragraph("BUONO DI PRELIEVO", s_title))
-    
-    # Intestazione Dati (Senza sfondo colorato)
-    meta_data = [
-        [Paragraph(f"<b>Buono N:</b> {form_data.get('buono_n','')}", s_norm),
-         Paragraph(f"<b>Data:</b> {form_data.get('data_em','')}", s_norm)],
-        [Paragraph(f"<b>Commessa:</b> {form_data.get('commessa','')}", s_norm),
-         Paragraph(f"<b>Protocollo:</b> {form_data.get('protocollo','')}", s_norm)],
-        [Paragraph(f"<b>Fornitore:</b> {form_data.get('fornitore','')}", s_norm),
-         Paragraph("", s_norm)]
-    ]
-    t_meta = Table(meta_data, colWidths=[95*mm, 95*mm])
-    t_meta.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('PADDING', (0,0), (-1,-1), 4),
-    ]))
-    story.append(t_meta)
     story.append(Spacer(1, 5*mm))
     
-    # Tabella Articoli
-    data = [[Paragraph('<b>Codice</b>', s_norm), Paragraph('<b>Descrizione</b>', s_norm), Paragraph('<b>Q.tà</b>', s_norm), Paragraph('<b>Note</b>', s_norm)]]
+    # 2. Tabella Dati Testata (Stile "Scheda")
+    # Creiamo una tabella a 2 colonne per i dati principali
+    meta_data = [
+        [Paragraph("<b>Buono N:</b>", s_bold), Paragraph(form_data.get('buono_n',''), s_norm)],
+        [Paragraph("<b>Data:</b>", s_bold), Paragraph(form_data.get('data_em',''), s_norm)],
+        [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(form_data.get('commessa',''), s_norm)],
+        [Paragraph("<b>Protocollo:</b>", s_bold), Paragraph(form_data.get('protocollo',''), s_norm)],
+        [Paragraph("<b>Fornitore:</b>", s_bold), Paragraph(form_data.get('fornitore',''), s_norm)]
+    ]
+    
+    # Usiamo una tabella larga per impaginare bene i dati
+    # Colonna 1: Etichetta (40mm), Colonna 2: Valore (Resto)
+    t_meta = Table(meta_data, colWidths=[40*mm, 140*mm])
+    t_meta.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),       # Griglia sottile
+        ('BACKGROUND', (0,0), (0,-1), colors.whitesmoke), # Sfondo grigio per le etichette (Colonna 1)
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('PADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(t_meta)
+    story.append(Spacer(1, 8*mm))
+    
+    # Cliente (Fuori tabella, come nell'originale)
+    # Recuperiamo il cliente dal primo articolo
+    cliente = rows[0].cliente if rows else ""
+    story.append(Paragraph(f"<b>Cliente:</b> {cliente}", ParagraphStyle('Client', parent=s_norm, fontSize=12)))
+    story.append(Spacer(1, 5*mm))
+    
+    # 3. Tabella Articoli
+    header = [
+        Paragraph('<b>Codice</b>', s_bold), 
+        Paragraph('<b>Descrizione</b>', s_bold), 
+        Paragraph('<b>Q.tà</b>', s_bold), 
+        Paragraph('<b>Note</b>', s_bold)
+    ]
+    data = [header]
     
     for r in rows:
         q = form_data.get(f"q_{r.id_articolo}") or r.n_colli
@@ -2230,22 +2246,22 @@ def _generate_buono_pdf(form_data, rows):
             Paragraph(n or '', s_norm)
         ])
         
-    t = Table(data, colWidths=[40*mm, 70*mm, 15*mm, 65*mm])
+    t = Table(data, colWidths=[40*mm, 70*mm, 15*mm, 65*mm], repeatRows=1)
     t.setStyle(TableStyle([
         ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey), # Intestazione grigia
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('PADDING', (0,0), (-1,-1), 3)
+        ('PADDING', (0,0), (-1,-1), 4)
     ]))
     story.append(t)
     
-    # Firme
+    # 4. Firme
     story.append(Spacer(1, 20*mm))
     story.append(Paragraph("Firma per ricevuta: __________________________", s_norm))
     
     doc.build(story)
     bio.seek(0)
     return bio
-
 def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
     bio = io.BytesIO()
     # Margini ottimizzati per DDT
