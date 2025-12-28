@@ -1729,75 +1729,104 @@ def invia_email():
     return redirect(url_for('giacenze'))
     
 # --- GESTIONE ARTICOLI (CRUD) ---
-@app.get('/new')
+# ========================================================
+# 8. CRUD (NUOVO / MODIFICA)
+# ========================================================
+
+@app.route('/new', methods=['GET'])
 @login_required
-def new_row():
+def nuovo_articolo():
+    """Crea un nuovo articolo vuoto e reindirizza alla pagina di modifica."""
     db = SessionLocal()
     try:
-        a = Articolo(data_ingresso=date.today().strftime("%Y-%m-%d"))
-        db.add(a)
+        art = Articolo()
+        # Imposta valori di default
+        art.data_ingresso = date.today().strftime("%d/%m/%Y") # Data di oggi
+        art.stato = "DOGANALE"
+        
+        db.add(art)
         db.commit()
-        flash('Articolo vuoto creato. Ora puoi compilare i campi.', 'success')
-        return redirect(url_for('edit_row', id=a.id_articolo))
-    except IntegrityError as e:
-        db.rollback()
-        flash(f'<b>Errore del database!</b> Potrebbe essere necessario resettare il contatore degli ID. Dettagli: {e.orig}', 'danger')
+        db.refresh(art) # Recupera l'ID appena creato
+        
+        flash(f"Nuovo articolo #{art.id_articolo} creato. Compila i dati qui sotto.", "success")
+        return redirect(url_for('edit_record', id_articolo=art.id_articolo))
+        
     except Exception as e:
         db.rollback()
-        flash(f'Errore imprevisto: {e}', 'danger')
-    return redirect(url_for('giacenze'))
-
-@app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
-@login_required
-def edit_record(id_articolo):
-    db = SessionLocal()
-    try:
-        articolo = db.query(Articolo).filter(Articolo.id_articolo == id_articolo).first()
-        if not articolo:
-            flash("Articolo non trovato.", "danger")
-            return redirect(url_for('giacenze'))
-
-        if request.method == 'POST':
-            # Aggiorna campi testuali
-            articolo.codice_articolo = request.form.get('codice_articolo', '')
-            articolo.descrizione = request.form.get('descrizione', '')
-            articolo.cliente = request.form.get('cliente', '')
-            articolo.fornitore = request.form.get('fornitore', '')
-            articolo.commessa = request.form.get('commessa', '')
-            articolo.protocollo = request.form.get('protocollo', '')
-            articolo.buono_n = request.form.get('buono_n', '')
-            articolo.note = request.form.get('note', '')
-            articolo.stato = request.form.get('stato', '')
-            articolo.magazzino = request.form.get('magazzino', '')
-            articolo.posizione = request.form.get('posizione', '')
-            
-            # Gestione Date (se stringa vuota, metti None)
-            d_in = request.form.get('data_ingresso')
-            articolo.data_ingresso = d_in if d_in else None
-            
-            d_out = request.form.get('data_uscita')
-            articolo.data_uscita = d_out if d_out else None
-            
-            # Gestione Numerici (con helper per evitare errori)
-            articolo.pezzo = to_int_eu(request.form.get('pezzo'))
-            articolo.n_colli = to_int_eu(request.form.get('n_colli'))
-            articolo.peso = to_float_eu(request.form.get('peso'))
-            articolo.m2 = to_float_eu(request.form.get('m2'))
-            articolo.m3 = to_float_eu(request.form.get('m3'))
-
-            db.commit()
-            flash("Articolo aggiornato correttamente.", "success")
-            return redirect(url_for('giacenze'))
-
-        # FIX QUI: Passo 'row' invece di 'articolo' perché l'HTML usa 'row'
-        return render_template('edit.html', row=articolo) 
-    except Exception as e:
-        db.rollback()
-        flash(f"Errore modifica: {e}", "danger")
+        flash(f"Errore durante la creazione: {e}", "danger")
         return redirect(url_for('giacenze'))
     finally:
         db.close()
 
+@app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
+@login_required
+def edit_record(id_articolo):
+    """Pagina per modificare un singolo articolo."""
+    db = SessionLocal()
+    try:
+        art = db.query(Articolo).filter(Articolo.id_articolo == id_articolo).first()
+        if not art:
+            flash("Articolo non trovato", "danger")
+            return redirect(url_for('giacenze'))
+
+        if request.method == 'POST':
+            # Controllo permessi cliente
+            if session.get('role') == 'client':
+                flash("Accesso negato: i clienti non possono modificare.", "danger")
+                return redirect(url_for('giacenze'))
+
+            # Aggiornamento campi testuali
+            art.codice_articolo = request.form.get('codice_articolo')
+            art.descrizione = request.form.get('descrizione')
+            art.cliente = request.form.get('cliente')
+            art.fornitore = request.form.get('fornitore')
+            art.commessa = request.form.get('commessa')
+            art.protocollo = request.form.get('protocollo')
+            art.buono_n = request.form.get('buono_n')
+            art.note = request.form.get('note')
+            art.stato = request.form.get('stato')
+            art.magazzino = request.form.get('magazzino')
+            art.posizione = request.form.get('posizione')
+            art.ordine = request.form.get('ordine')
+            art.n_arrivo = request.form.get('n_arrivo')
+            art.serial_number = request.form.get('serial_number')
+            art.ns_rif = request.form.get('ns_rif')
+            art.mezzi_in_uscita = request.form.get('mezzi_in_uscita')
+            
+            # Gestione Date (se vuote mette None)
+            d_in = request.form.get('data_ingresso')
+            art.data_ingresso = parse_date_ui(d_in) if d_in else None
+            
+            d_out = request.form.get('data_uscita')
+            art.data_uscita = parse_date_ui(d_out) if d_out else None
+            
+            art.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
+            art.n_ddt_uscita = request.form.get('n_ddt_uscita')
+            
+            # Gestione Numerici
+            art.pezzo = request.form.get('pezzo')
+            art.n_colli = to_int_eu(request.form.get('n_colli'))
+            art.peso = to_float_eu(request.form.get('peso'))
+            art.lunghezza = to_float_eu(request.form.get('lunghezza'))
+            art.larghezza = to_float_eu(request.form.get('larghezza'))
+            art.altezza = to_float_eu(request.form.get('altezza'))
+            
+            # Ricalcolo automatico M2/M3
+            m2, m3 = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, art.n_colli)
+            art.m2 = m2
+            art.m3 = m3
+
+            db.commit()
+            flash("Modifiche salvate con successo.", "success")
+            return redirect(url_for('giacenze'))
+
+        return render_template('edit.html', row=art)
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore salvataggio: {e}", "danger")
+        return redirect(url_for('giacenze'))
+    finally:
+        db.close()
 @app.route('/edit/<int:id>', methods=['GET','POST'])
 @login_required
 def edit_row(id):
@@ -1834,24 +1863,6 @@ def edit_row(id):
     return render_template('edit.html', row=row, fields=get_all_fields_map().items())
 
 
-@app.route('/new', methods=['GET', 'POST'])
-@login_required
-def nuovo_articolo(): # Il nome della funzione deve essere 'nuovo_articolo'
-    if request.method == 'POST':
-        db = SessionLocal()
-        try:
-            art = Articolo()
-            # ... (logica salvataggio simile a edit_record) ...
-            art.codice_articolo = request.form.get('codice_articolo')
-            # ...
-            
-            db.add(art)
-            db.commit()
-            flash("Articolo creato.", "success")
-            return redirect(url_for('giacenze'))
-        finally:
-            db.close()
-    return render_template('edit.html', row=None) # row=None indica nuovo
 
 # --- MEDIA & ALLEGATI ---
 @app.get('/media/<int:att_id>')
