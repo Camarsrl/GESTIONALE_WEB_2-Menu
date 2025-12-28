@@ -2609,44 +2609,43 @@ def buono_finalize_and_get_pdf():
     try:
         req_data = request.form
         ids = [int(i) for i in req_data.get('ids','').split(',') if i.isdigit()]
-        
         rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-        action = req_data.get('action', 'preview')
         
-        # Gestione Numero Buono
-        raw_buono = req_data.get('buono_n')
-        buono_n = raw_buono.strip() if raw_buono and raw_buono.lower() != 'none' else ""
-
-        # Aggiorna dati in memoria (Note e Buono)
+        action = req_data.get('action')
+        
+        # AGGIORNAMENTO DATI (Sia per anteprima che per salvataggio)
+        # È importante salvare le note temporaneamente o definitivamente
+        # Qui le salviamo nel DB se l'azione è 'save'
+        
+        bn = req_data.get('buono_n')
+        
         for r in rows:
-            if buono_n: r.buono_n = buono_n
-            # Recupera la nota modificata dal form
-            note_val = req_data.get(f"note_{r.id_articolo}")
-            if note_val is not None:
-                r.note = note_val
+            # Se stiamo salvando, aggiorna il numero buono
+            if action == 'save' and bn:
+                r.buono_n = bn
+            
+            # SALVA LE NOTE! (Così il DDT le troverà dopo)
+            note_inserite = req_data.get(f"note_{r.id_articolo}")
+            if note_inserite is not None:
+                r.note = note_inserite
 
-        # Se Salva, scrivi nel DB
+        # Commit delle note (importante per il passaggio al DDT)
         if action == 'save':
             db.commit()
-            flash(f"Buono salvato.", "info")
+            flash(f"Buono salvato. Note aggiornate.", "info")
         
-        # Prepara dati per il PDF
-        form_data = dict(req_data)
-        form_data['buono_n'] = buono_n
-        
-        # Genera il PDF (Ora la funzione esiste!)
-        pdf_bio = _generate_buono_pdf(form_data, rows)
+        # Genera PDF
+        pdf_bio = _generate_buono_pdf(req_data, rows)
         
         return send_file(
             pdf_bio, 
             as_attachment=(action == 'save'), 
-            download_name=f'Buono_{buono_n}.pdf', 
+            download_name=f'Buono_{bn}.pdf', 
             mimetype='application/pdf'
         )
 
     except Exception as e:
         db.rollback()
-        # Stampa l'errore nei log del server per capire cosa succede
         print(f"ERRORE BUONO: {e}") 
         return f"Errore server: {e}", 500
     finally:
