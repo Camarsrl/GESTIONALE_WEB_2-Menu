@@ -451,50 +451,54 @@ CALCOLI_HTML = """
 {% endblock %}
 """
 
+
 GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <style>
-    /* Stile compatto e pulito per la tabella */
-    .table-sm td, .table-sm th { font-size: 0.85rem !important; font-weight: normal; vertical-align: middle; }
-    .table-sm th { background-color: #f8f9fa; font-weight: 600; border-bottom: 2px solid #dee2e6; }
-    .fw-bold { font-weight: 600 !important; } /* Solo dove esplicitamente richiesto */
+    /* Font molto piccolo per far stare tutte le colonne */
+    .table-compact td, .table-compact th { 
+        font-size: 0.75rem !important; 
+        padding: 2px 3px !important; 
+        vertical-align: middle; 
+        font-weight: normal !important;
+        white-space: nowrap; /* Evita a capo se possibile */
+    }
+    /* Solo intestazioni leggermente evidenti */
+    .table-compact thead th { 
+        font-weight: 600 !important; 
+        background-color: #f0f0f0; 
+        text-align: center;
+    }
+    /* Buono in grassetto blu come richiesto */
+    .fw-buono { font-weight: bold !important; color: #000000; }
+    /* Descrizione troncata */
+    .text-desc { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h3><i class="bi bi-box-seam"></i> Magazzino e Giacenze</h3>
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h4>Magazzino</h4>
     <div class="d-flex gap-2">
-       <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-success"><i class="bi bi-plus-lg"></i> Nuovo Ingresso</a>
-       <a href="{{ url_for('labels_form') }}" class="btn btn-info text-white"><i class="bi bi-tags"></i> Etichette</a>
-       <a href="{{ url_for('calcola_costi') }}" class="btn btn-warning text-dark"><i class="bi bi-calculator"></i> Calcoli</a>
+       <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> Nuovo</a>
+       <a href="{{ url_for('labels_form') }}" class="btn btn-sm btn-info text-white"><i class="bi bi-tags"></i> Etichette</a>
+       <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
     </div>
 </div>
 
-<div class="card mb-3">
-    <div class="card-header bg-light" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#filterBody">
-        <i class="bi bi-funnel"></i> Filtri di Ricerca (Clicca per espandere)
+<div class="card mb-2">
+    <div class="card-header py-1 bg-light" data-bs-toggle="collapse" data-bs-target="#filterBody" style="cursor:pointer">
+        <small><i class="bi bi-funnel"></i> Filtri</small>
     </div>
-    <div id="filterBody" class="collapse {% if request.args %}show{% endif %}">
-        <div class="card-body">
-            <form method="get" class="row g-2">
+    <div id="filterBody" class="collapse">
+        <div class="card-body py-2">
+            <form method="get" class="row g-1">
                 <div class="col-md-2"><input name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
                 <div class="col-md-2"><input name="commessa" class="form-control form-control-sm" placeholder="Commessa" value="{{ request.args.get('commessa','') }}"></div>
+                <div class="col-md-2"><input name="buono_n" class="form-control form-control-sm" placeholder="Buono N" value="{{ request.args.get('buono_n','') }}"></div>
                 <div class="col-md-2"><input name="descrizione" class="form-control form-control-sm" placeholder="Descrizione" value="{{ request.args.get('descrizione','') }}"></div>
-                <div class="col-md-2"><input name="posizione" class="form-control form-control-sm" placeholder="Posizione" value="{{ request.args.get('posizione','') }}"></div>
-                <div class="col-md-2"><input name="buono_n" class="form-control form-control-sm" placeholder="N. Buono" value="{{ request.args.get('buono_n','') }}"></div>
-                <div class="col-md-2"><input name="protocollo" class="form-control form-control-sm" placeholder="Protocollo" value="{{ request.args.get('protocollo','') }}"></div>
-                <div class="col-md-2"><input name="n_ddt_ingresso" class="form-control form-control-sm" placeholder="DDT Ingresso" value="{{ request.args.get('n_ddt_ingresso','') }}"></div>
-                <div class="col-md-2"><input name="n_ddt_uscita" class="form-control form-control-sm" placeholder="DDT Uscita" value="{{ request.args.get('n_ddt_uscita','') }}"></div>
-                <div class="col-md-2">
-                    <select name="stato" class="form-select form-select-sm">
-                        <option value="">Tutti gli stati</option>
-                        <option value="DOGANALE" {% if request.args.get('stato')=='DOGANALE' %}selected{% endif %}>DOGANALE</option>
-                        <option value="NAZIONALE" {% if request.args.get('stato')=='NAZIONALE' %}selected{% endif %}>NAZIONALE</option>
-                        <option value="USCITO" {% if request.args.get('stato')=='USCITO' %}selected{% endif %}>USCITO</option>
-                    </select>
-                </div>
-                <div class="col-12 mt-2">
-                    <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i> Cerca</button>
+                <div class="col-md-2"><input name="n_ddt_ingresso" class="form-control form-control-sm" placeholder="DDT Ing" value="{{ request.args.get('n_ddt_ingresso','') }}"></div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm">Cerca</button>
                     <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm">Reset</a>
                 </div>
             </form>
@@ -502,101 +506,95 @@ GIACENZE_HTML = """
     </div>
 </div>
 
-<form method="POST" id="mainForm">
-    <div class="btn-toolbar mb-2 gap-2 p-2 bg-white sticky-top border-bottom" style="z-index: 900;">
-        <button type="submit" formaction="{{ url_for('buono_preview') }}" class="btn btn-outline-primary btn-sm">
-            <i class="bi bi-file-earmark-text"></i> Crea Buono
-        </button>
-        <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">
-            <i class="bi bi-truck"></i> Crea DDT
-        </button>
-        <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="GET" class="btn btn-warning btn-sm">
-            <i class="bi bi-envelope"></i> Invia Email
-        </button>
-        <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-outline-primary btn-sm">
-            <i class="bi bi-files"></i> Duplica
-        </button>
-        <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">
-            <i class="bi bi-pencil-square"></i> Modifica Multipla
-        </button>
-        <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare le righe selezionate?')">
-            <i class="bi bi-trash"></i> Elimina
-        </button>
+<form method="POST">
+    <div class="btn-toolbar mb-2 gap-1">
+        <button type="submit" formaction="{{ url_for('buono_preview') }}" class="btn btn-outline-dark btn-sm">Buono</button>
+        <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
+        <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Mod. Multipla</button>
+        <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-outline-secondary btn-sm">Duplica</button>
+        <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare?')">Elimina</button>
     </div>
 
-    <div class="table-responsive" style="max-height: 70vh; overflow-y: auto;">
-        <table class="table table-striped table-hover table-sm align-middle" style="font-size: 0.9rem;">
-            <thead class="table-light sticky-top" style="top: 0; z-index: 800;">
+    <div class="table-responsive" style="max-height: 75vh; overflow-y: auto;">
+        <table class="table table-striped table-hover table-bordered table-compact mb-0">
+            <thead class="sticky-top" style="top: 0; z-index: 5;">
                 <tr>
                     <th><input type="checkbox" onclick="toggleAll(this)"></th>
-                    <th>Id</th>
+                    <th>ID</th>
                     <th>Codice</th>
                     <th>Descrizione</th>
                     <th>Cliente</th>
                     <th>Fornitore</th>
+                    <th>Commessa</th>
+                    <th>Ordine</th>
                     <th>Protocollo</th>
                     <th>Buono N</th>
-                    <th>Commessa</th>
+                    <th>N.Arr</th>
+                    <th>Data Ing.</th>
+                    <th>DDT Ing.</th>
                     <th>Magazzino</th>
                     <th>Pos</th>
                     <th>Stato</th>
+                    <th>Pezzi</th>
+                    <th>Colli</th>
                     <th>Peso</th>
-                    <th>N.Colli</th>
-                    <th>Data Ing.</th>
-                    <th>N.Arr</th>
+                    <th>LxPxH</th>
+                    <th>M²</th>
+                    <th>M³</th>
+                    <th>DDT Usc.</th>
+                    <th>Data Usc.</th>
+                    <th>Note</th>
                     <th>Azioni</th>
                 </tr>
             </thead>
             <tbody>
                 {% for r in rows %}
                 <tr>
-                    <td><input type="checkbox" name="ids" value="{{ r.id_articolo }}"></td>
+                    <td class="text-center"><input type="checkbox" name="ids" value="{{ r.id_articolo }}"></td>
                     <td>{{ r.id_articolo }}</td>
                     <td>{{ r.codice_articolo or '' }}</td>
-                    <td class="text-truncate" style="max-width: 250px;" title="{{ r.descrizione }}">{{ r.descrizione or '' }}</td>
+                    <td class="text-desc" title="{{ r.descrizione }}">{{ r.descrizione or '' }}</td>
                     <td>{{ r.cliente or '' }}</td>
                     <td>{{ r.fornitore or '' }}</td>
-                    <td>{{ r.protocollo or '' }}</td>
-                    <td class="fw-bold text-primary">{{ r.buono_n or '' }}</td>
                     <td>{{ r.commessa or '' }}</td>
+                    <td>{{ r.ordine or '' }}</td>
+                    <td>{{ r.protocollo or '' }}</td>
+                    <td class="fw-buono">{{ r.buono_n or '' }}</td>
+                    <td>{{ r.n_arrivo or '' }}</td>
+                    <td>{{ r.data_ingresso or '' }}</td>
+                    <td>{{ r.n_ddt_ingresso or '' }}</td>
                     <td>{{ r.magazzino or '' }}</td>
                     <td>{{ r.posizione or '' }}</td>
-                    <td>
-                        <span class="badge {% if r.stato=='DOGANALE' %}bg-warning text-dark{% elif r.stato=='NAZIONALE' %}bg-success{% elif r.stato=='USCITO' %}bg-secondary{% else %}bg-light text-dark border{% endif %}">
-                            {{ r.stato or 'N/D' }}
-                        </span>
-                    </td>
-                    <td>{{ r.peso or '' }}</td>
-                    <td>{{ r.n_colli or '' }}</td>
-                    <td>{{ r.data_ingresso or '' }}</td>
-                    <td>{{ r.n_arrivo or '' }}</td>
-                    <td>
-                        <a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}" class="btn btn-sm btn-outline-primary py-0 px-1">Modifica</a>
+                    <td>{{ r.stato or '' }}</td>
+                    <td class="text-end">{{ r.pezzo or '' }}</td>
+                    <td class="text-end">{{ r.n_colli or '' }}</td>
+                    <td class="text-end">{{ r.peso or '' }}</td>
+                    <td>{{ r.lunghezza|int }}x{{ r.larghezza|int }}x{{ r.altezza|int }}</td>
+                    <td class="text-end">{{ r.m2 or '' }}</td>
+                    <td class="text-end">{{ r.m3 or '' }}</td>
+                    <td>{{ r.n_ddt_uscita or '' }}</td>
+                    <td>{{ r.data_uscita or '' }}</td>
+                    <td class="text-desc" title="{{ r.note }}">{{ r.note or '' }}</td>
+                    <td class="text-center">
+                        <a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}" class="btn btn-sm btn-link p-0 text-decoration-none">✏️</a>
                     </td>
                 </tr>
                 {% endfor %}
             </tbody>
-            <tfoot class="table-light sticky-bottom">
+            <tfoot class="sticky-bottom bg-white fw-bold">
                 <tr>
-                    <td colspan="17">
-                        Totali (Filtrati): Colli: {{ total_colli }} | M²: {{ total_m2 }} | Peso: {{ total_peso }}
+                    <td colspan="26" class="py-2 px-3">
+                        Totali: Colli {{ total_colli }} | M² {{ total_m2 }} | Peso {{ total_peso }}
                     </td>
                 </tr>
             </tfoot>
         </table>
     </div>
 </form>
-
-<script>
-function toggleAll(source) {
-    checkboxes = document.getElementsByName('ids');
-    for(var i=0, n=checkboxes.length;i<n;i++) {
-        checkboxes[i].checked = source.checked;
-    }
-}
-</script>
+<script>function toggleAll(s){ document.getElementsByName('ids').forEach(c => c.checked = s.checked); }</script>
 {% endblock %}
 """
+
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
