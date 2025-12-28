@@ -2042,24 +2042,32 @@ def bulk_edit():
         ids = [int(i) for i in ids if i.isdigit()]
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
 
-        # Campi disponibili per la modifica multipla
+        # LISTA COMPLETA CAMPI MODIFICABILI
         editable_fields = [
             ('Cliente', 'cliente'), ('Fornitore', 'fornitore'),
-            ('Commessa', 'commessa'), ('Magazzino', 'magazzino'),
-            ('Posizione', 'posizione'), ('Stato', 'stato'),
-            ('Buono N.', 'buono_n'), ('Data Uscita', 'data_uscita'),
-            ('DDT Uscita', 'n_ddt_uscita')
+            ('Codice Articolo', 'codice_articolo'), ('Descrizione', 'descrizione'),
+            ('Commessa', 'commessa'), ('Ordine', 'ordine'), ('Protocollo', 'protocollo'),
+            ('Magazzino', 'magazzino'), ('Posizione', 'posizione'), ('Stato', 'stato'),
+            ('Pezzi', 'pezzo'), ('N. Colli', 'n_colli'),
+            ('Lunghezza', 'lunghezza'), ('Larghezza', 'larghezza'), ('Altezza', 'altezza'),
+            ('Buono N.', 'buono_n'), ('Data Uscita', 'data_uscita'), ('DDT Uscita', 'n_ddt_uscita')
         ]
 
         if request.method == 'POST' and request.form.get('save_bulk') == 'true':
             updates = {}
             for _, field_name in editable_fields:
-                # Controlla se la checkbox è attiva
+                # Se la checkbox chk_nomecampo è spuntata
                 if request.form.get(f'chk_{field_name}'):
                     val = request.form.get(field_name)
-                    # Gestione date
-                    if field_name == 'data_uscita' and val:
+                    
+                    # Conversioni Numeriche
+                    if field_name in ['n_colli', 'pezzo']: 
+                        val = to_int_eu(val)
+                    elif field_name in ['lunghezza', 'larghezza', 'altezza']: 
+                        val = to_float_eu(val)
+                    elif field_name == 'data_uscita' and val:
                         val = parse_date_ui(val)
+                        
                     updates[field_name] = val
 
             if updates:
@@ -2067,17 +2075,24 @@ def bulk_edit():
                 for art in articoli:
                     for k, v in updates.items():
                         setattr(art, k, v)
+                    
+                    # Ricalcolo automatico M2/M3 se tocchi le dimensioni o i colli
+                    if any(x in updates for x in ['lunghezza', 'larghezza', 'altezza', 'n_colli']):
+                        m2, m3 = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, art.n_colli)
+                        art.m2 = m2
+                        art.m3 = m3
+                    
                     count += 1
                 db.commit()
-                flash(f"{count} articoli aggiornati con successo.", "success")
+                flash(f"{count} articoli aggiornati.", "success")
             else:
                 flash("Nessun campo selezionato per la modifica.", "info")
-            
             return redirect(url_for('giacenze'))
 
         return render_template('bulk_edit.html', rows=articoli, ids_csv=",".join(map(str, ids)), fields=editable_fields)
     finally:
         db.close()
+        
 @app.post('/delete_rows')
 @login_required
 def delete_rows():
