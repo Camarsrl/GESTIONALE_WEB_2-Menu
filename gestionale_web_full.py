@@ -1924,7 +1924,7 @@ def bulk_edit():
             ('Codice Articolo', 'codice_articolo'), ('Descrizione', 'descrizione'),
             ('Commessa', 'commessa'), ('Ordine', 'ordine'), ('Protocollo', 'protocollo'),
             ('Magazzino', 'magazzino'), ('Posizione', 'posizione'), ('Stato', 'stato'),
-            ('Pezzi', 'pezzo'), ('N. Colli', 'n_colli'),
+            ('Pezzi', 'pezzo'), ('N. Colli', 'n_colli'),('N. Arrivo', 'n_arrivo'), ('Serial Number', 'serial_number'),
             ('Lunghezza', 'lunghezza'), ('Larghezza', 'larghezza'), ('Altezza', 'altezza'),
             ('Buono N.', 'buono_n'), ('Data Uscita', 'data_uscita'), ('DDT Uscita', 'n_ddt_uscita')
         ]
