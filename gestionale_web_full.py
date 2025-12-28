@@ -660,6 +660,164 @@ GIACENZE_HTML = """
 <script>function toggleAll(s){ document.getElementsByName('ids').forEach(c => c.checked = s.checked); }</script>
 {% endblock %}
 """
+EDIT_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3><i class="bi bi-pencil-square"></i> {% if row %}Modifica Articolo #{{ row.id_articolo }}{% else %}Nuovo Articolo{% endif %}</h3>
+    <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Torna alla Lista</a>
+</div>
+
+<form method="post" class="card p-4 shadow-sm">
+    <div class="row g-3">
+        <div class="col-md-3">
+            <label class="form-label fw-bold">Codice Articolo</label>
+            <input type="text" name="codice_articolo" class="form-control" value="{{ row.codice_articolo or '' }}">
+        </div>
+        <div class="col-md-5">
+            <label class="form-label fw-bold">Descrizione</label>
+            <input type="text" name="descrizione" class="form-control" value="{{ row.descrizione or '' }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Stato</label>
+            <select name="stato" class="form-select">
+                <option value="DOGANALE" {% if row.stato == 'DOGANALE' %}selected{% endif %}>DOGANALE</option>
+                <option value="NAZIONALE" {% if row.stato == 'NAZIONALE' %}selected{% endif %}>NAZIONALE</option>
+                <option value="USCITO" {% if row.stato == 'USCITO' %}selected{% endif %}>USCITO</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Commessa</label>
+            <input type="text" name="commessa" class="form-control" value="{{ row.commessa or '' }}">
+        </div>
+
+        <div class="col-md-4">
+            <label class="form-label">Cliente</label>
+            <input type="text" name="cliente" class="form-control" value="{{ row.cliente or '' }}">
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">Fornitore</label>
+            <input type="text" name="fornitore" class="form-control" value="{{ row.fornitore or '' }}">
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">Protocollo</label>
+            <input type="text" name="protocollo" class="form-control" value="{{ row.protocollo or '' }}">
+        </div>
+
+        <div class="col-md-3">
+            <label class="form-label">N. Buono</label>
+            <input type="text" name="buono_n" class="form-control" value="{{ row.buono_n or '' }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Magazzino</label>
+            <input type="text" name="magazzino" class="form-control" value="{{ row.magazzino or 'STRUPPA' }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Posizione</label>
+            <input type="text" name="posizione" class="form-control" value="{{ row.posizione or '' }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Ordine</label>
+            <input type="text" name="ordine" class="form-control" value="{{ row.ordine or '' }}">
+        </div>
+
+        <div class="col-md-3">
+            <label class="form-label">Data Ingresso</label>
+            <input type="date" name="data_ingresso" class="form-control" value="{{ row.data_ingresso or '' }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">DDT Ingresso</label>
+            <input type="text" name="n_ddt_ingresso" class="form-control" value="{{ row.n_ddt_ingresso or '' }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Data Uscita</label>
+            <input type="date" name="data_uscita" class="form-control" value="{{ row.data_uscita or '' }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">DDT Uscita</label>
+            <input type="text" name="n_ddt_uscita" class="form-control" value="{{ row.n_ddt_uscita or '' }}">
+        </div>
+
+        <div class="col-md-2">
+            <label class="form-label">Pezzi</label>
+            <input type="number" name="pezzo" class="form-control" value="{{ row.pezzo or 0 }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Colli</label>
+            <input type="number" name="n_colli" class="form-control" value="{{ row.n_colli or 0 }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Peso (Kg)</label>
+            <input type="number" step="0.01" name="peso" class="form-control" value="{{ row.peso or 0 }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">M³</label>
+            <input type="number" step="0.001" name="m3" class="form-control" value="{{ row.m3 or 0 }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">N. Arrivo</label>
+            <input type="text" name="n_arrivo" class="form-control" value="{{ row.n_arrivo or '' }}">
+        </div>
+        
+        <div class="col-md-4">
+            <label class="form-label">Dimensioni (LxWxH)</label>
+            <div class="input-group">
+                <input type="number" step="0.01" name="lunghezza" class="form-control" placeholder="L" value="{{ row.lunghezza or '' }}">
+                <span class="input-group-text">x</span>
+                <input type="number" step="0.01" name="larghezza" class="form-control" placeholder="W" value="{{ row.larghezza or '' }}">
+                <span class="input-group-text">x</span>
+                <input type="number" step="0.01" name="altezza" class="form-control" placeholder="H" value="{{ row.altezza or '' }}">
+            </div>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">Serial Number</label>
+            <input type="text" name="serial_number" class="form-control" value="{{ row.serial_number or '' }}">
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">Mezzi in Uscita</label>
+            <input type="text" name="mezzi_in_uscita" class="form-control" value="{{ row.mezzi_in_uscita or '' }}">
+        </div>
+
+        <div class="col-12">
+            <label class="form-label">Note</label>
+            <textarea name="note" class="form-control" rows="3">{{ row.note or '' }}</textarea>
+        </div>
+    </div>
+
+    <div class="mt-4 text-end">
+        <button type="submit" class="btn btn-primary px-5"><i class="bi bi-save"></i> Salva Modifiche</button>
+    </div>
+</form>
+
+{% if row and row.id_articolo %}
+<div class="card mt-4 p-4 shadow-sm">
+    <h5><i class="bi bi-paperclip"></i> Allegati</h5>
+    <hr>
+    <form action="{{ url_for('upload_file', id_articolo=row.id_articolo) }}" method="post" enctype="multipart/form-data" class="mb-3">
+        <div class="input-group">
+            <input type="file" name="file" class="form-control" required>
+            <button type="submit" class="btn btn-outline-primary">Carica</button>
+        </div>
+    </form>
+    <div class="row">
+        {% for att in row.attachments %}
+        <div class="col-md-3 mb-3">
+            <div class="card h-100">
+                <div class="card-body text-center p-2">
+                    <p class="small text-truncate mb-2" title="{{ att.filename }}">{{ att.filename }}</p>
+                    <a href="{{ url_for('serve_uploaded_file', filename=att.filename) }}" target="_blank" class="btn btn-sm btn-primary">Apri</a>
+                    <a href="{{ url_for('delete_file', id_file=att.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Eliminare?')">Elimina</a>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <p class="text-muted small">Nessun allegato.</p>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+"""
 BULK_EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
