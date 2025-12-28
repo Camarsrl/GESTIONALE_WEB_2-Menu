@@ -456,13 +456,22 @@ GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <style>
-    /* Stile Tabella Compatto - Font Piccolo */
-    .table-xs td, .table-xs th { font-size: 0.75rem !important; padding: 3px !important; white-space: nowrap; vertical-align: middle; }
-    .fw-bold { font-weight: 600 !important; }
-    /* Rimuovi grassetti non necessari */
-    td { font-weight: normal !important; }
-    /* Troncamento testi lunghi */
-    .text-trunc { max-width: 120px; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
+    .table-compact td, .table-compact th { 
+        font-size: 0.75rem !important; 
+        padding: 2px 3px !important; 
+        vertical-align: middle; 
+        font-weight: normal !important;
+        white-space: nowrap;
+    }
+    .table-compact thead th { 
+        font-weight: 600 !important; 
+        background-color: #f0f0f0; 
+        text-align: center;
+    }
+    .fw-buono { font-weight: bold !important; color: #000000; }
+    .text-desc { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+    /* Stile per i filtri */
+    .filter-label { font-size: 0.75rem; font-weight: bold; margin-bottom: 2px; color: #555; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-2">
@@ -474,15 +483,90 @@ GIACENZE_HTML = """
     </div>
 </div>
 
-<div class="card mb-2 bg-light">
-    <div class="card-body py-2">
-        <form method="get" class="row g-1">
-            <div class="col-md-2"><input name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
-            <div class="col-md-2"><input name="commessa" class="form-control form-control-sm" placeholder="Commessa" value="{{ request.args.get('commessa','') }}"></div>
-            <div class="col-md-2"><input name="buono_n" class="form-control form-control-sm" placeholder="Buono N" value="{{ request.args.get('buono_n','') }}"></div>
-            <div class="col-md-2"><input name="descrizione" class="form-control form-control-sm" placeholder="Descrizione" value="{{ request.args.get('descrizione','') }}"></div>
-            <div class="col-auto"><button type="submit" class="btn btn-primary btn-sm">Cerca</button> <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm">Reset</a></div>
-        </form>
+<div class="card mb-2">
+    <div class="card-header py-1 bg-light" data-bs-toggle="collapse" data-bs-target="#filterBody" style="cursor:pointer">
+        <small><i class="bi bi-funnel"></i> <b>Filtri Avanzati</b> (Clicca per mostrare/nascondere)</small>
+    </div>
+    <div id="filterBody" class="collapse {% if request.args %}show{% endif %}">
+        <div class="card-body py-2 bg-white">
+            <form method="get">
+                <div class="row g-2 mb-2">
+                    <div class="col-md-2">
+                        <div class="filter-label">Cliente</div>
+                        <input name="cliente" class="form-control form-control-sm" value="{{ request.args.get('cliente','') }}">
+                    </div>
+                    <div class="col-md-2">
+                        <div class="filter-label">Fornitore</div>
+                        <input name="fornitore" class="form-control form-control-sm" value="{{ request.args.get('fornitore','') }}">
+                    </div>
+                    <div class="col-md-2">
+                        <div class="filter-label">Commessa</div>
+                        <input name="commessa" class="form-control form-control-sm" value="{{ request.args.get('commessa','') }}">
+                    </div>
+                    <div class="col-md-2">
+                        <div class="filter-label">Ordine</div>
+                        <input name="ordine" class="form-control form-control-sm" value="{{ request.args.get('ordine','') }}">
+                    </div>
+                    <div class="col-md-2">
+                        <div class="filter-label">Protocollo</div>
+                        <input name="protocollo" class="form-control form-control-sm" value="{{ request.args.get('protocollo','') }}">
+                    </div>
+                    <div class="col-md-2">
+                        <div class="filter-label">N. Buono</div>
+                        <input name="buono_n" class="form-control form-control-sm" value="{{ request.args.get('buono_n','') }}">
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-md-2">
+                        <div class="filter-label">Magazzino</div>
+                        <input name="magazzino" class="form-control form-control-sm" value="{{ request.args.get('magazzino','') }}">
+                    </div>
+                    <div class="col-md-2">
+                        <div class="filter-label">Mezzo Uscita</div>
+                        <input name="mezzi_in_uscita" class="form-control form-control-sm" value="{{ request.args.get('mezzi_in_uscita','') }}">
+                    </div>
+                    <div class="col-md-2">
+                        <div class="filter-label">Stato</div>
+                        <select name="stato" class="form-select form-select-sm">
+                            <option value="">Tutti</option>
+                            <option value="DOGANALE" {% if request.args.get('stato')=='DOGANALE' %}selected{% endif %}>DOGANALE</option>
+                            <option value="NAZIONALE" {% if request.args.get('stato')=='NAZIONALE' %}selected{% endif %}>NAZIONALE</option>
+                            <option value="USCITO" {% if request.args.get('stato')=='USCITO' %}selected{% endif %}>USCITO</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="filter-label">Descrizione</div>
+                        <input name="descrizione" class="form-control form-control-sm" value="{{ request.args.get('descrizione','') }}">
+                    </div>
+                </div>
+
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-2">
+                        <div class="filter-label">Data Ingresso DA</div>
+                        <input type="date" name="data_ing_da" class="form-control form-control-sm" value="{{ request.args.get('data_ing_da','') }}">
+                    </div>
+                    <div class="col-md-2">
+                        <div class="filter-label">Data Ingresso A</div>
+                        <input type="date" name="data_ing_a" class="form-control form-control-sm" value="{{ request.args.get('data_ing_a','') }}">
+                    </div>
+                    <div class="col-md-2">
+                        <div class="filter-label">Data Uscita DA</div>
+                        <input type="date" name="data_usc_da" class="form-control form-control-sm" value="{{ request.args.get('data_usc_da','') }}">
+                    </div>
+                    <div class="col-md-2">
+                        <div class="filter-label">Data Uscita A</div>
+                        <input type="date" name="data_usc_a" class="form-control form-control-sm" value="{{ request.args.get('data_usc_a','') }}">
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-primary btn-sm w-100"><i class="bi bi-search"></i> Cerca</button>
+                    </div>
+                    <div class="col-md-1">
+                        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm w-100">Reset</a>
+                    </div>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 
@@ -495,9 +579,9 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare?')">Elimina</button>
     </div>
 
-    <div class="table-responsive" style="max-height: 75vh;">
-        <table class="table table-striped table-bordered table-hover table-xs mb-0">
-            <thead class="sticky-top bg-light" style="z-index: 5;">
+    <div class="table-responsive" style="max-height: 70vh;">
+        <table class="table table-striped table-bordered table-hover table-compact mb-0">
+            <thead class="sticky-top" style="top: 0; z-index: 5;">
                 <tr>
                     <th><input type="checkbox" onclick="toggleAll(this)"></th>
                     <th>ID</th>
@@ -518,16 +602,13 @@ GIACENZE_HTML = """
                     <th>Pezzi</th>
                     <th>Colli</th>
                     <th>Peso</th>
-                    <th>L</th>
-                    <th>W</th>
-                    <th>H</th>
+                    <th>LxPxH</th>
                     <th>M²</th>
                     <th>M³</th>
-                    <th>Serial</th>
-                    <th>NS Rif</th>
                     <th>Mezzi Usc.</th>
                     <th>DDT Usc.</th>
                     <th>Data Usc.</th>
+                    <th>Note</th>
                     <th>Azioni</th>
                 </tr>
             </thead>
@@ -537,191 +618,48 @@ GIACENZE_HTML = """
                     <td class="text-center"><input type="checkbox" name="ids" value="{{ r.id_articolo }}"></td>
                     <td>{{ r.id_articolo }}</td>
                     <td>{{ r.codice_articolo or '' }}</td>
-                    <td title="{{ r.descrizione }}"><span class="text-trunc">{{ r.descrizione or '' }}</span></td>
+                    <td class="text-desc" title="{{ r.descrizione }}">{{ r.descrizione or '' }}</td>
                     <td>{{ r.cliente or '' }}</td>
                     <td>{{ r.fornitore or '' }}</td>
                     <td>{{ r.commessa or '' }}</td>
                     <td>{{ r.ordine or '' }}</td>
                     <td>{{ r.protocollo or '' }}</td>
-                    <td class="fw-bold">{{ r.buono_n or '' }}</td>
+                    <td class="fw-buono">{{ r.buono_n or '' }}</td>
                     <td>{{ r.n_arrivo or '' }}</td>
                     <td>{{ r.data_ingresso or '' }}</td>
                     <td>{{ r.n_ddt_ingresso or '' }}</td>
                     <td>{{ r.magazzino or '' }}</td>
                     <td>{{ r.posizione or '' }}</td>
                     <td>{{ r.stato or '' }}</td>
-                    <td>{{ r.pezzo or '' }}</td>
-                    <td>{{ r.n_colli or '' }}</td>
-                    <td>{{ r.peso or '' }}</td>
-                    <td>{{ r.lunghezza or '' }}</td>
-                    <td>{{ r.larghezza or '' }}</td>
-                    <td>{{ r.altezza or '' }}</td>
-                    <td>{{ r.m2 or '' }}</td>
-                    <td>{{ r.m3 or '' }}</td>
-                    <td>{{ r.serial_number or '' }}</td>
-                    <td>{{ r.ns_rif or '' }}</td>
+                    <td class="text-end">{{ r.pezzo or '' }}</td>
+                    <td class="text-end">{{ r.n_colli or '' }}</td>
+                    <td class="text-end">{{ r.peso or '' }}</td>
+                    <td>{{ r.lunghezza|int }}x{{ r.larghezza|int }}x{{ r.altezza|int }}</td>
+                    <td class="text-end">{{ r.m2 or '' }}</td>
+                    <td class="text-end">{{ r.m3 or '' }}</td>
                     <td>{{ r.mezzi_in_uscita or '' }}</td>
                     <td>{{ r.n_ddt_uscita or '' }}</td>
                     <td>{{ r.data_uscita or '' }}</td>
-                    <td><a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}">✏️</a></td>
+                    <td class="text-desc" title="{{ r.note }}">{{ r.note or '' }}</td>
+                    <td class="text-center">
+                        <a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}" class="btn btn-sm btn-link p-0 text-decoration-none">✏️</a>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
+            <tfoot class="sticky-bottom bg-white fw-bold">
+                <tr>
+                    <td colspan="27" class="py-2 px-3">
+                        Totali: Colli {{ total_colli }} | M² {{ total_m2 }} | Peso {{ total_peso }}
+                    </td>
+                </tr>
+            </tfoot>
         </table>
     </div>
 </form>
 <script>function toggleAll(s){ document.getElementsByName('ids').forEach(c => c.checked = s.checked); }</script>
 {% endblock %}
 """
-EDIT_HTML = """
-{% extends 'base.html' %}
-{% block content %}
-
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h3><i class="bi bi-pencil-square"></i> {% if row %}Modifica Articolo #{{ row.id_articolo }}{% else %}Nuovo Articolo{% endif %}</h3>
-    <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Torna alla Lista</a>
-</div>
-
-<form method="post" class="card p-4 shadow-sm">
-    <div class="row g-3">
-        <div class="col-md-3">
-            <label class="form-label fw-bold">Codice Articolo</label>
-            <input type="text" name="codice_articolo" class="form-control" value="{{ row.codice_articolo or '' }}">
-        </div>
-        <div class="col-md-5">
-            <label class="form-label fw-bold">Descrizione</label>
-            <input type="text" name="descrizione" class="form-control" value="{{ row.descrizione or '' }}">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">Stato</label>
-            <select name="stato" class="form-select">
-                <option value="DOGANALE" {% if row.stato == 'DOGANALE' %}selected{% endif %}>DOGANALE</option>
-                <option value="NAZIONALE" {% if row.stato == 'NAZIONALE' %}selected{% endif %}>NAZIONALE</option>
-                <option value="USCITO" {% if row.stato == 'USCITO' %}selected{% endif %}>USCITO</option>
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">Commessa</label>
-            <input type="text" name="commessa" class="form-control" value="{{ row.commessa or '' }}">
-        </div>
-
-        <div class="col-md-4">
-            <label class="form-label">Cliente</label>
-            <input type="text" name="cliente" class="form-control" value="{{ row.cliente or '' }}">
-        </div>
-        <div class="col-md-4">
-            <label class="form-label">Fornitore</label>
-            <input type="text" name="fornitore" class="form-control" value="{{ row.fornitore or '' }}">
-        </div>
-        <div class="col-md-4">
-            <label class="form-label">Protocollo</label>
-            <input type="text" name="protocollo" class="form-control" value="{{ row.protocollo or '' }}">
-        </div>
-
-        <div class="col-md-3">
-            <label class="form-label">N. Buono</label>
-            <input type="text" name="buono_n" class="form-control" value="{{ row.buono_n or '' }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Magazzino</label>
-            <input type="text" name="magazzino" class="form-control" value="{{ row.magazzino or 'STRUPPA' }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Posizione</label>
-            <input type="text" name="posizione" class="form-control" value="{{ row.posizione or '' }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Ordine</label>
-            <input type="text" name="ordine" class="form-control" value="{{ row.ordine or '' }}">
-        </div>
-
-        <div class="col-md-3">
-            <label class="form-label">Data Ingresso</label>
-            <input type="date" name="data_ingresso" class="form-control" value="{{ row.data_ingresso or '' }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">DDT Ingresso</label>
-            <input type="text" name="n_ddt_ingresso" class="form-control" value="{{ row.n_ddt_ingresso or '' }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Data Uscita</label>
-            <input type="date" name="data_uscita" class="form-control" value="{{ row.data_uscita or '' }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">DDT Uscita</label>
-            <input type="text" name="n_ddt_uscita" class="form-control" value="{{ row.n_ddt_uscita or '' }}">
-        </div>
-
-        <div class="col-md-2">
-            <label class="form-label">Pezzi</label>
-            <input type="number" name="pezzo" class="form-control" value="{{ row.pezzo or 0 }}">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">Colli</label>
-            <input type="number" name="n_colli" class="form-control" value="{{ row.n_colli or 0 }}">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">Peso (Kg)</label>
-            <input type="number" step="0.01" name="peso" class="form-control" value="{{ row.peso or 0 }}">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">M³</label>
-            <input type="number" step="0.001" name="m3" class="form-control" value="{{ row.m3 or 0 }}">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">N. Arrivo</label>
-            <input type="text" name="n_arrivo" class="form-control" value="{{ row.n_arrivo or '' }}">
-        </div>
-
-        <div class="col-12">
-            <label class="form-label">Note</label>
-            <textarea name="note" class="form-control" rows="3">{{ row.note or '' }}</textarea>
-        </div>
-    </div>
-
-    <div class="mt-4 text-end">
-        <button type="submit" class="btn btn-primary px-5"><i class="bi bi-save"></i> Salva Modifiche</button>
-    </div>
-</form>
-
-{% if row %}
-<div class="card mt-4 p-4 shadow-sm">
-    <h5><i class="bi bi-paperclip"></i> Allegati</h5>
-    <hr>
-    
-    <form action="{{ url_for('upload_file', id_articolo=row.id_articolo) }}" method="post" enctype="multipart/form-data" class="mb-3">
-        <div class="input-group">
-            <input type="file" name="file" class="form-control" required>
-            <button type="submit" class="btn btn-outline-primary">Carica</button>
-        </div>
-    </form>
-
-    <div class="row">
-        {% for att in row.attachments %}
-        <div class="col-md-3 mb-3">
-            <div class="card h-100">
-                <div class="card-body text-center">
-                    {% if att.kind == 'photo' %}
-                        <img src="{{ url_for('serve_uploaded_file', filename=att.filename) }}" class="img-fluid mb-2" style="max-height: 100px;">
-                    {% else %}
-                        <i class="bi bi-file-earmark-pdf text-danger" style="font-size: 3rem;"></i>
-                    {% endif %}
-                    <p class="small text-truncate" title="{{ att.filename }}">{{ att.filename }}</p>
-                    <a href="{{ url_for('serve_uploaded_file', filename=att.filename) }}" target="_blank" class="btn btn-sm btn-primary">Apri</a>
-                    <a href="{{ url_for('delete_file', id_file=att.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Eliminare?')">Elimina</a>
-                </div>
-            </div>
-        </div>
-        {% else %}
-        <p class="text-muted">Nessun allegato presente.</p>
-        {% endfor %}
-    </div>
-</div>
-{% endif %}
-
-{% endblock %}
-"""
-
 BULK_EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
