@@ -2074,11 +2074,10 @@ def bulk_edit():
             flash("Nessun articolo selezionato.", "warning")
             return redirect(url_for('giacenze'))
 
-        # Pulisci e verifica IDs
         ids = [int(i) for i in ids if str(i).isdigit()]
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
 
-        # Configurazione campi
+        # Configurazione Campi
         editable_fields = [
             ('Cliente', 'cliente'), ('Fornitore', 'fornitore'),
             ('Codice Articolo', 'codice_articolo'), ('Descrizione', 'descrizione'),
@@ -2090,50 +2089,42 @@ def bulk_edit():
             ('N. Arrivo', 'n_arrivo'), ('Serial Number', 'serial_number')
         ]
 
-        # LOGICA SALVATAGGIO
         if request.method == 'POST' and request.form.get('save_bulk') == 'true':
             updates = {}
+            # Itera sui campi
             for _, field_name in editable_fields:
-                # Controlla se la checkbox relativa è stata spuntata
-                # Nel form HTML le checkbox hanno nome "chk_{field_name}"
-                if request.form.get(f'chk_{field_name}'):
-                    raw_val = request.form.get(field_name)
+                # Controlla se il checkbox è stato spuntato
+                chk = request.form.get(f"chk_{field_name}")
+                if chk: # Se presente
+                    val = request.form.get(field_name)
                     
-                    # Gestione valori vuoti e conversioni
-                    if field_name in ['n_colli', 'pezzo']:
-                        val = to_int_eu(raw_val)
-                    elif field_name in ['lunghezza', 'larghezza', 'altezza']:
-                        val = to_float_eu(raw_val)
-                    elif field_name == 'data_uscita' and raw_val:
-                        val = parse_date_ui(raw_val)
-                    else:
-                        val = raw_val
+                    # Gestione tipi
+                    if field_name in ['n_colli', 'pezzo']: val = to_int_eu(val)
+                    elif field_name in ['lunghezza', 'larghezza', 'altezza']: val = to_float_eu(val)
+                    elif field_name == 'data_uscita' and val: val = parse_date_ui(val)
                         
                     updates[field_name] = val
 
             if updates:
-                count = 0
+                c = 0
                 for art in articoli:
                     for k, v in updates.items():
                         setattr(art, k, v)
-                    
-                    # Ricalcolo automatico M2/M3 se necessario
-                    if any(x in updates for x in ['lunghezza', 'larghezza', 'altezza', 'n_colli']):
-                        m2, m3 = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, art.n_colli)
-                        art.m2 = m2
-                        art.m3 = m3
-                    count += 1
-                
+                    # Ricalcolo
+                    if any(x in updates for x in ['lunghezza','larghezza','altezza','n_colli']):
+                        art.m2, art.m3 = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, art.n_colli)
+                    c += 1
                 db.commit()
-                flash(f"{count} articoli aggiornati con successo.", "success")
+                flash(f"{c} articoli aggiornati.", "success")
             else:
-                flash("Nessun campo selezionato per la modifica.", "info")
+                flash("Nessun campo selezionato. Spunta le caselle a sinistra dei campi.", "warning")
             
             return redirect(url_for('giacenze'))
 
         return render_template('bulk_edit.html', rows=articoli, ids_csv=",".join(map(str, ids)), fields=editable_fields)
     finally:
         db.close()
+
 @app.post('/delete_rows')
 @login_required
 def delete_rows():
