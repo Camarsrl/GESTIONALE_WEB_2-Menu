@@ -822,47 +822,45 @@ BULK_EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="card p-4">
-    <h5><i class="bi bi-pencil-square"></i> Modifica Multipla ({{ rows|length }} articoli)</h5>
-    <p class="text-muted small">Seleziona i campi da aggiornare spuntando la casella corrispondente.</p>
-    <hr>
+    <h5>Modifica Multipla ({{ rows|length }} elementi)</h5>
+    <div class="alert alert-info py-2 small">
+        <i class="bi bi-info-circle"></i> Spunta la casella a sinistra del campo per attivare la modifica.
+    </div>
     <form method="post">
         <input type="hidden" name="ids" value="{{ ids_csv }}">
         <input type="hidden" name="save_bulk" value="true">
         
-        <div class="row g-3">
+        <div class="row g-2">
             {% for label, name in fields %}
-            <div class="col-md-4">
-                <div class="input-group">
-                    <div class="input-group-text">
-                        <input class="form-check-input mt-0" type="checkbox" name="chk_{{ name }}" value="1" 
-                               onchange="document.getElementById('in_{{ name }}').disabled = !this.checked">
+            <div class="col-md-3">
+                <div class="input-group input-group-sm">
+                    <div class="input-group-text bg-light">
+                        <input class="form-check-input mt-0" type="checkbox" name="chk_{{ name }}" id="chk_{{ name }}" value="1"
+                               onclick="toggleInput('{{ name }}')">
                     </div>
-                    <span class="input-group-text bg-white" style="min-width: 100px;">{{ label }}</span>
-                    <input type="text" id="in_{{ name }}" name="{{ name }}" class="form-control" disabled placeholder="Nuovo valore...">
+                    <input type="text" id="in_{{ name }}" name="{{ name }}" class="form-control" 
+                           placeholder="{{ label }}" disabled style="background-color: #e9ecef;">
                 </div>
             </div>
             {% endfor %}
         </div>
         
-        <div class="mt-4 d-flex gap-2 justify-content-end">
+        <div class="mt-4 text-end">
             <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
-            <button type="submit" class="btn btn-primary px-4"><i class="bi bi-save"></i> Applica Modifiche</button>
+            <button type="submit" class="btn btn-primary">Applica Modifiche</button>
         </div>
     </form>
-    
-    <div class="mt-4">
-        <h6 class="text-muted border-bottom pb-2">Articoli che verranno modificati:</h6>
-        <div style="max-height: 200px; overflow-y: auto;">
-            <ul class="list-group list-group-flush small">
-            {% for row in rows %}
-                <li class="list-group-item py-1">
-                    <b>ID {{ row.id_articolo }}</b>: {{ row.codice_articolo or 'N/D' }} - {{ row.descrizione or 'N/D' }}
-                </li>
-            {% endfor %}
-            </ul>
-        </div>
-    </div>
 </div>
+
+<script>
+function toggleInput(name) {
+    var chk = document.getElementById('chk_' + name);
+    var inp = document.getElementById('in_' + name);
+    inp.disabled = !chk.checked;
+    inp.style.backgroundColor = chk.checked ? '#fff' : '#e9ecef';
+    if(chk.checked) inp.focus();
+}
+</script>
 {% endblock %}
 """
 BUONO_PREVIEW_HTML = """
