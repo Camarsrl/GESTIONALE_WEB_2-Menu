@@ -2352,69 +2352,73 @@ def _generate_buono_pdf(form_data, rows):
     story = []
     
     styles = getSampleStyleSheet()
-    s_norm = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=9, leading=11)
+    s_norm = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=9, leading=11, textColor=colors.black)
     s_bold = ParagraphStyle('Bold', parent=s_norm, fontName='Helvetica-Bold')
     s_title = ParagraphStyle('Title', parent=styles['Heading1'], alignment=TA_CENTER, fontSize=16, spaceAfter=10, textColor=colors.black)
 
-    # 1. Logo e Titolo
+    # 1. Logo
     if LOGO_PATH and Path(LOGO_PATH).exists():
         story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER'))
-        story.append(Spacer(1, 5*mm))
-
+    else:
+        story.append(Paragraph("<b>Ca.mar. srl</b>", s_title))
+    
+    story.append(Spacer(1, 5*mm))
     story.append(Paragraph("BUONO DI PRELIEVO", s_title))
     story.append(Spacer(1, 5*mm))
     
-    # 2. Tabella Dati Testata (Stile "Scheda")
-    # Creiamo una tabella a 2 colonne per i dati principali
+    # 2. Tabella Dati Testata (Simile al tuo PDF)
     meta_data = [
-        [Paragraph("<b>Buono N:</b>", s_bold), Paragraph(form_data.get('buono_n',''), s_norm)],
-        [Paragraph("<b>Data:</b>", s_bold), Paragraph(form_data.get('data_em',''), s_norm)],
+        [Paragraph("<b>Data Emissione:</b>", s_bold), Paragraph(form_data.get('data_em',''), s_norm)],
         [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(form_data.get('commessa',''), s_norm)],
+        [Paragraph("<b>Fornitore:</b>", s_bold), Paragraph(form_data.get('fornitore',''), s_norm)],
         [Paragraph("<b>Protocollo:</b>", s_bold), Paragraph(form_data.get('protocollo',''), s_norm)],
-        [Paragraph("<b>Fornitore:</b>", s_bold), Paragraph(form_data.get('fornitore',''), s_norm)]
+        [Paragraph("<b>N. Buono:</b>", s_bold), Paragraph(form_data.get('buono_n',''), s_norm)]
     ]
     
-    # Usiamo una tabella larga per impaginare bene i dati
-    # Colonna 1: Etichetta (40mm), Colonna 2: Valore (Resto)
     t_meta = Table(meta_data, colWidths=[40*mm, 140*mm])
     t_meta.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),       # Griglia sottile
-        ('BACKGROUND', (0,0), (0,-1), colors.whitesmoke), # Sfondo grigio per le etichette (Colonna 1)
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('BACKGROUND', (0,0), (0,-1), colors.whitesmoke), # Sfondo grigio colonna sx
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('PADDING', (0,0), (-1,-1), 6),
+        ('PADDING', (0,0), (-1,-1), 5),
     ]))
     story.append(t_meta)
     story.append(Spacer(1, 8*mm))
     
-    # Cliente (Fuori tabella, come nell'originale)
-    # Recuperiamo il cliente dal primo articolo
+    # Cliente
     cliente = rows[0].cliente if rows else ""
-    story.append(Paragraph(f"<b>Cliente:</b> {cliente}", ParagraphStyle('Client', parent=s_norm, fontSize=12)))
+    story.append(Paragraph(f"<b>Cliente:</b> {cliente}", ParagraphStyle('C', parent=s_norm, fontSize=11)))
     story.append(Spacer(1, 5*mm))
     
-    # 3. Tabella Articoli
+    # 3. Tabella Articoli (COLONNE CORRETTE: Ordine, Codice, Descrizione, Qta, Arrivo)
     header = [
-        Paragraph('<b>Codice</b>', s_bold), 
-        Paragraph('<b>Descrizione</b>', s_bold), 
-        Paragraph('<b>Q.tà</b>', s_bold), 
-        Paragraph('<b>Note</b>', s_bold)
+        Paragraph('<b>Ordine</b>', s_bold),
+        Paragraph('<b>Codice Articolo</b>', s_bold), 
+        Paragraph('<b>Descrizione / Note</b>', s_bold), 
+        Paragraph('<b>Q.tà</b>', s_bold),
+        Paragraph('<b>N.Arrivo</b>', s_bold)
     ]
     data = [header]
     
     for r in rows:
         q = form_data.get(f"q_{r.id_articolo}") or r.n_colli
-        n = form_data.get(f"note_{r.id_articolo}") or r.note
+        # Combina Descrizione e Note utente
+        desc = r.descrizione or ''
+        note_user = form_data.get(f"note_{r.id_articolo}") or r.note
+        if note_user: desc += f"<br/><i>Note: {note_user}</i>"
+        
         data.append([
+            Paragraph(r.ordine or '', s_norm),
             Paragraph(r.codice_articolo or '', s_norm), 
-            Paragraph(r.descrizione or '', s_norm), 
+            Paragraph(desc, s_norm), 
             str(q), 
-            Paragraph(n or '', s_norm)
+            Paragraph(r.n_arrivo or '', s_norm)
         ])
         
-    t = Table(data, colWidths=[40*mm, 70*mm, 15*mm, 65*mm], repeatRows=1)
+    t = Table(data, colWidths=[30*mm, 35*mm, 85*mm, 15*mm, 25*mm], repeatRows=1)
     t.setStyle(TableStyle([
         ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey), # Intestazione grigia
+        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey), 
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('PADDING', (0,0), (-1,-1), 4)
     ]))
@@ -2422,7 +2426,10 @@ def _generate_buono_pdf(form_data, rows):
     
     # 4. Firme
     story.append(Spacer(1, 20*mm))
-    story.append(Paragraph("Firma per ricevuta: __________________________", s_norm))
+    sig_data = [[Paragraph("Firma Magazzino:<br/><br/>__________________", s_norm),
+                 Paragraph("Firma Cliente:<br/><br/>__________________", s_norm)]]
+    t_sig = Table(sig_data, colWidths=[90*mm, 90*mm])
+    story.append(t_sig)
     
     doc.build(story)
     bio.seek(0)
