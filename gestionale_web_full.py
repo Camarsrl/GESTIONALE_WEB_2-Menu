@@ -1727,21 +1727,24 @@ def invia_email():
 def nuovo_articolo():
     db = SessionLocal()
     try:
-        # Crea record vuoto immediato
-        art = Articolo(data_ingresso=date.today().strftime("%d/%m/%Y"), stato="DOGANALE")
+        art = Articolo()
+        art.data_ingresso = date.today().strftime("%d/%m/%Y")
+        art.stato = "DOGANALE"
+        
         db.add(art)
         db.commit()
-        db.refresh(art) # Ottiene l'ID
+        db.refresh(art) # Importante: ottiene l'ID dal DB
         
-        # Redirect forzato alla pagina di modifica
-        return redirect(url_for('edit_record', id_articolo=art.id_articolo))
+        new_id = art.id_articolo
+        db.close()
+        
+        # Redirect esplicito alla pagina di modifica
+        return redirect(url_for('edit_record', id_articolo=new_id))
     except Exception as e:
         db.rollback()
-        flash(f"Errore creazione: {e}", "danger")
+        flash(f"Errore creazione riga: {e}", "danger")
         return redirect(url_for('giacenze'))
-    finally:
-        db.close()
-
+        
 @app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
 @login_required
 def edit_record(id_articolo):
