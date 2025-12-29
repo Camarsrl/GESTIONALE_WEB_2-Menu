@@ -1790,24 +1790,19 @@ def invia_email():
 # 8. CRUD (NUOVO / MODIFICA)
 # ========================================================
 
-@app.route('/new', methods=['GET'])
+@app.route('/new', methods=['GET', 'POST'])
 @login_required
 def nuovo_articolo():
     db = SessionLocal()
     try:
-        # Crea record vuoto
-        art = Articolo()
-        art.data_ingresso = date.today().strftime("%d/%m/%Y")
-        art.stato = "DOGANALE"
-        
+        # Crea record vuoto immediato
+        art = Articolo(data_ingresso=date.today().strftime("%d/%m/%Y"), stato="DOGANALE")
         db.add(art)
         db.commit()
-        db.refresh(art) # Ottieni ID
+        db.refresh(art) # Ottiene l'ID
         
-        flash(f"Articolo {art.id_articolo} creato.", "success")
-        # Redirect alla pagina di modifica di QUEL record
+        # Redirect forzato alla pagina di modifica
         return redirect(url_for('edit_record', id_articolo=art.id_articolo))
-        
     except Exception as e:
         db.rollback()
         flash(f"Errore creazione: {e}", "danger")
