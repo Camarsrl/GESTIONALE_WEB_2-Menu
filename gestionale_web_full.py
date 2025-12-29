@@ -1793,24 +1793,24 @@ def invia_email():
 @app.route('/new', methods=['GET'])
 @login_required
 def nuovo_articolo():
-    """Crea un nuovo articolo vuoto e reindirizza alla pagina di modifica."""
     db = SessionLocal()
     try:
+        # Crea record vuoto
         art = Articolo()
-        # Imposta valori di default
-        art.data_ingresso = date.today().strftime("%d/%m/%Y") # Data di oggi
+        art.data_ingresso = date.today().strftime("%d/%m/%Y")
         art.stato = "DOGANALE"
         
         db.add(art)
         db.commit()
-        db.refresh(art) # Recupera l'ID appena creato
+        db.refresh(art) # Ottieni ID
         
-        flash(f"Nuovo articolo #{art.id_articolo} creato. Compila i dati qui sotto.", "success")
+        flash(f"Articolo {art.id_articolo} creato.", "success")
+        # Redirect alla pagina di modifica di QUEL record
         return redirect(url_for('edit_record', id_articolo=art.id_articolo))
         
     except Exception as e:
         db.rollback()
-        flash(f"Errore durante la creazione: {e}", "danger")
+        flash(f"Errore creazione: {e}", "danger")
         return redirect(url_for('giacenze'))
     finally:
         db.close()
