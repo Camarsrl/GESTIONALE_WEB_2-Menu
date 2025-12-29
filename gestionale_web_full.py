@@ -2768,73 +2768,35 @@ app.jinja_loader = DictLoader(templates)
 app.jinja_env.globals['getattr'] = getattr
 app.jinja_env.filters['fmt_date'] = fmt_date
     
+
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
 def labels_pdf():
-    # Recupera tutti i dati dal form
-    form_data = request.form
-    cliente = form_data.get('cliente')
-    formato = form_data.get('formato', '62x100')
-    anteprima = form_data.get('anteprima') == 'on'
-
-    # Verifica se è una stampa manuale (controlliamo se ci sono dati specifici)
-    # Se c'è almeno un campo compilato tra ordine, commessa o fornitore, è manuale.
-    is_manual = any(form_data.get(k) for k in ['ordine', 'commessa', 'fornitore', 'n_ddt_ingresso', 'n_arrivo'])
-
+    # Se ci sono ID selezionati, prendi dal DB
+    ids = request.form.getlist('ids')
     articoli = []
     
-    if is_manual:
-        # --- STAMPA MANUALE: Crea un oggetto Articolo "volante" con i dati del form ---
-        # Non lo salviamo nel DB, serve solo per il PDF
-        art_temp = Articolo()
-        art_temp.cliente = cliente
-        art_temp.fornitore = form_data.get('fornitore')
-        art_temp.ordine = form_data.get('ordine')
-        art_temp.commessa = form_data.get('commessa')
-        art_temp.n_ddt_ingresso = form_data.get('n_ddt_ingresso') # O ddt_ingresso se il name html è diverso
-        art_temp.data_ingresso = form_data.get('data_ingresso')
-        art_temp.n_arrivo = form_data.get('n_arrivo') # O arrivo
-        art_temp.n_colli = form_data.get('n_colli')
-        art_temp.posizione = form_data.get('posizione')
-        
-        articoli = [art_temp]
-    
-    else:
-        # --- STAMPA MASSIVA: Prendi dal DB ---
+    if ids:
         db = SessionLocal()
-        try:
-            # Se ci sono ID selezionati (es. da check in giacenze)
-            ids = request.form.getlist('ids')
-            if ids:
-                articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-            elif cliente:
-                articoli = db.query(Articolo).filter(Articolo.cliente == cliente).all()
-        finally:
-            db.close()
+        articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+        db.close()
+    else:
+        # Etichetta Manuale: Crea oggetto al volo con i dati del form
+        a = Articolo()
+        a.cliente = request.form.get('cliente')
+        a.fornitore = request.form.get('fornitore')
+        a.ordine = request.form.get('ordine')
+        a.commessa = request.form.get('commessa')
+        a.n_ddt_ingresso = request.form.get('ddt_ingresso') # Attenzione al nome campo HTML
+        a.data_ingresso = request.form.get('data_ingresso')
+        a.n_arrivo = request.form.get('arrivo') # QUI ERA IL PROBLEMA! (arrivo vs n_arrivo)
+        a.n_colli = to_int_eu(request.form.get('n_colli'))
+        a.posizione = request.form.get('posizione')
+        articoli = [a]
 
-    if not articoli:
-        flash("Nessun dato trovato per la stampa.", "warning")
-        return redirect(request.referrer or url_for('home'))
-
-    try:
-        # Genera il PDF usando la funzione helper
-        pdf_bio = _genera_pdf_etichetta(articoli, formato, anteprima)
-
-        filename = f"Etichetta_{cliente or 'Manuale'}.pdf"
-        
-        # Se è manuale o anteprima, mostralo nel browser (inline), altrimenti scarica
-        as_attachment = False if (anteprima or is_manual) else True
-
-        return send_file(
-            pdf_bio, 
-            as_attachment=as_attachment, 
-            download_name=filename, 
-            mimetype='application/pdf'
-        )
-            
-    except Exception as e:
-        flash(f"Errore generazione etichette: {e}", "danger")
-        return redirect(request.referrer or url_for('home'))
+    # Genera il PDF
+    pdf_bio = _genera_pdf_etichetta(articoli, request.form.get('formato', '62x100'))
+    return send_file(pdf_bio, as_attachment=False, mimetype='application/pdf')
 
 # --- FIX DATABASE SCHEMA (Esegui all'avvio per correggere tipi colonne) ---
 def fix_db_schema():
