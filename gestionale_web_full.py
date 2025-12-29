@@ -822,45 +822,30 @@ BULK_EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="card p-4">
-    <h5>Modifica Multipla ({{ rows|length }} elementi)</h5>
-    <div class="alert alert-info py-2 small">
-        <i class="bi bi-info-circle"></i> Spunta la casella a sinistra del campo per attivare la modifica.
-    </div>
+    <h5>Modifica Multipla</h5>
     <form method="post">
         <input type="hidden" name="ids" value="{{ ids_csv }}">
         <input type="hidden" name="save_bulk" value="true">
-        
         <div class="row g-2">
             {% for label, name in fields %}
             <div class="col-md-3">
                 <div class="input-group input-group-sm">
-                    <div class="input-group-text bg-light">
-                        <input class="form-check-input mt-0" type="checkbox" name="chk_{{ name }}" id="chk_{{ name }}" value="1"
-                               onclick="toggleInput('{{ name }}')">
+                    <div class="input-group-text">
+                        <input class="form-check-input mt-0" type="checkbox" name="chk_{{ name }}" 
+                               onclick="document.getElementById('in_{{ name }}').disabled = !this.checked">
                     </div>
                     <input type="text" id="in_{{ name }}" name="{{ name }}" class="form-control" 
-                           placeholder="{{ label }}" disabled style="background-color: #e9ecef;">
+                           placeholder="{{ label }}" disabled>
                 </div>
             </div>
             {% endfor %}
         </div>
-        
-        <div class="mt-4 text-end">
-            <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
-            <button type="submit" class="btn btn-primary">Applica Modifiche</button>
+        <div class="mt-3 text-end">
+            <a href="{{ url_for('giacenze') }}" class="btn btn-secondary btn-sm">Annulla</a>
+            <button type="submit" class="btn btn-primary btn-sm">Applica Modifiche</button>
         </div>
     </form>
 </div>
-
-<script>
-function toggleInput(name) {
-    var chk = document.getElementById('chk_' + name);
-    var inp = document.getElementById('in_' + name);
-    inp.disabled = !chk.checked;
-    inp.style.backgroundColor = chk.checked ? '#fff' : '#e9ecef';
-    if(chk.checked) inp.focus();
-}
-</script>
 {% endblock %}
 """
 BUONO_PREVIEW_HTML = """
