@@ -1883,93 +1883,69 @@ def delete_attachment(att_id):
 @app.route('/giacenze', methods=['GET', 'POST'])
 @login_required
 def giacenze():
-    import logging
-    from sqlalchemy import func
-    from sqlalchemy.orm import selectinload
-
     db = SessionLocal()
     try:
-        # Query base
-        qs = db.query(Articolo).options(selectinload(Articolo.attachments)).order_by(Articolo.id_articolo.desc())
-
-        # 1. Filtro Cliente (Sicurezza + Input)
+        q = db.query(Articolo).options(selectinload(Articolo.attachments)).order_by(Articolo.id_articolo.desc())
+        
+        # Filtro Ruolo Cliente
         if session.get('role') == 'client':
-            qs = qs.filter(Articolo.cliente.ilike(f"%{current_user.id}%"))
-        elif request.args.get('cliente'):
-            qs = qs.filter(Articolo.cliente.ilike(f"%{request.args.get('cliente')}%"))
+            q = q.filter(Articolo.cliente.ilike(f"%{current_user.id}%"))
+        
+        args = request.args
+        
+        # Filtro ID specifico
+        if args.get('id'):
+            try: q = q.filter(Articolo.id_articolo == int(args.get('id')))
+            except: pass
 
-        # 2. Filtri Testuali (Tutti quelli richiesti)
+        # Lista completa dei campi di testo da filtrare
         text_filters = [
-            'commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo', 
-            'fornitore', 'ordine', 'magazzino', 'mezzi_in_uscita', 'stato',
+            'cliente', 'fornitore', 'commessa', 'ordine', 'protocollo', 
+            'serial_number', 'codice_articolo', 'magazzino', 'stato', 
+            'buono_n', 'descrizione', 'mezzi_in_uscita', 
             'n_ddt_ingresso', 'n_ddt_uscita'
         ]
         
-        args = request.args
-        for field in text_filters:
-            val = args.get(field)
-            if val:
-                qs = qs.filter(getattr(Articolo, field).ilike(f"%{val}%"))
+        for f in text_filters:
+            val = args.get(f)
+            if val: q = q.filter(getattr(Articolo, f).ilike(f"%{val}%"))
 
-        # Eseguiamo la query (otteniamo tutte le righe che matchano i testi)
-        rows_raw = qs.all()
-        
-        # 3. Filtri DATE (Fatti in Python per sicurezza formato dd/mm/yyyy)
+        # Recupero dati per filtro date in memoria (sicurezza formati misti)
+        all_rows = q.all()
         rows = []
         
-        # Helper per convertire date utente (YYYY-MM-DD)
-        def get_date_obj(k): 
-            v = args.get(k)
-            return datetime.strptime(v, "%Y-%m-%d").date() if v else None
+        # Parsing date dai filtri
+        d_ing_da = parse_date_ui(args.get('data_ing_da'))
+        d_ing_a = parse_date_ui(args.get('data_ing_a'))
+        d_usc_da = parse_date_ui(args.get('data_usc_da'))
+        d_usc_a = parse_date_ui(args.get('data_usc_a'))
 
-        d_ing_da = get_date_obj('data_ing_da')
-        d_ing_a = get_date_obj('data_ing_a')
-        d_usc_da = get_date_obj('data_usc_da')
-        d_usc_a = get_date_obj('data_usc_a')
-
-        for r in rows_raw:
+        for r in all_rows:
             keep = True
             
             # Filtro Data Ingresso
             if d_ing_da or d_ing_a:
-                r_ing = parse_date_ui(r.data_ingresso) # Restituisce stringa YYYY-MM-DD o None
-                if r_ing:
-                    r_ing_dt = datetime.strptime(r_ing, "%Y-%m-%d").date()
-                    if d_ing_da and r_ing_dt < d_ing_da: keep = False
-                    if d_ing_a and r_ing_dt > d_ing_a: keep = False
-                elif d_ing_da or d_ing_a: # Se ho filtri data ma la riga non ha data
-                    keep = False
+                ri = parse_date_ui(r.data_ingresso)
+                if not ri: keep = False # Se filtro per data ma data manca, escludo
+                elif d_ing_da and ri < d_ing_da: keep = False
+                elif d_ing_a and ri > d_ing_a: keep = False
             
             # Filtro Data Uscita
             if keep and (d_usc_da or d_usc_a):
-                r_usc = parse_date_ui(r.data_uscita)
-                if r_usc:
-                    r_usc_dt = datetime.strptime(r_usc, "%Y-%m-%d").date()
-                    if d_usc_da and r_usc_dt < d_usc_da: keep = False
-                    if d_usc_a and r_usc_dt > d_usc_a: keep = False
-                elif d_usc_da or d_usc_a:
-                    keep = False
+                ru = parse_date_ui(r.data_uscita)
+                if not ru: keep = False
+                elif d_usc_da and ru < d_usc_da: keep = False
+                elif d_usc_a and ru > d_usc_a: keep = False
             
-            if keep:
-                rows.append(r)
+            if keep: rows.append(r)
 
         # Calcolo Totali
-        stock_rows = [r for r in rows if not r.data_uscita]
-        total_colli = sum((r.n_colli or 0) for r in stock_rows)
-        total_m2 = sum((r.m2 or 0) for r in stock_rows)
-        total_peso = sum((r.peso or 0) for r in stock_rows)
+        stock = [r for r in rows if not r.data_uscita]
+        tc = sum((r.n_colli or 0) for r in stock)
+        tm = sum((r.m2 or 0) for r in stock)
+        tp = sum((r.peso or 0) for r in stock)
 
-        return render_template(
-            'giacenze.html',
-            rows=rows,
-            total_colli=total_colli,
-            total_m2=f"{total_m2:.2f}",
-            total_peso=f"{total_peso:.2f}"
-        )
-    except Exception as e:
-        logging.error(f"Errore giacenze: {e}")
-        flash(f"Errore caricamento dati: {e}", "danger")
-        return render_template('giacenze.html', rows=[], total_colli=0, total_m2="0", total_peso="0")
+        return render_template('giacenze.html', rows=rows, total_colli=tc, total_m2=f"{tm:.2f}", total_peso=f"{tp:.2f}")
     finally:
         db.close()
 
