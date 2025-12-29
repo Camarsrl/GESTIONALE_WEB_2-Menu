@@ -2570,48 +2570,46 @@ def labels_form():
 # --- FUNZIONE ETICHETTE AGGIORNATA (Arrivo 10/25 N.1) ---
 def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     bio = io.BytesIO()
-    if formato == '62x100':
-        pagesize = (100*mm, 62*mm); margin = 2*mm
-    else:
-        pagesize = A4; margin = 10*mm
-
-    doc = SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=margin, rightMargin=margin, topMargin=margin, bottomMargin=margin)
+    # Dimensioni fisse per stampante etichette
+    W, H = 100*mm, 62*mm
+    doc = SimpleDocTemplate(bio, pagesize=(W, H), leftMargin=2*mm, rightMargin=2*mm, topMargin=2*mm, bottomMargin=2*mm)
     story = []
     
     styles = getSampleStyleSheet()
-    # Font piccoli per far stare tutto
-    s_lbl = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=9)
-    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=9)
-    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
+    # Stili Font Aumentati
+    s_k = ParagraphStyle('K', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
+    s_v = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=11, leading=12)
+    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=16)
 
     for art in articoli:
-        tot = int(art.n_colli) if art.n_colli else 1
+        tot = int(art.n_colli or 1)
         if tot < 1: tot = 1
-
-        for i in range(1, tot + 1):
+        for i in range(1, tot+1):
+            # Logo Ingrandito
             if LOGO_PATH and Path(LOGO_PATH).exists():
-                story.append(Image(LOGO_PATH, width=30*mm, height=8*mm, hAlign='LEFT'))
+                story.append(Image(LOGO_PATH, width=40*mm, height=10*mm, hAlign='LEFT'))
                 story.append(Spacer(1, 1*mm))
             
-            # STRINGA ARRIVO: Es. "10/25 N.1"
-            arr_base = art.n_arrivo or ''
-            arr_str = f"{arr_base} N.{i}"
-            collo_str = f"{i} / {tot}"
-
+            # Dati Etichetta
+            # Recupera n_arrivo anche se l'oggetto è manuale
+            arr_val = art.n_arrivo or getattr(art, 'arrivo', '') or ''
+            arr_str = f"{arr_val} N.{i}"
+            col_str = f"{i} / {tot}"
+            
             dati = [
-                [Paragraph("CLIENTE:", s_lbl), Paragraph(art.cliente or '', s_val)],
-                [Paragraph("FORNITORE:", s_lbl), Paragraph(art.fornitore or '', s_val)],
-                [Paragraph("ORDINE:", s_lbl), Paragraph(art.ordine or '', s_val)],
-                [Paragraph("COMMESSA:", s_lbl), Paragraph(art.commessa or '', s_val)],
-                [Paragraph("DDT ING.:", s_lbl), Paragraph(art.n_ddt_ingresso or '', s_val)],
-                [Paragraph("DATA ING.:", s_lbl), Paragraph(fmt_date(art.data_ingresso), s_val)],
-                # Arrivo e Collo in evidenza
-                [Paragraph("ARRIVO:", s_lbl), Paragraph(arr_str, s_big)],
-                [Paragraph("COLLO:", s_lbl), Paragraph(collo_str, s_big)],
-                [Paragraph("POSIZIONE:", s_lbl), Paragraph(art.posizione or '', s_val)],
+                [Paragraph("CLIENTE:", s_k), Paragraph(art.cliente or '', s_v)],
+                [Paragraph("FORNITORE:", s_k), Paragraph(art.fornitore or '', s_v)],
+                [Paragraph("ORDINE:", s_k), Paragraph(art.ordine or '', s_v)],
+                [Paragraph("COMMESSA:", s_k), Paragraph(art.commessa or '', s_v)],
+                [Paragraph("DDT ING.:", s_k), Paragraph(art.n_ddt_ingresso or '', s_v)],
+                [Paragraph("DATA ING.:", s_k), Paragraph(fmt_date(art.data_ingresso), s_v)],
+                # Righe Grandi
+                [Paragraph("ARRIVO:", s_k), Paragraph(arr_str, s_big)],
+                [Paragraph("N. COLLO:", s_k), Paragraph(col_str, s_big)],
+                [Paragraph("POSIZIONE:", s_k), Paragraph(art.posizione or '', s_v)]
             ]
             
-            t = Table(dati, colWidths=[22*mm, 72*mm])
+            t = Table(dati, colWidths=[25*mm, 68*mm])
             t.setStyle(TableStyle([
                 ('VALIGN', (0,0), (-1,-1), 'TOP'),
                 ('LEFTPADDING', (0,0), (-1,-1), 0),
@@ -2621,7 +2619,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             ]))
             story.append(t)
             story.append(PageBreak())
-
+            
     doc.build(story)
     bio.seek(0)
     return bio
