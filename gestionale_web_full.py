@@ -455,60 +455,44 @@ GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <style>
-    /* Stile Tabella Compatto e Leggibile */
-    .table-compact td, .table-compact th { 
-        font-size: 0.8rem !important; 
-        padding: 4px 5px !important; 
-        vertical-align: middle; 
-        white-space: nowrap; /* Testo su una riga */
-        overflow: hidden; 
-        text-overflow: ellipsis; /* Puntini se troppo lungo */
-        max-width: 150px; /* Larghezza massima celle */
-    }
-    .table-compact th { 
-        font-weight: 600 !important; 
-        background-color: #f0f0f0; 
-        text-align: center;
-    }
-    .fw-buono { font-weight: bold !important; color: #000000; }
-    /* Hover per leggere tutto il testo */
-    .table-compact td:hover { 
-        white-space: normal; 
-        overflow: visible; 
-        position: relative; 
-        background-color: #fff; 
-        z-index: 10;
-    }
+.table-compact td, .table-compact th { font-size: 0.7rem; padding: 2px 3px; vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
+.table-compact th { background-color: #f0f0f0; font-weight: 600; text-align: center; }
+.fw-buono { font-weight: bold; color: #000; }
+.table-compact td:hover { white-space: normal; overflow: visible; position: relative; background-color: #fff; z-index: 10; }
 </style>
-
 <div class="d-flex justify-content-between align-items-center mb-2">
     <h4>Magazzino</h4>
     <div class="d-flex gap-2">
-       <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> Nuovo</a>
-       <a href="{{ url_for('labels_form') }}" class="btn btn-sm btn-info text-white"><i class="bi bi-tags"></i> Etichette</a>
-       <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
+       <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success">Nuovo</a>
+       <a href="{{ url_for('labels_form') }}" class="btn btn-sm btn-info text-white">Etichette</a>
+       <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning">Calcoli</a>
     </div>
 </div>
-
-<div class="card mb-2">
-    <div class="card-header py-1 bg-light" data-bs-toggle="collapse" data-bs-target="#filterBody" style="cursor:pointer">
-        <small><i class="bi bi-funnel"></i> <b>Filtri Avanzati</b></small>
-    </div>
-    <div id="filterBody" class="collapse {% if request.args %}show{% endif %}">
-        <div class="card-body py-2 bg-white">
-            <form method="get">
-                <div class="row g-2 mb-2">
-                    <div class="col-md-2"><input name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
-                    <div class="col-md-2"><input name="commessa" class="form-control form-control-sm" placeholder="Commessa" value="{{ request.args.get('commessa','') }}"></div>
-                    <div class="col-md-2"><input name="buono_n" class="form-control form-control-sm" placeholder="Buono N" value="{{ request.args.get('buono_n','') }}"></div>
-                    <div class="col-md-2"><input name="descrizione" class="form-control form-control-sm" placeholder="Descrizione" value="{{ request.args.get('descrizione','') }}"></div>
-                    <div class="col-md-2"><button type="submit" class="btn btn-primary btn-sm w-100">Cerca</button></div>
-                    <div class="col-md-1"><a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm w-100">Reset</a></div>
-                </div>
-            </form>
-        </div>
-    </div>
+<div class="card mb-2 bg-light"><div class="card-body py-2">
+<form method="get">
+<div class="row g-1">
+    <div class="col-md-1"><input name="id" class="form-control form-control-sm" placeholder="ID" value="{{ request.args.get('id','') }}"></div>
+    <div class="col-md-2"><input name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
+    <div class="col-md-2"><input name="fornitore" class="form-control form-control-sm" placeholder="Fornitore" value="{{ request.args.get('fornitore','') }}"></div>
+    <div class="col-md-2"><input name="commessa" class="form-control form-control-sm" placeholder="Commessa" value="{{ request.args.get('commessa','') }}"></div>
+    <div class="col-md-2"><input name="ordine" class="form-control form-control-sm" placeholder="Ordine" value="{{ request.args.get('ordine','') }}"></div>
+    <div class="col-md-2"><input name="protocollo" class="form-control form-control-sm" placeholder="Protocollo" value="{{ request.args.get('protocollo','') }}"></div>
+    <div class="col-md-1"><button type="submit" class="btn btn-primary btn-sm w-100">Cerca</button></div>
 </div>
+<div class="row g-1 mt-1">
+    <div class="col-md-2"><input name="buono_n" class="form-control form-control-sm" placeholder="Buono N" value="{{ request.args.get('buono_n','') }}"></div>
+    <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial" value="{{ request.args.get('serial_number','') }}"></div>
+    <div class="col-md-2"><input name="codice_articolo" class="form-control form-control-sm" placeholder="Codice" value="{{ request.args.get('codice_articolo','') }}"></div>
+    <div class="col-md-2"><input name="magazzino" class="form-control form-control-sm" placeholder="Magazzino" value="{{ request.args.get('magazzino','') }}"></div>
+    <div class="col-md-2"><input name="mezzi_in_uscita" class="form-control form-control-sm" placeholder="Mezzo Uscita" value="{{ request.args.get('mezzi_in_uscita','') }}"></div>
+    <div class="col-md-2"><input name="stato" class="form-control form-control-sm" placeholder="Stato" value="{{ request.args.get('stato','') }}"></div>
+</div>
+<div class="row g-1 mt-1">
+    <div class="col-md-3">Ingresso: <input name="data_ing_da" type="date" class="form-control form-control-sm d-inline w-auto" value="{{ request.args.get('data_ing_da','') }}"> - <input name="data_ing_a" type="date" class="form-control form-control-sm d-inline w-auto" value="{{ request.args.get('data_ing_a','') }}"></div>
+    <div class="col-md-3">Uscita: <input name="data_usc_da" type="date" class="form-control form-control-sm d-inline w-auto" value="{{ request.args.get('data_usc_da','') }}"> - <input name="data_usc_a" type="date" class="form-control form-control-sm d-inline w-auto" value="{{ request.args.get('data_usc_a','') }}"></div>
+    <div class="col-md-1"><a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm w-100">Reset</a></div>
+</div>
+</form></div></div>
 
 <form method="POST">
     <div class="btn-toolbar mb-2 gap-1">
@@ -518,74 +502,33 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-outline-secondary btn-sm">Duplica</button>
         <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare?')">Elimina</button>
     </div>
-
     <div class="table-responsive" style="max-height: 70vh;">
         <table class="table table-striped table-bordered table-hover table-compact mb-0">
-            <thead class="sticky-top" style="top: 0; z-index: 5;">
-                <tr>
-                    <th><input type="checkbox" onclick="toggleAll(this)"></th>
-                    <th>ID</th>
-                    <th>Codice</th>
-                    <th>Descrizione</th>
-                    <th>Cliente</th>
-                    <th>Fornitore</th>
-                    <th>Commessa</th>
-                    <th>Ordine</th>
-                    <th>Protocollo</th>
-                    <th>Buono</th>
-                    <th>N.Arr</th>
-                    <th>Data Ing.</th>
-                    <th>DDT Ing.</th>
-                    <th>Pos</th>
-                    <th>Stato</th>
-                    <th>Pz</th>
-                    <th>Colli</th>
-                    <th>Kg</th>
-                    <th>LxPxH</th>
-                    <th>M²</th>
-                    <th>M³</th>
-                    <th>Note</th>
-                    <th>Azioni</th>
-                </tr>
+            <thead class="sticky-top" style="top:0; z-index:5;">
+                <tr><th><input type="checkbox" onclick="toggleAll(this)"></th>
+                <th>ID</th><th>Doc</th><th>Foto</th><th>Codice</th><th>Descrizione</th><th>Cliente</th><th>Fornitore</th><th>Commessa</th><th>Ordine</th>
+                <th>Protocollo</th><th>Buono</th><th>N.Arr</th><th>Data Ing</th><th>DDT Ing</th><th>Pos</th><th>Stato</th>
+                <th>Pz</th><th>Colli</th><th>Kg</th><th>LxPxH</th><th>M2</th><th>M3</th><th>Serial</th><th>Mezzo</th><th>Note</th><th>Act</th></tr>
             </thead>
             <tbody>
                 {% for r in rows %}
                 <tr>
                     <td class="text-center"><input type="checkbox" name="ids" value="{{ r.id_articolo }}"></td>
                     <td>{{ r.id_articolo }}</td>
+                    <td class="text-center">{% for a in r.attachments if a.kind=='doc' %}📄{% endfor %}</td>
+                    <td class="text-center">{% for a in r.attachments if a.kind=='photo' %}📷{% endfor %}</td>
                     <td title="{{ r.codice_articolo }}">{{ r.codice_articolo or '' }}</td>
-                    <td title="{{ r.descrizione }}">{{ r.descrizione or '' }}</td>
-                    <td title="{{ r.cliente }}">{{ r.cliente or '' }}</td>
-                    <td title="{{ r.fornitore }}">{{ r.fornitore or '' }}</td>
-                    <td>{{ r.commessa or '' }}</td>
-                    <td>{{ r.ordine or '' }}</td>
-                    <td>{{ r.protocollo or '' }}</td>
-                    <td class="fw-buono">{{ r.buono_n or '' }}</td>
-                    <td>{{ r.n_arrivo or '' }}</td>
-                    <td>{{ r.data_ingresso or '' }}</td>
-                    <td>{{ r.n_ddt_ingresso or '' }}</td>
-                    <td>{{ r.posizione or '' }}</td>
-                    <td>{{ r.stato or '' }}</td>
-                    <td class="text-end">{{ r.pezzo or '' }}</td>
-                    <td class="text-end">{{ r.n_colli or '' }}</td>
-                    <td class="text-end">{{ r.peso or '' }}</td>
+                    <td title="{{ r.descrizione }}">{{ r.descrizione or '' }}</td><td>{{ r.cliente }}</td><td>{{ r.fornitore }}</td>
+                    <td>{{ r.commessa }}</td><td>{{ r.ordine }}</td><td>{{ r.protocollo }}</td><td class="fw-buono">{{ r.buono_n }}</td>
+                    <td>{{ r.n_arrivo }}</td><td>{{ r.data_ingresso }}</td><td>{{ r.n_ddt_ingresso }}</td><td>{{ r.posizione }}</td>
+                    <td>{{ r.stato }}</td><td>{{ r.pezzo }}</td><td>{{ r.n_colli }}</td><td>{{ r.peso }}</td>
                     <td>{{ r.lunghezza|int }}x{{ r.larghezza|int }}x{{ r.altezza|int }}</td>
-                    <td class="text-end">{{ r.m2 or '' }}</td>
-                    <td class="text-end">{{ r.m3 or '' }}</td>
-                    <td title="{{ r.note }}">{{ r.note or '' }}</td>
-                    <td class="text-center">
-                        <a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}" class="btn btn-sm btn-link p-0 text-decoration-none">✏️</a>
-                    </td>
+                    <td>{{ r.m2 }}</td><td>{{ r.m3 }}</td><td>{{ r.serial_number }}</td><td>{{ r.mezzi_in_uscita }}</td><td title="{{ r.note }}">{{ r.note or '' }}</td>
+                    <td><a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}">✏️</a></td>
                 </tr>
                 {% endfor %}
             </tbody>
-            <tfoot class="sticky-bottom bg-white fw-bold">
-                <tr>
-                    <td colspan="23" class="py-2 px-3">
-                        Totali: Colli {{ total_colli }} | M² {{ total_m2 }} | Peso {{ total_peso }}
-                    </td>
-                </tr>
-            </tfoot>
+            <tfoot class="sticky-bottom bg-white fw-bold"><tr><td colspan="27">Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}</td></tr></tfoot>
         </table>
     </div>
 </form>
