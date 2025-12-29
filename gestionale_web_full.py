@@ -2051,16 +2051,17 @@ def giacenze():
 def bulk_edit():
     db = SessionLocal()
     try:
-        # Recupera IDs
-        ids = request.args.getlist('ids') or request.form.getlist('ids')
+        # Recupera IDs da POST o GET
+        ids = request.form.getlist('ids') or request.args.getlist('ids')
         if not ids:
             flash("Nessun articolo selezionato.", "warning")
             return redirect(url_for('giacenze'))
 
+        # Pulisci IDs
         ids = [int(i) for i in ids if str(i).isdigit()]
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
 
-        # Configurazione Campi
+        # Tutti i campi possibili
         editable_fields = [
             ('Cliente', 'cliente'), ('Fornitore', 'fornitore'),
             ('Codice Articolo', 'codice_articolo'), ('Descrizione', 'descrizione'),
@@ -2074,36 +2075,45 @@ def bulk_edit():
 
         if request.method == 'POST' and request.form.get('save_bulk') == 'true':
             updates = {}
-            # Itera sui campi
-            for _, field_name in editable_fields:
-                # Controlla se il checkbox è stato spuntato
-                chk = request.form.get(f"chk_{field_name}")
-                if chk: # Se presente
-                    val = request.form.get(field_name)
-                    
-                    # Gestione tipi
-                    if field_name in ['n_colli', 'pezzo']: val = to_int_eu(val)
-                    elif field_name in ['lunghezza', 'larghezza', 'altezza']: val = to_float_eu(val)
-                    elif field_name == 'data_uscita' and val: val = parse_date_ui(val)
+            
+            # Itera su TUTTI i campi del form per trovare le checkbox attive
+            for key in request.form:
+                if key.startswith('chk_'):
+                    field_name = key.replace('chk_', '') # es. 'cliente'
+                    # Cerca se questo campo è nella lista dei modificabili
+                    if any(f[1] == field_name for f in editable_fields):
+                        val = request.form.get(field_name)
                         
-                    updates[field_name] = val
+                        # Gestione conversioni
+                        if field_name in ['n_colli', 'pezzo']:
+                            val = to_int_eu(val)
+                        elif field_name in ['lunghezza', 'larghezza', 'altezza']:
+                            val = to_float_eu(val)
+                        elif field_name == 'data_uscita' and val:
+                            val = parse_date_ui(val)
+                        
+                        updates[field_name] = val
 
             if updates:
                 c = 0
                 for art in articoli:
                     for k, v in updates.items():
-                        setattr(art, k, v)
+                        if hasattr(art, k):
+                            setattr(art, k, v)
+                    
                     # Ricalcolo
                     if any(x in updates for x in ['lunghezza','larghezza','altezza','n_colli']):
                         art.m2, art.m3 = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, art.n_colli)
                     c += 1
+                
                 db.commit()
-                flash(f"{c} articoli aggiornati.", "success")
+                flash(f"{c} articoli aggiornati correttamente.", "success")
             else:
-                flash("Nessun campo selezionato. Spunta le caselle a sinistra dei campi.", "warning")
+                flash("Nessun campo selezionato per la modifica.", "info")
             
             return redirect(url_for('giacenze'))
 
+        # GET request: Mostra form
         return render_template('bulk_edit.html', rows=articoli, ids_csv=",".join(map(str, ids)), fields=editable_fields)
     finally:
         db.close()
