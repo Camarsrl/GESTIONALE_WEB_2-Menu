@@ -2038,12 +2038,12 @@ def edit_record(id_articolo):
             return redirect(url_for('giacenze'))
 
         if request.method == 'POST':
-            # Controllo permessi cliente
+            # Controllo permessi: i clienti non possono modificare
             if session.get('role') == 'client':
                 flash("Accesso negato: i clienti non possono modificare.", "danger")
                 return redirect(url_for('giacenze'))
 
-            # Aggiornamento campi testuali
+            # 1. Aggiornamento Campi Testuali
             art.codice_articolo = request.form.get('codice_articolo')
             art.descrizione = request.form.get('descrizione')
             art.cliente = request.form.get('cliente')
@@ -2061,7 +2061,7 @@ def edit_record(id_articolo):
             art.ns_rif = request.form.get('ns_rif')
             art.mezzi_in_uscita = request.form.get('mezzi_in_uscita')
             
-            # Gestione Date (se vuote mette None)
+            # 2. Gestione Date (se vuote mette None per evitare errori DB)
             d_in = request.form.get('data_ingresso')
             art.data_ingresso = parse_date_ui(d_in) if d_in else None
             
@@ -2071,18 +2071,28 @@ def edit_record(id_articolo):
             art.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
             art.n_ddt_uscita = request.form.get('n_ddt_uscita')
             
-            # Gestione Numerici
-            art.pezzo = request.form.get('pezzo')
+            # 3. Gestione Numerici
+            art.pezzo = request.form.get('pezzo') # Trattato come testo per flessibilità
             art.n_colli = to_int_eu(request.form.get('n_colli'))
             art.peso = to_float_eu(request.form.get('peso'))
+            
+            # Dimensioni
             art.lunghezza = to_float_eu(request.form.get('lunghezza'))
             art.larghezza = to_float_eu(request.form.get('larghezza'))
             art.altezza = to_float_eu(request.form.get('altezza'))
             
-            # Ricalcolo automatico M2/M3
-            m2, m3 = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, art.n_colli)
-            art.m2 = m2
-            art.m3 = m3
+            # 4. Ricalcolo automatico M2/M3
+            # Se l'utente ha inserito M3 manualmente e non ci sono dimensioni, lo teniamo
+            m3_manuale = to_float_eu(request.form.get('m3'))
+            
+            m2_calc, m3_calc = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, art.n_colli)
+            
+            art.m2 = m2_calc
+            # Se il calcolo dà 0 ma l'utente ha messo un valore manuale, usa quello
+            if m3_calc == 0 and m3_manuale and m3_manuale > 0:
+                art.m3 = m3_manuale
+            else:
+                art.m3 = m3_calc
 
             db.commit()
             flash("Modifiche salvate con successo.", "success")
@@ -2095,6 +2105,7 @@ def edit_record(id_articolo):
         return redirect(url_for('giacenze'))
     finally:
         db.close()
+
 @app.route('/edit/<int:id>', methods=['GET','POST'])
 @login_required
 def edit_row(id):
