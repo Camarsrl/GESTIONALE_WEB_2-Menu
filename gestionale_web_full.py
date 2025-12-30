@@ -368,6 +368,103 @@ HOME_HTML = """
 </div>
 {% endblock %}
 """
+IMPORT_PDF_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="card p-4">
+    <h3><i class="bi bi-file-earmark-pdf"></i> Importa Articoli da PDF (DDT/Bolla)</h3>
+    
+    {% if not rows %}
+    <div class="alert alert-info">
+        Carica un DDT in formato PDF digitale. Il sistema tenterà di leggere codici e quantità.<br>
+        <b>Nota:</b> Funziona meglio con PDF generati da computer, non scansioni.
+    </div>
+    <form method="post" enctype="multipart/form-data" class="mt-4">
+        <div class="mb-3">
+            <label class="form-label">Seleziona File PDF</label>
+            <input type="file" name="file" class="form-control" accept=".pdf" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Analizza PDF</button>
+        <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
+    </form>
+    {% endif %}
+
+    {% if rows %}
+    <form action="{{ url_for('save_pdf_import') }}" method="post">
+        <div class="row g-3 mb-3 bg-light p-3 rounded border">
+            <h5 class="mb-3">Dati Testata (Rilevati o da compilare)</h5>
+            <div class="col-md-3">
+                <label>Cliente</label>
+                <input name="cliente" class="form-control" value="{{ meta.cliente }}">
+            </div>
+            <div class="col-md-3">
+                <label>Fornitore</label>
+                <input name="fornitore" class="form-control" value="{{ meta.fornitore }}">
+            </div>
+            <div class="col-md-2">
+                <label>Commessa</label>
+                <input name="commessa" class="form-control" value="{{ meta.commessa }}">
+            </div>
+            <div class="col-md-2">
+                <label>N. DDT</label>
+                <input name="n_ddt" class="form-control" value="{{ meta.n_ddt }}">
+            </div>
+            <div class="col-md-2">
+                <label>Data Ingresso</label>
+                <input type="date" name="data_ingresso" class="form-control" value="{{ meta.data_ingresso }}">
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-striped table-sm align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Rimuovi</th>
+                        <th>Codice Articolo</th>
+                        <th>Descrizione</th>
+                        <th style="width:100px">Q.tà (Colli)</th>
+                    </tr>
+                </thead>
+                <tbody id="rowsBody">
+                    {% for r in rows %}
+                    <tr>
+                        <td class="text-center"><button type="button" class="btn btn-danger btn-sm py-0" onclick="this.closest('tr').remove()">X</button></td>
+                        <td><input name="codice[]" class="form-control form-control-sm" value="{{ r.codice }}"></td>
+                        <td><input name="descrizione[]" class="form-control form-control-sm" value="{{ r.descrizione }}"></td>
+                        <td><input name="qta[]" type="number" class="form-control form-control-sm" value="{{ r.qta }}"></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="d-flex justify-content-between mt-3">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="addRow()">+ Aggiungi Riga Vuota</button>
+            <div>
+                <a href="{{ url_for('import_pdf') }}" class="btn btn-outline-secondary">Ricomincia</a>
+                <button type="submit" class="btn btn-success fw-bold px-4">CONFERMA E IMPORTA</button>
+            </div>
+        </div>
+    </form>
+
+    <script>
+    function addRow() {
+        const tbody = document.getElementById('rowsBody');
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td class="text-center"><button type="button" class="btn btn-danger btn-sm py-0" onclick="this.closest('tr').remove()">X</button></td>
+            <td><input name="codice[]" class="form-control form-control-sm"></td>
+            <td><input name="descrizione[]" class="form-control form-control-sm"></td>
+            <td><input name="qta[]" type="number" class="form-control form-control-sm" value="1"></td>
+        `;
+        tbody.appendChild(tr);
+    }
+    </script>
+    {% endif %}
+</div>
+{% endblock %}
+"""
+    
 CALCOLI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
