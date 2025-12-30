@@ -2007,49 +2007,24 @@ def serve_uploaded_file(filename):
 @app.route('/new', methods=['GET', 'POST'])
 @login_required
 def nuovo_articolo():
-    # LOG INIZIALE
-    logging.info(">>> CHIAMATA A NUOVO ARTICOLO (/new) INIZIATA")
-    
     db = SessionLocal()
     try:
-        logging.info("Creazione istanza Articolo vuota...")
         art = Articolo()
+        art.data_ingresso = date.today().strftime("%d/%m/%Y")
+        # NESSUN STATO DEFAULT, così l'utente sceglie
         
-        # Imposta data
-        today_str = date.today().strftime("%d/%m/%Y")
-        art.data_ingresso = today_str
-        logging.info(f"Data ingresso impostata a: {today_str}")
-        
-        # LOGICA DB
-        logging.info("Aggiunta alla sessione DB...")
         db.add(art)
-        
-        logging.info("Esecuzione COMMIT...")
         db.commit()
-        
-        logging.info("Esecuzione REFRESH...")
-        db.refresh(art) # Recupera l'ID
+        db.refresh(art) # Recupera ID
         
         new_id = art.id_articolo
-        logging.info(f"*** ARTICOLO CREATO CON SUCCESSO. ID: {new_id} ***")
-        
         db.close()
         
-        # REDIRECT
-        target_url = url_for('edit_record', id_articolo=new_id)
-        logging.info(f"Tento il redirect verso: {target_url}")
-        
-        return redirect(target_url)
-        
+        return redirect(url_for('edit_record', id_articolo=new_id))
     except Exception as e:
         db.rollback()
-        # LOG ERRORE COMPLETO
-        logging.error(f"!!! ERRORE CRITICO IN NUOVO ARTICOLO: {e}", exc_info=True)
-        flash(f"Errore creazione riga: {e}", "danger")
+        flash(f"Errore creazione: {e}", "danger")
         return redirect(url_for('giacenze'))
-    finally:
-        db.close()
-        logging.info("<<< Sessione DB chiusa. Fine chiamata /new.")
         
 @app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
 @login_required
