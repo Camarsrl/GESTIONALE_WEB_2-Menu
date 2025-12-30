@@ -2835,12 +2835,18 @@ def ddt_finalize():
         raise e
     finally:
         db.close()
+
 @app.get('/labels')
 @login_required
 def labels_form():
+    # --- PROTEZIONE ADMIN ---
+    if session.get('role') != 'admin':
+        flash("Accesso negato.", "danger")
+        return redirect(url_for('giacenze'))
+    # ------------------------
+
     db = SessionLocal()
     try:
-        # Ottieni la lista dei clienti per il menu a tendina
         clienti_query = db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()
         clienti = [c[0] for c in clienti_query]
         return render_template('labels_form.html', clienti=clienti)
