@@ -629,7 +629,6 @@ CALCOLI_HTML = """
 </div>
 {% endblock %}
 """
-
 GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -643,6 +642,8 @@ GIACENZE_HTML = """
     <h4>Magazzino</h4>
     <div class="d-flex gap-2">
        <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success">Nuovo</a>
+       <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>
+       
        <a href="{{ url_for('labels_form') }}" class="btn btn-sm btn-info text-white">Etichette</a>
        <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning">Calcoli</a>
     </div>
@@ -668,8 +669,10 @@ GIACENZE_HTML = """
                 <div class="col-md-2"><input name="buono_n" class="form-control form-control-sm" placeholder="Buono N" value="{{ request.args.get('buono_n','') }}"></div>
                 <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial" value="{{ request.args.get('serial_number','') }}"></div>
                 <div class="col-md-2"><input name="codice_articolo" class="form-control form-control-sm" placeholder="Codice" value="{{ request.args.get('codice_articolo','') }}"></div>
+                
+                <div class="col-md-2"><input name="n_arrivo" class="form-control form-control-sm" placeholder="N. Arrivo" value="{{ request.args.get('n_arrivo','') }}"></div>
+                
                 <div class="col-md-2"><input name="magazzino" class="form-control form-control-sm" placeholder="Magazzino" value="{{ request.args.get('magazzino','') }}"></div>
-                <div class="col-md-2"><input name="mezzi_in_uscita" class="form-control form-control-sm" placeholder="Mezzo Uscita" value="{{ request.args.get('mezzi_in_uscita','') }}"></div>
                 <div class="col-md-2"><input name="stato" class="form-control form-control-sm" placeholder="Stato" value="{{ request.args.get('stato','') }}"></div>
             </div>
             <div class="row g-1 mt-1">
@@ -705,7 +708,6 @@ GIACENZE_HTML = """
                     <td>{{ r.id_articolo }}</td>
                     <td class="text-center">{% for a in r.attachments if a.kind=='doc' %}📄{% endfor %}</td>
                     <td class="text-center">{% for a in r.attachments if a.kind=='photo' %}📷{% endfor %}</td>
-                    
                     <td title="{{ r.codice_articolo }}">{{ r.codice_articolo or '' }}</td>
                     <td title="{{ r.descrizione }}">{{ r.descrizione or '' }}</td><td>{{ r.cliente or '' }}</td><td>{{ r.fornitore or '' }}</td>
                     <td>{{ r.commessa or '' }}</td><td>{{ r.ordine or '' }}</td><td>{{ r.protocollo or '' }}</td><td class="fw-buono">{{ r.buono_n or '' }}</td>
