@@ -1054,36 +1054,13 @@ LABELS_FORM_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="card p-4">
-    <h3><i class="bi bi-tag"></i> Nuova Etichetta</h3>
-    <hr>
-    <form method="post" action="{{ url_for('labels_pdf') }}" target="_blank">
-        <div class="row g-3">
-            <div class="col-md-4">
-                <label class="form-label">Cliente</label>
-                <input class="form-control" list="clienti-datalist" name="cliente" placeholder="Digita o seleziona un cliente...">
-                <datalist id="clienti-datalist">
-                    {% for c in clienti %}
-                    <option value="{{ c }}">
-                    {% endfor %}
-                </datalist>
-            </div>
-            <div class="col-md-4"><label class="form-label">Fornitore</label><input name="fornitore" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Ordine</label><input name="ordine" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Commessa</label><input name="commessa" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">DDT Ingresso</label><input name="ddt_ingresso" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Data Ingresso</label><input name="data_ingresso" class="form-control" placeholder="gg/mm/aaaa"></div>
-            <div class="col-md-4"><label class="form-label">Arrivo (es. 01/25)</label><input name="arrivo" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">N. Colli</label><input name="n_colli" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Posizione</label><input name="posizione" class="form-control"></div>
-        </div>
-        <div class="mt-4 d-flex gap-2">
-            <button type="submit" class="btn btn-primary"><i class="bi bi-printer"></i> Genera PDF Etichetta</button>
-        </div>
+    <h3>Stampa Etichetta Manuale</h3>
+    <form action="{{ url_for('print_labels') }}" method="post" target="_blank">
+        <div class="mt-3"><button class="btn btn-primary">Stampa (HTML)</button></div>
     </form>
 </div>
 {% endblock %}
 """
-
 LABELS_PREVIEW_HTML = " " # Non più utilizzato
 
 IMPORT_EXCEL_HTML = """
