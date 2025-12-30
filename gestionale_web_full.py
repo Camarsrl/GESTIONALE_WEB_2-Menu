@@ -1892,15 +1892,21 @@ def serve_uploaded_file(filename):
 @app.route('/new', methods=['GET', 'POST'])
 @login_required
 def nuovo_articolo():
+    # --- PROTEZIONE ADMIN ---
+    if session.get('role') != 'admin':
+        flash("Accesso negato: Funzione riservata agli amministratori.", "danger")
+        return redirect(url_for('giacenze'))
+    # ------------------------
+
     db = SessionLocal()
     try:
         art = Articolo()
         art.data_ingresso = date.today().strftime("%d/%m/%Y")
-        # NESSUN STATO DEFAULT, così l'utente sceglie
+        # Nessuno stato default
         
         db.add(art)
         db.commit()
-        db.refresh(art) # Recupera ID
+        db.refresh(art)
         
         new_id = art.id_articolo
         db.close()
@@ -1908,7 +1914,7 @@ def nuovo_articolo():
         return redirect(url_for('edit_record', id_articolo=new_id))
     except Exception as e:
         db.rollback()
-        flash(f"Errore creazione: {e}", "danger")
+        flash(f"Errore creazione riga: {e}", "danger")
         return redirect(url_for('giacenze'))
         
 @app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
