@@ -168,82 +168,46 @@ def load_user(user_id):
 # --- UTILS ---
 
 
+# --- HELPER ESTRAZIONE PDF (Necessario per Import PDF) ---
 def extract_data_from_ddt_pdf(path):
-    """
-    Tenta di estrarre Codice, Descrizione e Quantità da un PDF.
-    Cerca anche metadati come DDT N., Commessa, Cliente.
-    """
+    import pdfplumber
     extracted_rows = []
-    meta = {'cliente': '', 'commessa': '', 'n_ddt': '', 'data_ingresso': date.today().strftime("%Y-%m-%d")}
+    meta = {'cliente': '', 'commessa': '', 'n_ddt': '', 'data_ingresso': date.today().strftime("%Y-%m-%d"), 'fornitore': ''}
     
-    with pdfplumber.open(path) as pdf:
-        full_text = ""
-        for page in pdf.pages:
-            text = page.extract_text()
-            if not text: continue
-            full_text += text + "\n"
-            
-            # Analisi riga per riga per cercare articoli
-            lines = text.split('\n')
-            for line in lines:
-                line = line.strip()
-                if not line: continue
-                
-                # LOGICA EURISTICA (Cerca di indovinare le righe articoli)
-                # Cerca righe che finiscono o iniziano con numeri (tipico delle quantità)
-                parts = line.split()
-                if len(parts) < 2: continue
-                
-                # Tentativo semplice: 
-                # Se troviamo un numero isolato, potrebbe essere la quantità.
-                # Il testo più lungo è la descrizione.
-                # Codici spesso sono alfanumerici tutti uniti.
-                
-                qty = 1
-                code = ""
-                desc = line
-                
-                # Cerca pattern comuni nei DDT
-                # Esempio: CODICE DESCRIZIONE QTA o QTA CODICE DESCRIZIONE
-                
-                # Cerca un numero intero (Quantità)
-                found_qty = False
-                for i, p in enumerate(parts):
-                    if p.isdigit() and len(p) < 5: # Presumibilmente una quantità
-                        qty = int(p)
-                        # Rimuovi la qta dalla descrizione
-                        desc = line.replace(p, "", 1).strip()
-                        found_qty = True
-                        break
-                
-                # Se sembra una riga valida (ha un numero o sembra un codice)
-                # Escludiamo righe palesemente di intestazione
-                keywords = ['spett', 'destin', 'via', 'p.iva', 'cod.', 'pag.', 'trasporto', 'ddt', 'data']
-                if not any(k in line.lower() for k in keywords):
-                    # Cerca un codice (parola senza spazi, magari con numeri e lettere)
-                    # Qui prendiamo la prima parola come codice se non è la quantità
-                    potential_code = parts[0]
-                    if len(potential_code) > 2 and potential_code != str(qty):
-                        code = potential_code
+    try:
+        with pdfplumber.open(path) as pdf:
+            full_text = ""
+            for page in pdf.pages:
+                text = page.extract_text() or ""
+                full_text += text + "\n"
+                lines = text.split('\n')
+                for line in lines:
+                    parts = line.strip().split()
+                    if len(parts) < 2: continue
+                    
+                    qty = 1
+                    desc = line.strip()
+                    code = ""
+                    found_q = False
+                    
+                    # Cerca quantità (numeri isolati piccoli)
+                    for i, p in enumerate(parts):
+                        if p.isdigit() and len(p) < 4:
+                            qty = int(p)
+                            desc = line.replace(p, "", 1).strip()
+                            found_q = True
+                            break
+                    
+                    # Cerca codice (parola lunga all'inizio)
+                    if len(parts[0]) > 3 and not parts[0].isdigit():
+                        code = parts[0]
                         desc = desc.replace(code, "", 1).strip()
                     
-                    extracted_rows.append({
-                        'codice': code,
-                        'descrizione': desc,
-                        'qta': qty
-                    })
-
-        # Cerca Metadati globali (Cliente, Commessa, DDT) nel testo completo
-        # Esempio banale di ricerca (da raffinare in base ai tuoi PDF)
-        lines = full_text.split('\n')
-        for l in lines:
-            if 'commessa' in l.lower():
-                # Prende quello che c'è dopo 'commessa'
-                meta['commessa'] = l.split('ommessa')[-1].replace(':','').strip().split()[0]
-            if 'ddt n' in l.lower() or 'documento n' in l.lower():
-                parts = re.findall(r'\d+[/-]\d+', l) # Cerca pattern tipo 123/24
-                if parts: meta['n_ddt'] = parts[0]
-                
+                    if found_q or code:
+                        extracted_rows.append({'codice': code, 'descrizione': desc, 'qta': qty})
+    except Exception as e:
+        print(f"Errore lettura PDF: {e}")
+        
     return meta, extracted_rows
     
 def is_blank(v):
