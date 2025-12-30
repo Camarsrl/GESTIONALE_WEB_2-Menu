@@ -726,7 +726,6 @@ GIACENZE_HTML = """
 <script>function toggleAll(s){ document.getElementsByName('ids').forEach(c => c.checked = s.checked); }</script>
 {% endblock %}
 """
-
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
