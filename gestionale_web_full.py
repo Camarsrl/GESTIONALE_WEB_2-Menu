@@ -1061,6 +1061,40 @@ LABELS_FORM_HTML = """
 </div>
 {% endblock %}
 """
+
+PRINT_LABEL_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+    @page { size: 100mm 62mm; margin: 0; }
+    body { font-family: Arial; margin: 0; padding: 2mm; width: 96mm; height: 58mm; }
+    .row { display: flex; margin-bottom: 2px; font-size: 11px; }
+    .lbl { font-weight: bold; width: 80px; }
+    .val { white-space: nowrap; overflow: hidden; }
+    .big { font-size: 16px; font-weight: bold; margin-top: 5px; border-top: 2px solid black; padding-top: 5px; }
+    .no-print { text-align:center; padding:10px; background:#eee; }
+    @media print { .no-print { display: none; } }
+</style>
+</head>
+<body>
+    <div class="no-print"><button onclick="window.print()" style="font-size:20px">🖨️ STAMPA</button></div>
+    {% for l in labels %}
+    <div style="page-break-after: always;">
+        <div class="row"><div class="lbl">CLIENTE:</div><div class="val">{{ l.cliente }}</div></div>
+        <div class="row"><div class="lbl">FORNITORE:</div><div class="val">{{ l.fornitore }}</div></div>
+        <div class="row"><div class="lbl">ORDINE:</div><div class="val">{{ l.ordine }}</div></div>
+        <div class="row"><div class="lbl">COMMESSA:</div><div class="val">{{ l.commessa }}</div></div>
+        <div class="row"><div class="lbl">DDT ING.:</div><div class="val">{{ l.n_ddt_ingresso }}</div></div>
+        <div class="row"><div class="lbl">DATA:</div><div class="val">{{ l.data_ingresso }}</div></div>
+        <div class="row"><div class="lbl">POSIZIONE:</div><div class="val">{{ l.posizione }}</div></div>
+        <div class="big">ARRIVO: {{ l.n_arrivo }}  -  COLLO: {{ l.collo_n }} / {{ l.collo_tot }}</div>
+    </div>
+    {% endfor %}
+    <script>window.onload = function() { setTimeout(function(){ window.print(); }, 500); }</script>
+</body>
+</html>
+"""
 LABELS_PREVIEW_HTML = " " # Non più utilizzato
 
 IMPORT_EXCEL_HTML = """
