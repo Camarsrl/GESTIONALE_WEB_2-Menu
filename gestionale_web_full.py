@@ -2924,15 +2924,16 @@ def labels_form():
         db.close()
 
 # --- FUNZIONE ETICHETTE AGGIORNATA (Arrivo 10/25 N.1) ---
-def _genera_pdf_etichetta(articoli, formato, anteprima=False):
+def _genera_pdf_etichetta(articoli, formato):
     bio = io.BytesIO()
-    # Dimensioni fisse per stampante etichette
+    
+    # FORMATO QL-800 (100mm larghezza x 62mm altezza per etichetta orizzontale)
+    # Impostiamo pagina custom precisa
     W, H = 100*mm, 62*mm
     doc = SimpleDocTemplate(bio, pagesize=(W, H), leftMargin=2*mm, rightMargin=2*mm, topMargin=2*mm, bottomMargin=2*mm)
     story = []
     
     styles = getSampleStyleSheet()
-    # Stili Font Aumentati
     s_k = ParagraphStyle('K', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
     s_v = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=11, leading=12)
     s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=16)
@@ -2941,14 +2942,12 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
         tot = int(art.n_colli or 1)
         if tot < 1: tot = 1
         for i in range(1, tot+1):
-            # Logo Ingrandito
             if LOGO_PATH and Path(LOGO_PATH).exists():
+                # Logo ridimensionato per stare nell'etichetta
                 story.append(Image(LOGO_PATH, width=40*mm, height=10*mm, hAlign='LEFT'))
                 story.append(Spacer(1, 1*mm))
             
-            # Dati Etichetta
-            # Recupera n_arrivo anche se l'oggetto è manuale
-            arr_val = art.n_arrivo or getattr(art, 'arrivo', '') or ''
+            arr_val = art.n_arrivo or ''
             arr_str = f"{arr_val} N.{i}"
             col_str = f"{i} / {tot}"
             
@@ -2959,7 +2958,6 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 [Paragraph("COMMESSA:", s_k), Paragraph(art.commessa or '', s_v)],
                 [Paragraph("DDT ING.:", s_k), Paragraph(art.n_ddt_ingresso or '', s_v)],
                 [Paragraph("DATA ING.:", s_k), Paragraph(fmt_date(art.data_ingresso), s_v)],
-                # Righe Grandi
                 [Paragraph("ARRIVO:", s_k), Paragraph(arr_str, s_big)],
                 [Paragraph("N. COLLO:", s_k), Paragraph(col_str, s_big)],
                 [Paragraph("POSIZIONE:", s_k), Paragraph(art.posizione or '', s_v)]
@@ -2975,7 +2973,6 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             ]))
             story.append(t)
             story.append(PageBreak())
-            
     doc.build(story)
     bio.seek(0)
     return bio
