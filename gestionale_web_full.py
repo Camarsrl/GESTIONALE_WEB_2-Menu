@@ -2929,19 +2929,24 @@ app.jinja_env.filters['fmt_date'] = fmt_date
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
 def labels_pdf():
+    # --- PROTEZIONE ADMIN ---
+    if session.get('role') != 'admin':
+        return "Accesso Negato", 403
+    # ------------------------
+
     ids = request.form.getlist('ids')
     db = SessionLocal()
     articoli = []
     if ids:
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
     else:
+        # Creazione temporanea per etichetta manuale
         a = Articolo()
         for k in request.form: setattr(a, k, request.form.get(k))
         a.n_colli = to_int_eu(request.form.get('n_colli'))
         articoli = [a]
     db.close()
     
-    # MODIFICA QUI: as_attachment=False apre il PDF nel browser
     return send_file(_genera_pdf_etichetta(articoli, request.form.get('formato')), as_attachment=False, mimetype='application/pdf')
     
 # --- FIX DATABASE SCHEMA (Esegui all'avvio per correggere tipi colonne) ---
