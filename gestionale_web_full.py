@@ -2187,7 +2187,7 @@ def giacenze():
             'cliente', 'fornitore', 'commessa', 'ordine', 'protocollo', 
             'serial_number', 'codice_articolo', 'magazzino', 'stato', 
             'buono_n', 'descrizione', 'mezzi_in_uscita', 
-            'n_ddt_ingresso', 'n_ddt_uscita'
+            'n_ddt_ingresso', 'n_ddt_uscita?,'n_arrivo'
         ]
         
         for f in text_filters:
