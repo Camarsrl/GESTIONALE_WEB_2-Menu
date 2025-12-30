@@ -2986,32 +2986,21 @@ app.jinja_env.filters['fmt_date'] = fmt_date
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
 def labels_pdf():
-    # Se ci sono ID selezionati, prendi dal DB
     ids = request.form.getlist('ids')
+    db = SessionLocal()
     articoli = []
-    
     if ids:
-        db = SessionLocal()
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-        db.close()
     else:
-        # Etichetta Manuale: Crea oggetto al volo con i dati del form
         a = Articolo()
-        a.cliente = request.form.get('cliente')
-        a.fornitore = request.form.get('fornitore')
-        a.ordine = request.form.get('ordine')
-        a.commessa = request.form.get('commessa')
-        a.n_ddt_ingresso = request.form.get('ddt_ingresso') # Attenzione al nome campo HTML
-        a.data_ingresso = request.form.get('data_ingresso')
-        a.n_arrivo = request.form.get('arrivo') # QUI ERA IL PROBLEMA! (arrivo vs n_arrivo)
+        for k in request.form: setattr(a, k, request.form.get(k))
         a.n_colli = to_int_eu(request.form.get('n_colli'))
-        a.posizione = request.form.get('posizione')
         articoli = [a]
-
-    # Genera il PDF
-    pdf_bio = _genera_pdf_etichetta(articoli, request.form.get('formato', '62x100'))
-    return send_file(pdf_bio, as_attachment=False, mimetype='application/pdf')
-
+    db.close()
+    
+    # MODIFICA QUI: as_attachment=False apre il PDF nel browser
+    return send_file(_genera_pdf_etichetta(articoli, request.form.get('formato')), as_attachment=False, mimetype='application/pdf')
+    
 # --- FIX DATABASE SCHEMA (Esegui all'avvio per correggere tipi colonne) ---
 def fix_db_schema():
     """
