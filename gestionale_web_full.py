@@ -2913,58 +2913,71 @@ def labels_form():
         db.close()
 
 # --- FUNZIONE ETICHETTE AGGIORNATA (Arrivo 10/25 N.1) ---
+
 def _genera_pdf_etichetta(articoli, formato):
     bio = io.BytesIO()
     
-    # FORMATO QL-800 (100mm larghezza x 62mm altezza per etichetta orizzontale)
-    # Impostiamo pagina custom precisa
-    W, H = 100*mm, 62*mm
-    doc = SimpleDocTemplate(bio, pagesize=(W, H), leftMargin=2*mm, rightMargin=2*mm, topMargin=2*mm, bottomMargin=2*mm)
+    # SETUP PER BROTHER QL-800 (Rotolo continuo 62mm)
+    # Impostiamo la pagina con larghezza 62mm esatta e lunghezza 100mm.
+    # In fase di stampa, selezionare "Verticale" se il rotolo esce per il lungo.
+    
+    W_ROLL = 62 * mm
+    L_LABEL = 100 * mm
+    
+    # Margini quasi zero per evitare che la stampante tagli o vada in errore
+    doc = SimpleDocTemplate(bio, pagesize=(L_LABEL, W_ROLL), 
+                            leftMargin=2*mm, rightMargin=2*mm, 
+                            topMargin=1*mm, bottomMargin=1*mm)
     story = []
     
     styles = getSampleStyleSheet()
-    s_k = ParagraphStyle('K', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
-    s_v = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=11, leading=12)
-    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=16)
+    # Font ridotti leggermente per stare nei 62mm
+    s_k = ParagraphStyle('K', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=10)
+    s_v = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
+    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=16, alignment=TA_CENTER)
 
     for art in articoli:
         tot = int(art.n_colli or 1)
         if tot < 1: tot = 1
         for i in range(1, tot+1):
-            if LOGO_PATH and Path(LOGO_PATH).exists():
-                # Logo ridimensionato per stare nell'etichetta
-                story.append(Image(LOGO_PATH, width=40*mm, height=10*mm, hAlign='LEFT'))
-                story.append(Spacer(1, 1*mm))
             
-            arr_val = art.n_arrivo or ''
-            arr_str = f"{arr_val} N.{i}"
-            col_str = f"{i} / {tot}"
-            
+            # Tabella Dati Principale
             dati = [
                 [Paragraph("CLIENTE:", s_k), Paragraph(art.cliente or '', s_v)],
                 [Paragraph("FORNITORE:", s_k), Paragraph(art.fornitore or '', s_v)],
                 [Paragraph("ORDINE:", s_k), Paragraph(art.ordine or '', s_v)],
                 [Paragraph("COMMESSA:", s_k), Paragraph(art.commessa or '', s_v)],
                 [Paragraph("DDT ING.:", s_k), Paragraph(art.n_ddt_ingresso or '', s_v)],
-                [Paragraph("DATA ING.:", s_k), Paragraph(fmt_date(art.data_ingresso), s_v)],
-                [Paragraph("ARRIVO:", s_k), Paragraph(arr_str, s_big)],
-                [Paragraph("N. COLLO:", s_k), Paragraph(col_str, s_big)],
-                [Paragraph("POSIZIONE:", s_k), Paragraph(art.posizione or '', s_v)]
+                [Paragraph("DATA:", s_k), Paragraph(fmt_date(art.data_ingresso), s_v)],
             ]
             
-            t = Table(dati, colWidths=[25*mm, 68*mm])
+            t = Table(dati, colWidths=[20*mm, 75*mm])
             t.setStyle(TableStyle([
                 ('VALIGN', (0,0), (-1,-1), 'TOP'),
                 ('LEFTPADDING', (0,0), (-1,-1), 0),
-                ('RIGHTPADDING', (0,0), (-1,-1), 0),
-                ('TOPPADDING', (0,0), (-1,-1), 0),
                 ('BOTTOMPADDING', (0,0), (-1,-1), 0),
             ]))
             story.append(t)
+            story.append(Spacer(1, 2*mm))
+            
+            # Parte bassa evidenziata (Arrivo e Colli)
+            # Usiamo una tabella interna per affiancarli bene
+            t_big = Table([
+                [Paragraph(f"ARRIVO: {art.n_arrivo or ''}  -  COLLO: {i}/{tot}", s_big)]
+            ], colWidths=[96*mm])
+            t_big.setStyle(TableStyle([
+                ('BOX', (0,0), (-1,-1), 1, colors.black),
+                ('TOPPADDING', (0,0), (-1,-1), 5),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+            ]))
+            story.append(t_big)
             story.append(PageBreak())
+
     doc.build(story)
     bio.seek(0)
     return bio
+
+
         
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
