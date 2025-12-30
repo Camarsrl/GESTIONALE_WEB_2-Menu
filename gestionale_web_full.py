@@ -719,7 +719,7 @@ EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h3><i class="bi bi-pencil-square"></i> {% if row %}Modifica Articolo #{{ row.id_articolo }}{% else %}Nuovo Articolo{% endif %}</h3>
+    <h3><i class="bi bi-pencil-square"></i> {% if row and row.id_articolo %}Modifica Articolo #{{ row.id_articolo }}{% else %}Nuovo Articolo{% endif %}</h3>
     <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Torna alla Lista</a>
 </div>
 
@@ -736,6 +736,7 @@ EDIT_HTML = """
         <div class="col-md-2">
             <label class="form-label">Stato</label>
             <select name="stato" class="form-select">
+                <option value="">Seleziona...</option>
                 <option value="DOGANALE" {% if row.stato == 'DOGANALE' %}selected{% endif %}>DOGANALE</option>
                 <option value="NAZIONALE" {% if row.stato == 'NAZIONALE' %}selected{% endif %}>NAZIONALE</option>
                 <option value="USCITO" {% if row.stato == 'USCITO' %}selected{% endif %}>USCITO</option>
@@ -795,19 +796,19 @@ EDIT_HTML = """
 
         <div class="col-md-2">
             <label class="form-label">Pezzi</label>
-            <input type="number" name="pezzo" class="form-control" value="{{ row.pezzo or 0 }}">
+            <input type="number" name="pezzo" class="form-control" value="{{ row.pezzo or '' }}">
         </div>
         <div class="col-md-2">
             <label class="form-label">Colli</label>
-            <input type="number" name="n_colli" class="form-control" value="{{ row.n_colli or 0 }}">
+            <input type="number" name="n_colli" class="form-control" value="{{ row.n_colli or '' }}">
         </div>
         <div class="col-md-2">
             <label class="form-label">Peso (Kg)</label>
-            <input type="number" step="0.01" name="peso" class="form-control" value="{{ row.peso or 0 }}">
+            <input type="number" step="0.01" name="peso" class="form-control" value="{{ row.peso or '' }}">
         </div>
         <div class="col-md-2">
             <label class="form-label">M³</label>
-            <input type="number" step="0.001" name="m3" class="form-control" value="{{ row.m3 or 0 }}">
+            <input type="number" step="0.001" name="m3" class="form-control" value="{{ row.m3 or '' }}">
         </div>
         <div class="col-md-2">
             <label class="form-label">N. Arrivo</label>
@@ -873,6 +874,7 @@ EDIT_HTML = """
 {% endif %}
 {% endblock %}
 """
+
 BULK_EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
