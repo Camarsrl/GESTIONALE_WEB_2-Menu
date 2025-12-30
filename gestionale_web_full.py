@@ -1854,17 +1854,16 @@ def serve_uploaded_file(filename):
 @app.route('/new', methods=['GET', 'POST'])
 @login_required
 def nuovo_articolo():
-    # --- PROTEZIONE ADMIN ---
+    # PROTEZIONE ADMIN
     if session.get('role') != 'admin':
-        flash("Accesso negato: Funzione riservata agli amministratori.", "danger")
+        flash("Accesso negato: Solo Admin.", "danger")
         return redirect(url_for('giacenze'))
-    # ------------------------
 
     db = SessionLocal()
     try:
         art = Articolo()
         art.data_ingresso = date.today().strftime("%d/%m/%Y")
-        # Nessuno stato default
+        # Nessuno stato predefinito
         
         db.add(art)
         db.commit()
