@@ -1942,25 +1942,49 @@ def invia_email():
 @app.route('/new', methods=['GET', 'POST'])
 @login_required
 def nuovo_articolo():
+    # LOG INIZIALE
+    logging.info(">>> CHIAMATA A NUOVO ARTICOLO (/new) INIZIATA")
+    
     db = SessionLocal()
     try:
+        logging.info("Creazione istanza Articolo vuota...")
         art = Articolo()
-        art.data_ingresso = date.today().strftime("%d/%m/%Y")
-        art.stato = "DOGANALE"
         
+        # Imposta data
+        today_str = date.today().strftime("%d/%m/%Y")
+        art.data_ingresso = today_str
+        logging.info(f"Data ingresso impostata a: {today_str}")
+        
+        # LOGICA DB
+        logging.info("Aggiunta alla sessione DB...")
         db.add(art)
+        
+        logging.info("Esecuzione COMMIT...")
         db.commit()
-        db.refresh(art) # Importante: ottiene l'ID dal DB
+        
+        logging.info("Esecuzione REFRESH...")
+        db.refresh(art) # Recupera l'ID
         
         new_id = art.id_articolo
+        logging.info(f"*** ARTICOLO CREATO CON SUCCESSO. ID: {new_id} ***")
+        
         db.close()
         
-        # Redirect esplicito alla pagina di modifica
-        return redirect(url_for('edit_record', id_articolo=new_id))
+        # REDIRECT
+        target_url = url_for('edit_record', id_articolo=new_id)
+        logging.info(f"Tento il redirect verso: {target_url}")
+        
+        return redirect(target_url)
+        
     except Exception as e:
         db.rollback()
+        # LOG ERRORE COMPLETO
+        logging.error(f"!!! ERRORE CRITICO IN NUOVO ARTICOLO: {e}", exc_info=True)
         flash(f"Errore creazione riga: {e}", "danger")
         return redirect(url_for('giacenze'))
+    finally:
+        db.close()
+        logging.info("<<< Sessione DB chiusa. Fine chiamata /new.")
         
 @app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
 @login_required
