@@ -1536,93 +1536,64 @@ def upload_mappe_json():
 
 
 # --- IMPORT PDF AUTOMATICO ---
+# --- IMPORT PDF (DA AGGIUNGERE SE MANCA, CON PROTEZIONE) ---
 @app.route('/import_pdf', methods=['GET', 'POST'])
 @login_required
 def import_pdf():
-    if request.method == 'POST':
-        if 'file' not in request.files:
-            flash("Nessun file selezionato", "warning")
-            return redirect(request.url)
-        
-        f = request.files['file']
-        if f.filename == '':
-            flash("Nessun file selezionato", "warning")
-            return redirect(request.url)
+    # --- PROTEZIONE ADMIN ---
+    if session.get('role') != 'admin':
+        flash("Accesso negato.", "danger")
+        return redirect(url_for('giacenze'))
+    # ------------------------
 
-        if f:
-            # Salva temporaneamente
+    if request.method == 'POST':
+        if 'file' not in request.files: return redirect(request.url)
+        f = request.files['file']
+        if f.filename:
             temp_path = os.path.join(DOCS_DIR, f"temp_{uuid.uuid4().hex}.pdf")
             f.save(temp_path)
-            
             try:
-                # Estrae i dati
+                # Assicurati di avere la funzione helper extract_data_from_ddt_pdf nel file!
                 meta, rows = extract_data_from_ddt_pdf(temp_path)
-                
-                # Rimuove file temp
                 os.remove(temp_path)
-                
-                if not rows:
-                    flash("Non sono riuscito a trovare articoli nel PDF. Prova a inserire manualmente.", "warning")
-                
                 return render_template('import_pdf.html', meta=meta, rows=rows)
-                
             except Exception as e:
-                flash(f"Errore nella lettura del PDF: {e}", "danger")
+                flash(f"Errore PDF: {e}", "danger")
                 return redirect(url_for('giacenze'))
-
     return render_template('import_pdf.html', meta={}, rows=[])
 
 @app.route('/save_pdf_import', methods=['POST'])
 @login_required
 def save_pdf_import():
+    # --- PROTEZIONE ADMIN ---
+    if session.get('role') != 'admin':
+        return "Accesso Negato", 403
+    # ------------------------
+
     db = SessionLocal()
     try:
-        # Recupera dati testata
-        cliente = request.form.get('cliente')
-        commessa = request.form.get('commessa')
-        n_ddt = request.form.get('n_ddt')
-        data_ing = request.form.get('data_ingresso')
-        fornitore = request.form.get('fornitore')
-        
-        # Recupera le righe dalla tabella dinamica
-        # I nomi dei campi sono array: codice[], descrizione[], qta[]
         codici = request.form.getlist('codice[]')
         descrizioni = request.form.getlist('descrizione[]')
         qtas = request.form.getlist('qta[]')
         
-        count = 0
+        c = 0
         for i in range(len(codici)):
-            # Salva solo se c'è almeno una descrizione o un codice
             if codici[i].strip() or descrizioni[i].strip():
                 art = Articolo()
-                art.cliente = cliente
-                art.commessa = commessa
-                art.n_ddt_ingresso = n_ddt
-                art.data_ingresso = parse_date_ui(data_ing)
-                art.fornitore = fornitore
+                art.cliente = request.form.get('cliente')
+                art.commessa = request.form.get('commessa')
+                art.n_ddt_ingresso = request.form.get('n_ddt')
+                art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
+                art.fornitore = request.form.get('fornitore')
                 art.stato = "DOGANALE"
-                
                 art.codice_articolo = codici[i]
                 art.descrizione = descrizioni[i]
                 art.n_colli = to_int_eu(qtas[i])
-                
-                # Calcoli default
-                art.pezzo = 0
-                art.peso = 0
-                
-                db.add(art)
-                count += 1
-        
+                db.add(art); c += 1
         db.commit()
-        flash(f"Importati con successo {count} articoli dal PDF.", "success")
+        flash(f"Importati {c} articoli.", "success")
         return redirect(url_for('giacenze'))
-        
-    except Exception as e:
-        db.rollback()
-        flash(f"Errore nel salvataggio: {e}", "danger")
-        return redirect(url_for('import_pdf'))
-    finally:
-        db.close()
+    finally: db.close()
 
 
 
