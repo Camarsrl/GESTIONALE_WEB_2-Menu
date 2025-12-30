@@ -749,9 +749,10 @@ EDIT_HTML = """
             <label class="form-label">Stato</label>
             <select name="stato" class="form-select">
                 <option value="">Seleziona...</option>
-                <option value="DOGANALE" {% if row.stato == 'DOGANALE' %}selected{% endif %}>DOGANALE</option>
+                <option value="FINCANTIERI SCOPERTO" {% if row.stato == 'FINCANTIERI SCOPERTO' %}selected{% endif %}>FINCANTIERI SCOPERTO</option>
                 <option value="NAZIONALE" {% if row.stato == 'NAZIONALE' %}selected{% endif %}>NAZIONALE</option>
-                <option value="USCITO" {% if row.stato == 'USCITO' %}selected{% endif %}>USCITO</option>
+                <option value="DOGANALE" {% if row.stato == 'DOGANALE' %}selected{% endif %}>DOGANALE</option>
+                <option value="AGGIUNTO A MANO" {% if row.stato == 'AGGIUNTO A MANO' %}selected{% endif %}>AGGIUNTO A MANO</option>
             </select>
         </div>
         <div class="col-md-2">
