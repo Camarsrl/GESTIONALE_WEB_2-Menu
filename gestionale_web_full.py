@@ -752,7 +752,7 @@ EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h3><i class="bi bi-pencil-square"></i> {% if row and row.id_articolo %}Modifica Articolo #{{ row.id_articolo }}{% else %}Nuovo Articolo{% endif %}</h3>
+    <h3><i class="bi bi-pencil-square"></i> {% if row.codice_articolo %}Modifica Articolo{% else %}Nuovo Articolo{% endif %} #{{ row.id_articolo }}</h3>
     <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Torna alla Lista</a>
 </div>
 
@@ -766,114 +766,40 @@ EDIT_HTML = """
             <label class="form-label fw-bold">Descrizione</label>
             <input type="text" name="descrizione" class="form-control" value="{{ row.descrizione or '' }}">
         </div>
+        
         <div class="col-md-2">
             <label class="form-label">Stato</label>
-            <select name="stato" class="form-select">
-                <option value="">Seleziona...</option>
-                <option value="FINCANTIERI SCOPERTO" {% if row.stato == 'FINCANTIERI SCOPERTO' %}selected{% endif %}>FINCANTIERI SCOPERTO</option>
-                <option value="NAZIONALE" {% if row.stato == 'NAZIONALE' %}selected{% endif %}>NAZIONALE</option>
-                <option value="DOGANALE" {% if row.stato == 'DOGANALE' %}selected{% endif %}>DOGANALE</option>
-                <option value="AGGIUNTO A MANO" {% if row.stato == 'AGGIUNTO A MANO' %}selected{% endif %}>AGGIUNTO A MANO</option>
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">Commessa</label>
-            <input type="text" name="commessa" class="form-control" value="{{ row.commessa or '' }}">
+            <input class="form-control" list="statoOptions" name="stato" value="{{ row.stato or '' }}" placeholder="Seleziona o scrivi...">
+            <datalist id="statoOptions">
+                <option value="FINCANTIERI SCOPERTO">
+                <option value="NAZIONALE">
+                <option value="DOGANALE">
+                <option value="AGGIUNTO A MANO">
+            </datalist>
         </div>
 
-        <div class="col-md-4">
-            <label class="form-label">Cliente</label>
-            <input type="text" name="cliente" class="form-control" value="{{ row.cliente or '' }}">
-        </div>
-        <div class="col-md-4">
-            <label class="form-label">Fornitore</label>
-            <input type="text" name="fornitore" class="form-control" value="{{ row.fornitore or '' }}">
-        </div>
-        <div class="col-md-4">
-            <label class="form-label">Protocollo</label>
-            <input type="text" name="protocollo" class="form-control" value="{{ row.protocollo or '' }}">
-        </div>
-
-        <div class="col-md-3">
-            <label class="form-label">N. Buono</label>
-            <input type="text" name="buono_n" class="form-control" value="{{ row.buono_n or '' }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Magazzino</label>
-            <input type="text" name="magazzino" class="form-control" value="{{ row.magazzino or 'STRUPPA' }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Posizione</label>
-            <input type="text" name="posizione" class="form-control" value="{{ row.posizione or '' }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Ordine</label>
-            <input type="text" name="ordine" class="form-control" value="{{ row.ordine or '' }}">
-        </div>
-
-        <div class="col-md-3">
-            <label class="form-label">Data Ingresso</label>
-            <input type="date" name="data_ingresso" class="form-control" value="{{ row.data_ingresso or '' }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">DDT Ingresso</label>
-            <input type="text" name="n_ddt_ingresso" class="form-control" value="{{ row.n_ddt_ingresso or '' }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Data Uscita</label>
-            <input type="date" name="data_uscita" class="form-control" value="{{ row.data_uscita or '' }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">DDT Uscita</label>
-            <input type="text" name="n_ddt_uscita" class="form-control" value="{{ row.n_ddt_uscita or '' }}">
-        </div>
-
-        <div class="col-md-2">
-            <label class="form-label">Pezzi</label>
-            <input type="number" name="pezzo" class="form-control" value="{{ row.pezzo or '' }}">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">Colli</label>
-            <input type="number" name="n_colli" class="form-control" value="{{ row.n_colli or '' }}">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">Peso (Kg)</label>
-            <input type="number" step="0.01" name="peso" class="form-control" value="{{ row.peso or '' }}">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">M³</label>
-            <input type="number" step="0.001" name="m3" class="form-control" value="{{ row.m3 or '' }}">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">N. Arrivo</label>
-            <input type="text" name="n_arrivo" class="form-control" value="{{ row.n_arrivo or '' }}">
-        </div>
-        
-        <div class="col-md-4">
-            <label class="form-label">Dimensioni (LxWxH)</label>
-            <div class="input-group">
-                <input type="number" step="0.01" name="lunghezza" class="form-control" placeholder="L" value="{{ row.lunghezza or '' }}">
-                <span class="input-group-text">x</span>
-                <input type="number" step="0.01" name="larghezza" class="form-control" placeholder="W" value="{{ row.larghezza or '' }}">
-                <span class="input-group-text">x</span>
-                <input type="number" step="0.01" name="altezza" class="form-control" placeholder="H" value="{{ row.altezza or '' }}">
-            </div>
-        </div>
-        <div class="col-md-4">
-            <label class="form-label">Serial Number</label>
-            <input type="text" name="serial_number" class="form-control" value="{{ row.serial_number or '' }}">
-        </div>
-        <div class="col-md-4">
-            <label class="form-label">Mezzi in Uscita</label>
-            <input type="text" name="mezzi_in_uscita" class="form-control" value="{{ row.mezzi_in_uscita or '' }}">
-        </div>
-
-        <div class="col-12">
-            <label class="form-label">Note</label>
-            <textarea name="note" class="form-control" rows="3">{{ row.note or '' }}</textarea>
-        </div>
+        <div class="col-md-2"><label class="form-label">Commessa</label><input type="text" name="commessa" class="form-control" value="{{ row.commessa or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">Cliente</label><input type="text" name="cliente" class="form-control" value="{{ row.cliente or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">Fornitore</label><input type="text" name="fornitore" class="form-control" value="{{ row.fornitore or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">Protocollo</label><input type="text" name="protocollo" class="form-control" value="{{ row.protocollo or '' }}"></div>
+        <div class="col-md-3"><label class="form-label">N. Buono</label><input type="text" name="buono_n" class="form-control" value="{{ row.buono_n or '' }}"></div>
+        <div class="col-md-3"><label class="form-label">Magazzino</label><input type="text" name="magazzino" class="form-control" value="{{ row.magazzino or 'STRUPPA' }}"></div>
+        <div class="col-md-3"><label class="form-label">Posizione</label><input type="text" name="posizione" class="form-control" value="{{ row.posizione or '' }}"></div>
+        <div class="col-md-3"><label class="form-label">Ordine</label><input type="text" name="ordine" class="form-control" value="{{ row.ordine or '' }}"></div>
+        <div class="col-md-3"><label class="form-label">Data Ingresso</label><input type="date" name="data_ingresso" class="form-control" value="{{ row.data_ingresso or '' }}"></div>
+        <div class="col-md-3"><label class="form-label">DDT Ingresso</label><input type="text" name="n_ddt_ingresso" class="form-control" value="{{ row.n_ddt_ingresso or '' }}"></div>
+        <div class="col-md-3"><label class="form-label">Data Uscita</label><input type="date" name="data_uscita" class="form-control" value="{{ row.data_uscita or '' }}"></div>
+        <div class="col-md-3"><label class="form-label">DDT Uscita</label><input type="text" name="n_ddt_uscita" class="form-control" value="{{ row.n_ddt_uscita or '' }}"></div>
+        <div class="col-md-2"><label class="form-label">Pezzi</label><input type="number" name="pezzo" class="form-control" value="{{ row.pezzo or '' }}"></div>
+        <div class="col-md-2"><label class="form-label">Colli</label><input type="number" name="n_colli" class="form-control" value="{{ row.n_colli or '' }}"></div>
+        <div class="col-md-2"><label class="form-label">Peso (Kg)</label><input type="number" step="0.01" name="peso" class="form-control" value="{{ row.peso or '' }}"></div>
+        <div class="col-md-2"><label class="form-label">M³</label><input type="number" step="0.001" name="m3" class="form-control" value="{{ row.m3 or '' }}"></div>
+        <div class="col-md-2"><label class="form-label">N. Arrivo</label><input type="text" name="n_arrivo" class="form-control" value="{{ row.n_arrivo or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">Dimensioni (LxWxH)</label><div class="input-group"><input type="number" step="0.01" name="lunghezza" class="form-control" placeholder="L" value="{{ row.lunghezza or '' }}"><span class="input-group-text">x</span><input type="number" step="0.01" name="larghezza" class="form-control" placeholder="W" value="{{ row.larghezza or '' }}"><span class="input-group-text">x</span><input type="number" step="0.01" name="altezza" class="form-control" placeholder="H" value="{{ row.altezza or '' }}"></div></div>
+        <div class="col-md-4"><label class="form-label">Serial Number</label><input type="text" name="serial_number" class="form-control" value="{{ row.serial_number or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">Mezzi in Uscita</label><input type="text" name="mezzi_in_uscita" class="form-control" value="{{ row.mezzi_in_uscita or '' }}"></div>
+        <div class="col-12"><label class="form-label">Note</label><textarea name="note" class="form-control" rows="3">{{ row.note or '' }}</textarea></div>
     </div>
-
     <div class="mt-4 text-end">
         <button type="submit" class="btn btn-primary px-5"><i class="bi bi-save"></i> Salva Modifiche</button>
     </div>
