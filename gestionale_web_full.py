@@ -1935,6 +1935,59 @@ def invia_email():
         flash(f"Errore invio: {e}", "danger")
 
     return redirect(url_for('giacenze'))
+
+
+# --- ROUTE ALLEGATI (MANCANTI - DA AGGIUNGERE) ---
+@app.route('/upload_file/<int:id_articolo>', methods=['POST'])
+@login_required
+def upload_file(id_articolo):
+    if 'file' in request.files:
+        f = request.files['file']
+        if f.filename:
+            safe = f"{id_articolo}_{uuid.uuid4().hex[:6]}_{f.filename}"
+            # Decide cartella: PDF in docs, Immagini in photos
+            is_pdf = f.filename.lower().endswith('.pdf')
+            target_dir = DOCS_DIR if is_pdf else PHOTOS_DIR
+            kind = 'doc' if is_pdf else 'photo'
+            
+            f.save(target_dir / safe)
+            
+            db = SessionLocal()
+            db.add(Attachment(articolo_id=id_articolo, kind=kind, filename=safe))
+            db.commit()
+            db.close()
+            flash("File caricato.", "success")
+            
+    return redirect(url_for('edit_record', id_articolo=id_articolo))
+
+@app.route('/delete_file/<int:id_file>')
+@login_required
+def delete_file(id_file):
+    db = SessionLocal()
+    att = db.query(Attachment).get(id_file)
+    if att:
+        id_art = att.articolo_id
+        path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / att.filename
+        try:
+            if path.exists(): os.remove(path)
+        except: pass
+        db.delete(att)
+        db.commit()
+        db.close()
+        return redirect(url_for('edit_record', id_articolo=id_art))
+    db.close()
+    return redirect(url_for('giacenze'))
+
+@app.route('/serve_file/<filename>')
+@login_required
+def serve_uploaded_file(filename):
+    p1 = PHOTOS_DIR / filename
+    if p1.exists(): return send_file(p1)
+    p2 = DOCS_DIR / filename
+    if p2.exists(): return send_file(p2)
+    return "File non trovato", 404
+
+
     
 # --- GESTIONE ARTICOLI (CRUD) ---
 # ========================================================
