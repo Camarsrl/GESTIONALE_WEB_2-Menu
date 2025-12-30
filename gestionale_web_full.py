@@ -2196,13 +2196,13 @@ def giacenze():
             try: q = q.filter(Articolo.id_articolo == int(args.get('id')))
             except: pass
 
-        # Lista completa dei campi di testo da filtrare
-        text_filters = [
-            'cliente', 'fornitore', 'commessa', 'ordine', 'protocollo', 
-            'serial_number', 'codice_articolo', 'magazzino', 'stato', 
-            'buono_n', 'descrizione', 'mezzi_in_uscita', 
-            'n_ddt_ingresso', 'n_ddt_uscita?, 'n_arrivo'
-        ]
+            # Elenco campi testo
+            text_fields = [
+                'codice_articolo', 'descrizione', 'stato', 'commessa', 'cliente', 
+                'fornitore', 'protocollo', 'buono_n', 'magazzino', 'posizione', 
+                'ordine', 'n_ddt_ingresso', 'n_ddt_uscita', 'n_arrivo', 
+                'serial_number', 'mezzi_in_uscita', 'note'
+            ]
         
         for f in text_filters:
             val = args.get(f)
