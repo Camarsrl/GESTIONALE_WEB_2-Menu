@@ -1498,17 +1498,14 @@ def upload_mappe_json():
     
     return redirect(url_for('manage_mappe'))
 
-
-# --- IMPORT PDF AUTOMATICO ---
-# --- IMPORT PDF (DA AGGIUNGERE SE MANCA, CON PROTEZIONE) ---
+# --- ROUTE IMPORT PDF (PROTETTA ADMIN) ---
 @app.route('/import_pdf', methods=['GET', 'POST'])
 @login_required
 def import_pdf():
-    # --- PROTEZIONE ADMIN ---
+    # PROTEZIONE ADMIN
     if session.get('role') != 'admin':
-        flash("Accesso negato.", "danger")
+        flash("Accesso negato: Funzione riservata agli amministratori.", "danger")
         return redirect(url_for('giacenze'))
-    # ------------------------
 
     if request.method == 'POST':
         if 'file' not in request.files: return redirect(request.url)
@@ -1517,22 +1514,22 @@ def import_pdf():
             temp_path = os.path.join(DOCS_DIR, f"temp_{uuid.uuid4().hex}.pdf")
             f.save(temp_path)
             try:
-                # Assicurati di avere la funzione helper extract_data_from_ddt_pdf nel file!
                 meta, rows = extract_data_from_ddt_pdf(temp_path)
-                os.remove(temp_path)
+                # Pulisce file temp
+                if os.path.exists(temp_path): os.remove(temp_path)
                 return render_template('import_pdf.html', meta=meta, rows=rows)
             except Exception as e:
                 flash(f"Errore PDF: {e}", "danger")
                 return redirect(url_for('giacenze'))
+                
     return render_template('import_pdf.html', meta={}, rows=[])
 
 @app.route('/save_pdf_import', methods=['POST'])
 @login_required
 def save_pdf_import():
-    # --- PROTEZIONE ADMIN ---
+    # PROTEZIONE ADMIN
     if session.get('role') != 'admin':
         return "Accesso Negato", 403
-    # ------------------------
 
     db = SessionLocal()
     try:
@@ -1558,6 +1555,7 @@ def save_pdf_import():
         flash(f"Importati {c} articoli.", "success")
         return redirect(url_for('giacenze'))
     finally: db.close()
+
 
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
