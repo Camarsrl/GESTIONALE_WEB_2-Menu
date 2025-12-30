@@ -3093,10 +3093,16 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento):
 @app.route('/calcola_costi', methods=['GET', 'POST'])
 @login_required
 def calcola_costi():
+    # --- PROTEZIONE ADMIN ---
+    if session.get('role') != 'admin':
+        flash("Accesso negato: Funzione riservata agli amministratori.", "danger")
+        return redirect(url_for('giacenze'))
+    # ------------------------
+
     # Defaults per il form
     oggi = date.today()
-    data_da_val = (oggi.replace(day=1)).strftime("%Y-%m-%d") # Primo del mese corrente
-    data_a_val = today_iso = oggi.strftime("%Y-%m-%d")
+    data_da_val = (oggi.replace(day=1)).strftime("%Y-%m-%d")
+    data_a_val = oggi.strftime("%Y-%m-%d")
     cliente_val = ""
     raggruppamento = "mese"
     risultati = []
@@ -3107,41 +3113,30 @@ def calcola_costi():
         cliente_val = request.form.get('cliente', '').strip()
         raggruppamento = request.form.get('raggruppamento', 'mese')
         
-        # Converti date form in oggetti date
         try:
             d_da = datetime.strptime(data_da_str, "%Y-%m-%d").date()
             d_a = datetime.strptime(data_a_str, "%Y-%m-%d").date()
             
-            # Recupera dati dal DB
             db = SessionLocal()
-            query = db.query(Articolo).filter(
-                Articolo.data_ingresso.isnot(None),
-                Articolo.data_ingresso != ''
-            )
+            query = db.query(Articolo).filter(Articolo.data_ingresso.isnot(None), Articolo.data_ingresso != '')
             
-            # Pre-filtro cliente su SQL se possibile (opzionale, ma velocizza)
             if cliente_val:
                 query = query.filter(Articolo.cliente.ilike(f"%{cliente_val}%"))
                 
             articoli = query.all()
             db.close()
             
-            # Esegui calcolo logico
+            # Esegui calcolo logico (assicurati di avere la funzione _calcola_logica_costi nel file)
             risultati = _calcola_logica_costi(articoli, d_da, d_a, raggruppamento)
             
-            # Mantieni valori nel form
             data_da_val = data_da_str
             data_a_val = data_a_str
 
         except Exception as e:
             flash(f"Errore nel calcolo: {e}", "danger")
 
-    return render_template('calcoli.html', # Usa la stringa CALCOLI_HTML se non usi file separati
-                           risultati=risultati,
-                           data_da=data_da_val,
-                           data_a=data_a_val,
-                           cliente_filtro=cliente_val,
-                           raggruppamento=raggruppamento)
+    return render_template('calcoli.html', risultati=risultati, data_da=data_da_val, data_a=data_a_val, cliente_filtro=cliente_val, raggruppamento=raggruppamento)
+
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
