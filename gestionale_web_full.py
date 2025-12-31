@@ -1825,27 +1825,54 @@ from urllib.parse import unquote # <--- Assicurati di importare questo in alto o
 from urllib.parse import unquote 
 # ----------------------------------------------------------
 
-@app.route('/serve_file/<path:filename>')
+# --- FUNZIONE PER CARICARE NUOVI FILE (Dalla pagina Modifica) ---
+@app.route('/upload/<int:id_articolo>', methods=['POST'])
 @login_required
-def serve_uploaded_file(filename):
-    # Decodifica il nome (es. "NOME%20FILE.pdf" diventa "NOME FILE.pdf")
-    decoded_name = unquote(filename)
-    
-    # Cerca nella cartella FOTO
-    p_photo = PHOTOS_DIR / decoded_name
-    if p_photo.exists():
-        return send_file(p_photo)
-    
-    # Cerca nella cartella DOCUMENTI
-    p_doc = DOCS_DIR / decoded_name
-    if p_doc.exists():
-        return send_file(p_doc)
-        
-    # Tentativo fallback con nome originale (nel caso non serva decodifica)
-    if (PHOTOS_DIR / filename).exists(): return send_file(PHOTOS_DIR / filename)
-    if (DOCS_DIR / filename).exists(): return send_file(DOCS_DIR / filename)
+def upload_file(id_articolo):
+    if session.get('role') != 'admin':
+        return "Accesso Negato", 403
 
-    return f"File non trovato sul server: {decoded_name}", 404
+    file = request.files.get('file')
+    if not file or not file.filename:
+        flash("Nessun file selezionato", "warning")
+        return redirect(url_for('edit_record', id_articolo=id_articolo))
+
+    db = SessionLocal()
+    try:
+        # Pulisci il nome del file
+        filename = secure_filename(file.filename)
+        
+        # Determina se è Foto o Documento
+        ext = filename.rsplit('.', 1)[-1].lower()
+        if ext in ['jpg', 'jpeg', 'png', 'gif']:
+            kind = 'photo'
+            save_path = PHOTOS_DIR / filename
+        else:
+            kind = 'doc'
+            save_path = DOCS_DIR / filename
+            
+        # Salva fisicamente il file
+        file.save(str(save_path))
+
+        # Registra nel Database
+        att = Attachment(
+            id_articolo=id_articolo,
+            filename=filename,
+            kind=kind,
+            uploaded_at=datetime.now()
+        )
+        db.add(att)
+        db.commit()
+        flash("File caricato con successo!", "success")
+        
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore caricamento: {e}", "danger")
+    finally:
+        db.close()
+
+    return redirect(url_for('edit_record', id_articolo=id_articolo))
+
 @app.route('/delete_file/<int:id_file>')
 @login_required
 def delete_file(id_file):
