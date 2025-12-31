@@ -1885,11 +1885,14 @@ from urllib.parse import unquote
 # ----------------------------------------------------------
 
 # --- FUNZIONE PER CARICARE NUOVI FILE (Dalla pagina Modifica) ---
+
 @app.route('/upload/<int:id_articolo>', methods=['POST'])
 @login_required
 def upload_file(id_articolo):
+    # Protezione Admin (opzionale, se vuoi che tutti carichino togli questo if)
     if session.get('role') != 'admin':
-        return "Accesso Negato", 403
+        flash("Solo Admin può caricare file", "danger")
+        return redirect(url_for('edit_record', id_articolo=id_articolo))
 
     file = request.files.get('file')
     if not file or not file.filename:
@@ -1898,22 +1901,22 @@ def upload_file(id_articolo):
 
     db = SessionLocal()
     try:
-        # Pulisci il nome del file
+        # Pulisce il nome del file (richiede l'import aggiunto al punto 1)
         filename = secure_filename(file.filename)
         
-        # Determina se è Foto o Documento
+        # Determina tipo e percorso
         ext = filename.rsplit('.', 1)[-1].lower()
-        if ext in ['jpg', 'jpeg', 'png', 'gif']:
+        if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
             kind = 'photo'
             save_path = PHOTOS_DIR / filename
         else:
-            kind = 'doc'
+            kind = 'doc' # PDF, Excel, Word, ecc.
             save_path = DOCS_DIR / filename
             
-        # Salva fisicamente il file
+        # Salva file fisico
         file.save(str(save_path))
 
-        # Registra nel Database
+        # Salva nel DB
         att = Attachment(
             id_articolo=id_articolo,
             filename=filename,
@@ -1922,7 +1925,7 @@ def upload_file(id_articolo):
         )
         db.add(att)
         db.commit()
-        flash("File caricato con successo!", "success")
+        flash("File caricato correttamente!", "success")
         
     except Exception as e:
         db.rollback()
@@ -1931,6 +1934,7 @@ def upload_file(id_articolo):
         db.close()
 
     return redirect(url_for('edit_record', id_articolo=id_articolo))
+    
 
 @app.route('/delete_file/<int:id_file>')
 @login_required
