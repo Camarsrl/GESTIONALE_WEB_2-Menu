@@ -1821,10 +1821,14 @@ def invia_email():
 # --- ROUTE ALLEGATI (MANCANTI - DA AGGIUNGERE) ---
 from urllib.parse import unquote # <--- Assicurati di importare questo in alto o dentro la funzione
 
-@app.route('/serve_file/<path:filename>') # Usa <path:filename> per sicurezza
+# --- AGGIUNGI QUESTO IMPORT IN ALTO NEL FILE SE NON C'È ---
+from urllib.parse import unquote 
+# ----------------------------------------------------------
+
+@app.route('/serve_file/<path:filename>')
 @login_required
 def serve_uploaded_file(filename):
-    # Decodifica il nome (es. trasforma %20 in spazio)
+    # Decodifica il nome (es. "NOME%20FILE.pdf" diventa "NOME FILE.pdf")
     decoded_name = unquote(filename)
     
     # Cerca nella cartella FOTO
@@ -1837,9 +1841,11 @@ def serve_uploaded_file(filename):
     if p_doc.exists():
         return send_file(p_doc)
         
-    return f"File non trovato: {decoded_name}", 404
+    # Tentativo fallback con nome originale (nel caso non serva decodifica)
+    if (PHOTOS_DIR / filename).exists(): return send_file(PHOTOS_DIR / filename)
+    if (DOCS_DIR / filename).exists(): return send_file(DOCS_DIR / filename)
 
-
+    return f"File non trovato sul server: {decoded_name}", 404
 @app.route('/delete_file/<int:id_file>')
 @login_required
 def delete_file(id_file):
@@ -1858,14 +1864,6 @@ def delete_file(id_file):
     db.close()
     return redirect(url_for('giacenze'))
 
-@app.route('/serve_file/<filename>')
-@login_required
-def serve_uploaded_file(filename):
-    p1 = PHOTOS_DIR / filename
-    if p1.exists(): return send_file(p1)
-    p2 = DOCS_DIR / filename
-    if p2.exists(): return send_file(p2)
-    return "File non trovato", 404
 
 
     
