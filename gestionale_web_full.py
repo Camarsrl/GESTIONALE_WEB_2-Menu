@@ -2891,61 +2891,7 @@ app.jinja_env.globals['getattr'] = getattr
 app.jinja_env.filters['fmt_date'] = fmt_date
     
 
-@app.route('/print_labels', methods=['POST'])
-@login_required
-def print_labels():
-    # PROTEZIONE ADMIN
-    if session.get('role') != 'admin':
-        return "Accesso Negato: Solo Admin", 403
 
-    db = SessionLocal()
-    ids = request.form.getlist('ids')
-    articoli_da_stampare = []
-
-    try:
-        if ids:
-            # Stampa da selezione multipla (Giacenze)
-            records = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-            for r in records:
-                qty = r.n_colli if r.n_colli and r.n_colli > 0 else 1
-                for i in range(1, qty + 1):
-                    articoli_da_stampare.append({
-                        'cliente': r.cliente or '',
-                        'fornitore': r.fornitore or '',
-                        'ordine': r.ordine or '',
-                        'commessa': r.commessa or '',
-                        'n_ddt_ingresso': r.n_ddt_ingresso or '',
-                        'data_ingresso': fmt_date(r.data_ingresso),
-                        'n_arrivo': r.n_arrivo or '',
-                        'collo_n': i,
-                        'collo_tot': qty,
-                        'posizione': r.posizione or ''
-                    })
-        else:
-            # Stampa manuale (dal form Etichette)
-            qty = to_int_eu(request.form.get('n_colli')) or 1
-            for i in range(1, qty + 1):
-                articoli_da_stampare.append({
-                    'cliente': request.form.get('cliente') or '',
-                    'fornitore': request.form.get('fornitore') or '',
-                    'ordine': request.form.get('ordine') or '',
-                    'commessa': request.form.get('commessa') or '',
-                    'n_ddt_ingresso': request.form.get('n_ddt_ingresso') or '',
-                    'data_ingresso': fmt_date(parse_date_ui(request.form.get('data_ingresso'))),
-                    'n_arrivo': request.form.get('n_arrivo') or '',
-                    'collo_n': i,
-                    'collo_tot': qty,
-                    'posizione': request.form.get('posizione') or ''
-                })
-        
-        return render_template('print_label.html', labels=articoli_da_stampare)
-    
-    except Exception as e:
-        return f"Errore generazione etichette: {e}"
-    finally:
-        db.close()
-
-   
     
 # --- FIX DATABASE SCHEMA (Esegui all'avvio per correggere tipi colonne) ---
 def fix_db_schema():
