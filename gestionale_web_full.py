@@ -2960,78 +2960,84 @@ def labels_form():
 
 # --- FUNZIONE ETICHETTE AGGIORNATA (Arrivo 10/25 N.1) ---
 
-def _genera_pdf_etichetta(articoli, formato=None):
+def _genera_pdf_etichetta(articoli):
+    import io
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER
+
     bio = io.BytesIO()
     
-    # SETUP PER BROTHER QL-800 (Rotolo continuo 62mm)
-    # Larghezza 100mm x Altezza 62mm
+    # FORMATO 100x62mm
     W_L = 100 * mm
     H_L = 62 * mm
     
-    # Margini minimi (1mm) per sfruttare tutto lo spazio
     doc = SimpleDocTemplate(bio, pagesize=(W_L, H_L), 
                             leftMargin=1*mm, rightMargin=1*mm, 
                             topMargin=1*mm, bottomMargin=1*mm)
     story = []
     
-    # Stili Testo
     styles = getSampleStyleSheet()
-    # Stile Etichette (Chiave) - Grassetto
-    s_key = ParagraphStyle('Key', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
-    # Stile Valore - Normale (o Grassetto se preferisci tutto bold)
-    s_val = ParagraphStyle('Val', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
-    # Stile per le righe finali (Arrivo/Colli) - Più grandi e in Grassetto
-    s_big_key = ParagraphStyle('BigKey', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=12, leading=14)
-    s_big_val = ParagraphStyle('BigVal', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=14)
+    s_bold = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
+    s_norm = ParagraphStyle('N', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
+    s_big = ParagraphStyle('Big', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=13, leading=15)
+
+    elements_buffer = []
 
     for art in articoli:
-        qty = int(art.n_colli or 1)
+        qty = int(art.n_colli) if art.n_colli else 1
         if qty < 1: qty = 1
         
         for i in range(1, qty + 1):
-            # --- 1. LOGO ---
+            # 1. Logo
             if LOGO_PATH and Path(LOGO_PATH).exists():
-                # Logo ridimensionato per non occupare troppo spazio verticale
                 img = Image(LOGO_PATH, width=35*mm, height=10*mm, hAlign='LEFT')
-                story.append(img)
+                elements_buffer.append(img)
+            elements_buffer.append(Spacer(1, 2*mm))
             
-            story.append(Spacer(1, 2*mm))
-            
-            # --- 2. DATI (Tabella Unica senza bordi) ---
-            # Lista unica per mantenere l'allineamento perfetto
+            # 2. Tabella Dati (Senza bordi)
             dati = [
-                [Paragraph("CLIENTE:", s_key), Paragraph(str(art.cliente or ''), s_val)],
-                [Paragraph("FORNITORE:", s_key), Paragraph(str(art.fornitore or ''), s_val)],
-                [Paragraph("ORDINE:", s_key), Paragraph(str(art.ordine or ''), s_val)],
-                [Paragraph("COMMESSA:", s_key), Paragraph(str(art.commessa or ''), s_val)],
-                [Paragraph("N. DDT:", s_key), Paragraph(str(art.n_ddt_ingresso or ''), s_val)],
-                [Paragraph("DATA INGRESSO:", s_key), Paragraph(fmt_date(art.data_ingresso), s_val)],
-                # Righe finali più grandi
-                [Paragraph("ARRIVO:", s_big_key), Paragraph(str(art.n_arrivo or ''), s_big_val)],
-                [Paragraph("N. COLLO:", s_big_key), Paragraph(f"{i} / {qty}", s_big_val)],
-                [Paragraph("COLLI TOT:", s_big_key), Paragraph(str(qty), s_big_val)]
+                [Paragraph("CLIENTE:", s_bold), Paragraph(str(art.cliente or ''), s_norm)],
+                [Paragraph("FORNITORE:", s_bold), Paragraph(str(art.fornitore or ''), s_norm)],
+                [Paragraph("ORDINE:", s_bold), Paragraph(str(art.ordine or ''), s_norm)],
+                [Paragraph("COMMESSA:", s_bold), Paragraph(str(art.commessa or ''), s_norm)],
+                [Paragraph("DDT ING.:", s_bold), Paragraph(str(art.n_ddt_ingresso or ''), s_norm)],
+                [Paragraph("DATA ING.:", s_bold), Paragraph(fmt_date(art.data_ingresso), s_norm)],
+                [Paragraph("POSIZIONE:", s_bold), Paragraph(str(art.posizione or ''), s_norm)],
             ]
-            
-            # Configurazione Tabella: Colonna 1 (32mm), Colonna 2 (Resto)
-            t = Table(dati, colWidths=[34*mm, 64*mm])
-            
+            t = Table(dati, colWidths=[32*mm, 64*mm])
             t.setStyle(TableStyle([
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),       # Allinea tutto in alto
-                ('LEFTPADDING', (0,0), (-1,-1), 1),      # Padding sinistro minimo
-                ('RIGHTPADDING', (0,0), (-1,-1), 0),
-                ('TOPPADDING', (0,0), (-1,-1), 0),       # Spazio verticale ridotto tra le righe
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('LEFTPADDING', (0,0), (-1,-1), 0),
                 ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
             ]))
+            elements_buffer.append(t)
+            elements_buffer.append(Spacer(1, 1*mm))
             
-            story.append(t)
+            # 3. Footer (Arrivo e Collo) - Solo linea sopra
+            foot_data = [
+                [Paragraph(f"ARRIVO: {art.n_arrivo or ''}", s_big),
+                 Paragraph(f"COLLO: {i}/{qty}", s_big)]
+            ]
+            t_foot = Table(foot_data, colWidths=[55*mm, 41*mm])
+            t_foot.setStyle(TableStyle([
+                ('LINEABOVE', (0,0), (-1,-1), 1.5, colors.black),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('TOPPADDING', (0,0), (-1,-1), 3),
+            ]))
+            elements_buffer.append(t_foot)
             
-            # Salto pagina per l'etichetta successiva
-            story.append(PageBreak())
+            elements_buffer.append(PageBreak())
 
-    doc.build(story)
+    if elements_buffer and isinstance(elements_buffer[-1], PageBreak):
+        elements_buffer.pop()
+
+    doc.build(elements_buffer)
     bio.seek(0)
     return bio
-
         
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
