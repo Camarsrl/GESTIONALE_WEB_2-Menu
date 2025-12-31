@@ -1891,7 +1891,28 @@ def delete_file(id_file):
     db.close()
     return redirect(url_for('giacenze'))
 
+from urllib.parse import unquote
+import os
 
+@app.route('/serve_file/<path:filename>')
+@login_required
+def serve_uploaded_file(filename):
+    # 1. Decodifica il nome (es. "Mio%20File.pdf" -> "Mio File.pdf")
+    decoded = unquote(filename)
+    
+    # 2. Definisci le cartelle dove cercare
+    folders_to_check = [PHOTOS_DIR, DOCS_DIR]
+    
+    # 3. Cerca il file
+    for folder in folders_to_check:
+        # Prova con nome decodificato
+        if (folder / decoded).exists():
+            return send_file(folder / decoded)
+        # Prova con nome originale (nel caso sia stato salvato con %20)
+        if (folder / filename).exists():
+            return send_file(folder / filename)
+            
+    return f"File '{decoded}' non trovato sul server.", 404
 
     
 # --- GESTIONE ARTICOLI (CRUD) ---
