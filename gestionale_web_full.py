@@ -644,43 +644,41 @@ GIACENZE_HTML = """
         <div class="card-body py-2">
             <form method="get">
                 <div class="row g-1 mb-1">
-                    <div class="col-md-1"><input name="id" class="form-control form-control-sm" placeholder="ID" value="{{ request.args.get('id','') }}"></div>
-                    <div class="col-md-2"><input name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
                     <div class="col-md-2"><input name="fornitore" class="form-control form-control-sm" placeholder="Fornitore" value="{{ request.args.get('fornitore','') }}"></div>
-                    <div class="col-md-2"><input name="commessa" class="form-control form-control-sm" placeholder="Commessa" value="{{ request.args.get('commessa','') }}"></div>
-                    <div class="col-md-2"><input name="ordine" class="form-control form-control-sm" placeholder="Ordine" value="{{ request.args.get('ordine','') }}"></div>
+                    <div class="col-md-2"><input name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
+                    <div class="col-md-1"><input name="id" class="form-control form-control-sm" placeholder="ID" value="{{ request.args.get('id','') }}"></div>
+                    <div class="col-md-2"><input name="n_ddt_ingresso" class="form-control form-control-sm" placeholder="N. DDT Ing" value="{{ request.args.get('n_ddt_ingresso','') }}"></div>
                     <div class="col-md-2"><input name="protocollo" class="form-control form-control-sm" placeholder="Protocollo" value="{{ request.args.get('protocollo','') }}"></div>
+                    <div class="col-md-2"><input name="ordine" class="form-control form-control-sm" placeholder="Ordine" value="{{ request.args.get('ordine','') }}"></div>
                     <div class="col-md-1"><button type="submit" class="btn btn-primary btn-sm w-100">Cerca</button></div>
                 </div>
-                
                 <div class="row g-1 mb-1">
-                    <div class="col-md-2"><input name="codice_articolo" class="form-control form-control-sm" placeholder="Codice Art." value="{{ request.args.get('codice_articolo','') }}"></div>
-                    <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial No." value="{{ request.args.get('serial_number','') }}"></div>
-                    <div class="col-md-2"><input name="n_ddt_ingresso" class="form-control form-control-sm" placeholder="N. DDT Ing." value="{{ request.args.get('n_ddt_ingresso','') }}"></div>
+                    <div class="col-md-2"><input name="commessa" class="form-control form-control-sm" placeholder="Commessa" value="{{ request.args.get('commessa','') }}"></div>
                     <div class="col-md-2"><input name="n_arrivo" class="form-control form-control-sm" placeholder="N. Arrivo" value="{{ request.args.get('n_arrivo','') }}"></div>
                     <div class="col-md-2"><input name="magazzino" class="form-control form-control-sm" placeholder="Magazzino" value="{{ request.args.get('magazzino','') }}"></div>
+                    <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial No" value="{{ request.args.get('serial_number','') }}"></div>
+                    <div class="col-md-2"><input name="codice_articolo" class="form-control form-control-sm" placeholder="Codice Art" value="{{ request.args.get('codice_articolo','') }}"></div>
                     <div class="col-md-2"><input name="stato" class="form-control form-control-sm" placeholder="Stato" value="{{ request.args.get('stato','') }}"></div>
                 </div>
-
                 <div class="row g-1 align-items-center">
                     <div class="col-md-5">
                         <div class="input-group input-group-sm">
-                            <span class="input-group-text">Ingresso Dal</span>
+                            <span class="input-group-text">Ingresso</span>
                             <input name="data_ing_da" type="date" class="form-control" value="{{ request.args.get('data_ing_da','') }}">
-                            <span class="input-group-text">Al</span>
+                            <span class="input-group-text">-</span>
                             <input name="data_ing_a" type="date" class="form-control" value="{{ request.args.get('data_ing_a','') }}">
                         </div>
                     </div>
                     <div class="col-md-5">
                         <div class="input-group input-group-sm">
-                            <span class="input-group-text">Uscita Dal</span>
+                            <span class="input-group-text">Uscita</span>
                             <input name="data_usc_da" type="date" class="form-control" value="{{ request.args.get('data_usc_da','') }}">
-                            <span class="input-group-text">Al</span>
+                            <span class="input-group-text">-</span>
                             <input name="data_usc_a" type="date" class="form-control" value="{{ request.args.get('data_usc_a','') }}">
                         </div>
                     </div>
                     <div class="col-md-2 text-end">
-                        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm w-100">Reset Filtri</a>
+                        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm w-100">Reset</a>
                     </div>
                 </div>
             </form>
@@ -705,7 +703,7 @@ GIACENZE_HTML = """
                     <th>ID</th> <th>Doc</th> <th>Foto</th> <th>Codice</th> <th>Descrizione</th>
                     <th>Cliente</th> <th>Fornitore</th> <th>Commessa</th> <th>Ordine</th> <th>Protocollo</th>
                     <th>Buono</th> <th>N.Arr</th> <th>Data Ing</th> <th>DDT Ing</th> <th>Pos</th> <th>Stato</th>
-                    <th>Pz</th> <th>Colli</th> <th>Kg</th> <th>LxPxH</th> <th>M3</th> <th>Act</th>
+                    <th>Pz</th> <th>Colli</th> <th>Kg</th> <th>LxPxH</th> <th>M2</th> <th>M3</th> <th>Act</th>
                 </tr>
             </thead>
             <tbody>
@@ -742,13 +740,16 @@ GIACENZE_HTML = """
                     <td>{{ r.n_colli or '' }}</td>
                     <td>{{ r.peso or '' }}</td>
                     <td>{{ r.lunghezza|int }}x{{ r.larghezza|int }}x{{ r.altezza|int }}</td>
+                    
+                    <td>{{ r.m2 or '' }}</td>
+                    
                     <td>{{ r.m3 or '' }}</td>
                     <td class="text-center"><a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}">✏️</a></td>
                 </tr>
                 {% endfor %}
             </tbody>
             <tfoot class="sticky-bottom bg-white fw-bold">
-                <tr><td colspan="23">Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}</td></tr>
+                <tr><td colspan="24">Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}</td></tr>
             </tfoot>
         </table>
     </div>
