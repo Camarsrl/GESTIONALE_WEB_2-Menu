@@ -2654,7 +2654,7 @@ def _generate_buono_pdf(form_data, rows):
     bio.seek(0)
     return bio
 
-def _generate_ddt_pdf(n_ddt, data_ddt, targa, dest, rows, form_data):
+def _genera_pdf_ddt_file(n_ddt, data_ddt, targa, dest, rows, form_data):
     bio = io.BytesIO()
     # Margini ottimizzati
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=5*mm, bottomMargin=5*mm)
