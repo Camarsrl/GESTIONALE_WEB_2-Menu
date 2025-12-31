@@ -1119,34 +1119,104 @@ LABELS_FORM_HTML = """
 
 PRINT_LABEL_HTML = """
 <!DOCTYPE html>
-<html>
+<html lang="it">
 <head>
-<style>
-    @page { size: 100mm 62mm; margin: 0; }
-    body { font-family: Arial; margin: 0; padding: 2mm; width: 96mm; height: 58mm; }
-    .row { display: flex; margin-bottom: 2px; font-size: 11px; }
-    .lbl { font-weight: bold; width: 80px; }
-    .val { white-space: nowrap; overflow: hidden; }
-    .big { font-size: 16px; font-weight: bold; margin-top: 5px; border-top: 2px solid black; padding-top: 5px; }
-    .no-print { text-align:center; padding:10px; background:#eee; }
-    @media print { .no-print { display: none; } }
-</style>
+    <meta charset="UTF-8">
+    <title>Stampa Etichette</title>
+    <style>
+        /* Setup Brother QL-800: 100mm x 62mm */
+        @page {
+            size: 100mm 62mm;
+            margin: 0;
+        }
+        body {
+            margin: 0;
+            padding: 2mm;
+            font-family: Arial, Helvetica, sans-serif;
+            width: 96mm; 
+            height: 58mm;
+            box-sizing: border-box;
+        }
+        .label-container {
+            width: 100%;
+            height: 100%;
+            page-break-after: always;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Logo */
+        .header img {
+            height: 30px;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        /* Griglia Dati */
+        .info-row {
+            display: flex;
+            margin-bottom: 1px;
+            font-size: 11px; /* Font compatto per far stare tutto */
+            line-height: 1.1;
+        }
+        .key {
+            font-weight: bold;
+            width: 90px; /* Larghezza fissa etichetta */
+            flex-shrink: 0;
+        }
+        .val {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-weight: bold; /* Tutto in grassetto come richiesto */
+        }
+
+        /* Footer (Arrivo e Colli) - SENZA RETTANGOLO */
+        .footer {
+            margin-top: auto; /* Spinge in basso */
+            padding-top: 3px;
+            border-top: 2px solid #000; /* Solo linea sopra */
+            font-size: 14px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        /* Nascondi bottone stampa su carta */
+        @media print {
+            .no-print { display: none; }
+        }
+    </style>
 </head>
 <body>
-    <div class="no-print"><button onclick="window.print()" style="font-size:20px">🖨️ STAMPA</button></div>
+    <div class="no-print" style="text-align:center; padding:10px; background:#f0f0f0;">
+        <button onclick="window.print()" style="font-size:20px; padding:10px 20px;">🖨️ STAMPA</button>
+    </div>
+
     {% for l in labels %}
-    <div style="page-break-after: always;">
-        <div class="row"><div class="lbl">CLIENTE:</div><div class="val">{{ l.cliente }}</div></div>
-        <div class="row"><div class="lbl">FORNITORE:</div><div class="val">{{ l.fornitore }}</div></div>
-        <div class="row"><div class="lbl">ORDINE:</div><div class="val">{{ l.ordine }}</div></div>
-        <div class="row"><div class="lbl">COMMESSA:</div><div class="val">{{ l.commessa }}</div></div>
-        <div class="row"><div class="lbl">DDT ING.:</div><div class="val">{{ l.n_ddt_ingresso }}</div></div>
-        <div class="row"><div class="lbl">DATA:</div><div class="val">{{ l.data_ingresso }}</div></div>
-        <div class="row"><div class="lbl">POSIZIONE:</div><div class="val">{{ l.posizione }}</div></div>
-        <div class="big">ARRIVO: {{ l.n_arrivo }}  -  COLLO: {{ l.collo_n }} / {{ l.collo_tot }}</div>
+    <div class="label-container">
+        <div class="header">
+            <img src="{{ url_for('static', filename='logo camar.jpg') }}" alt="Camar">
+        </div>
+
+        <div class="info-row"><div class="key">CLIENTE:</div><div class="val">{{ l.cliente }}</div></div>
+        <div class="info-row"><div class="key">FORNITORE:</div><div class="val">{{ l.fornitore }}</div></div>
+        <div class="info-row"><div class="key">ORDINE:</div><div class="val">{{ l.ordine }}</div></div>
+        <div class="info-row"><div class="key">COMMESSA:</div><div class="val">{{ l.commessa }}</div></div>
+        <div class="info-row"><div class="key">DDT ING.:</div><div class="val">{{ l.n_ddt_ingresso }}</div></div>
+        <div class="info-row"><div class="key">DATA ING.:</div><div class="val">{{ l.data_ingresso }}</div></div>
+        <div class="info-row"><div class="key">POSIZIONE:</div><div class="val">{{ l.posizione }}</div></div>
+
+        <div class="footer">
+            <span>ARRIVO: {{ l.n_arrivo }}</span>
+            <span>COLLO: {{ l.collo_n }} / {{ l.collo_tot }}</span>
+        </div>
     </div>
     {% endfor %}
-    <script>window.onload = function() { setTimeout(function(){ window.print(); }, 500); }</script>
+
+    <script>
+        window.onload = function() { setTimeout(function(){ window.print(); }, 500); }
+    </script>
 </body>
 </html>
 """
