@@ -2907,7 +2907,7 @@ def _genera_pdf_etichetta(articoli):
                 [Paragraph("FORNITORE:", s_bold), Paragraph(str(art.fornitore or ''), s_norm)],
                 [Paragraph("ORDINE:", s_bold), Paragraph(str(art.ordine or ''), s_norm)],
                 [Paragraph("COMMESSA:", s_bold), Paragraph(str(art.commessa or ''), s_norm)],
-                [Paragraph("DDT ING.:", s_bold), Paragraph(str(art.n_ddt_ingresso or ''), s_norm)],
+                [Paragraph("N. DDT:", s_bold), Paragraph(str(art.n_ddt_ingresso or ''), s_norm)],
                 [Paragraph("DATA ING.:", s_bold), Paragraph(fmt_date(art.data_ingresso), s_norm)],
                 [Paragraph("POSIZIONE:", s_bold), Paragraph(str(art.posizione or ''), s_norm)],
             ]
@@ -2921,7 +2921,7 @@ def _genera_pdf_etichetta(articoli):
             elements_buffer.append(t)
             elements_buffer.append(Spacer(1, 1*mm))
             
-            # 3. Footer (Arrivo e Collo) - Solo linea sopra
+            # 3. Footer (Arrivo e Collo) - SOLO LINEA SOPRA (Niente rettangolo)
             foot_data = [
                 [Paragraph(f"ARRIVO: {art.n_arrivo or ''}", s_big),
                  Paragraph(f"COLLO: {i}/{qty}", s_big)]
