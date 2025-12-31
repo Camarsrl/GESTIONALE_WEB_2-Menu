@@ -252,12 +252,26 @@ def fmt_date(d):
         return datetime.strptime(d, "%Y-%m-%d").strftime("%d/%m/%Y")
     except Exception: return d
 
-def calc_m2_m3(l, w, h, colli):
-    l = to_float_eu(l) or 0.0
-    w = to_float_eu(w) or 0.0
-    h = to_float_eu(h) or 0.0
-    c = to_int_eu(colli) or 1
-    return round(c * l * w, 3), round(c * l * w * h, 3)
+def calc_m2_m3(L, P, H, colli=1):
+    """Calcola M2 e M3 basandosi su metri o centimetri."""
+    # Convertiamo tutto in float
+    l = to_float_eu(L)
+    p = to_float_eu(P)
+    h = to_float_eu(H)
+    c = max(1, to_int_eu(colli))
+
+    # Logica intelligente: se le misure sono grandi (>10), assumiamo siano CM e convertiamo in METRI
+    # Esempio: 120 -> 1.20
+    if l > 10: l /= 100.0
+    if p > 10: p /= 100.0
+    if h > 10: h /= 100.0
+
+    m3 = l * p * h * c
+    # M2: Spesso si intende l'ingombro a terra (L x P) oppure la superficie. 
+    # Qui calcoliamo L * P * Colli (Floor space)
+    m2 = l * p * c
+    
+    return round(m2, 4), round(m3, 4)
 
 def load_destinatari():
     DESTINATARI_JSON = APP_DIR / "destinatari_saved.json"
