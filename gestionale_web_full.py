@@ -1950,29 +1950,61 @@ def delete_file(id_file):
     db.close()
     return redirect(url_for('giacenze'))
 
+
 from urllib.parse import unquote
 import os
 
 @app.route('/serve_file/<path:filename>')
 @login_required
 def serve_uploaded_file(filename):
-    # 1. Decodifica il nome (es. "Mio%20File.pdf" -> "Mio File.pdf")
-    decoded = unquote(filename)
+    # 1. Decodifica il nome (toglie i %20)
+    decoded_name = unquote(filename)
     
-    # 2. Definisci le cartelle dove cercare
-    folders_to_check = [PHOTOS_DIR, DOCS_DIR]
+    # --- INIZIO LOG DEBUG ---
+    print(f"\n[DEBUG ALLEGATI] Richiesta file: {filename}")
+    print(f"[DEBUG ALLEGATI] Nome decodificato: {decoded_name}")
     
-    # 3. Cerca il file
-    for folder in folders_to_check:
-        # Prova con nome decodificato
-        if (folder / decoded).exists():
-            return send_file(folder / decoded)
-        # Prova con nome originale (nel caso sia stato salvato con %20)
-        if (folder / filename).exists():
-            return send_file(folder / filename)
-            
-    return f"File '{decoded}' non trovato sul server.", 404
+    # Stampiamo dove il sistema pensa che siano le cartelle
+    print(f"[DEBUG ALLEGATI] Percorso Cartella FOTO: {PHOTOS_DIR}")
+    print(f"[DEBUG ALLEGATI] Percorso Cartella DOCS: {DOCS_DIR}")
+    
+    # 2. Costruiamo i percorsi completi
+    path_photo = PHOTOS_DIR / decoded_name
+    path_doc = DOCS_DIR / decoded_name
+    
+    # Controlliamo l'esistenza e stampiamo il risultato
+    exists_photo = path_photo.exists()
+    exists_doc = path_doc.exists()
+    
+    print(f"[DEBUG ALLEGATI] Controllo FOTO: {path_photo} -> Esiste? {exists_photo}")
+    print(f"[DEBUG ALLEGATI] Controllo DOCS: {path_doc} -> Esiste? {exists_doc}")
+    
+    # Fallback per nomi con spazi non decodificati (a volte capita)
+    path_photo_raw = PHOTOS_DIR / filename
+    path_doc_raw = DOCS_DIR / filename
+    
+    if not (exists_photo or exists_doc):
+        print(f"[DEBUG ALLEGATI] Tento fallback con nome originale (raw)...")
+        if path_photo_raw.exists(): 
+            print(f"[DEBUG ALLEGATI] Trovato in FOTO (raw)!")
+            return send_file(path_photo_raw)
+        if path_doc_raw.exists():
+            print(f"[DEBUG ALLEGATI] Trovato in DOCS (raw)!")
+            return send_file(path_doc_raw)
 
+    # --- FINE LOG DEBUG ---
+
+    # 3. Restituzione File
+    if exists_photo:
+        return send_file(path_photo)
+    
+    if exists_doc:
+        return send_file(path_doc)
+        
+    # Se arriviamo qui, il file non c'è
+    error_msg = f"ERRORE: Il file '{decoded_name}' non è stato trovato sul server.\nPercorsi controllati:\n1. {path_photo}\n2. {path_doc}"
+    print(f"[DEBUG ALLEGATI] {error_msg}")
+    return error_msg, 404
     
 # --- GESTIONE ARTICOLI (CRUD) ---
 # ========================================================
