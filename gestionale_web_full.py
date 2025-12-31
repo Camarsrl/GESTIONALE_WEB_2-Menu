@@ -2038,7 +2038,6 @@ def nuovo_articolo():
 @app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
 @login_required
 def edit_record(id_articolo):
-    """Pagina per modificare un singolo articolo."""
     db = SessionLocal()
     try:
         art = db.query(Articolo).filter(Articolo.id_articolo == id_articolo).first()
@@ -2047,12 +2046,14 @@ def edit_record(id_articolo):
             return redirect(url_for('giacenze'))
 
         if request.method == 'POST':
-            # Controllo permessi: i clienti non possono modificare
-            if session.get('role') == 'client':
-                flash("Accesso negato: i clienti non possono modificare.", "danger")
-                return redirect(url_for('giacenze'))
+            # Recuperiamo il numero di colli inserito dall'utente
+            colli_input = to_int_eu(request.form.get('n_colli'))
+            if colli_input < 1: colli_input = 1
 
-            # 1. Aggiornamento Campi Testuali
+            # Aggiorniamo l'articolo corrente
+            # IMPORTANTE: L'articolo corrente avrà SEMPRE Colli = 1
+            # Se l'utente ha scritto 5, creeremo 4 copie extra.
+            
             art.codice_articolo = request.form.get('codice_articolo')
             art.descrizione = request.form.get('descrizione')
             art.cliente = request.form.get('cliente')
@@ -2067,47 +2068,62 @@ def edit_record(id_articolo):
             art.ordine = request.form.get('ordine')
             art.n_arrivo = request.form.get('n_arrivo')
             art.serial_number = request.form.get('serial_number')
-            art.ns_rif = request.form.get('ns_rif')
             art.mezzi_in_uscita = request.form.get('mezzi_in_uscita')
             
-            # 2. Gestione Date (se vuote mette None per evitare errori DB)
+            # Date
             d_in = request.form.get('data_ingresso')
             art.data_ingresso = parse_date_ui(d_in) if d_in else None
-            
             d_out = request.form.get('data_uscita')
             art.data_uscita = parse_date_ui(d_out) if d_out else None
-            
             art.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
             art.n_ddt_uscita = request.form.get('n_ddt_uscita')
             
-            # 3. Gestione Numerici
-            art.pezzo = request.form.get('pezzo') # Trattato come testo per flessibilità
-            art.n_colli = to_int_eu(request.form.get('n_colli'))
+            # Numeri (con supporto virgola)
+            art.pezzo = request.form.get('pezzo')
+            art.n_colli = 1  # Forziamo a 1 l'articolo base
             art.peso = to_float_eu(request.form.get('peso'))
-            
-            # Dimensioni
             art.lunghezza = to_float_eu(request.form.get('lunghezza'))
             art.larghezza = to_float_eu(request.form.get('larghezza'))
             art.altezza = to_float_eu(request.form.get('altezza'))
             
-            # 4. Ricalcolo automatico M2/M3
-            # Se l'utente ha inserito M3 manualmente e non ci sono dimensioni, lo teniamo
-            m3_manuale = to_float_eu(request.form.get('m3'))
+            # Calcolo M2/M3 automatico per 1 collo
+            m2_calc, m3_calc = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, 1)
             
-            m2_calc, m3_calc = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, art.n_colli)
-            
-            art.m2 = m2_calc
-            # Se il calcolo dà 0 ma l'utente ha messo un valore manuale, usa quello
-            if m3_calc == 0 and m3_manuale and m3_manuale > 0:
-                art.m3 = m3_manuale
+            # Gestione M3 manuale vs calcolato
+            m3_manuale_val = request.form.get('m3')
+            if m3_manuale_val and to_float_eu(m3_manuale_val) > 0:
+                 art.m3 = to_float_eu(m3_manuale_val)
+                 art.m2 = m2_calc # M2 lo calcoliamo comunque
             else:
-                art.m3 = m3_calc
+                 art.m3 = m3_calc
+                 art.m2 = m2_calc
+
+            # --- LOGICA DI DUPLICAZIONE (SPLIT) ---
+            # Se l'utente ha inserito es. 3 colli, salviamo questo come 1
+            # e ne creiamo altri 2 identici.
+            righe_extra = 0
+            if colli_input > 1:
+                # Creiamo (colli_input - 1) copie
+                for _ in range(colli_input - 1):
+                    clone = Articolo()
+                    # Copia tutti i campi rilevanti
+                    for column in Articolo.__table__.columns:
+                        if column.name not in ['id_articolo', 'attachments']:
+                            valore = getattr(art, column.name)
+                            setattr(clone, column.name, valore)
+                    db.add(clone)
+                    righe_extra += 1
 
             db.commit()
-            flash("Modifiche salvate con successo.", "success")
+            
+            msg = "Articolo salvato."
+            if righe_extra > 0:
+                msg += f" Create automaticamente {righe_extra} righe aggiuntive (totale {colli_input} colli separati)."
+            
+            flash(msg, "success")
             return redirect(url_for('giacenze'))
 
-        return render_template('edit.html', row=art)
+        return render_template('edit.html', row=art, today=date.today().strftime('%Y-%m-%d'))
     except Exception as e:
         db.rollback()
         flash(f"Errore salvataggio: {e}", "danger")
