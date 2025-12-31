@@ -59,6 +59,20 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
+
+
+# CONFIGURAZIONE EMAIL DA RENDER
+import os
+app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.office365.com') # Default Hotmail
+app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
+app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'True') == 'True'
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME') # La tua email
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD') # La password APP generata
+
+# Inizializza Mail
+from flask_mail import Mail
+mail = Mail(app)
+
 # ========================================================
 # 2. CONFIGURAZIONE PATH E FILES
 # ========================================================
