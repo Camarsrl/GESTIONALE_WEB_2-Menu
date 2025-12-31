@@ -17,7 +17,7 @@ from pathlib import Path
 from datetime import datetime, date, timedelta
 from collections import defaultdict
 from functools import wraps
-# Aggiungi questo in alto insieme agli altri import
+from werkzeug.utils import secure_filename
 import pdfplumber
 
 # Importazioni Flask e Login
