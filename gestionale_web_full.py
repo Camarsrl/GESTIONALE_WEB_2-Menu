@@ -3047,7 +3047,6 @@ def labels_pdf():
         db.close()
 
 # --- FUNZIONE ETICHETTE AGGIORNATA (Arrivo 10/25 N.1) ---
-
 def _genera_pdf_etichetta(articoli):
     import io
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
@@ -3057,16 +3056,19 @@ def _genera_pdf_etichetta(articoli):
 
     bio = io.BytesIO()
     
-    # FORMATO 100x62mm
+    # --- PUNTO CRUCIALE: DIMENSIONI PAGINA ---
+    # Impostiamo 100mm di larghezza e 62mm di altezza (Orizzontale)
+    # Margini ridotti al minimo (1mm) per sfruttare tutto lo spazio
     doc = SimpleDocTemplate(bio, pagesize=(100*mm, 62*mm), 
                             leftMargin=1*mm, rightMargin=1*mm, 
                             topMargin=1*mm, bottomMargin=1*mm)
     
     styles = getSampleStyleSheet()
-    s_bold = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
-    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
-    # Stile più grande per il footer
-    s_big = ParagraphStyle('Big', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=13, leading=15)
+    # Stili dei font ottimizzati per l'etichetta
+    s_bold = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, leading=12)
+    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=11, leading=12)
+    # Stile Molto Grande per il footer (Arrivo/Colli)
+    s_big = ParagraphStyle('Big', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=15, leading=17)
 
     elements_buffer = []
 
@@ -3075,32 +3077,27 @@ def _genera_pdf_etichetta(articoli):
         if qty < 1: qty = 1
         
         for i in range(1, qty + 1):
-            # 1. LOGO
+            # 1. LOGO CAMAR (Ridimensionato per stare nell'etichetta)
             if LOGO_PATH and Path(LOGO_PATH).exists():
-                img = Image(LOGO_PATH, width=35*mm, height=10*mm, hAlign='LEFT')
+                # Width 35mm, Height 10mm (proporzionato)
+                img = Image(LOGO_PATH, width=40*mm, height=12*mm, hAlign='LEFT')
                 elements_buffer.append(img)
-            elements_buffer.append(Spacer(1, 2*mm))
+            elements_buffer.append(Spacer(1, 1*mm))
             
-            # 2. LISTA DATI DINAMICA (Nasconde se vuoto)
+            # 2. DATI (Tabella compatta)
             dati = []
-            
-            if art.cliente:
-                dati.append([Paragraph("CLIENTE:", s_bold), Paragraph(str(art.cliente), s_val)])
-            if art.fornitore:
-                dati.append([Paragraph("FORNITORE:", s_bold), Paragraph(str(art.fornitore), s_val)])
-            if art.ordine:
-                dati.append([Paragraph("ORDINE:", s_bold), Paragraph(str(art.ordine), s_val)])
-            if art.commessa:
-                dati.append([Paragraph("COMMESSA:", s_bold), Paragraph(str(art.commessa), s_val)])
-            if art.n_ddt_ingresso:
-                dati.append([Paragraph("N. DDT:", s_bold), Paragraph(str(art.n_ddt_ingresso), s_val)])
-            if art.data_ingresso:
-                dati.append([Paragraph("DATA ING.:", s_bold), Paragraph(fmt_date(art.data_ingresso), s_val)])
-            if art.posizione:
-                dati.append([Paragraph("POSIZIONE:", s_bold), Paragraph(str(art.posizione), s_val)])
+            # Usiamo str() per evitare errori se il campo è None
+            if art.cliente: dati.append([Paragraph("CLIENTE:", s_bold), Paragraph(str(art.cliente), s_val)])
+            if art.fornitore: dati.append([Paragraph("FORNITORE:", s_bold), Paragraph(str(art.fornitore), s_val)])
+            if art.ordine: dati.append([Paragraph("ORDINE:", s_bold), Paragraph(str(art.ordine), s_val)])
+            if art.commessa: dati.append([Paragraph("COMMESSA:", s_bold), Paragraph(str(art.commessa), s_val)])
+            if art.n_ddt_ingresso: dati.append([Paragraph("N. DDT:", s_bold), Paragraph(str(art.n_ddt_ingresso), s_val)])
+            if art.data_ingresso: dati.append([Paragraph("DATA ING.:", s_bold), Paragraph(fmt_date(art.data_ingresso), s_val)])
+            if art.posizione: dati.append([Paragraph("POSIZIONE:", s_bold), Paragraph(str(art.posizione), s_val)])
 
             if dati:
-                t = Table(dati, colWidths=[32*mm, 64*mm])
+                # Colonne: 30mm per l'etichetta, 68mm per il valore
+                t = Table(dati, colWidths=[30*mm, 68*mm])
                 t.setStyle(TableStyle([
                     ('VALIGN', (0,0), (-1,-1), 'TOP'),
                     ('LEFTPADDING', (0,0), (-1,-1), 0),
@@ -3109,28 +3106,30 @@ def _genera_pdf_etichetta(articoli):
                 ]))
                 elements_buffer.append(t)
             
-            elements_buffer.append(Spacer(1, 2*mm))
+            # Spazio variabile prima del footer per spingerlo in basso
+            elements_buffer.append(Spacer(1, 3*mm))
             
-            # 3. FOOTER (ARRIVO + PROGRESSIVO COLLO)
-            # Richiesta: ARRIVO: 01/24 N.1  poi sotto COLLI: 1/6
-            # Nessuna riga di separazione
+            # 3. FOOTER (ARRIVO + COLLO)
+            # Layout richiesto:
+            # ARRIVO: 01/24 N.1
+            # COLLO: 1/6
             
             txt_arrivo = f"ARRIVO: {art.n_arrivo or ''} N.{i}"
-            txt_colli = f"COLLI: {i}/{qty}"
-            
-            # Usiamo due paragrafi uno sotto l'altro
             elements_buffer.append(Paragraph(txt_arrivo, s_big))
+            
+            txt_colli = f"COLLO: {i}/{qty}"
             elements_buffer.append(Paragraph(txt_colli, s_big))
             
+            # Interruzione pagina (Prossima etichetta)
             elements_buffer.append(PageBreak())
 
+    # Rimuove l'ultimo PageBreak vuoto per non stampare una pagina bianca alla fine
     if elements_buffer and isinstance(elements_buffer[-1], PageBreak):
         elements_buffer.pop()
 
     doc.build(elements_buffer)
     bio.seek(0)
     return bio
-        
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
 app.jinja_env.globals['getattr'] = getattr
