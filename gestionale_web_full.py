@@ -2890,22 +2890,18 @@ def _genera_pdf_etichetta(articoli):
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import mm
     from reportlab.lib import colors
-    from reportlab.lib.enums import TA_CENTER
 
     bio = io.BytesIO()
     
     # FORMATO 100x62mm
-    W_L = 100 * mm
-    H_L = 62 * mm
-    
-    doc = SimpleDocTemplate(bio, pagesize=(W_L, H_L), 
+    doc = SimpleDocTemplate(bio, pagesize=(100*mm, 62*mm), 
                             leftMargin=1*mm, rightMargin=1*mm, 
                             topMargin=1*mm, bottomMargin=1*mm)
-    story = []
     
     styles = getSampleStyleSheet()
     s_bold = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
-    s_norm = ParagraphStyle('N', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
+    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
+    # Stile più grande per il footer
     s_big = ParagraphStyle('Big', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=13, leading=15)
 
     elements_buffer = []
@@ -2915,44 +2911,52 @@ def _genera_pdf_etichetta(articoli):
         if qty < 1: qty = 1
         
         for i in range(1, qty + 1):
-            # 1. Logo
+            # 1. LOGO
             if LOGO_PATH and Path(LOGO_PATH).exists():
                 img = Image(LOGO_PATH, width=35*mm, height=10*mm, hAlign='LEFT')
                 elements_buffer.append(img)
             elements_buffer.append(Spacer(1, 2*mm))
             
-            # 2. Tabella Dati (Senza bordi)
-            dati = [
-                [Paragraph("CLIENTE:", s_bold), Paragraph(str(art.cliente or ''), s_norm)],
-                [Paragraph("FORNITORE:", s_bold), Paragraph(str(art.fornitore or ''), s_norm)],
-                [Paragraph("ORDINE:", s_bold), Paragraph(str(art.ordine or ''), s_norm)],
-                [Paragraph("COMMESSA:", s_bold), Paragraph(str(art.commessa or ''), s_norm)],
-                [Paragraph("N. DDT:", s_bold), Paragraph(str(art.n_ddt_ingresso or ''), s_norm)],
-                [Paragraph("DATA ING.:", s_bold), Paragraph(fmt_date(art.data_ingresso), s_norm)],
-                [Paragraph("POSIZIONE:", s_bold), Paragraph(str(art.posizione or ''), s_norm)],
-            ]
-            t = Table(dati, colWidths=[32*mm, 64*mm])
-            t.setStyle(TableStyle([
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                ('LEFTPADDING', (0,0), (-1,-1), 0),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-                ('TOPPADDING', (0,0), (-1,-1), 0),
-            ]))
-            elements_buffer.append(t)
-            elements_buffer.append(Spacer(1, 1*mm))
+            # 2. LISTA DATI DINAMICA (Nasconde se vuoto)
+            dati = []
             
-            # 3. Footer (Arrivo e Collo) - SOLO LINEA SOPRA (Niente rettangolo)
-            foot_data = [
-                [Paragraph(f"ARRIVO: {art.n_arrivo or ''}", s_big),
-                 Paragraph(f"COLLO: {i}/{qty}", s_big)]
-            ]
-            t_foot = Table(foot_data, colWidths=[55*mm, 41*mm])
-            t_foot.setStyle(TableStyle([
-                ('LINEABOVE', (0,0), (-1,-1), 1.5, colors.black),
-                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('TOPPADDING', (0,0), (-1,-1), 3),
-            ]))
-            elements_buffer.append(t_foot)
+            if art.cliente:
+                dati.append([Paragraph("CLIENTE:", s_bold), Paragraph(str(art.cliente), s_val)])
+            if art.fornitore:
+                dati.append([Paragraph("FORNITORE:", s_bold), Paragraph(str(art.fornitore), s_val)])
+            if art.ordine:
+                dati.append([Paragraph("ORDINE:", s_bold), Paragraph(str(art.ordine), s_val)])
+            if art.commessa:
+                dati.append([Paragraph("COMMESSA:", s_bold), Paragraph(str(art.commessa), s_val)])
+            if art.n_ddt_ingresso:
+                dati.append([Paragraph("N. DDT:", s_bold), Paragraph(str(art.n_ddt_ingresso), s_val)])
+            if art.data_ingresso:
+                dati.append([Paragraph("DATA ING.:", s_bold), Paragraph(fmt_date(art.data_ingresso), s_val)])
+            if art.posizione:
+                dati.append([Paragraph("POSIZIONE:", s_bold), Paragraph(str(art.posizione), s_val)])
+
+            if dati:
+                t = Table(dati, colWidths=[32*mm, 64*mm])
+                t.setStyle(TableStyle([
+                    ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                    ('LEFTPADDING', (0,0), (-1,-1), 0),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+                    ('TOPPADDING', (0,0), (-1,-1), 0),
+                ]))
+                elements_buffer.append(t)
+            
+            elements_buffer.append(Spacer(1, 2*mm))
+            
+            # 3. FOOTER (ARRIVO + PROGRESSIVO COLLO)
+            # Richiesta: ARRIVO: 01/24 N.1  poi sotto COLLI: 1/6
+            # Nessuna riga di separazione
+            
+            txt_arrivo = f"ARRIVO: {art.n_arrivo or ''} N.{i}"
+            txt_colli = f"COLLI: {i}/{qty}"
+            
+            # Usiamo due paragrafi uno sotto l'altro
+            elements_buffer.append(Paragraph(txt_arrivo, s_big))
+            elements_buffer.append(Paragraph(txt_colli, s_big))
             
             elements_buffer.append(PageBreak())
 
