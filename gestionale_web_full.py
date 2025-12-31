@@ -2729,81 +2729,107 @@ def pdf_ddt():
     )
     return send_file(pdf_bio, as_attachment=False, download_name='DDT_Anteprima.pdf', mimetype='application/pdf')
 
-@app.post('/ddt/finalize')
+@app.route('/ddt/finalize', methods=['POST'])
 @login_required
 def ddt_finalize():
     db = SessionLocal()
     try:
-        # Recupera dati dal form
-        ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
+        # 1. Recupera ID e Azione
+        ids_str = request.form.get('ids', '')
+        ids = [int(i) for i in ids_str.split(',') if i.isdigit()]
         action = request.form.get('action', 'preview')
         
-        # Recupera dati testata DDT
+        # 2. Recupera dati Testata dal Form
         n_ddt = request.form.get('n_ddt', '').strip()
-        data_ddt_str = request.form.get('data_ddt', date.today().isoformat())
+        data_ddt_str = request.form.get('data_ddt')
+        
+        # Gestione data sicura
         try:
-            data_ddt = datetime.strptime(data_ddt_str, "%Y-%m-%d").date()
+            data_ddt_obj = datetime.strptime(data_ddt_str, "%Y-%m-%d").date()
+            data_formatted = data_ddt_obj.strftime("%d/%m/%Y")
         except:
-            data_ddt = date.today()
+            data_ddt_obj = date.today()
+            data_formatted = date.today().strftime("%d/%m/%Y")
 
+        # 3. Recupera Destinatario
+        dest_key = request.form.get('dest_key')
+        dest_info = load_destinatari().get(dest_key, {})
+        
+        # 4. Recupera Articoli dal DB
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
         
-        # Aggiorna gli oggetti in memoria con i dati del form (per il PDF)
-        # Se è 'finalize', salviamo anche nel DB.
+        # Lista per il PDF
+        righe_per_pdf = []
+
+        # 5. Ciclo sugli articoli: Aggiorna DB (se serve) e prepara dati PDF
         for art in articoli:
-            # 1. Recupera valori modificati dall'utente (Input nel form)
+            # Recupera valori modificati dall'utente nel form di anteprima
             nuovi_pezzi = to_int_eu(request.form.get(f"pezzi_{art.id_articolo}", art.pezzo))
             nuovi_colli = to_int_eu(request.form.get(f"colli_{art.id_articolo}", art.n_colli))
             nuovo_peso = to_float_eu(request.form.get(f"peso_{art.id_articolo}", art.peso))
-            nuove_note = request.form.get(f"note_{art.id_articolo}") # Note editate
+            nuove_note = request.form.get(f"note_{art.id_articolo}")
 
-            # Aggiorniamo l'oggetto in memoria per il PDF
+            # Aggiorna oggetto (in memoria per ora)
             art.pezzo = nuovi_pezzi
             art.n_colli = nuovi_colli
             art.peso = nuovo_peso
             if nuove_note is not None:
                 art.note = nuove_note
 
-            # 2. SE FINALIZZA: Salviamo nel DB
+            # SE AZIONE E' FINALIZZA: Scriviamo data uscita e N. DDT nel DB
             if action == 'finalize':
-                art.data_uscita = data_ddt.strftime("%d/%m/%Y")
+                art.data_uscita = data_ddt_obj
                 art.n_ddt_uscita = n_ddt
-                # art.stato = 'USCITO'  <-- RIMOSSO: Lo stato non cambia!
-        
+                # Nota: Non cambiamo lo stato, resta quello che è (o NAZIONALE/DOGANALE)
+            
+            # Prepara riga per il PDF (Dizionario)
+            righe_per_pdf.append({
+                'codice_articolo': art.codice_articolo,
+                'descrizione': art.descrizione,
+                'pezzo': nuovi_pezzi,
+                'n_colli': nuovi_colli,
+                'peso': nuovo_peso,
+                'n_arrivo': art.n_arrivo
+            })
+
+        # 6. Salvataggio DB
         if action == 'finalize':
             db.commit()
-            flash(f"DDT N.{n_ddt} finalizzato per {len(articoli)} articoli.", "success")
+            flash(f"DDT N.{n_ddt} del {data_formatted} salvato con successo.", "success")
+
+        # 7. Preparazione Dati Testata per PDF
+        ddt_data = {
+            'n_ddt': n_ddt,
+            'data_uscita': data_formatted,
+            'destinatario': dest_info.get('ragione_sociale', ''),
+            'dest_indirizzo': dest_info.get('indirizzo', ''),
+            'dest_citta': dest_info.get('citta', ''),
+            'causale': request.form.get('causale', ''),
+            'vettore': request.form.get('targa', '') # Usiamo il campo targa come vettore o viceversa
+        }
+
+        # 8. Generazione PDF (Usa la funzione con Font Grandi)
+        pdf_bio = io.BytesIO()
+        _genera_pdf_ddt_file(ddt_data, righe_per_pdf, pdf_bio)
+        pdf_bio.seek(0)
         
-        # Generazione PDF
-        dest_key = request.form.get('dest_key')
-        dest = load_destinatari().get(dest_key, {})
-        
-        pdf_bio = _generate_ddt_pdf(
-            n_ddt=n_ddt, 
-            data_ddt=data_ddt, 
-            targa=request.form.get('targa'),
-            dest=dest, 
-            rows=articoli, 
-            form_data=request.form
-        )
-        
-        # Nome file
-        safe_n_ddt = n_ddt.replace('/', '-')
-        filename = f"DDT_{safe_n_ddt}_{data_ddt}.pdf"
-        
-        # Restituisce il PDF
-        # Se anteprima -> inline (browser), Se finalize -> attachment (scarica)
+        # Nome file pulito
+        safe_n = n_ddt.replace('/', '-')
+        filename = f"DDT_{safe_n}_{data_ddt_str}.pdf"
+
+        # 9. Invio File
         return send_file(
-            pdf_bio, 
-            as_attachment=(action == 'finalize'), 
-            download_name=filename, 
+            pdf_bio,
+            as_attachment=(action == 'finalize'), # Scarica se finalizzi, mostra se anteprima
+            download_name=filename,
             mimetype='application/pdf'
         )
 
     except Exception as e:
         db.rollback()
-        # In caso di errore AJAX, Flask restituirà 500, gestito dal JS alert
-        raise e
+        # In caso di errore, logghiamo e ritorniamo errore (gestito dal frontend)
+        print(f"Errore DDT Finalize: {e}")
+        return f"Errore: {e}", 500
     finally:
         db.close()
 
