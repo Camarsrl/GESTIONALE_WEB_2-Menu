@@ -2804,6 +2804,64 @@ def labels_form():
     finally:
         db.close()
 
+
+@app.route('/labels_pdf', methods=['POST'])
+@login_required
+def labels_pdf():
+    # PROTEZIONE ADMIN
+    if session.get('role') != 'admin':
+        flash("Funzione riservata agli amministratori.", "danger")
+        return redirect(url_for('giacenze'))
+
+    db = SessionLocal()
+    ids = request.form.getlist('ids')
+    articoli_da_stampare = []
+
+    try:
+        if ids:
+            # CASO A: Selezione Multipla dalla Tabella
+            records = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+            articoli_da_stampare = records
+        else:
+            # CASO B: Inserimento Manuale (Pagina "Crea Etichette")
+            a = Articolo()
+            a.cliente = request.form.get('cliente')
+            a.fornitore = request.form.get('fornitore')
+            a.ordine = request.form.get('ordine')
+            a.commessa = request.form.get('commessa')
+            a.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
+            
+            d_ing = request.form.get('data_ingresso')
+            a.data_ingresso = parse_date_ui(d_ing) if d_ing else date.today().strftime("%Y-%m-%d")
+            
+            a.n_arrivo = request.form.get('n_arrivo')
+            a.posizione = request.form.get('posizione')
+            # N. Colli manuale
+            a.n_colli = to_int_eu(request.form.get('n_colli')) or 1
+            
+            articoli_da_stampare = [a]
+        
+        if not articoli_da_stampare:
+            flash("Nessun dato per la stampa.", "warning")
+            return redirect(url_for('giacenze'))
+
+        # Genera il PDF
+        pdf_file = _genera_pdf_etichetta(articoli_da_stampare)
+        
+        # Scarica il file
+        return send_file(
+            pdf_file, 
+            as_attachment=True, 
+            download_name='Etichette_Camar.pdf', 
+            mimetype='application/pdf'
+        )
+    
+    except Exception as e:
+        flash(f"Errore generazione PDF: {e}", "danger")
+        return redirect(url_for('giacenze'))
+    finally:
+        db.close()
+
 # --- FUNZIONE ETICHETTE AGGIORNATA (Arrivo 10/25 N.1) ---
 
 def _genera_pdf_etichetta(articoli):
