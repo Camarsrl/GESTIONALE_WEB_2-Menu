@@ -2157,81 +2157,113 @@ def delete_attachment(att_id):
     return redirect(url_for('giacenze'))
 
 
-@app.route('/giacenze')
-@app.route('/')
+@app.route('/giacenze', methods=['GET', 'POST'])
 @login_required
 def giacenze():
+    import logging
+    from sqlalchemy import func
+    from sqlalchemy.orm import selectinload
+
     db = SessionLocal()
     try:
-        # Usiamo options(joinedload...) solo se necessario, altrimenti lazy load
-        query = db.query(Articolo).order_by(Articolo.id_articolo.desc())
+        # Query base ottimizzata
+        qs = db.query(Articolo).options(selectinload(Articolo.attachments)).order_by(Articolo.id_articolo.desc())
 
-        # --- FILTRI (Come prima) ---
-        fid = request.args.get('id')
-        if fid and fid.strip(): query = query.filter(Articolo.id_articolo == int(fid))
-        
-        f_cli = request.args.get('cliente')
-        if f_cli: query = query.filter(Articolo.cliente.ilike(f"%{f_cli}%"))
-        
-        f_forn = request.args.get('fornitore')
-        if f_forn: query = query.filter(Articolo.fornitore.ilike(f"%{f_forn}%"))
-        
-        f_comm = request.args.get('commessa')
-        if f_comm: query = query.filter(Articolo.commessa.ilike(f"%{f_comm}%"))
-        
-        f_ord = request.args.get('ordine')
-        if f_ord: query = query.filter(Articolo.ordine.ilike(f"%{f_ord}%"))
-        
-        f_prot = request.args.get('protocollo')
-        if f_prot: query = query.filter(Articolo.protocollo.ilike(f"%{f_prot}%"))
-        
-        f_buono = request.args.get('buono_n')
-        if f_buono: query = query.filter(Articolo.buono_n.ilike(f"%{f_buono}%"))
-        
-        f_sn = request.args.get('serial_number')
-        if f_sn: query = query.filter(Articolo.serial_number.ilike(f"%{f_sn}%"))
-        
-        f_cod = request.args.get('codice_articolo')
-        if f_cod: query = query.filter(Articolo.codice_articolo.ilike(f"%{f_cod}%"))
-        
-        f_narr = request.args.get('n_arrivo')
-        if f_narr: query = query.filter(Articolo.n_arrivo.ilike(f"%{f_narr}%"))
-        
-        f_mag = request.args.get('magazzino')
-        if f_mag: query = query.filter(Articolo.magazzino.ilike(f"%{f_mag}%"))
-        
-        f_stato = request.args.get('stato')
-        if f_stato: query = query.filter(Articolo.stato.ilike(f"%{f_stato}%"))
-        
-        f_ddt_in = request.args.get('n_ddt_ingresso')
-        if f_ddt_in: query = query.filter(Articolo.n_ddt_ingresso.ilike(f"%{f_ddt_in}%"))
+        args = request.args
 
-        # Date ranges
-        di_da = request.args.get('data_ing_da')
-        di_a = request.args.get('data_ing_a')
-        if di_da: query = query.filter(Articolo.data_ingresso >= parse_date_ui(di_da))
-        if di_a: query = query.filter(Articolo.data_ingresso <= parse_date_ui(di_a))
+        # 1. Filtro Cliente (Sicurezza)
+        if session.get('role') == 'client':
+            qs = qs.filter(Articolo.cliente.ilike(f"%{current_user.id}%"))
+        elif args.get('cliente'):
+            qs = qs.filter(Articolo.cliente.ilike(f"%{args.get('cliente')}%"))
+
+        # 2. Filtro ID univoco
+        if args.get('id'):
+            try:
+                qs = qs.filter(Articolo.id_articolo == int(args.get('id')))
+            except ValueError:
+                pass
+
+        # 3. Filtri Testuali (incluso 'stato' che ora è libero)
+        text_filters = [
+            'commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo', 
+            'fornitore', 'ordine', 'magazzino', 'mezzi_in_uscita', 'stato',
+            'n_ddt_ingresso', 'n_ddt_uscita', 'codice_articolo', 'serial_number',
+            'n_arrivo'
+        ]
         
-        du_da = request.args.get('data_usc_da')
-        du_a = request.args.get('data_usc_a')
-        if du_da: query = query.filter(Articolo.data_uscita >= parse_date_ui(du_da))
-        if du_a: query = query.filter(Articolo.data_uscita <= parse_date_ui(du_a))
+        for field in text_filters:
+            val = args.get(field)
+            if val and val.strip():
+                # Usa ilike per ricerca case-insensitive parziale
+                qs = qs.filter(getattr(Articolo, field).ilike(f"%{val.strip()}%"))
 
-        # LIMITIAMO I RISULTATI PER VELOCITÀ (Max 200 per pagina se non filtrato specifico)
-        if not request.args:
-            rows = query.limit(100).all()
-        else:
-            rows = query.limit(500).all()
+        # Esecuzione query DB
+        rows_raw = qs.all()
+        
+        # 4. Filtri DATE (Post-processing in Python per sicurezza)
+        rows = []
+        
+        def get_date(k): 
+            v = args.get(k)
+            try: return datetime.strptime(v, "%Y-%m-%d").date() if v else None
+            except: return None
 
-        # Calcolo totali rapidi
-        tot_colli = sum(r.n_colli or 0 for r in rows)
-        tot_peso = sum(r.peso or 0 for r in rows)
-        tot_m2 = sum(r.m2 or 0 for r in rows) # Ora calcoliamo M2
+        d_ing_da = get_date('data_ing_da')
+        d_ing_a = get_date('data_ing_a')
+        d_usc_da = get_date('data_usc_da')
+        d_usc_a = get_date('data_usc_a')
 
-        return render_template('giacenze.html', rows=rows, 
-                               total_colli=tot_colli, total_peso=round(tot_peso,2), total_m2=round(tot_m2,2))
+        for r in rows_raw:
+            keep = True
+            
+            # Filtro Data Ingresso
+            if d_ing_da or d_ing_a:
+                r_dt = None
+                if r.data_ingresso:
+                    try: r_dt = datetime.strptime(r.data_ingresso, "%Y-%m-%d").date()
+                    except: 
+                        try: r_dt = datetime.strptime(r.data_ingresso, "%d/%m/%Y").date()
+                        except: pass
+                
+                if not r_dt: keep = False # Se filtro data attivo ma record senza data -> nascondi
+                else:
+                    if d_ing_da and r_dt < d_ing_da: keep = False
+                    if d_ing_a and r_dt > d_ing_a: keep = False
+            
+            # Filtro Data Uscita
+            if keep and (d_usc_da or d_usc_a):
+                r_dt = None
+                if r.data_uscita:
+                    try: r_dt = datetime.strptime(r.data_uscita, "%Y-%m-%d").date()
+                    except:
+                        try: r_dt = datetime.strptime(r.data_uscita, "%d/%m/%Y").date()
+                        except: pass
+                
+                if not r_dt: keep = False
+                else:
+                    if d_usc_da and r_dt < d_usc_da: keep = False
+                    if d_usc_a and r_dt > d_usc_a: keep = False
+
+            if keep:
+                rows.append(r)
+
+        # Totali (Calcolati su ciò che si vede)
+        # Nota: totale peso/m2 calcolato solo su merce NON uscita (opzionale, qui su tutto il filtrato)
+        total_colli = sum((r.n_colli or 0) for r in rows)
+        total_m2 = sum((r.m2 or 0) for r in rows)
+        total_peso = sum((r.peso or 0) for r in rows)
+
+        return render_template(
+            'giacenze.html',
+            rows=rows,
+            total_colli=total_colli,
+            total_m2=f"{total_m2:.2f}",
+            total_peso=f"{total_peso:.2f}"
+        )
     except Exception as e:
-        return f"Errore DB: {e}"
+        logging.error(f"Errore giacenze: {e}")
+        return render_template('giacenze.html', rows=[], total_colli=0, total_m2="0", total_peso="0")
     finally:
         db.close()
         
