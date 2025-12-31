@@ -216,18 +216,26 @@ def is_blank(v):
     except Exception: pass
     return (v is None) or (isinstance(v, str) and not v.strip())
 
-def to_float_eu(v):
-    if v is None: return None
-    if isinstance(v, (int, float)): return float(v)
-    s = str(v).strip().replace(",", ".")
-    if not s: return None
-    try: return float(s)
-    except Exception: return None
+def to_float_eu(val):
+    """Converte stringa '1,2' in float 1.2. Se vuoto o errore, restituisce 0.0"""
+    if not val:
+        return 0.0
+    if isinstance(val, (float, int)):
+        return float(val)
+    try:
+        # Sostituisce virgola con punto e rimuove spazi
+        return float(str(val).replace(',', '.').strip())
+    except:
+        return 0.0
 
-def to_int_eu(v):
-    f = to_float_eu(v)
-    return None if f is None else int(round(f))
-
+def to_int_eu(val):
+    """Converte stringa in intero sicuro."""
+    if not val:
+        return 0
+    try:
+        return int(float(str(val).replace(',', '.')))
+    except:
+        return 0
 def parse_date_ui(d):
     if not d: return None
     for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d"):
