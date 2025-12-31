@@ -1800,27 +1800,26 @@ def invia_email():
 
 
 # --- ROUTE ALLEGATI (MANCANTI - DA AGGIUNGERE) ---
-@app.route('/upload_file/<int:id_articolo>', methods=['POST'])
+from urllib.parse import unquote # <--- Assicurati di importare questo in alto o dentro la funzione
+
+@app.route('/serve_file/<path:filename>') # Usa <path:filename> per sicurezza
 @login_required
-def upload_file(id_articolo):
-    if 'file' in request.files:
-        f = request.files['file']
-        if f.filename:
-            safe = f"{id_articolo}_{uuid.uuid4().hex[:6]}_{f.filename}"
-            # Decide cartella: PDF in docs, Immagini in photos
-            is_pdf = f.filename.lower().endswith('.pdf')
-            target_dir = DOCS_DIR if is_pdf else PHOTOS_DIR
-            kind = 'doc' if is_pdf else 'photo'
-            
-            f.save(target_dir / safe)
-            
-            db = SessionLocal()
-            db.add(Attachment(articolo_id=id_articolo, kind=kind, filename=safe))
-            db.commit()
-            db.close()
-            flash("File caricato.", "success")
-            
-    return redirect(url_for('edit_record', id_articolo=id_articolo))
+def serve_uploaded_file(filename):
+    # Decodifica il nome (es. trasforma %20 in spazio)
+    decoded_name = unquote(filename)
+    
+    # Cerca nella cartella FOTO
+    p_photo = PHOTOS_DIR / decoded_name
+    if p_photo.exists():
+        return send_file(p_photo)
+    
+    # Cerca nella cartella DOCUMENTI
+    p_doc = DOCS_DIR / decoded_name
+    if p_doc.exists():
+        return send_file(p_doc)
+        
+    return f"File non trovato: {decoded_name}", 404
+
 
 @app.route('/delete_file/<int:id_file>')
 @login_required
