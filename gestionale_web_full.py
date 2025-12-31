@@ -2835,69 +2835,77 @@ def labels_form():
 
 # --- FUNZIONE ETICHETTE AGGIORNATA (Arrivo 10/25 N.1) ---
 
-def _genera_pdf_etichetta(articoli, formato):
+def _genera_pdf_etichetta(articoli, formato=None):
     bio = io.BytesIO()
     
     # SETUP PER BROTHER QL-800 (Rotolo continuo 62mm)
-    # Impostiamo la pagina con larghezza 62mm esatta e lunghezza 100mm.
-    # In fase di stampa, selezionare "Verticale" se il rotolo esce per il lungo.
+    # Larghezza 100mm x Altezza 62mm
+    W_L = 100 * mm
+    H_L = 62 * mm
     
-    W_ROLL = 62 * mm
-    L_LABEL = 100 * mm
-    
-    # Margini quasi zero per evitare che la stampante tagli o vada in errore
-    doc = SimpleDocTemplate(bio, pagesize=(L_LABEL, W_ROLL), 
-                            leftMargin=2*mm, rightMargin=2*mm, 
+    # Margini minimi (1mm) per sfruttare tutto lo spazio
+    doc = SimpleDocTemplate(bio, pagesize=(W_L, H_L), 
+                            leftMargin=1*mm, rightMargin=1*mm, 
                             topMargin=1*mm, bottomMargin=1*mm)
     story = []
     
+    # Stili Testo
     styles = getSampleStyleSheet()
-    # Font ridotti leggermente per stare nei 62mm
-    s_k = ParagraphStyle('K', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=10)
-    s_v = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
-    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=16, alignment=TA_CENTER)
+    # Stile Etichette (Chiave) - Grassetto
+    s_key = ParagraphStyle('Key', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
+    # Stile Valore - Normale (o Grassetto se preferisci tutto bold)
+    s_val = ParagraphStyle('Val', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=11)
+    # Stile per le righe finali (Arrivo/Colli) - Più grandi e in Grassetto
+    s_big_key = ParagraphStyle('BigKey', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=12, leading=14)
+    s_big_val = ParagraphStyle('BigVal', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=14)
 
     for art in articoli:
-        tot = int(art.n_colli or 1)
-        if tot < 1: tot = 1
-        for i in range(1, tot+1):
+        qty = int(art.n_colli or 1)
+        if qty < 1: qty = 1
+        
+        for i in range(1, qty + 1):
+            # --- 1. LOGO ---
+            if LOGO_PATH and Path(LOGO_PATH).exists():
+                # Logo ridimensionato per non occupare troppo spazio verticale
+                img = Image(LOGO_PATH, width=35*mm, height=10*mm, hAlign='LEFT')
+                story.append(img)
             
-            # Tabella Dati Principale
-            dati = [
-                [Paragraph("CLIENTE:", s_k), Paragraph(art.cliente or '', s_v)],
-                [Paragraph("FORNITORE:", s_k), Paragraph(art.fornitore or '', s_v)],
-                [Paragraph("ORDINE:", s_k), Paragraph(art.ordine or '', s_v)],
-                [Paragraph("COMMESSA:", s_k), Paragraph(art.commessa or '', s_v)],
-                [Paragraph("DDT ING.:", s_k), Paragraph(art.n_ddt_ingresso or '', s_v)],
-                [Paragraph("DATA:", s_k), Paragraph(fmt_date(art.data_ingresso), s_v)],
-            ]
-            
-            t = Table(dati, colWidths=[20*mm, 75*mm])
-            t.setStyle(TableStyle([
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                ('LEFTPADDING', (0,0), (-1,-1), 0),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-            ]))
-            story.append(t)
             story.append(Spacer(1, 2*mm))
             
-            # Parte bassa evidenziata (Arrivo e Colli)
-            # Usiamo una tabella interna per affiancarli bene
-            t_big = Table([
-                [Paragraph(f"ARRIVO: {art.n_arrivo or ''}  -  COLLO: {i}/{tot}", s_big)]
-            ], colWidths=[96*mm])
-            t_big.setStyle(TableStyle([
-                ('BOX', (0,0), (-1,-1), 1, colors.black),
-                ('TOPPADDING', (0,0), (-1,-1), 5),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+            # --- 2. DATI (Tabella Unica senza bordi) ---
+            # Lista unica per mantenere l'allineamento perfetto
+            dati = [
+                [Paragraph("CLIENTE:", s_key), Paragraph(str(art.cliente or ''), s_val)],
+                [Paragraph("FORNITORE:", s_key), Paragraph(str(art.fornitore or ''), s_val)],
+                [Paragraph("ORDINE:", s_key), Paragraph(str(art.ordine or ''), s_val)],
+                [Paragraph("COMMESSA:", s_key), Paragraph(str(art.commessa or ''), s_val)],
+                [Paragraph("N. DDT:", s_key), Paragraph(str(art.n_ddt_ingresso or ''), s_val)],
+                [Paragraph("DATA INGRESSO:", s_key), Paragraph(fmt_date(art.data_ingresso), s_val)],
+                # Righe finali più grandi
+                [Paragraph("ARRIVO:", s_big_key), Paragraph(str(art.n_arrivo or ''), s_big_val)],
+                [Paragraph("N. COLLO:", s_big_key), Paragraph(f"{i} / {qty}", s_big_val)],
+                [Paragraph("COLLI TOT:", s_big_key), Paragraph(str(qty), s_big_val)]
+            ]
+            
+            # Configurazione Tabella: Colonna 1 (32mm), Colonna 2 (Resto)
+            t = Table(dati, colWidths=[34*mm, 64*mm])
+            
+            t.setStyle(TableStyle([
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),       # Allinea tutto in alto
+                ('LEFTPADDING', (0,0), (-1,-1), 1),      # Padding sinistro minimo
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 0),       # Spazio verticale ridotto tra le righe
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
             ]))
-            story.append(t_big)
+            
+            story.append(t)
+            
+            # Salto pagina per l'etichetta successiva
             story.append(PageBreak())
 
     doc.build(story)
     bio.seek(0)
     return bio
-
 
         
 # --- CONFIGURAZIONE FINALE E AVVIO ---
