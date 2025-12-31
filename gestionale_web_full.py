@@ -597,10 +597,12 @@ GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <style>
-.table-compact td, .table-compact th { font-size: 0.7rem; padding: 2px 3px; vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
-.table-compact th { background-color: #f0f0f0; font-weight: 600; text-align: center; }
-.fw-buono { font-weight: bold; color: #000; }
-.table-compact td:hover { white-space: normal; overflow: visible; position: relative; background-color: #fff; z-index: 10; }
+    .table-compact td, .table-compact th { font-size: 0.8rem; padding: 4px 5px; vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+    .table-compact th { font-weight: 600; background-color: #f0f0f0; text-align: center; }
+    .fw-buono { font-weight: bold; color: #000; }
+    /* Link allegati */
+    .att-link { text-decoration: none; font-size: 1.2em; cursor: pointer; margin: 0 2px; }
+    .att-link:hover { opacity: 0.7; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-2">
@@ -609,14 +611,14 @@ GIACENZE_HTML = """
        <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success">Nuovo</a>
        <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>
        
-       <a href="{{ url_for('labels_form') }}" class="btn btn-sm btn-info text-white">Etichette</a>
+       <a href="{{ url_for('labels_form') }}" class="btn btn-sm btn-info text-white">Etichette Manuali</a>
        <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning">Calcoli</a>
     </div>
 </div>
 
 <div class="card mb-2 bg-light">
     <div class="card-header py-1" data-bs-toggle="collapse" data-bs-target="#filterBody" style="cursor:pointer">
-        <small><i class="bi bi-funnel"></i> <b>Filtri Avanzati (Clicca per Aprire/Chiudere)</b></small>
+        <small><i class="bi bi-funnel"></i> <b>Filtri Avanzati</b></small>
     </div>
     <div id="filterBody" class="collapse {% if request.args %}show{% endif %}">
         <div class="card-body py-2">
@@ -634,17 +636,9 @@ GIACENZE_HTML = """
                     <div class="col-md-2"><input name="buono_n" class="form-control form-control-sm" placeholder="Buono N" value="{{ request.args.get('buono_n','') }}"></div>
                     <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial" value="{{ request.args.get('serial_number','') }}"></div>
                     <div class="col-md-2"><input name="codice_articolo" class="form-control form-control-sm" placeholder="Codice" value="{{ request.args.get('codice_articolo','') }}"></div>
-                    
                     <div class="col-md-2"><input name="n_arrivo" class="form-control form-control-sm" placeholder="N. Arrivo" value="{{ request.args.get('n_arrivo','') }}"></div>
-                    
                     <div class="col-md-2"><input name="magazzino" class="form-control form-control-sm" placeholder="Magazzino" value="{{ request.args.get('magazzino','') }}"></div>
-                    <div class="col-md-2"><input name="mezzi_in_uscita" class="form-control form-control-sm" placeholder="Mezzo Uscita" value="{{ request.args.get('mezzi_in_uscita','') }}"></div>
-                </div>
-                <div class="row g-1 mt-1">
                     <div class="col-md-2"><input name="stato" class="form-control form-control-sm" placeholder="Stato" value="{{ request.args.get('stato','') }}"></div>
-                    <div class="col-md-3">Ingresso: <input name="data_ing_da" type="date" class="form-control form-control-sm d-inline w-auto" value="{{ request.args.get('data_ing_da','') }}"> - <input name="data_ing_a" type="date" class="form-control form-control-sm d-inline w-auto" value="{{ request.args.get('data_ing_a','') }}"></div>
-                    <div class="col-md-3">Uscita: <input name="data_usc_da" type="date" class="form-control form-control-sm d-inline w-auto" value="{{ request.args.get('data_usc_da','') }}"> - <input name="data_usc_a" type="date" class="form-control form-control-sm d-inline w-auto" value="{{ request.args.get('data_usc_a','') }}"></div>
-                    <div class="col-md-1"><a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm w-100">Reset</a></div>
                 </div>
             </form>
         </div>
@@ -656,17 +650,21 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('buono_preview') }}" class="btn btn-outline-dark btn-sm">Buono</button>
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Mod. Multipla</button>
-        <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-outline-secondary btn-sm">Duplica</button>
+        
+        <button type="submit" formaction="{{ url_for('labels_pdf') }}" class="btn btn-warning btn-sm"><i class="bi bi-tags"></i> Scarica Etichette PDF</button>
+        
         <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare?')">Elimina</button>
     </div>
+
     <div class="table-responsive" style="max-height: 70vh;">
         <table class="table table-striped table-bordered table-hover table-compact mb-0">
             <thead class="sticky-top" style="top:0; z-index:5;">
                 <tr>
                     <th><input type="checkbox" onclick="toggleAll(this)"></th>
-                    <th>ID</th><th>Doc</th><th>Foto</th><th>Codice</th><th>Descrizione</th><th>Cliente</th><th>Fornitore</th><th>Commessa</th><th>Ordine</th>
-                    <th>Protocollo</th><th>Buono</th><th>N.Arr</th><th>Data Ing</th><th>DDT Ing</th><th>Pos</th><th>Stato</th>
-                    <th>Pz</th><th>Colli</th><th>Kg</th><th>LxPxH</th><th>M2</th><th>M3</th><th>Serial</th><th>Mezzo</th><th>Note</th><th>Act</th>
+                    <th>ID</th> <th>Doc</th> <th>Foto</th> <th>Codice</th> <th>Descrizione</th>
+                    <th>Cliente</th> <th>Fornitore</th> <th>Commessa</th> <th>Ordine</th>
+                    <th>N.Arr</th> <th>Data Ing</th> <th>DDT Ing</th> <th>Pos</th> <th>Stato</th>
+                    <th>Pz</th> <th>Colli</th> <th>Kg</th> <th>LxPxH</th> <th>M3</th> <th>Note</th> <th>Act</th>
                 </tr>
             </thead>
             <tbody>
@@ -674,17 +672,24 @@ GIACENZE_HTML = """
                 <tr>
                     <td class="text-center"><input type="checkbox" name="ids" value="{{ r.id_articolo }}"></td>
                     <td>{{ r.id_articolo }}</td>
-                    <td class="text-center">{% for a in r.attachments if a.kind=='doc' %}📄{% endfor %}</td>
-                    <td class="text-center">{% for a in r.attachments if a.kind=='photo' %}📷{% endfor %}</td>
                     
+                    <td class="text-center">
+                        {% for a in r.attachments if a.kind=='doc' %}
+                        <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link" title="{{ a.filename }}">📄</a>
+                        {% endfor %}
+                    </td>
+                    <td class="text-center">
+                        {% for a in r.attachments if a.kind=='photo' %}
+                        <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link" title="{{ a.filename }}">📷</a>
+                        {% endfor %}
+                    </td>
+
                     <td title="{{ r.codice_articolo }}">{{ r.codice_articolo or '' }}</td>
                     <td title="{{ r.descrizione }}">{{ r.descrizione or '' }}</td>
                     <td>{{ r.cliente or '' }}</td>
                     <td>{{ r.fornitore or '' }}</td>
                     <td>{{ r.commessa or '' }}</td>
                     <td>{{ r.ordine or '' }}</td>
-                    <td>{{ r.protocollo or '' }}</td>
-                    <td class="fw-buono">{{ r.buono_n or '' }}</td>
                     <td>{{ r.n_arrivo or '' }}</td>
                     <td>{{ r.data_ingresso or '' }}</td>
                     <td>{{ r.n_ddt_ingresso or '' }}</td>
@@ -694,24 +699,19 @@ GIACENZE_HTML = """
                     <td>{{ r.n_colli or '' }}</td>
                     <td>{{ r.peso or '' }}</td>
                     <td>{{ r.lunghezza or '' }}x{{ r.larghezza or '' }}x{{ r.altezza or '' }}</td>
-                    <td>{{ r.m2 or '' }}</td>
                     <td>{{ r.m3 or '' }}</td>
-                    <td>{{ r.serial_number or '' }}</td>
-                    <td>{{ r.mezzi_in_uscita or '' }}</td>
                     <td title="{{ r.note }}">{{ r.note or '' }}</td>
-                    <td><a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}">✏️</a></td>
+                    <td class="text-center"><a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}">✏️</a></td>
                 </tr>
                 {% endfor %}
             </tbody>
-            <tfoot class="sticky-bottom bg-white fw-bold">
-                <tr><td colspan="27">Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}</td></tr>
-            </tfoot>
         </table>
     </div>
 </form>
 <script>function toggleAll(s){ document.getElementsByName('ids').forEach(c => c.checked = s.checked); }</script>
 {% endblock %}
 """
+
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
