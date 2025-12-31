@@ -597,33 +597,54 @@ GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <style>
-    .table-compact td, .table-compact th { font-size: 0.8rem; padding: 4px 5px; vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
-    .table-compact th { font-weight: 600; background-color: #f0f0f0; text-align: center; }
-    .fw-buono { font-weight: bold; color: #000; }
-    /* Link allegati */
-    .att-link { text-decoration: none; font-size: 1.2em; cursor: pointer; margin: 0 2px; }
-    .att-link:hover { opacity: 0.7; }
+    .table-compact td, .table-compact th { 
+        font-size: 0.8rem !important; 
+        padding: 4px 5px !important; 
+        vertical-align: middle; 
+        white-space: nowrap; 
+        overflow: hidden; 
+        text-overflow: ellipsis; 
+        max-width: 150px; 
+    }
+    .table-compact th { 
+        font-weight: 600 !important; 
+        background-color: #f0f0f0; 
+        text-align: center;
+    }
+    .fw-buono { font-weight: bold !important; color: #000000; }
+    
+    /* Link allegati: stile pulito e cliccabile */
+    .att-link { 
+        text-decoration: none; 
+        font-size: 1.2em; 
+        cursor: pointer; 
+        margin: 0 2px; 
+        color: inherit;
+    }
+    .att-link:hover { opacity: 0.7; transform: scale(1.1); display:inline-block; }
+    
+    .filter-toggle { cursor: pointer; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-2">
     <h4>Magazzino</h4>
     <div class="d-flex gap-2">
-       <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success">Nuovo</a>
+       <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> Nuovo</a>
        <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>
        
-       <a href="{{ url_for('labels_form') }}" class="btn btn-sm btn-info text-white">Etichette Manuali</a>
-       <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning">Calcoli</a>
+       <a href="{{ url_for('labels_form') }}" class="btn btn-sm btn-info text-white"><i class="bi bi-tags"></i> Etichette Manuali</a>
+       <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
     </div>
 </div>
 
 <div class="card mb-2 bg-light">
-    <div class="card-header py-1" data-bs-toggle="collapse" data-bs-target="#filterBody" style="cursor:pointer">
-        <small><i class="bi bi-funnel"></i> <b>Filtri Avanzati</b></small>
+    <div class="card-header py-1 filter-toggle" data-bs-toggle="collapse" data-bs-target="#filterBody">
+        <small><i class="bi bi-funnel"></i> <b>Filtri Avanzati (Clicca per mostrare/nascondere)</b></small>
     </div>
     <div id="filterBody" class="collapse {% if request.args %}show{% endif %}">
         <div class="card-body py-2">
             <form method="get">
-                <div class="row g-1">
+                <div class="row g-2 mb-2">
                     <div class="col-md-1"><input name="id" class="form-control form-control-sm" placeholder="ID" value="{{ request.args.get('id','') }}"></div>
                     <div class="col-md-2"><input name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
                     <div class="col-md-2"><input name="fornitore" class="form-control form-control-sm" placeholder="Fornitore" value="{{ request.args.get('fornitore','') }}"></div>
@@ -632,13 +653,35 @@ GIACENZE_HTML = """
                     <div class="col-md-2"><input name="protocollo" class="form-control form-control-sm" placeholder="Protocollo" value="{{ request.args.get('protocollo','') }}"></div>
                     <div class="col-md-1"><button type="submit" class="btn btn-primary btn-sm w-100">Cerca</button></div>
                 </div>
-                <div class="row g-1 mt-1">
+                
+                <div class="row g-2 mb-2">
                     <div class="col-md-2"><input name="buono_n" class="form-control form-control-sm" placeholder="Buono N" value="{{ request.args.get('buono_n','') }}"></div>
                     <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial" value="{{ request.args.get('serial_number','') }}"></div>
                     <div class="col-md-2"><input name="codice_articolo" class="form-control form-control-sm" placeholder="Codice" value="{{ request.args.get('codice_articolo','') }}"></div>
                     <div class="col-md-2"><input name="n_arrivo" class="form-control form-control-sm" placeholder="N. Arrivo" value="{{ request.args.get('n_arrivo','') }}"></div>
                     <div class="col-md-2"><input name="magazzino" class="form-control form-control-sm" placeholder="Magazzino" value="{{ request.args.get('magazzino','') }}"></div>
                     <div class="col-md-2"><input name="stato" class="form-control form-control-sm" placeholder="Stato" value="{{ request.args.get('stato','') }}"></div>
+                </div>
+
+                <div class="row g-2 align-items-center">
+                    <div class="col-md-2"><input name="mezzi_in_uscita" class="form-control form-control-sm" placeholder="Mezzo Uscita" value="{{ request.args.get('mezzi_in_uscita','') }}"></div>
+                    <div class="col-md-3">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">Ingresso</span>
+                            <input name="data_ing_da" type="date" class="form-control" value="{{ request.args.get('data_ing_da','') }}">
+                            <input name="data_ing_a" type="date" class="form-control" value="{{ request.args.get('data_ing_a','') }}">
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">Uscita</span>
+                            <input name="data_usc_da" type="date" class="form-control" value="{{ request.args.get('data_usc_da','') }}">
+                            <input name="data_usc_a" type="date" class="form-control" value="{{ request.args.get('data_usc_a','') }}">
+                        </div>
+                    </div>
+                    <div class="col-md-1 ms-auto">
+                        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm w-100">Reset</a>
+                    </div>
                 </div>
             </form>
         </div>
@@ -651,8 +694,9 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Mod. Multipla</button>
         
-        <button type="submit" formaction="{{ url_for('labels_pdf') }}" class="btn btn-warning btn-sm"><i class="bi bi-tags"></i> Scarica Etichette PDF</button>
+        <button type="submit" formaction="{{ url_for('print_labels') }}" formtarget="_blank" class="btn btn-warning btn-sm"><i class="bi bi-printer"></i> Stampa Etichette</button>
         
+        <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-outline-secondary btn-sm">Duplica</button>
         <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare?')">Elimina</button>
     </div>
 
@@ -662,9 +706,10 @@ GIACENZE_HTML = """
                 <tr>
                     <th><input type="checkbox" onclick="toggleAll(this)"></th>
                     <th>ID</th> <th>Doc</th> <th>Foto</th> <th>Codice</th> <th>Descrizione</th>
-                    <th>Cliente</th> <th>Fornitore</th> <th>Commessa</th> <th>Ordine</th>
-                    <th>N.Arr</th> <th>Data Ing</th> <th>DDT Ing</th> <th>Pos</th> <th>Stato</th>
-                    <th>Pz</th> <th>Colli</th> <th>Kg</th> <th>LxPxH</th> <th>M3</th> <th>Note</th> <th>Act</th>
+                    <th>Cliente</th> <th>Fornitore</th> <th>Commessa</th> <th>Ordine</th> <th>Protocollo</th>
+                    <th>Buono N</th> <th>N.Arr</th> <th>Data Ing</th> <th>DDT Ing</th> <th>Pos</th> <th>Stato</th>
+                    <th>Pz</th> <th>Colli</th> <th>Kg</th> <th>LxPxH</th> <th>M2</th> <th>M3</th>
+                    <th>Serial</th> <th>Mezzo</th> <th>Note</th> <th>Act</th>
                 </tr>
             </thead>
             <tbody>
@@ -690,28 +735,38 @@ GIACENZE_HTML = """
                     <td>{{ r.fornitore or '' }}</td>
                     <td>{{ r.commessa or '' }}</td>
                     <td>{{ r.ordine or '' }}</td>
+                    <td>{{ r.protocollo or '' }}</td>
+                    <td class="fw-buono">{{ r.buono_n or '' }}</td>
                     <td>{{ r.n_arrivo or '' }}</td>
                     <td>{{ r.data_ingresso or '' }}</td>
                     <td>{{ r.n_ddt_ingresso or '' }}</td>
                     <td>{{ r.posizione or '' }}</td>
                     <td>{{ r.stato or '' }}</td>
-                    <td>{{ r.pezzo or '' }}</td>
-                    <td>{{ r.n_colli or '' }}</td>
-                    <td>{{ r.peso or '' }}</td>
-                    <td>{{ r.lunghezza or '' }}x{{ r.larghezza or '' }}x{{ r.altezza or '' }}</td>
-                    <td>{{ r.m3 or '' }}</td>
+                    <td class="text-end">{{ r.pezzo or '' }}</td>
+                    <td class="text-end">{{ r.n_colli or '' }}</td>
+                    <td class="text-end">{{ r.peso or '' }}</td>
+                    <td>{{ r.lunghezza|int }}x{{ r.larghezza|int }}x{{ r.altezza|int }}</td>
+                    <td class="text-end">{{ r.m2 or '' }}</td>
+                    <td class="text-end">{{ r.m3 or '' }}</td>
+                    <td>{{ r.serial_number or '' }}</td>
+                    <td>{{ r.mezzi_in_uscita or '' }}</td>
                     <td title="{{ r.note }}">{{ r.note or '' }}</td>
-                    <td class="text-center"><a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}">✏️</a></td>
+                    
+                    <td class="text-center">
+                        <a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}" class="btn btn-sm btn-link p-0 text-decoration-none">✏️</a>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
+            <tfoot class="sticky-bottom bg-white fw-bold">
+                <tr><td colspan="27" class="py-2 px-3">Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}</td></tr>
+            </tfoot>
         </table>
     </div>
 </form>
 <script>function toggleAll(s){ document.getElementsByName('ids').forEach(c => c.checked = s.checked); }</script>
 {% endblock %}
 """
-
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
