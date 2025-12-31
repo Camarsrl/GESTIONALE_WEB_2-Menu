@@ -3092,18 +3092,14 @@ def _genera_pdf_etichetta(articoli):
 
     bio = io.BytesIO()
     
-    # --- PUNTO CRUCIALE: DIMENSIONI PAGINA ---
-    # Impostiamo 100mm di larghezza e 62mm di altezza (Orizzontale)
-    # Margini ridotti al minimo (1mm) per sfruttare tutto lo spazio
+    # IMPOSTA PAGINA 100mm x 62mm
     doc = SimpleDocTemplate(bio, pagesize=(100*mm, 62*mm), 
                             leftMargin=1*mm, rightMargin=1*mm, 
                             topMargin=1*mm, bottomMargin=1*mm)
     
     styles = getSampleStyleSheet()
-    # Stili dei font ottimizzati per l'etichetta
     s_bold = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, leading=12)
     s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=11, leading=12)
-    # Stile Molto Grande per il footer (Arrivo/Colli)
     s_big = ParagraphStyle('Big', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=15, leading=17)
 
     elements_buffer = []
@@ -3113,16 +3109,14 @@ def _genera_pdf_etichetta(articoli):
         if qty < 1: qty = 1
         
         for i in range(1, qty + 1):
-            # 1. LOGO CAMAR (Ridimensionato per stare nell'etichetta)
+            # 1. LOGO
             if LOGO_PATH and Path(LOGO_PATH).exists():
-                # Width 35mm, Height 10mm (proporzionato)
                 img = Image(LOGO_PATH, width=40*mm, height=12*mm, hAlign='LEFT')
                 elements_buffer.append(img)
             elements_buffer.append(Spacer(1, 1*mm))
             
-            # 2. DATI (Tabella compatta)
+            # 2. DATI
             dati = []
-            # Usiamo str() per evitare errori se il campo è None
             if art.cliente: dati.append([Paragraph("CLIENTE:", s_bold), Paragraph(str(art.cliente), s_val)])
             if art.fornitore: dati.append([Paragraph("FORNITORE:", s_bold), Paragraph(str(art.fornitore), s_val)])
             if art.ordine: dati.append([Paragraph("ORDINE:", s_bold), Paragraph(str(art.ordine), s_val)])
@@ -3132,7 +3126,6 @@ def _genera_pdf_etichetta(articoli):
             if art.posizione: dati.append([Paragraph("POSIZIONE:", s_bold), Paragraph(str(art.posizione), s_val)])
 
             if dati:
-                # Colonne: 30mm per l'etichetta, 68mm per il valore
                 t = Table(dati, colWidths=[30*mm, 68*mm])
                 t.setStyle(TableStyle([
                     ('VALIGN', (0,0), (-1,-1), 'TOP'),
@@ -3142,30 +3135,24 @@ def _genera_pdf_etichetta(articoli):
                 ]))
                 elements_buffer.append(t)
             
-            # Spazio variabile prima del footer per spingerlo in basso
-            elements_buffer.append(Spacer(1, 3*mm))
+            elements_buffer.append(Spacer(1, 2*mm))
             
-            # 3. FOOTER (ARRIVO + COLLO)
-            # Layout richiesto:
-            # ARRIVO: 01/24 N.1
-            # COLLO: 1/6
-            
+            # 3. FOOTER
             txt_arrivo = f"ARRIVO: {art.n_arrivo or ''} N.{i}"
             elements_buffer.append(Paragraph(txt_arrivo, s_big))
             
             txt_colli = f"COLLO: {i}/{qty}"
             elements_buffer.append(Paragraph(txt_colli, s_big))
             
-            # Interruzione pagina (Prossima etichetta)
             elements_buffer.append(PageBreak())
 
-    # Rimuove l'ultimo PageBreak vuoto per non stampare una pagina bianca alla fine
     if elements_buffer and isinstance(elements_buffer[-1], PageBreak):
         elements_buffer.pop()
 
     doc.build(elements_buffer)
     bio.seek(0)
     return bio
+
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
 app.jinja_env.globals['getattr'] = getattr
