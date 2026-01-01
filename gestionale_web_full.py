@@ -2403,8 +2403,6 @@ def giacenze():
         return render_template('giacenze.html', rows=[], total_colli=0, total_m2="0", total_peso="0")
     finally:
         db.close()
-@app.route('/bulk_edit', methods=['GET', 'POST'])
-@login_required
 
 @app.route('/bulk_edit', methods=['GET', 'POST'])
 @login_required
