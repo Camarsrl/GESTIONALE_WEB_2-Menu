@@ -1942,39 +1942,38 @@ from urllib.parse import unquote
 
 # --- FUNZIONE PER CARICARE NUOVI FILE (Dalla pagina Modifica) ---
 
+# --- FUNZIONE UPLOAD FILE SINGOLO (CORRETTA) ---
 @app.route('/upload/<int:id_articolo>', methods=['POST'])
 @login_required
 def upload_file(id_articolo):
-    # Protezione Admin (opzionale, se vuoi che tutti carichino togli questo if)
     if session.get('role') != 'admin':
         flash("Solo Admin può caricare file", "danger")
         return redirect(url_for('edit_record', id_articolo=id_articolo))
 
     file = request.files.get('file')
+    # Controllo base
     if not file or not file.filename:
         flash("Nessun file selezionato", "warning")
         return redirect(url_for('edit_record', id_articolo=id_articolo))
 
     db = SessionLocal()
     try:
-        # Pulisce il nome del file (richiede l'import aggiunto al punto 1)
+        from werkzeug.utils import secure_filename
         filename = secure_filename(file.filename)
         
-        # Determina tipo e percorso
         ext = filename.rsplit('.', 1)[-1].lower()
         if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
             kind = 'photo'
             save_path = PHOTOS_DIR / filename
         else:
-            kind = 'doc' # PDF, Excel, Word, ecc.
+            kind = 'doc'
             save_path = DOCS_DIR / filename
             
-        # Salva file fisico
         file.save(str(save_path))
 
-        # Salva nel DB
+        # --- CORREZIONE QUI: articolo_id INVECE DI id_articolo ---
         att = Attachment(
-            id_articolo=id_articolo,
+            articolo_id=id_articolo,  # <--- QUESTA ERA LA CAUSA DELL'ERRORE ROSSO
             filename=filename,
             kind=kind,
             uploaded_at=datetime.now()
@@ -1985,11 +1984,15 @@ def upload_file(id_articolo):
         
     except Exception as e:
         db.rollback()
+        # Stampa l'errore nei log per capire meglio
+        print(f"ERRORE UPLOAD: {e}") 
         flash(f"Errore caricamento: {e}", "danger")
     finally:
         db.close()
 
     return redirect(url_for('edit_record', id_articolo=id_articolo))
+
+    
     
 
 @app.route('/delete_file/<int:id_file>')
