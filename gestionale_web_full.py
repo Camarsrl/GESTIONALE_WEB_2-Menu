@@ -3036,84 +3036,78 @@ import io # Assicurati che questo sia importato in alto, se no aggiungilo dentro
 @app.route('/ddt/finalize', methods=['POST'])
 @login_required
 def ddt_finalize():
+    import io
     db = SessionLocal()
     try:
         # 1. Recupera ID e Azione
         ids_str = request.form.get('ids', '')
-        # Converte la stringa "1,2,3" in lista di interi [1, 2, 3]
         ids = [int(i) for i in ids_str.split(',') if i.strip().isdigit()]
-        
-        # 'preview' (solo PDF) o 'finalize' (PDF + Salvataggio DB)
         action = request.form.get('action', 'preview') 
         
-        # 2. Recupera dati Testata dal Form
+        # 2. Dati Testata
         n_ddt = request.form.get('n_ddt', '').strip()
         data_ddt_str = request.form.get('data_ddt')
         
-        # Gestione data sicura: prova a convertire, se fallisce usa oggi
         try:
             data_ddt_obj = datetime.strptime(data_ddt_str, "%Y-%m-%d").date()
             data_formatted = data_ddt_obj.strftime("%d/%m/%Y")
         except (ValueError, TypeError):
             data_ddt_obj = date.today()
             data_formatted = date.today().strftime("%d/%m/%Y")
-            data_ddt_str = date.today().strftime("%Y-%m-%d") # Per il nome file
+            data_ddt_str = date.today().strftime("%Y-%m-%d")
 
-        # 3. Recupera Destinatario (Logica esistente json o diretta)
-        # Se usi load_destinatari() assicurati che esista, altrimenti recupera dai campi manuali
-        # Qui presumo tu abbia i campi manuali nel form di anteprima se load_destinatari fallisce
+        # 3. Recupera Destinatario
         dest_ragione = request.form.get('dest_ragione', '')
         dest_indirizzo = request.form.get('dest_indirizzo', '')
         dest_citta = request.form.get('dest_citta', '')
-
-        # Se usi un selettore, sovrascrivi con quello (logica opzionale)
+        
+        # Sovrascrittura da eventuale rubrica
         dest_key = request.form.get('dest_key')
         if dest_key:
-             # Se hai la funzione load_destinatari attiva:
              try:
                  dest_info = load_destinatari().get(dest_key, {})
                  if dest_info:
                      dest_ragione = dest_info.get('ragione_sociale', '')
                      dest_indirizzo = dest_info.get('indirizzo', '')
                      dest_citta = dest_info.get('citta', '')
-             except: pass # Se non esiste la funzione, usa i dati del form
+             except: pass
         
-        # 4. Recupera Articoli dal DB
+        # 4. Recupera Articoli
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-        
-        # Lista per il PDF (Dizionari semplici)
         righe_per_pdf = []
 
-        # 5. Ciclo sugli articoli: Aggiorna DB (se serve) e prepara dati PDF
+        # 5. Loop Articoli
         for art in articoli:
-            # Recupera valori modificati dall'utente nel form di anteprima (se modificati al volo)
-            # Usa to_int_eu / to_float_eu per gestire virgole
+            # Recupera modifiche dal form
             raw_pezzi = request.form.get(f"pezzi_{art.id_articolo}")
             raw_colli = request.form.get(f"colli_{art.id_articolo}")
             raw_peso = request.form.get(f"peso_{art.id_articolo}")
+            # Recupera la nota (eventualmente modificata)
+            nuove_note = request.form.get(f"note_{art.id_articolo}", art.note)
             
-            # Se il campo non c'è nel form (es. non modificabile), usa il valore del DB
             nuovi_pezzi = to_int_eu(raw_pezzi) if raw_pezzi is not None else art.pezzo
             nuovi_colli = to_int_eu(raw_colli) if raw_colli is not None else art.n_colli
             nuovo_peso = to_float_eu(raw_peso) if raw_peso is not None else art.peso
             
-            # SE AZIONE E' FINALIZZA: Scriviamo data uscita e N. DDT nel DB in modo permanente
+            # Se Finalizza -> Salva su DB
             if action == 'finalize':
                 art.data_uscita = data_ddt_obj
                 art.n_ddt_uscita = n_ddt
-                # Opzionale: Aggiorna anche pesi/colli se modificati in anteprima?
-                # art.pezzo = nuovi_pezzi
-                # art.n_colli = nuovi_colli
-                # art.peso = nuovo_peso
+                if nuove_note: art.note = nuove_note
             
-            # Prepara riga per il PDF
+            # Prepara riga PDF (AGGIUNTI I CAMPI MANCANTI)
             righe_per_pdf.append({
                 'codice_articolo': art.codice_articolo or '',
                 'descrizione': art.descrizione or '',
                 'pezzo': nuovi_pezzi,
                 'n_colli': nuovi_colli,
                 'peso': nuovo_peso,
-                'n_arrivo': art.n_arrivo or ''
+                'n_arrivo': art.n_arrivo or '',
+                'note': nuove_note,           
+                'commessa': art.commessa,     # <--- AGGIUNTO
+                'ordine': art.ordine,         # <--- AGGIUNTO
+                'buono': art.buono_n,         # <--- AGGIUNTO
+                'protocollo': art.protocollo  # <--- AGGIUNTO
             })
 
         # 6. Salvataggio DB
@@ -3121,7 +3115,7 @@ def ddt_finalize():
             db.commit()
             flash(f"DDT N.{n_ddt} del {data_formatted} salvato con successo.", "success")
 
-        # 7. Preparazione Dati Testata per PDF
+        # 7. Dati Generali PDF
         ddt_data = {
             'n_ddt': n_ddt,
             'data_uscita': data_formatted,
@@ -3129,37 +3123,33 @@ def ddt_finalize():
             'dest_indirizzo': dest_indirizzo,
             'dest_citta': dest_citta,
             'causale': request.form.get('causale', ''),
-            'vettore': request.form.get('vettore', '') # O 'targa'
+            'vettore': request.form.get('targa', ''),
+            'porto': request.form.get('porto', 'FRANCO'),
+            'aspetto': request.form.get('aspetto', 'A VISTA')
         }
 
-        # 8. Generazione PDF in Memoria (Senza salvare file su disco)
-        # Importante: Usa BytesIO per non lasciare file temporanei
+        # 8. Genera PDF
         pdf_bio = io.BytesIO()
-        
-        # Chiama la funzione di generazione (quella con 3 argomenti che abbiamo sistemato)
-        # Arg 1: Dati Testata, Arg 2: Lista Righe, Arg 3: Buffer di output
         _genera_pdf_ddt_file(ddt_data, righe_per_pdf, pdf_bio)
-        
         pdf_bio.seek(0)
         
-        # Nome file pulito per il download
         safe_n = n_ddt.replace('/', '-').replace('\\', '-')
         filename = f"DDT_{safe_n}_{data_ddt_str}.pdf"
 
-        # 9. Invio File al Browser
         return send_file(
             pdf_bio,
-            as_attachment=(action == 'finalize'), # Se finalizzi scarica, se preview apri nel browser
+            as_attachment=(action == 'finalize'),
             download_name=filename,
             mimetype='application/pdf'
         )
 
     except Exception as e:
         db.rollback()
-        print(f"Errore DDT Finalize: {e}") # Log per debug su Render
+        print(f"Errore DDT Finalize: {e}")
         return f"Errore durante la creazione del DDT: {e}", 500
     finally:
         db.close()
+
 @app.get('/labels')
 @login_required
 def labels_form():
