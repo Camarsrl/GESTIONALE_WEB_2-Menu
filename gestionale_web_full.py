@@ -1975,8 +1975,7 @@ def upload_file(id_articolo):
         att = Attachment(
             articolo_id=id_articolo,  # <--- QUESTA ERA LA CAUSA DELL'ERRORE ROSSO
             filename=filename,
-            kind=kind,
-            uploaded_at=datetime.now()
+            kind=kind
         )
         db.add(att)
         db.commit()
