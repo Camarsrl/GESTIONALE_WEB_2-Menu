@@ -2811,8 +2811,24 @@ def _generate_buono_pdf(form_data, rows):
     bio.seek(0)
     return bio
 
-def _genera_pdf_ddt_file(n_ddt, data_ddt, targa, dest, rows, form_data):
-    bio = io.BytesIO()
+def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
+    """
+    Genera il PDF del DDT unendo lo stile grafico richiesto (Blu)
+    con i dati passati dalla rotta ddt_finalize.
+    """
+    import io
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.lib.pagesizes import A4
+    from pathlib import Path
+
+    # Se filename_out è un buffer (BytesIO), usalo direttamente.
+    # Se è una stringa (percorso file), reportlab lo gestisce ma qui usiamo il buffer passato dalla rotta.
+    bio = filename_out
+
     # Margini ottimizzati
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=5*mm, bottomMargin=5*mm)
     story = []
@@ -2823,7 +2839,7 @@ def _genera_pdf_ddt_file(n_ddt, data_ddt, targa, dest, rows, form_data):
     s_bold = ParagraphStyle('b', parent=s_small, fontName='Helvetica-Bold')
     s_white = ParagraphStyle('w', parent=s_bold, textColor=colors.white, alignment=TA_CENTER, fontSize=12)
 
-    # --- FUNZIONE PER PULIRE I DATI (Rimuove "None" e lascia vuoto) ---
+    # --- FUNZIONE PER PULIRE I DATI ---
     def clean(val):
         if val is None: return ""
         s = str(val).strip()
@@ -2845,11 +2861,12 @@ def _genera_pdf_ddt_file(n_ddt, data_ddt, targa, dest, rows, form_data):
     story.append(Spacer(1, 2*mm))
 
     # 3. Riquadri Mittente / Destinatario
-    dest_ragione = clean(dest.get('ragione_sociale'))
-    dest_ind = clean(dest.get('indirizzo')).replace('\n', '<br/>')
+    dest_ragione = clean(ddt_data.get('destinatario'))
+    dest_ind = clean(ddt_data.get('dest_indirizzo')).replace('\n', '<br/>')
+    dest_citta = clean(ddt_data.get('dest_citta', 'GENOVA'))
     
     mittente_html = "<b>Mittente</b><br/>Camar srl<br/>Via Luigi Canepa 2<br/>16165 Genova Struppa (GE)"
-    dest_html = f"<b>Destinatario</b><br/>{dest_ragione}<br/>{dest_ind}<br/>GENOVA"
+    dest_html = f"<b>Destinatario</b><br/>{dest_ragione}<br/>{dest_ind}<br/>{dest_citta}"
     
     t_md = Table([[Paragraph(mittente_html, s_small), Paragraph(dest_html, s_small)]], colWidths=[95*mm, 95*mm])
     t_md.setStyle(TableStyle([
@@ -2865,21 +2882,25 @@ def _genera_pdf_ddt_file(n_ddt, data_ddt, targa, dest, rows, form_data):
     t_bar.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#4F81BD")), ('PADDING', (0,0), (-1,-1), 2)]))
     story.append(t_bar)
 
-    # Recupero dati dal primo articolo per la testata
-    first = rows[0] if rows else None
+    # Recupero dati dal primo articolo per riempire Commessa/Ordine/ecc (se presenti)
+    # Nota: 'righe' è una lista di dizionari preparata dalla rotta
+    first = righe[0] if righe else {}
     
-    # Uso la funzione clean() per assicurarmi che non esca "None"
-    commessa = clean(first.commessa if first else "")
-    ordine = clean(first.ordine if first else "")
-    buono = clean(first.buono_n if first else "")
-    protocollo = clean(first.protocollo if first else "")
-    targa_txt = clean(targa)
-    causale_txt = clean(form_data.get('causale',''))
+    commessa = clean(first.get('commessa', ''))
+    ordine = clean(first.get('ordine', ''))
+    buono = clean(first.get('buono', '')) # o buono_n
+    protocollo = clean(first.get('protocollo', ''))
+    
+    # Dati dalla testata DDT
+    n_ddt_txt = clean(ddt_data.get('n_ddt'))
+    data_ddt_txt = clean(ddt_data.get('data_uscita'))
+    targa_txt = clean(ddt_data.get('vettore')) # Usiamo vettore come targa
+    causale_txt = clean(ddt_data.get('causale'))
 
     dati_agg = [
-        [Paragraph("<b>Commessa</b>", s_small), Paragraph(commessa, s_small), Paragraph("<b>N. DDT</b>", s_small), Paragraph(clean(n_ddt), s_small)],
-        [Paragraph("<b>Ordine</b>", s_small), Paragraph(ordine, s_small), Paragraph("<b>Data Uscita</b>", s_small), Paragraph(fmt_date(data_ddt), s_small)],
-        [Paragraph("<b>Buono</b>", s_small), Paragraph(buono, s_small), Paragraph("<b>Targa</b>", s_small), Paragraph(targa_txt, s_small)],
+        [Paragraph("<b>Commessa</b>", s_small), Paragraph(commessa, s_small), Paragraph("<b>N. DDT</b>", s_small), Paragraph(n_ddt_txt, s_small)],
+        [Paragraph("<b>Ordine</b>", s_small), Paragraph(ordine, s_small), Paragraph("<b>Data Uscita</b>", s_small), Paragraph(data_ddt_txt, s_small)],
+        [Paragraph("<b>Buono</b>", s_small), Paragraph(buono, s_small), Paragraph("<b>Vettore/Targa</b>", s_small), Paragraph(targa_txt, s_small)],
         [Paragraph("<b>Protocollo</b>", s_small), Paragraph(protocollo, s_small), Paragraph("<b>Causale</b>", s_small), Paragraph(causale_txt, s_small)]
     ]
     t_agg = Table(dati_agg, colWidths=[25*mm, 70*mm, 25*mm, 70*mm])
@@ -2890,35 +2911,35 @@ def _genera_pdf_ddt_file(n_ddt, data_ddt, targa, dest, rows, form_data):
     # 5. Articoli
     story.append(Paragraph("<b>Articoli nel DDT</b>", ParagraphStyle('h', parent=s_bold, fontSize=10)))
     
-    header = [Paragraph(x, s_bold) for x in ['ID', 'Cod.Art.', 'Descrizione', 'Pezzi', 'Colli', 'Peso', 'N.Arrivo']]
+    header = [Paragraph(x, s_bold) for x in ['Cod.Art.', 'Descrizione', 'Pz', 'Colli', 'Peso', 'Note']]
     data = [header]
     
     tot_pezzi = 0; tot_colli = 0; tot_peso = 0.0
-    note_list = [] 
 
-    for r in rows:
-        # Recupera e pulisce i dati
-        pz = to_int_eu(form_data.get(f"pezzi_{r.id_articolo}", r.pezzo)) or 0
-        cl = to_int_eu(form_data.get(f"colli_{r.id_articolo}", r.n_colli)) or 0
-        we = to_float_eu(form_data.get(f"peso_{r.id_articolo}", r.peso)) or 0.0
+    for r in righe:
+        # I dati arrivano già puliti dalla rotta ddt_finalize, ma facciamo un check sicuro
+        pz = int(r.get('pezzo') or 0)
+        cl = int(r.get('n_colli') or 0)
+        we = float(r.get('peso') or 0.0)
         
-        tot_pezzi += pz; tot_colli += cl; tot_peso += we
+        tot_pezzi += pz
+        tot_colli += cl
+        tot_peso += we
         
-        # Note
-        note = clean(form_data.get(f"note_{r.id_articolo}") or r.note)
-        if note: note_list.append(f"ID {r.id_articolo}: {note}")
+        # Note riga
+        note_riga = clean(r.get('note'))
 
         data.append([
-            Paragraph(clean(r.id_articolo), s_small),
-            Paragraph(clean(r.codice_articolo), s_small),
-            Paragraph(clean(r.descrizione), s_small),
-            clean(pz),
-            clean(cl),
-            f"{we:.0f}",
-            Paragraph(clean(r.n_arrivo), s_small)
+            Paragraph(clean(r.get('codice_articolo')), s_small),
+            Paragraph(clean(r.get('descrizione')), s_small),
+            str(pz),
+            str(cl),
+            f"{we:.2f}",
+            Paragraph(note_riga, s_small) # Colonna note
         ])
 
-    t_items = Table(data, colWidths=[15*mm, 35*mm, 75*mm, 15*mm, 15*mm, 15*mm, 20*mm], repeatRows=1)
+    # Colonne: Codice, Descrizione, Pz, Colli, Peso, Note
+    t_items = Table(data, colWidths=[30*mm, 70*mm, 15*mm, 15*mm, 20*mm, 40*mm], repeatRows=1)
     t_items.setStyle(TableStyle([
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
@@ -2928,16 +2949,9 @@ def _genera_pdf_ddt_file(n_ddt, data_ddt, targa, dest, rows, form_data):
     story.append(t_items)
     story.append(Spacer(1, 3*mm))
 
-    # 6. Note DDT (Fuori Tabella)
-    if note_list:
-        story.append(Paragraph("<b>Note DDT:</b>", s_bold))
-        for n in note_list:
-            story.append(Paragraph(n, s_small))
-        story.append(Spacer(1, 3*mm))
-
     # 7. Footer
-    porto = clean(form_data.get('porto')) or "FRANCO"
-    aspetto = clean(form_data.get('aspetto')) or "A VISTA"
+    porto = clean(ddt_data.get('porto') or "FRANCO")
+    aspetto = clean(ddt_data.get('aspetto') or "A VISTA")
 
     footer_data = [
         [
@@ -2945,7 +2959,7 @@ def _genera_pdf_ddt_file(n_ddt, data_ddt, targa, dest, rows, form_data):
             Paragraph(f"<b>Aspetto:</b> {aspetto}", s_small)
         ],
         [
-            Paragraph(f"<b>TOTALE:</b> Pezzi {tot_pezzi} - Colli {tot_colli} - Peso {tot_peso:.0f} Kg", s_bold),
+            Paragraph(f"<b>TOTALE:</b> Pezzi {tot_pezzi} - Colli {tot_colli} - Peso {tot_peso:.2f} Kg", s_bold),
             Paragraph("Firma Vettore: _______________________", s_small)
         ]
     ]
@@ -2960,9 +2974,6 @@ def _genera_pdf_ddt_file(n_ddt, data_ddt, targa, dest, rows, form_data):
     story.append(t_foot)
 
     doc.build(story)
-    bio.seek(0)
-    return bio
-
 @app.route('/buono/finalize_and_get_pdf', methods=['POST'])
 @login_required
 def buono_finalize_and_get_pdf():
