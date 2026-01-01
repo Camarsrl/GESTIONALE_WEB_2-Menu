@@ -61,16 +61,18 @@ login_manager.login_view = 'login'
 
 
 
-# CONFIGURAZIONE EMAIL DA RENDER
+# --- CONFIGURAZIONE EMAIL ---
 import os
-app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.office365.com') # Default Hotmail
+from flask_mail import Mail
+
+# Configura qui o usa Variabili d'Ambiente su Render
+app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.office365.com') # Esempio per Outlook/Hotmail
 app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
 app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'True') == 'True'
-app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME') # La tua email
-app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD') # La password APP generata
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', 'tua_email@dominio.com') 
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', 'tua_password')
+app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
 
-# Inizializza Mail
-from flask_mail import Mail
 mail = Mail(app)
 
 # ========================================================
