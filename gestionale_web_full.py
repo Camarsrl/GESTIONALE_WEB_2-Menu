@@ -2375,7 +2375,7 @@ def giacenze():
         return render_template('giacenze.html', rows=[], total_colli=0, total_m2="0", total_peso="0")
     finally:
         db.close()
-
+# --- MODIFICA MULTIPLA COMPLETA CON CALCOLI ---
 @app.route('/bulk_edit', methods=['GET', 'POST'])
 @login_required
 def bulk_edit():
@@ -2389,32 +2389,31 @@ def bulk_edit():
         ids = [int(i) for i in ids if str(i).isdigit()]
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
 
-        # LISTA CAMPI AGGIORNATA CON QUELLI MANCANTI
+        # LISTA DI TUTTI I CAMPI RICHIESTI
         editable_fields = [
             ('Cliente', 'cliente'), ('Fornitore', 'fornitore'),
-            ('Codice Articolo', 'codice_articolo'), ('Descrizione', 'descrizione'),
-            ('Serial Number', 'serial_number'), ('Stato', 'stato'),
-            ('Magazzino', 'magazzino'), ('Posizione', 'posizione'),
-            ('Commessa', 'commessa'), ('Ordine', 'ordine'), ('Protocollo', 'protocollo'),
-            ('Buono N.', 'buono_n'), ('N. Arrivo', 'n_arrivo'),
-            ('Pezzi', 'pezzo'), ('N. Colli', 'n_colli'),
-            ('Data Ingresso', 'data_ingresso'), ('N. DDT Ingresso', 'n_ddt_ingresso'),
+            ('N. DDT Ingresso', 'n_ddt_ingresso'), ('Data Ingresso', 'data_ingresso'),
             ('Data Uscita', 'data_uscita'), ('N. DDT Uscita', 'n_ddt_uscita'),
+            ('Protocollo', 'protocollo'), ('N. Buono', 'buono_n'),
+            ('Magazzino', 'magazzino'), ('Commessa', 'commessa'),
+            ('Ordine', 'ordine'), ('Stato', 'stato'),
+            ('Codice Articolo', 'codice_articolo'), ('Serial Number', 'serial_number'),
+            ('Colli', 'n_colli'), ('Pezzi', 'pezzo'),
             ('Lunghezza', 'lunghezza'), ('Larghezza', 'larghezza'), ('Altezza', 'altezza')
         ]
 
         if request.method == 'POST' and request.form.get('save_bulk') == 'true':
             updates = {}
+            recalc_dims = False # Flag per ricalcolare M2/M3
             
-            # 1. Aggiornamento Campi Testo
+            # 1. Aggiornamento Campi
             for key in request.form:
                 if key.startswith('chk_'):
                     field_name = key.replace('chk_', '') 
-                    # Cerca se il campo è valido
                     if any(f[1] == field_name for f in editable_fields):
                         val = request.form.get(field_name)
                         
-                        # Conversioni Numeriche/Date
+                        # Conversioni Numeriche
                         if field_name in ['n_colli', 'pezzo']:
                             val = to_int_eu(val)
                         elif field_name in ['lunghezza', 'larghezza', 'altezza']:
@@ -2423,28 +2422,37 @@ def bulk_edit():
                             val = parse_date_ui(val)
                         
                         updates[field_name] = val
+                        
+                        # Se cambiano le dimensioni o i colli, attiviamo il ricalcolo
+                        if field_name in ['lunghezza', 'larghezza', 'altezza', 'n_colli']:
+                            recalc_dims = True
 
             if updates:
                 for art in articoli:
+                    # Applica le modifiche
                     for k, v in updates.items():
                         if hasattr(art, k):
                             setattr(art, k, v)
-                    # Ricalcolo dimensioni
-                    if any(x in updates for x in ['lunghezza','larghezza','altezza','n_colli']):
-                        art.m2, art.m3 = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, art.n_colli)
-            
-            # 2. GESTIONE FILE MULTIPLI
-            files = request.files.getlist('bulk_file') # PRENDE PIU FILE
-            files_saved = 0
-            
+                    
+                    # CALCOLO AUTOMATICO M2 / M3
+                    if recalc_dims:
+                        # Se un valore non è stato modificato in massa, usa quello attuale dell'articolo
+                        L = updates.get('lunghezza', art.lunghezza)
+                        W = updates.get('larghezza', art.larghezza)
+                        H = updates.get('altezza', art.altezza)
+                        C = updates.get('n_colli', art.n_colli)
+                        art.m2, art.m3 = calc_m2_m3(L, W, H, C)
+
+            # 2. Upload Massivo (senza uploaded_at)
+            files = request.files.getlist('bulk_file')
+            count_files = 0
             from werkzeug.utils import secure_filename
             
             for file in files:
                 if file and file.filename:
                     raw_name = secure_filename(file.filename)
-                    # Leggi contenuto (cursore a 0 per rileggere per ogni articolo)
-                    content = file.read() 
-                    
+                    content = file.read()
+                    file.seek(0)
                     ext = raw_name.rsplit('.', 1)[-1].lower()
                     kind = 'photo' if ext in ['jpg','jpeg','png','webp'] else 'doc'
                     dest_dir = PHOTOS_DIR if kind == 'photo' else DOCS_DIR
@@ -2452,29 +2460,23 @@ def bulk_edit():
                     for art in articoli:
                         new_name = f"{art.id_articolo}_{raw_name}"
                         save_path = dest_dir / new_name
-                        
-                        # Scrittura fisica
                         with open(save_path, 'wb') as f:
                             f.write(content)
                         
-                        # Scrittura DB (CORRETTO articolo_id)
-                        att = Attachment(
-                            articolo_id=art.id_articolo, # <--- CORRETTO QUI
-                            filename=new_name,
-                            kind=kind
-                        )
+                        att = Attachment(articolo_id=art.id_articolo, filename=new_name, kind=kind)
                         db.add(att)
-                    files_saved += 1
+                    count_files += 1
 
             db.commit()
-            flash(f"Aggiornati {len(articoli)} articoli e caricati {files_saved} allegati per ciascuno.", "success")
+            flash(f"Aggiornati {len(articoli)} articoli.", "success")
             return redirect(url_for('giacenze'))
 
         return render_template('bulk_edit.html', rows=articoli, ids_csv=",".join(map(str, ids)), fields=editable_fields)
     
     except Exception as e:
         db.rollback()
-        flash(f"Errore modifica multipla: {e}", "danger")
+        print(f"ERRORE BULK: {e}")
+        flash(f"Errore: {e}", "danger")
         return redirect(url_for('giacenze'))
     finally:
         db.close()
