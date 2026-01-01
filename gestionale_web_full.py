@@ -2488,8 +2488,7 @@ def bulk_edit():
                         att = Attachment(
                             articolo_id=art.id_articolo, # <--- CORRETTO QUI
                             filename=new_name,
-                            kind=kind,
-                            uploaded_at=datetime.now()
+                            kind=kind
                         )
                         db.add(att)
                     files_saved += 1
