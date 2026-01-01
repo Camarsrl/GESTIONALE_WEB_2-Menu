@@ -2405,109 +2405,110 @@ def giacenze():
         db.close()
 @app.route('/bulk_edit', methods=['GET', 'POST'])
 @login_required
+
+@app.route('/bulk_edit', methods=['GET', 'POST'])
+@login_required
 def bulk_edit():
-    if session.get('role') != 'admin':
-        return "Accesso Negato", 403
-
     db = SessionLocal()
-    ids = request.form.getlist('ids')
-    
-    # Se arriviamo da una GET (es. redirect dopo errore), proviamo a recuperare gli ID dalla sessione o args
-    if not ids and request.method == 'GET':
-        flash("Nessun articolo selezionato per la modifica multipla.", "warning")
-        return redirect(url_for('giacenze'))
+    try:
+        ids = request.form.getlist('ids') or request.args.getlist('ids')
+        if not ids:
+            flash("Nessun articolo selezionato.", "warning")
+            return redirect(url_for('giacenze'))
 
-    # Recupera gli articoli
-    articles = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+        ids = [int(i) for i in ids if str(i).isdigit()]
+        articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
 
-    if request.method == 'POST' and 'save_bulk' in request.form:
-        # --- SALVATAGGIO MODIFICHE ---
-        try:
-            # 1. Recupera file caricato (se c'è)
-            file = request.files.get('bulk_file')
-            uploaded_filename = None
-            uploaded_kind = None
+        # LISTA CAMPI AGGIORNATA CON QUELLI MANCANTI
+        editable_fields = [
+            ('Cliente', 'cliente'), ('Fornitore', 'fornitore'),
+            ('Codice Articolo', 'codice_articolo'), ('Descrizione', 'descrizione'),
+            ('Serial Number', 'serial_number'), ('Stato', 'stato'),
+            ('Magazzino', 'magazzino'), ('Posizione', 'posizione'),
+            ('Commessa', 'commessa'), ('Ordine', 'ordine'), ('Protocollo', 'protocollo'),
+            ('Buono N.', 'buono_n'), ('N. Arrivo', 'n_arrivo'),
+            ('Pezzi', 'pezzo'), ('N. Colli', 'n_colli'),
+            ('Data Ingresso', 'data_ingresso'), ('N. DDT Ingresso', 'n_ddt_ingresso'),
+            ('Data Uscita', 'data_uscita'), ('N. DDT Uscita', 'n_ddt_uscita'),
+            ('Lunghezza', 'lunghezza'), ('Larghezza', 'larghezza'), ('Altezza', 'altezza')
+        ]
+
+        if request.method == 'POST' and request.form.get('save_bulk') == 'true':
+            updates = {}
             
-            # Se c'è un file, lo salviamo una volta e poi lo colleghiamo a tutti
-            if file and file.filename:
-                from werkzeug.utils import secure_filename
-                import shutil
-                
-                raw_filename = secure_filename(file.filename)
-                ext = raw_filename.rsplit('.', 1)[-1].lower()
-                
-                if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
-                    uploaded_kind = 'photo'
-                    base_path = PHOTOS_DIR
-                else:
-                    uploaded_kind = 'doc'
-                    base_path = DOCS_DIR
-                
-                # Salviamo il file "master" con un nome temporaneo o diretto
-                # Per evitare conflitti, usiamo timestamp o UUID, ma qui semplifichiamo:
-                # Salviamo il file fisico una volta sola per ora (o una copia per articolo se preferisci)
-                # STRATEGIA: Salviamo una copia fisica PER OGNI articolo per evitare problemi se uno lo cancella.
-                
-                # Leggiamo il contenuto in memoria per scriverlo più volte
-                file_content = file.read()
-            
-            # 2. Applica modifiche ai campi testuali
-            commessa = request.form.get('commessa')
-            ordine = request.form.get('ordine')
-            protocollo = request.form.get('protocollo')
-            n_ddt_ing = request.form.get('n_ddt_ingresso')
-            data_ing = request.form.get('data_ingresso')
-            cliente = request.form.get('cliente')
-            fornitore = request.form.get('fornitore')
-            stato = request.form.get('stato') # Nuovo campo Stato
-            
-            count_files = 0
+            # 1. Aggiornamento Campi Testo
+            for key in request.form:
+                if key.startswith('chk_'):
+                    field_name = key.replace('chk_', '') 
+                    # Cerca se il campo è valido
+                    if any(f[1] == field_name for f in editable_fields):
+                        val = request.form.get(field_name)
+                        
+                        # Conversioni Numeriche/Date
+                        if field_name in ['n_colli', 'pezzo']:
+                            val = to_int_eu(val)
+                        elif field_name in ['lunghezza', 'larghezza', 'altezza']:
+                            val = to_float_eu(val)
+                        elif 'data' in field_name and val:
+                            val = parse_date_ui(val)
+                        
+                        updates[field_name] = val
 
-            for art in articles:
-                if commessa: art.commessa = commessa
-                if ordine: art.ordine = ordine
-                if protocollo: art.protocollo = protocollo
-                if n_ddt_ing: art.n_ddt_ingresso = n_ddt_ing
-                if cliente: art.cliente = cliente
-                if fornitore: art.fornitore = fornitore
-                if stato: art.stato = stato
-                
-                if data_ing:
-                    try:
-                        art.data_ingresso = datetime.strptime(data_ing, "%Y-%m-%d").strftime("%d/%m/%Y")
-                    except: pass
-
-                # 3. Gestione ALLEGATO MASSIVO
+            if updates:
+                for art in articoli:
+                    for k, v in updates.items():
+                        if hasattr(art, k):
+                            setattr(art, k, v)
+                    # Ricalcolo dimensioni
+                    if any(x in updates for x in ['lunghezza','larghezza','altezza','n_colli']):
+                        art.m2, art.m3 = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, art.n_colli)
+            
+            # 2. GESTIONE FILE MULTIPLI
+            files = request.files.getlist('bulk_file') # PRENDE PIU FILE
+            files_saved = 0
+            
+            from werkzeug.utils import secure_filename
+            
+            for file in files:
                 if file and file.filename:
-                    # Crea un nome univoco per ogni articolo per evitare sovrascritture strane
-                    # Es: 72800_nomefile.pdf
-                    new_filename = f"{art.id_articolo}_{raw_filename}"
-                    dest_path = base_path / new_filename
+                    raw_name = secure_filename(file.filename)
+                    # Leggi contenuto (cursore a 0 per rileggere per ogni articolo)
+                    content = file.read() 
                     
-                    # Scrivi il file
-                    with open(dest_path, 'wb') as f:
-                        f.write(file_content)
+                    ext = raw_name.rsplit('.', 1)[-1].lower()
+                    kind = 'photo' if ext in ['jpg','jpeg','png','webp'] else 'doc'
+                    dest_dir = PHOTOS_DIR if kind == 'photo' else DOCS_DIR
                     
-                    # Aggiungi record Attachment
-                    att = Attachment(
-                        id_articolo=art.id_articolo,
-                        filename=new_filename,
-                        kind=uploaded_kind,
-                        uploaded_at=datetime.now()
-                    )
-                    db.add(att)
-                    count_files += 1
+                    for art in articoli:
+                        new_name = f"{art.id_articolo}_{raw_name}"
+                        save_path = dest_dir / new_name
+                        
+                        # Scrittura fisica
+                        with open(save_path, 'wb') as f:
+                            f.write(content)
+                        
+                        # Scrittura DB (CORRETTO articolo_id)
+                        att = Attachment(
+                            articolo_id=art.id_articolo, # <--- CORRETTO QUI
+                            filename=new_name,
+                            kind=kind,
+                            uploaded_at=datetime.now()
+                        )
+                        db.add(att)
+                    files_saved += 1
 
             db.commit()
-            flash(f"Aggiornati {len(articles)} articoli. Caricati {count_files} nuovi allegati.", "success")
-            return redirect(url_for('giacenze'))
-            
-        except Exception as e:
-            db.rollback()
-            flash(f"Errore modifica multipla: {e}", "danger")
+            flash(f"Aggiornati {len(articoli)} articoli e caricati {files_saved} allegati per ciascuno.", "success")
             return redirect(url_for('giacenze'))
 
-    return render_template('bulk_edit.html', articles=articles, ids=ids)        
+        return render_template('bulk_edit.html', rows=articoli, ids_csv=",".join(map(str, ids)), fields=editable_fields)
+    
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore modifica multipla: {e}", "danger")
+        return redirect(url_for('giacenze'))
+    finally:
+        db.close()
 
 @app.post('/delete_rows')
 @login_required
