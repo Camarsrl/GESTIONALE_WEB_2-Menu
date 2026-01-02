@@ -1860,20 +1860,24 @@ def invia_email():
     messaggio = request.form.get('messaggio')
     genera_ddt = 'genera_ddt' in request.form
     allega_file = 'allega_file' in request.form
-    
-    # Allegati dal PC
     allegati_extra = request.files.getlist('allegati_extra')
 
     ids_list = [int(i) for i in selected_ids.split(',') if i.isdigit()]
     
-    # SMTP
-    SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-    SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
-    SMTP_USER = os.environ.get("SMTP_USER", "")
-    SMTP_PASS = os.environ.get("SMTP_PASS", "")
+    # --- CORREZIONE VARIABILI E LOG DEBUG ---
+    # Cerchiamo le variabili con i nomi usati su Render (MAIL_...)
+    SMTP_SERVER = os.environ.get("MAIL_SERVER") or os.environ.get("SMTP_SERVER", "smtp.gmail.com")
+    SMTP_PORT = int(os.environ.get("MAIL_PORT") or os.environ.get("SMTP_PORT", 587))
+    SMTP_USER = os.environ.get("MAIL_USERNAME") or os.environ.get("SMTP_USER", "")
+    SMTP_PASS = os.environ.get("MAIL_PASSWORD") or os.environ.get("SMTP_PASS", "")
+
+    # STAMPA NEI LOG (Visibili nella Dashboard di Render)
+    print(f"DEBUG EMAIL - Server: {SMTP_SERVER}, Port: {SMTP_PORT}, User: {SMTP_USER}")
+    if not SMTP_PASS:
+        print("DEBUG EMAIL - ERRORE: Password non trovata nelle variabili d'ambiente!")
 
     if not SMTP_USER or not SMTP_PASS:
-        flash("Configurazione email mancante.", "warning")
+        flash(f"Configurazione email mancante (User: {SMTP_USER}). Controlla le variabili su Render.", "warning")
         return redirect(url_for('giacenze'))
 
     try:
@@ -1888,8 +1892,22 @@ def invia_email():
             db = SessionLocal()
             rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
             if rows:
-                dest_data = {"ragione_sociale": rows[0].cliente or "Cliente", "indirizzo": ""}
-                pdf_bio = _generate_ddt_pdf("RIEPILOGO", date.today(), "", dest_data, rows, {})
+                # Usa dati fittizi per l'header del riepilogo
+                dest_data = {"ragione_sociale": "RIEPILOGO", "indirizzo": "", "citta": ""}
+                # Genera un DDT temporaneo in memoria
+                pdf_bio = io.BytesIO()
+                # Chiamiamo la funzione di generazione PDF
+                _genera_pdf_ddt_file(
+                    {'n_ddt': 'RIEP', 'data_uscita': date.today().strftime('%d/%m/%Y'), 
+                     'destinatario': 'RIEPILOGO', 'dest_indirizzo': '', 'dest_citta': ''}, 
+                    [{
+                        'id_articolo': r.id_articolo, 'codice_articolo': r.codice_articolo, 
+                        'descrizione': r.descrizione, 'pezzo': r.pezzo, 'n_colli': r.n_colli, 
+                        'peso': r.peso, 'n_arrivo': r.n_arrivo, 'note': r.note
+                    } for r in rows], 
+                    pdf_bio
+                )
+                
                 part = MIMEBase('application', "octet-stream")
                 part.set_payload(pdf_bio.getvalue())
                 encoders.encode_base64(part)
@@ -1903,23 +1921,30 @@ def invia_email():
             rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
             for r in rows:
                 for att in r.attachments:
-                    path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / att.filename
+                    # Cerca file (decodifica spazi se necessario)
+                    fname = att.filename
+                    path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / fname
+                    if not path.exists():
+                         # Prova con unquote se il file su disco ha spazi
+                         from urllib.parse import unquote
+                         path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / unquote(fname)
+                    
                     if path.exists():
                         with open(path, "rb") as f:
                             part = MIMEBase('application', "octet-stream")
                             part.set_payload(f.read())
                         encoders.encode_base64(part)
-                        part.add_header('Content-Disposition', f'attachment; filename="{att.filename}"')
+                        part.add_header('Content-Disposition', f'attachment; filename="{fname}"')
                         msg.attach(part)
             db.close()
 
-        # 3. Allegati Extra (Dal PC)
+        # 3. Allegati Extra
         for file in allegati_extra:
             if file and file.filename:
                 part = MIMEBase('application', "octet-stream")
                 part.set_payload(file.read())
                 encoders.encode_base64(part)
-                part.add_header('Content-Disposition', f'attachment; filename="{file.filename}"')
+                part.add_header('Content-Disposition', f'attachment; filename="{secure_filename(file.filename)}"')
                 msg.attach(part)
 
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
@@ -1928,13 +1953,12 @@ def invia_email():
         server.send_message(msg)
         server.quit()
 
-        flash(f"Email inviata a {destinatario}", "success")
+        flash(f"Email inviata correttamente a {destinatario}", "success")
     except Exception as e:
+        print(f"DEBUG EMAIL EXCEPTION: {e}")
         flash(f"Errore invio: {e}", "danger")
 
     return redirect(url_for('giacenze'))
-
-
 # --- ROUTE ALLEGATI (MANCANTI - DA AGGIUNGERE) ---
 from urllib.parse import unquote # <--- Assicurati di importare questo in alto o dentro la funzione
 
