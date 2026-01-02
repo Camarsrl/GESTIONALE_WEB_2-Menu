@@ -2040,23 +2040,26 @@ import os
 # --- FIX VISUALIZZAZIONE ALLEGATI ---
 from urllib.parse import unquote
 
+# --- FIX VISUALIZZAZIONE ALLEGATI ---
+from urllib.parse import unquote
+
 @app.route('/serve_file/<path:filename>')
 @login_required
 def serve_uploaded_file(filename):
-    # Decodifica il nome (trasforma %20 in spazi)
+    # 1. Decodifica il nome (trasforma %20 in spazi reali)
     decoded_name = unquote(filename)
     
-    # Cerca prima in Foto
+    # 2. Cerca prima in Foto
     path_photo = PHOTOS_DIR / decoded_name
     if path_photo.exists():
         return send_file(path_photo)
     
-    # Cerca in Documenti
+    # 3. Cerca in Documenti
     path_doc = DOCS_DIR / decoded_name
     if path_doc.exists():
         return send_file(path_doc)
         
-    # Tentativo con nome originale (senza decode)
+    # 4. Tentativo con nome originale
     if (PHOTOS_DIR / filename).exists(): return send_file(PHOTOS_DIR / filename)
     if (DOCS_DIR / filename).exists(): return send_file(DOCS_DIR / filename)
 
