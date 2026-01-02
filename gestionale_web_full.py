@@ -887,85 +887,80 @@ BULK_EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="container mt-4">
-    <h3>Modifica Multipla ({{ articles|length }} articoli selezionati)</h3>
-    <div class="alert alert-info">
-        <small>Lascia i campi vuoti per non modificarli. I valori inseriti sovrascriveranno quelli esistenti per <b>TUTTI</b> gli articoli selezionati.</small>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3><i class="bi bi-ui-checks"></i> Modifica Multipla ({{ rows|length }} articoli)</h3>
+        <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
     </div>
 
-    <form method="POST" enctype="multipart/form-data"> {% for id in ids %}
+    <div class="alert alert-warning shadow-sm">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        <strong>Attenzione:</strong> Attiva la spunta accanto ai campi che vuoi modificare. 
+        Il valore inserito verrà applicato a <b>TUTTI</b> gli articoli selezionati.
+    </div>
+
+    <form method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="save_bulk" value="true">
+        {% for id in ids_csv.split(',') %}
         <input type="hidden" name="ids" value="{{ id }}">
         {% endfor %}
 
-        <div class="card p-4 shadow-sm">
-            <div class="row g-3">
-                <div class="col-md-3">
-                    <label class="form-label">Cliente</label>
-                    <input type="text" name="cliente" class="form-control" placeholder="Lascia vuoto per mantenere">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Fornitore</label>
-                    <input type="text" name="fornitore" class="form-control" placeholder="Lascia vuoto per mantenere">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Commessa</label>
-                    <input type="text" name="commessa" class="form-control">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Ordine</label>
-                    <input type="text" name="ordine" class="form-control">
-                </div>
-                
-                <div class="col-md-3">
-                    <label class="form-label">Protocollo</label>
-                    <input type="text" name="protocollo" class="form-control">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">N. DDT Ingresso</label>
-                    <input type="text" name="n_ddt_ingresso" class="form-control">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Data Ingresso (YYYY-MM-DD)</label>
-                    <input type="date" name="data_ingresso" class="form-control">
-                </div>
-                
-                <div class="col-md-3">
-                    <label class="form-label">Stato</label>
-                    <input class="form-control" list="statoList" name="stato" placeholder="Seleziona o scrivi...">
-                    <datalist id="statoList">
-                        <option value="NAZIONALE">
-                        <option value="DOGANALE">
-                        <option value="ESTERO">
-                        <option value="USCITO">
-                        <option value="AGGIUNTO A MANO">
-                    </datalist>
-                </div>
-                
-                <div class="col-12 mt-4">
-                    <div class="card bg-light border-dashed">
-                        <div class="card-body text-center">
-                            <label class="form-label fw-bold"><i class="bi bi-cloud-upload"></i> Aggiungi Allegato a TUTTI</label>
-                            <input type="file" name="bulk_file" class="form-control w-50 mx-auto">
-                            <small class="text-muted d-block mt-1">Se selezioni un file, verrà copiato e allegato a ciascuno degli articoli selezionati.</small>
+        <div class="card p-4 mb-4 bg-light border-dashed shadow-sm">
+            <h5 class="text-primary"><i class="bi bi-cloud-upload"></i> Caricamento Allegati Massivo</h5>
+            <div class="d-flex gap-2">
+                <input type="file" name="bulk_file" class="form-control" multiple>
+            </div>
+            <small class="text-muted">I file selezionati verranno allegati a ciascuno degli articoli.</small>
+        </div>
+
+        <div class="row g-3">
+            {% for label, field_name in fields %}
+            <div class="col-md-3 col-sm-6">
+                <div class="card h-100 shadow-sm border-0">
+                    <div class="card-header py-2 bg-white border-bottom-0 d-flex align-items-center gap-2">
+                        <div class="form-check form-switch m-0">
+                            <input class="form-check-input" type="checkbox" name="chk_{{ field_name }}" id="chk_{{ field_name }}" 
+                                   onchange="document.getElementById('in_{{ field_name }}').disabled = !this.checked; 
+                                             document.getElementById('in_{{ field_name }}').focus();">
                         </div>
+                        <label for="chk_{{ field_name }}" class="m-0 fw-bold text-dark w-100" style="cursor:pointer; font-size:0.9rem;">
+                            {{ label }}
+                        </label>
+                    </div>
+                    <div class="card-body p-2 bg-light rounded-bottom">
+                        
+                        {% if field_name == 'stato' %}
+                            <input list="statoOptions" name="{{ field_name }}" id="in_{{ field_name }}" class="form-control form-control-sm" disabled placeholder="Seleziona...">
+                            <datalist id="statoOptions">
+                                <option value="NAZIONALE">
+                                <option value="DOGANALE">
+                                <option value="ESTERO">
+                                <option value="USCITO">
+                                <option value="FINCANTIERI SCOPERTO">
+                                <option value="AGGIUNTO A MANO">
+                            </datalist>
+                        
+                        {% elif 'data' in field_name %}
+                            <input type="date" name="{{ field_name }}" id="in_{{ field_name }}" class="form-control form-control-sm" disabled>
+                        
+                        {% elif field_name in ['pezzo','n_colli','lunghezza','larghezza','altezza'] %}
+                            <input type="number" step="0.01" name="{{ field_name }}" id="in_{{ field_name }}" class="form-control form-control-sm" disabled>
+
+                        {% else %}
+                            <input type="text" name="{{ field_name }}" id="in_{{ field_name }}" class="form-control form-control-sm" disabled>
+                        {% endif %}
+                        
                     </div>
                 </div>
             </div>
+            {% endfor %}
+        </div>
 
-            <div class="mt-4 text-center">
-                <a href="{{ url_for('giacenze') }}" class="btn btn-secondary px-4">Annulla</a>
-                <button type="submit" name="save_bulk" class="btn btn-warning px-5 fw-bold">Applica Modifiche a Tutti</button>
-            </div>
+        <div class="mt-5 text-center mb-5">
+            <button type="submit" class="btn btn-warning btn-lg px-5 fw-bold shadow">
+                <i class="bi bi-check-circle-fill"></i> Applica Modifiche a Tutti
+            </button>
         </div>
     </form>
-    
-    <div class="mt-4">
-        <h5>Articoli coinvolti:</h5>
-        <ul class="list-group list-group-flush small text-muted">
-            {% for a in articles %}
-            <li class="list-group-item">{{ a.codice_articolo }} - {{ a.descrizione }} (ID: {{ a.id_articolo }})</li>
-            {% endfor %}
-        </ul>
-    </div>
 </div>
 {% endblock %}
 """
