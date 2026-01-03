@@ -2087,24 +2087,59 @@ def nuovo_articolo():
         flash("Accesso negato: Solo Admin.", "danger")
         return redirect(url_for('giacenze'))
 
-    db = SessionLocal()
-    try:
-        art = Articolo()
-        art.data_ingresso = date.today().strftime("%d/%m/%Y")
-        # Nessuno stato predefinito
-        
-        db.add(art)
-        db.commit()
-        db.refresh(art)
-        
-        new_id = art.id_articolo
-        db.close()
-        
-        return redirect(url_for('edit_record', id_articolo=new_id))
-    except Exception as e:
-        db.rollback()
-        flash(f"Errore creazione riga: {e}", "danger")
-        return redirect(url_for('giacenze'))
+    if request.method == 'POST':
+        # --- SALVATAGGIO NUOVO ARTICOLO ---
+        db = SessionLocal()
+        try:
+            art = Articolo()
+            # Popolamento dati dal form
+            art.codice_articolo = request.form.get('codice_articolo')
+            art.descrizione = request.form.get('descrizione')
+            art.cliente = request.form.get('cliente')
+            art.fornitore = request.form.get('fornitore')
+            art.commessa = request.form.get('commessa')
+            art.ordine = request.form.get('ordine')
+            art.protocollo = request.form.get('protocollo')
+            art.buono_n = request.form.get('buono_n')
+            art.n_arrivo = request.form.get('n_arrivo')
+            art.magazzino = request.form.get('magazzino')
+            art.posizione = request.form.get('posizione')
+            art.stato = request.form.get('stato')
+            art.note = request.form.get('note')
+            
+            # Date
+            art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
+            art.data_uscita = parse_date_ui(request.form.get('data_uscita'))
+            art.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
+            art.n_ddt_uscita = request.form.get('n_ddt_uscita')
+            
+            # Numeri
+            art.pezzo = request.form.get('pezzo')
+            art.n_colli = to_int_eu(request.form.get('n_colli')) or 1
+            art.peso = to_float_eu(request.form.get('peso'))
+            art.lunghezza = to_float_eu(request.form.get('lunghezza'))
+            art.larghezza = to_float_eu(request.form.get('larghezza'))
+            art.altezza = to_float_eu(request.form.get('altezza'))
+            
+            # Calcolo M2/M3
+            art.m2, art.m3 = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, 1)
+
+            db.add(art)
+            db.commit()
+            flash(f"Articolo creato (ID: {art.id_articolo})", "success")
+            return redirect(url_for('giacenze'))
+            
+        except Exception as e:
+            db.rollback()
+            flash(f"Errore creazione: {e}", "danger")
+            return redirect(url_for('giacenze'))
+        finally:
+            db.close()
+
+    # GET: Mostra form vuoto (senza salvare nel DB)
+    # Passiamo un dizionario vuoto come 'row' per non rompere il template
+    empty_row = {'data_ingresso': date.today().strftime("%d/%m/%Y")}
+    return render_template('edit.html', row=empty_row)
         
 @app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
 @login_required
