@@ -2035,37 +2035,45 @@ def delete_file(id_file):
     return redirect(url_for('giacenze'))
 
 
+
+# --- FIX VISUALIZZAZIONE ALLEGATI ---
 from urllib.parse import unquote
 import os
-
-# --- FIX VISUALIZZAZIONE ALLEGATI ---
-from urllib.parse import unquote
-
-# --- FIX VISUALIZZAZIONE ALLEGATI ---
-from urllib.parse import unquote
 
 @app.route('/serve_file/<path:filename>')
 @login_required
 def serve_uploaded_file(filename):
-    # 1. Decodifica il nome (trasforma %20 in spazi reali)
+    # 1. Decodifica standard (es. %20 -> spazio)
     decoded_name = unquote(filename)
     
-    # 2. Cerca prima in Foto
-    path_photo = PHOTOS_DIR / decoded_name
-    if path_photo.exists():
-        return send_file(path_photo)
+    # 2. Lista di possibili nomi da cercare (Originale, Decodificato, Con Underscore)
+    candidates = [
+        filename,                   
+        decoded_name,               
+        filename.replace(' ', '_'), 
+        decoded_name.replace(' ', '_'),
+        secure_filename(decoded_name) # Prova anche la versione "sicura"
+    ]
     
-    # 3. Cerca in Documenti
-    path_doc = DOCS_DIR / decoded_name
-    if path_doc.exists():
-        return send_file(path_doc)
-        
-    # 4. Tentativo con nome originale
-    if (PHOTOS_DIR / filename).exists(): return send_file(PHOTOS_DIR / filename)
-    if (DOCS_DIR / filename).exists(): return send_file(DOCS_DIR / filename)
+    # 3. Cerca in entrambe le cartelle (Foto e Documenti)
+    # Usa os.walk o listdir se necessario, ma qui proviamo i path diretti
+    for folder in [PHOTOS_DIR, DOCS_DIR]:
+        for name in candidates:
+            p = folder / name
+            if p.exists():
+                return send_file(p)
+            
+            # Tentativo case-insensitive (per sistemi Linux sensibili alle maiuscole)
+            try:
+                for existing_file in os.listdir(folder):
+                    if existing_file.lower() == name.lower():
+                        return send_file(folder / existing_file)
+            except: pass
 
-    return f"File '{decoded_name}' non trovato sul server.", 404
-
+    # Se arriviamo qui, il file non c'è. Stampa debug nei log di Render.
+    print(f"DEBUG: File '{filename}' non trovato. Cercato candidati: {candidates}")
+    return f"File '{decoded_name}' non trovato sul server (potrebbe essere stato cancellato dal riavvio di Render).", 404
+    
 # --- GESTIONE ARTICOLI (CRUD) ---
 # ========================================================
 # 8. CRUD (NUOVO / MODIFICA)
