@@ -2152,91 +2152,69 @@ def edit_record(id_articolo):
             return redirect(url_for('giacenze'))
 
         if request.method == 'POST':
-            # Recuperiamo il numero di colli inserito dall'utente
+            # --- SALVATAGGIO MODIFICHE ---
             colli_input = to_int_eu(request.form.get('n_colli'))
             if colli_input < 1: colli_input = 1
 
-            # Aggiorniamo l'articolo corrente
-            # IMPORTANTE: L'articolo corrente avrà SEMPRE Colli = 1
-            # Se l'utente ha scritto 5, creeremo 4 copie extra.
-            
+            # Aggiornamento campi
             art.codice_articolo = request.form.get('codice_articolo')
             art.descrizione = request.form.get('descrizione')
             art.cliente = request.form.get('cliente')
             art.fornitore = request.form.get('fornitore')
             art.commessa = request.form.get('commessa')
+            art.ordine = request.form.get('ordine')
             art.protocollo = request.form.get('protocollo')
             art.buono_n = request.form.get('buono_n')
-            art.note = request.form.get('note')
-            art.stato = request.form.get('stato')
+            art.n_arrivo = request.form.get('n_arrivo')
             art.magazzino = request.form.get('magazzino')
             art.posizione = request.form.get('posizione')
-            art.ordine = request.form.get('ordine')
-            art.n_arrivo = request.form.get('n_arrivo')
+            art.stato = request.form.get('stato')
+            art.note = request.form.get('note')
             art.serial_number = request.form.get('serial_number')
             art.mezzi_in_uscita = request.form.get('mezzi_in_uscita')
             
-            # Date
-            d_in = request.form.get('data_ingresso')
-            art.data_ingresso = parse_date_ui(d_in) if d_in else None
-            d_out = request.form.get('data_uscita')
-            art.data_uscita = parse_date_ui(d_out) if d_out else None
+            art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
+            art.data_uscita = parse_date_ui(request.form.get('data_uscita'))
             art.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
             art.n_ddt_uscita = request.form.get('n_ddt_uscita')
             
-            # Numeri (con supporto virgola)
             art.pezzo = request.form.get('pezzo')
-            art.n_colli = 1  # Forziamo a 1 l'articolo base
+            art.n_colli = 1 # Sempre 1 per la riga singola
             art.peso = to_float_eu(request.form.get('peso'))
             art.lunghezza = to_float_eu(request.form.get('lunghezza'))
             art.larghezza = to_float_eu(request.form.get('larghezza'))
             art.altezza = to_float_eu(request.form.get('altezza'))
             
-            # Calcolo M2/M3 automatico per 1 collo
+            # Calcolo M2/M3
             m2_calc, m3_calc = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, 1)
+            art.m2 = m2_calc
             
-            # Gestione M3 manuale vs calcolato
-            m3_manuale_val = request.form.get('m3')
-            if m3_manuale_val and to_float_eu(m3_manuale_val) > 0:
-                 art.m3 = to_float_eu(m3_manuale_val)
-                 art.m2 = m2_calc # M2 lo calcoliamo comunque
-            else:
-                 art.m3 = m3_calc
-                 art.m2 = m2_calc
+            # M3 manuale o calcolato
+            m3_man = request.form.get('m3')
+            art.m3 = to_float_eu(m3_man) if m3_man and to_float_eu(m3_man) > 0 else m3_calc
 
-            # --- LOGICA DI DUPLICAZIONE (SPLIT) ---
-            # Se l'utente ha inserito es. 3 colli, salviamo questo come 1
-            # e ne creiamo altri 2 identici.
-            righe_extra = 0
+            # --- LOGICA DUPLICAZIONE (Se colli > 1) ---
             if colli_input > 1:
-                # Creiamo (colli_input - 1) copie
                 for _ in range(colli_input - 1):
                     clone = Articolo()
-                    # Copia tutti i campi rilevanti
-                    for column in Articolo.__table__.columns:
-                        if column.name not in ['id_articolo', 'attachments']:
-                            valore = getattr(art, column.name)
-                            setattr(clone, column.name, valore)
+                    for c in Articolo.__table__.columns:
+                        if c.name not in ['id_articolo', 'attachments']:
+                            setattr(clone, c.name, getattr(art, c.name))
                     db.add(clone)
-                    righe_extra += 1
+                flash(f"Salvataggio OK. Create {colli_input - 1} copie aggiuntive.", "success")
+            else:
+                flash("Modifiche salvate.", "success")
 
             db.commit()
-            
-            msg = "Articolo salvato."
-            if righe_extra > 0:
-                msg += f" Create automaticamente {righe_extra} righe aggiuntive (totale {colli_input} colli separati)."
-            
-            flash(msg, "success")
             return redirect(url_for('giacenze'))
 
-        return render_template('edit.html', row=art, today=date.today().strftime('%Y-%m-%d'))
+        return render_template('edit.html', row=art)
     except Exception as e:
         db.rollback()
-        flash(f"Errore salvataggio: {e}", "danger")
+        flash(f"Errore: {e}", "danger")
         return redirect(url_for('giacenze'))
     finally:
         db.close()
-
 @app.route('/edit/<int:id>', methods=['GET','POST'])
 @login_required
 def edit_row(id):
