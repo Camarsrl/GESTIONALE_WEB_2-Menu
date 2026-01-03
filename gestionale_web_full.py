@@ -81,22 +81,32 @@ mail = Mail(app)
 # ========================================================
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = APP_DIR / "static"
-MEDIA_DIR = APP_DIR / "media"
+
+# --- LOGICA DISCO PERSISTENTE ---
+# Cerca la variabile che hai appena impostato su Render
+persistent_path = os.environ.get('PERSISTENT_DISK_PATH')
+
+if persistent_path:
+    # Se c'è la variabile, usiamo il disco (i file restano!)
+    MEDIA_DIR = Path(persistent_path)
+else:
+    # Altrimenti usiamo la cartella locale (temporanea)
+    MEDIA_DIR = APP_DIR / "media"
+
 DOCS_DIR = MEDIA_DIR / "docs"
 PHOTOS_DIR = MEDIA_DIR / "photos"
 
-# Crea cartelle se non esistono
+# Crea le cartelle se non esistono (fondamentale al primo avvio)
 for d in (STATIC_DIR, MEDIA_DIR, DOCS_DIR, PHOTOS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 def _discover_logo_path():
-    for name in ("logo.png", "logo.jpg", "logo.jpeg", "logo camar.jpg", "logo_camar.png"):
+    for name in ("logo.png", "logo.jpg", "logo.jpeg", "logo_camar.png"):
         p = STATIC_DIR / name
         if p.exists(): return str(p)
     return None
 
 LOGO_PATH = _discover_logo_path()
-
 # ========================================================
 # 3. CONFIGURAZIONE DATABASE
 # ========================================================
