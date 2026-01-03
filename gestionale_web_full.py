@@ -2851,7 +2851,7 @@ def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
     # 2. Titolo
     t_title = Table([[Paragraph("DOCUMENTO DI TRASPORTO (DDT)", s_white)]], colWidths=[190*mm])
     t_title.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#4682B4")), # Blu
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#4682B4")), 
         ('PADDING', (0,0), (-1,-1), 6)
     ]))
     story.append(t_title)
@@ -2892,7 +2892,7 @@ def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
     dati_agg = [
         [Paragraph("<b>Commessa</b>", s_bold), Paragraph(commessa, s_small), Paragraph("<b>N. DDT</b>", s_bold), Paragraph(n_ddt, s_small)],
         [Paragraph("<b>Ordine</b>", s_bold), Paragraph(ordine, s_small), Paragraph("<b>Data Uscita</b>", s_bold), Paragraph(data_ddt, s_small)],
-        [Paragraph("<b>Buono</b>", s_bold), Paragraph(buono, s_small), Paragraph("<b>Vettore/Targa</b>", s_bold), Paragraph(targa, s_small)],
+        [Paragraph("<b>Buono</b>", s_bold), Paragraph(buono, s_small), Paragraph("<b>Targa</b>", s_bold), Paragraph(targa, s_small)],
         [Paragraph("<b>Protocollo</b>", s_bold), Paragraph(protocollo, s_small), Paragraph("<b>Causale</b>", s_bold), Paragraph(causale, s_small)]
     ]
     t_agg = Table(dati_agg, colWidths=[25*mm, 70*mm, 25*mm, 70*mm])
@@ -2903,13 +2903,10 @@ def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
     # 5. Articoli
     story.append(Paragraph("<b>Articoli nel DDT</b>", ParagraphStyle('h', parent=s_bold, fontSize=10)))
     
-    # Header (Senza colonna Note)
     header = [Paragraph(x, s_bold) for x in ['ID', 'Cod.Art.', 'Descrizione', 'Pezzi', 'Colli', 'Peso', 'N.Arrivo']]
     data = [header]
     
     tot_pezzi = 0; tot_colli = 0; tot_peso = 0.0
-    
-    # Lista per raccogliere le note da stampare DOPO la tabella
     note_da_stampare = []
 
     for r in righe:
@@ -2918,10 +2915,12 @@ def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
         we = float(r.get('peso') or 0.0)
         tot_pezzi += pz; tot_colli += cl; tot_peso += we
         
-        # Se c'è una nota, la aggiungiamo alla lista "fuori tabella"
+        # Note fuori (MODIFICATO: Solo il testo della nota, senza codice articolo)
         nota = r.get('note')
         if nota and str(nota).strip():
-            note_da_stampare.append(f"NOTE ARTICOLO ({r.get('codice_articolo')}): {nota}")
+            # Prima era: f"NOTE ARTICOLO ({r.get('codice_articolo')}): {nota}"
+            # Ora è solo: f"NOTE: {nota}"
+            note_da_stampare.append(f"NOTE: {nota}")
 
         data.append([
             Paragraph(str(r.get('id_articolo','')), s_small),
@@ -2943,7 +2942,7 @@ def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
     story.append(t_items)
     story.append(Spacer(1, 3*mm))
 
-    # --- SEZIONE NOTE (FUORI TABELLA) ---
+    # Note
     if note_da_stampare:
         story.append(Spacer(1, 2*mm))
         for n in note_da_stampare:
@@ -2975,7 +2974,6 @@ def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
     story.append(t_foot)
 
     doc.build(story)
-
 
 @app.route('/buono/finalize_and_get_pdf', methods=['POST'])
 @login_required
