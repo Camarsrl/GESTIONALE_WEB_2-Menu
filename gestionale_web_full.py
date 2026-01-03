@@ -61,20 +61,18 @@ login_manager.login_view = 'login'
 
 
 
-# --- CONFIGURAZIONE EMAIL ---
 import os
 from flask_mail import Mail
 
-# Configura qui o usa Variabili d'Ambiente su Render
-app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.office365.com') # Esempio per Outlook/Hotmail
-app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
-app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'True') == 'True'
-app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', 'tua_email@dominio.com') 
-app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', 'tua_password')
-app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
-MAIL_USE_TLS = True
-MAIL_USE_SSL = False
+app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.office365.com')
+app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', '587'))
 
+app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'true').lower() == 'true'
+app.config['MAIL_USE_SSL'] = os.environ.get('MAIL_USE_SSL', 'false').lower() == 'true'
+
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD')
+app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
 
 mail = Mail(app)
 
