@@ -2256,49 +2256,42 @@ def media(att_id):
 @app.route('/delete_attachment/<int:id_attachment>')
 @login_required
 def delete_attachment(id_attachment):
-    # Protezione Ruolo
     if session.get('role') != 'admin':
-        flash("Solo gli admin possono eliminare file.", "danger")
-        return redirect(url_for('giacenze'))
+        return "Accesso Negato", 403
 
     db = SessionLocal()
     try:
-        # Cerca l'allegato
-        att = db.query(Attachment).filter(Attachment.id == id_attachment).first()
-        
+        att = db.query(Attachment).get(id_attachment)
         if att:
-            # 1. Recupera l'ID articolo per il redirect finale
-            # NOTA: Nel tuo DB la colonna si chiama 'id_articolo', non 'articolo_id'
-            article_id = att.id_articolo
+            article_id = att.articolo_id
             
-            # 2. Elimina file fisico
-            if att.kind == 'photo':
-                path = PHOTOS_DIR / att.filename
-            else:
-                path = DOCS_DIR / att.filename
-            
-            if path.exists():
-                try:
-                    os.remove(path)
-                except Exception as e:
-                    print(f"Errore rimozione file fisico: {e}")
+            # Tenta di eliminare il file fisico (se esiste)
+            try:
+                # Prova entrambi i percorsi per sicurezza
+                paths = [
+                    PHOTOS_DIR / att.filename,
+                    DOCS_DIR / att.filename
+                ]
+                for p in paths:
+                    if p.exists():
+                        os.remove(p)
+            except Exception as e:
+                print(f"Warning rimozione file: {e}")
 
-            # 3. Elimina record dal DB
+            # Elimina SEMPRE dal DB, anche se il file non c'era
             db.delete(att)
             db.commit()
-            
-            flash("File eliminato con successo.", "success")
+            flash("Allegato eliminato.", "success")
             return redirect(url_for('edit_record', id_articolo=article_id))
-        else:
-            flash("Allegato non trovato.", "warning")
-            return redirect(url_for('giacenze'))
             
     except Exception as e:
         db.rollback()
-        flash(f"Errore eliminazione: {e}", "danger")
-        return redirect(url_for('giacenze'))
+        flash(f"Errore: {e}", "danger")
     finally:
         db.close()
+        
+    return redirect(url_for('giacenze'))
+
 @app.route('/giacenze', methods=['GET', 'POST'])
 @login_required
 def giacenze():
