@@ -72,6 +72,9 @@ app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'True') == 'True'
 app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', 'tua_email@dominio.com') 
 app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', 'tua_password')
 app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
+MAIL_USE_TLS = True
+MAIL_USE_SSL = False
+
 
 mail = Mail(app)
 
