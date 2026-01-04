@@ -2094,17 +2094,16 @@ def serve_uploaded_file(filename):
 @app.route('/new', methods=['GET', 'POST'])
 @login_required
 def nuovo_articolo():
-    # PROTEZIONE ADMIN
     if session.get('role') != 'admin':
         flash("Accesso negato: Solo Admin.", "danger")
         return redirect(url_for('giacenze'))
 
+    # POST: L'utente ha cliccato "Salva" -> Creiamo la riga ora
     if request.method == 'POST':
-        # --- SALVATAGGIO NUOVO ARTICOLO ---
         db = SessionLocal()
         try:
             art = Articolo()
-            # Popolamento dati dal form
+            # Popola i dati dal form
             art.codice_articolo = request.form.get('codice_articolo')
             art.descrizione = request.form.get('descrizione')
             art.cliente = request.form.get('cliente')
@@ -2113,11 +2112,11 @@ def nuovo_articolo():
             art.ordine = request.form.get('ordine')
             art.protocollo = request.form.get('protocollo')
             art.buono_n = request.form.get('buono_n')
-            art.n_arrivo = request.form.get('n_arrivo')
             art.magazzino = request.form.get('magazzino')
             art.posizione = request.form.get('posizione')
             art.stato = request.form.get('stato')
             art.note = request.form.get('note')
+            art.serial_number = request.form.get('serial_number')
             
             # Date
             art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
@@ -2138,8 +2137,10 @@ def nuovo_articolo():
 
             db.add(art)
             db.commit()
-            flash(f"Articolo creato (ID: {art.id_articolo})", "success")
-            return redirect(url_for('giacenze'))
+            
+            flash(f"Articolo creato con successo (ID: {art.id_articolo})", "success")
+            # Dopo aver creato, andiamo in modifica per caricare eventuali allegati
+            return redirect(url_for('edit_record', id_articolo=art.id_articolo))
             
         except Exception as e:
             db.rollback()
@@ -2148,10 +2149,10 @@ def nuovo_articolo():
         finally:
             db.close()
 
-    # GET: Mostra form vuoto (senza salvare nel DB)
-    # Passiamo un dizionario vuoto come 'row' per non rompere il template
-    empty_row = {'data_ingresso': date.today().strftime("%d/%m/%Y")}
-    return render_template('edit.html', row=empty_row)
+    # GET: Mostra form vuoto (Passiamo un oggetto vuoto per non rompere l'HTML)
+    dummy_art = Articolo() 
+    dummy_art.data_ingresso = date.today().strftime("%d/%m/%Y") # Data default
+    return render_template('edit.html', row=dummy_art)
         
 @app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
 @login_required
