@@ -2287,6 +2287,7 @@ def media(att_id):
 @app.route('/delete_attachment/<int:id_attachment>')
 @login_required
 def delete_attachment(id_attachment):
+    # Protezione Ruolo: Solo Admin
     if session.get('role') != 'admin':
         return "Accesso Negato", 403
 
@@ -2312,8 +2313,12 @@ def delete_attachment(id_attachment):
             # Elimina SEMPRE dal DB, anche se il file non c'era
             db.delete(att)
             db.commit()
+            
             flash("Allegato eliminato.", "success")
             return redirect(url_for('edit_record', id_articolo=article_id))
+        
+        else:
+            flash("Allegato non trovato.", "warning")
             
     except Exception as e:
         db.rollback()
