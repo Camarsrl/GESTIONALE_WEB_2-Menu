@@ -2192,21 +2192,20 @@ def edit_record(id_articolo):
             art.n_ddt_uscita = request.form.get('n_ddt_uscita')
             
             art.pezzo = request.form.get('pezzo')
-            art.n_colli = 1 # Sempre 1 per la riga singola
+            # Nella modifica singola, n_colli resta 1 per coerenza, se split gestito sotto
+            art.n_colli = 1 
             art.peso = to_float_eu(request.form.get('peso'))
             art.lunghezza = to_float_eu(request.form.get('lunghezza'))
             art.larghezza = to_float_eu(request.form.get('larghezza'))
             art.altezza = to_float_eu(request.form.get('altezza'))
             
-            # Calcolo M2/M3
+            # Calcoli
             m2_calc, m3_calc = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, 1)
             art.m2 = m2_calc
-            
-            # M3 manuale o calcolato
             m3_man = request.form.get('m3')
             art.m3 = to_float_eu(m3_man) if m3_man and to_float_eu(m3_man) > 0 else m3_calc
 
-            # --- LOGICA DUPLICAZIONE (Se colli > 1) ---
+            # --- DUPLICAZIONE SE COLLI > 1 ---
             if colli_input > 1:
                 for _ in range(colli_input - 1):
                     clone = Articolo()
@@ -2214,7 +2213,7 @@ def edit_record(id_articolo):
                         if c.name not in ['id_articolo', 'attachments']:
                             setattr(clone, c.name, getattr(art, c.name))
                     db.add(clone)
-                flash(f"Salvataggio OK. Create {colli_input - 1} copie aggiuntive.", "success")
+                flash(f"Salvataggio OK. Generate {colli_input - 1} copie aggiuntive.", "success")
             else:
                 flash("Modifiche salvate.", "success")
 
@@ -2228,6 +2227,53 @@ def edit_record(id_articolo):
         return redirect(url_for('giacenze'))
     finally:
         db.close()
+BLOCCO 3: Cancellazione Allegati "Sicura"
+Sostituisci la funzione delete_attachment. Questa versione non si blocca se il file non esiste fisicamente (es. perché era su disco temporaneo).
+
+Python
+
+@app.route('/delete_attachment/<int:id_attachment>')
+@login_required
+def delete_attachment(id_attachment):
+    if session.get('role') != 'admin':
+        flash("Solo gli admin possono eliminare file.", "danger")
+        return redirect(url_for('giacenze'))
+
+    db = SessionLocal()
+    try:
+        att = db.query(Attachment).filter(Attachment.id == id_attachment).first()
+        
+        if att:
+            article_id = att.articolo_id
+            
+            # Percorso file
+            folder = PHOTOS_DIR if att.kind == 'photo' else DOCS_DIR
+            file_path = folder / att.filename
+            
+            # Prova a cancellare il file fisico
+            if file_path.exists():
+                try:
+                    os.remove(file_path)
+                except Exception as e:
+                    print(f"Warning: Impossibile rimuovere file fisico {e}")
+            
+            # ELIMINA SEMPRE DAL DATABASE (Pulizia)
+            db.delete(att)
+            db.commit()
+            
+            flash("Allegato eliminato.", "success")
+            return redirect(url_for('edit_record', id_articolo=article_id))
+        else:
+            flash("Allegato non trovato.", "warning")
+            return redirect(url_for('giacenze'))
+            
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore eliminazione: {e}", "danger")
+        return redirect(url_for('giacenze'))
+    finally:
+        db.close()
+
 @app.route('/edit/<int:id>', methods=['GET','POST'])
 @login_required
 def edit_row(id):
