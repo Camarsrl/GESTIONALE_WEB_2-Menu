@@ -2230,9 +2230,6 @@ def edit_record(id_articolo):
 Cancellazione Allegati "Sicura"
 Sostituisci la funzione delete_attachment. Questa versione non si blocca se il file non esiste fisicamente (es. perché era su disco temporaneo).
 
-Python
-
-
 @app.route('/edit/<int:id>', methods=['GET','POST'])
 @login_required
 def edit_row(id):
