@@ -2232,47 +2232,6 @@ Sostituisci la funzione delete_attachment. Questa versione non si blocca se il f
 
 Python
 
-@app.route('/delete_attachment/<int:id_attachment>')
-@login_required
-def delete_attachment(id_attachment):
-    if session.get('role') != 'admin':
-        flash("Solo gli admin possono eliminare file.", "danger")
-        return redirect(url_for('giacenze'))
-
-    db = SessionLocal()
-    try:
-        att = db.query(Attachment).filter(Attachment.id == id_attachment).first()
-        
-        if att:
-            article_id = att.articolo_id
-            
-            # Percorso file
-            folder = PHOTOS_DIR if att.kind == 'photo' else DOCS_DIR
-            file_path = folder / att.filename
-            
-            # Prova a cancellare il file fisico
-            if file_path.exists():
-                try:
-                    os.remove(file_path)
-                except Exception as e:
-                    print(f"Warning: Impossibile rimuovere file fisico {e}")
-            
-            # ELIMINA SEMPRE DAL DATABASE (Pulizia)
-            db.delete(att)
-            db.commit()
-            
-            flash("Allegato eliminato.", "success")
-            return redirect(url_for('edit_record', id_articolo=article_id))
-        else:
-            flash("Allegato non trovato.", "warning")
-            return redirect(url_for('giacenze'))
-            
-    except Exception as e:
-        db.rollback()
-        flash(f"Errore eliminazione: {e}", "danger")
-        return redirect(url_for('giacenze'))
-    finally:
-        db.close()
 
 @app.route('/edit/<int:id>', methods=['GET','POST'])
 @login_required
