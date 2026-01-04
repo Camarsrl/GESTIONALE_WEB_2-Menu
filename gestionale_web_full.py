@@ -82,21 +82,23 @@ mail = Mail(app)
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = APP_DIR / "static"
 
-# --- LOGICA DISCO PERSISTENTE ---
-# Cerca la variabile che hai appena impostato su Render
-persistent_path = os.environ.get('PERSISTENT_DISK_PATH')
+# --- GESTIONE DISCO PERSISTENTE ---
+# Invece di cercare la variabile, scriviamo direttamente il percorso del tuo disco su Render
+persistent_path = "/var/data/app"
 
-if persistent_path:
-    # Se c'è la variabile, usiamo il disco (i file restano!)
+if os.path.exists(persistent_path):
+    # Se la cartella /var/data/app esiste (siamo su Render), usala!
     MEDIA_DIR = Path(persistent_path)
+    print(f"✅ USO DISCO PERSISTENTE RENDER: {MEDIA_DIR}")
 else:
-    # Altrimenti usiamo la cartella locale (temporanea)
+    # Altrimenti siamo sul tuo PC (o il disco non è montato), usiamo la cartella locale
     MEDIA_DIR = APP_DIR / "media"
+    print(f"⚠️ USO DISCO LOCALE (Temporaneo): {MEDIA_DIR}")
 
 DOCS_DIR = MEDIA_DIR / "docs"
 PHOTOS_DIR = MEDIA_DIR / "photos"
 
-# Crea le cartelle se non esistono (fondamentale al primo avvio)
+# Crea le cartelle se non esistono
 for d in (STATIC_DIR, MEDIA_DIR, DOCS_DIR, PHOTOS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
