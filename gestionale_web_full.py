@@ -2111,14 +2111,15 @@ def serve_uploaded_file(filename):
 @app.route('/new', methods=['GET', 'POST'])
 @login_required
 def nuovo_articolo():
+    # 1. Controllo permessi
     if session.get('role') != 'admin':
         flash("Accesso negato: Solo Admin.", "danger")
         return redirect(url_for('giacenze'))
 
-    # POST: L'utente ha cliccato "Salva" -> Creiamo la riga ora
     if request.method == 'POST':
         db = SessionLocal()
         try:
+            # --- A. CREAZIONE ARTICOLO ---
             art = Articolo()
             # Popola i dati dal form
             art.codice_articolo = request.form.get('codice_articolo')
@@ -2129,11 +2130,13 @@ def nuovo_articolo():
             art.ordine = request.form.get('ordine')
             art.protocollo = request.form.get('protocollo')
             art.buono_n = request.form.get('buono_n')
+            art.n_arrivo = request.form.get('n_arrivo')
             art.magazzino = request.form.get('magazzino')
             art.posizione = request.form.get('posizione')
             art.stato = request.form.get('stato')
             art.note = request.form.get('note')
             art.serial_number = request.form.get('serial_number')
+            art.mezzi_in_uscita = request.form.get('mezzi_in_uscita')
             
             # Date
             art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
@@ -2152,11 +2155,43 @@ def nuovo_articolo():
             # Calcolo M2/M3
             art.m2, art.m3 = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, 1)
 
+            # Salvataggio iniziale per ottenere l'ID
             db.add(art)
-            db.commit()
+            db.commit() 
             
-            flash(f"Articolo creato con successo (ID: {art.id_articolo})", "success")
-            # Dopo aver creato, andiamo in modifica per caricare eventuali allegati
+            # --- B. SALVATAGGIO ALLEGATI (Se presenti) ---
+            # Recupera i file dal campo input 'new_files'
+            files = request.files.getlist('new_files')
+            count_files = 0
+            
+            if files:
+                from werkzeug.utils import secure_filename
+                for file in files:
+                    if file and file.filename:
+                        # Pulisce il nome file
+                        fname = secure_filename(file.filename)
+                        # Crea nome univoco: ID_NomeOriginale
+                        final_name = f"{art.id_articolo}_{fname}"
+                        
+                        # Decide se è foto o doc
+                        ext = fname.rsplit('.', 1)[-1].lower()
+                        kind = 'photo' if ext in ['jpg', 'jpeg', 'png', 'webp'] else 'doc'
+                        folder = PHOTOS_DIR if kind == 'photo' else DOCS_DIR
+                        
+                        # Salva su disco
+                        file.save(str(folder / final_name))
+                        
+                        # Salva collegamento nel DB
+                        att = Attachment(articolo_id=art.id_articolo, filename=final_name, kind=kind)
+                        db.add(att)
+                        count_files += 1
+                
+                # Se abbiamo aggiunto file, facciamo un secondo commit
+                if count_files > 0:
+                    db.commit()
+
+            flash(f"Articolo creato (ID: {art.id_articolo}) con {count_files} allegati.", "success")
+            # Rimanda alla pagina di modifica per vedere subito il risultato
             return redirect(url_for('edit_record', id_articolo=art.id_articolo))
             
         except Exception as e:
@@ -2166,11 +2201,11 @@ def nuovo_articolo():
         finally:
             db.close()
 
-    # GET: Mostra form vuoto (Passiamo un oggetto vuoto per non rompere l'HTML)
+    # GET: Mostra form vuoto
     dummy_art = Articolo() 
-    dummy_art.data_ingresso = date.today().strftime("%d/%m/%Y") # Data default
+    dummy_art.data_ingresso = date.today().strftime("%d/%m/%Y") # Data di default
     return render_template('edit.html', row=dummy_art)
-        
+
 @app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
 @login_required
 def edit_record(id_articolo):
