@@ -808,11 +808,14 @@ EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h3><i class="bi bi-pencil-square"></i> {% if row.codice_articolo %}Modifica Articolo{% else %}Nuovo Articolo{% endif %} #{{ row.id_articolo }}</h3>
+    <h3>
+        <i class="bi bi-pencil-square"></i> 
+        {% if row.id_articolo %}Modifica Articolo #{{ row.id_articolo }}{% else %}Nuovo Articolo{% endif %}
+    </h3>
     <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Torna alla Lista</a>
 </div>
 
-<form method="post" class="card p-4 shadow-sm mb-4">
+<form method="post" enctype="multipart/form-data" class="card p-4 shadow-sm mb-4">
     <div class="row g-3">
         <div class="col-md-3">
             <label class="form-label fw-bold">Codice Articolo</label>
@@ -825,7 +828,7 @@ EDIT_HTML = """
         
         <div class="col-md-2">
             <label class="form-label">Stato</label>
-            <input class="form-control" list="statoList" name="stato" value="{{ row.stato or '' }}" placeholder="Seleziona o scrivi...">
+            <input class="form-control" list="statoList" name="stato" value="{{ row.stato or '' }}" placeholder="Seleziona...">
             <datalist id="statoList">
                 <option value="NAZIONALE">
                 <option value="DOGANALE">
@@ -840,10 +843,12 @@ EDIT_HTML = """
         <div class="col-md-4"><label class="form-label">Cliente</label><input type="text" name="cliente" class="form-control" value="{{ row.cliente or '' }}"></div>
         <div class="col-md-4"><label class="form-label">Fornitore</label><input type="text" name="fornitore" class="form-control" value="{{ row.fornitore or '' }}"></div>
         <div class="col-md-4"><label class="form-label">Protocollo</label><input type="text" name="protocollo" class="form-control" value="{{ row.protocollo or '' }}"></div>
+        
         <div class="col-md-3"><label class="form-label">N. Buono</label><input type="text" name="buono_n" class="form-control" value="{{ row.buono_n or '' }}"></div>
         <div class="col-md-3"><label class="form-label">Magazzino</label><input type="text" name="magazzino" class="form-control" value="{{ row.magazzino or 'STRUPPA' }}"></div>
         <div class="col-md-3"><label class="form-label">Posizione</label><input type="text" name="posizione" class="form-control" value="{{ row.posizione or '' }}"></div>
         <div class="col-md-3"><label class="form-label">Ordine</label><input type="text" name="ordine" class="form-control" value="{{ row.ordine or '' }}"></div>
+        
         <div class="col-md-3"><label class="form-label">Data Ingresso</label><input type="date" name="data_ingresso" class="form-control" value="{{ row.data_ingresso or '' }}"></div>
         <div class="col-md-3"><label class="form-label">DDT Ingresso</label><input type="text" name="n_ddt_ingresso" class="form-control" value="{{ row.n_ddt_ingresso or '' }}"></div>
         <div class="col-md-3"><label class="form-label">Data Uscita</label><input type="date" name="data_uscita" class="form-control" value="{{ row.data_uscita or '' }}"></div>
@@ -873,16 +878,27 @@ EDIT_HTML = """
         <div class="col-md-4"><label class="form-label">Serial Number</label><input type="text" name="serial_number" class="form-control" value="{{ row.serial_number or '' }}"></div>
         <div class="col-md-4"><label class="form-label">Mezzi in Uscita</label><input type="text" name="mezzi_in_uscita" class="form-control" value="{{ row.mezzi_in_uscita or '' }}"></div>
         <div class="col-12"><label class="form-label">Note</label><textarea name="note" class="form-control" rows="3">{{ row.note or '' }}</textarea></div>
+
+        {% if not row.id_articolo %}
+        <div class="col-12 mt-3">
+            <div class="card bg-light border-dashed p-3">
+                 <label class="form-label fw-bold text-primary"><i class="bi bi-paperclip"></i> Carica Allegati (Subito)</label>
+                 <input type="file" name="new_files" class="form-control" multiple>
+                 <small class="text-muted">Seleziona i file da caricare insieme alla creazione dell'articolo.</small>
+            </div>
+        </div>
+        {% endif %}
     </div>
+
     <div class="mt-4 text-end">
-        <button type="submit" class="btn btn-primary px-5 btn-lg"><i class="bi bi-save"></i> Salva Modifiche</button>
+        <button type="submit" class="btn btn-primary px-5 btn-lg"><i class="bi bi-save"></i> {% if row.id_articolo %}Salva Modifiche{% else %}Crea Articolo{% endif %}</button>
     </div>
 </form>
 
 {% if row and row.id_articolo %}
 <div class="card p-4 shadow-sm">
     <div class="d-flex justify-content-between">
-        <h5><i class="bi bi-paperclip"></i> Allegati</h5>
+        <h5><i class="bi bi-paperclip"></i> Allegati Salvati</h5>
         <form action="{{ url_for('upload_file', id_articolo=row.id_articolo) }}" method="post" enctype="multipart/form-data" class="d-flex gap-2">
             <input type="file" name="file" class="form-control form-control-sm" required>
             <button type="submit" class="btn btn-success btn-sm">Carica</button>
