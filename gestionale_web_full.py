@@ -79,19 +79,21 @@ mail = Mail(app)
 # ========================================================
 # 2. CONFIGURAZIONE PATH E FILES
 # ========================================================
+# ========================================================
+# 2. CONFIGURAZIONE PATH E FILES
+# ========================================================
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = APP_DIR / "static"
 
-# --- GESTIONE DISCO PERSISTENTE ---
-# Invece di cercare la variabile, scriviamo direttamente il percorso del tuo disco su Render
+# --- GESTIONE DISCO PERSISTENTE (Percorso Forzato) ---
 persistent_path = "/var/data/app"
 
 if os.path.exists(persistent_path):
-    # Se la cartella /var/data/app esiste (siamo su Render), usala!
+    # Se la cartella del disco esiste fisicamente, usala!
     MEDIA_DIR = Path(persistent_path)
     print(f"✅ USO DISCO PERSISTENTE RENDER: {MEDIA_DIR}")
 else:
-    # Altrimenti siamo sul tuo PC (o il disco non è montato), usiamo la cartella locale
+    # Altrimenti usa cartella locale
     MEDIA_DIR = APP_DIR / "media"
     print(f"⚠️ USO DISCO LOCALE (Temporaneo): {MEDIA_DIR}")
 
@@ -103,9 +105,24 @@ for d in (STATIC_DIR, MEDIA_DIR, DOCS_DIR, PHOTOS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 def _discover_logo_path():
-    for name in ("logo.png", "logo.jpg", "logo.jpeg", "logo_camar.png"):
+    # Lista aggiornata con il nome corretto del tuo file
+    possible_names = [
+        "logo camar.jpg",  # <--- Questo è quello che hai su GitHub
+        "logo.png", 
+        "logo.jpg", 
+        "logo.jpeg", 
+        "logo_camar.png"
+    ]
+    
+    print(f"DEBUG: Cerco logo in {STATIC_DIR}")
+    
+    for name in possible_names:
         p = STATIC_DIR / name
-        if p.exists(): return str(p)
+        if p.exists(): 
+            print(f"DEBUG: Logo TROVATO: {p}")
+            return str(p)
+            
+    print("DEBUG: NESSUN logo trovato.")
     return None
 
 LOGO_PATH = _discover_logo_path()
