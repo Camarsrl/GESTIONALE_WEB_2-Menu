@@ -292,6 +292,55 @@
 			"MAGAZZINO":"magazzino"
 			}	
 		},
+
+"Giacenze De wave sama":{
+        "header_row":2,
+        "column_map":{
+            "ID":"ID",
+            "CODICE ARTICOLO":"codice_articolo",
+			"COMMESSA":"commessa",
+			"ORDINE":"ordine",
+            "FORNITORE":"fornitore",
+            "DESCRIZIONE":"descrizione",
+            "MAGAZZINO":"magazzino",
+            "LUNGHEZZA":"lunghezza",
+            "LARGHEZZA":"larghezza",
+            "ALTEZZA":"altezza",
+			"M2":"M2",
+            "DATA INGRESSO":"data_ingresso",
+            "DDT INGRESSO":"n_ddt_ingresso",
+			"TRUCKER":"Trucker",
+            "CLIENTE":"cliente",
+            "PESO":"peso",
+            "COLLI":"n_colli",
+            "N.ARRIVO":"n_arrivo",
+			"STATO":"stato",
+			"DDT USCITA":"n_ddt_uscita",
+            "DATA USCITA":"data_uscita"
+			}
+        },	
+
+
+"Giacenze Galvano Tecnica":{
+        "header_row":2,
+        "column_map":{
+            "ID":"ID",
+            "CODICE ARTICOLO":"codice_articolo",
+			"LOTTO":"lotto",
+			"ORDINE":"ordine",
+            "DESCRIZIONE":"descrizione",
+            "DATA INGRESSO":"data_ingresso",
+            "DDT INGRESSO":"n_ddt_ingresso",
+            "CLIENTE":"cliente",
+            "PESO":"peso",
+            "FUSTINI":"fustini",
+            "N.ARRIVO":"n_arrivo",
+			"DDT USCITA":"n_ddt_uscita",
+            "DATA USCITA":"data_uscita"
+			}
+        },		
+
+
 		"Giacenze MARINE INTERIORS":{
         "header_row":2,
         "column_map":{
