@@ -13,6 +13,7 @@ import logging
 import calendar
 import pandas as pd
 import smtplib
+from urllib.parse import unquote
 from pathlib import Path
 from datetime import datetime, date, timedelta
 from collections import defaultdict
