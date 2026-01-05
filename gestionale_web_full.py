@@ -1786,147 +1786,67 @@ def save_pdf_import():
         return redirect(url_for('giacenze'))
     finally: db.close()
 
+# --- IMPORTAZIONE EXCEL ---
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
 def import_excel():
-    # --- PROTEZIONE ADMIN ---
-    if session.get('role') != 'admin':
-        flash("Accesso negato: Solo gli amministratori possono importare dati.", "danger")
-        return redirect(url_for('giacenze'))
-
-    # Carica le mappe disponibili
-    mappe = load_mappe()
-    profiles = list(mappe.keys()) if mappe else []
-
-    if request.method == 'GET':
-        return render_template('import_excel.html', profiles=profiles)
-
-    # --- LOGICA DI IMPORTAZIONE ---
-    profile_name = request.form.get('profile')
-    if not profile_name or profile_name not in mappe:
-        flash("Seleziona un profilo valido.", "warning")
-        return redirect(request.url)
-    
-    if 'excel_file' not in request.files:
-        flash('Nessun file selezionato', 'warning')
-        return redirect(request.url)
-    
-    file = request.files['excel_file']
-    if not file or file.filename == '':
-        flash('Nessun file selezionato', 'warning')
-        return redirect(request.url)
-
-    config = mappe[profile_name]
-    column_map = config.get('column_map', {}) or {}
-    
-    # Elenco campi numerici per conversione sicura
-    numeric_fields = ['larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3', 'n_colli', 'pezzo']
-
-    try:
-        # 1. Lettura del file Excel
-        # Usa header_row dalla configurazione (default 1, quindi indice 0)
-        header_idx = int(config.get('header_row', 1)) - 1
-        df = pd.read_excel(file, engine='openpyxl', header=header_idx)
-
-        # --- DEBUG LOG ---
-        print("="*50)
-        print(f"DEBUG EXCEL IMPORT - Profilo usato: {profile_name}")
-        print(f"DEBUG EXCEL IMPORT - Colonne trovate nel file Excel: {list(df.columns)}")
-        print(f"DEBUG EXCEL IMPORT - Mappa colonne attesa: {column_map}")
-        print("="*50)
-        # -----------------
-
-    except Exception as e:
-        print(f"ERRORE LETTURA EXCEL: {e}")
-        flash(f"Errore lettura file: {e}", "danger")
-        return redirect(request.url)
-
-    # Creiamo un dizionario per trovare le colonne ignorando maiuscole/minuscole
-    # Es: "CODICE ARTICOLO" -> "Codice Articolo"
-    df_cols_norm = {str(c).strip().upper(): c for c in df.columns}
-    
-    db = SessionLocal()
-    try:
-        imported_count = 0
-        errors_log = []
-
-        for index, row in df.iterrows():
-            # Salta righe vuote
-            if row.isnull().all(): 
-                continue
-            
-            new_art = Articolo()
-            has_data = False
-            
-            for excel_header, db_field in column_map.items():
-                if excel_header.upper() == "ID": continue # L'ID è automatico, non lo importiamo
+    if request.method == 'POST':
+        if 'excel_file' not in request.files:
+            flash('Nessun file selezionato', 'warning')
+            return redirect(request.url)
+        file = request.files['excel_file']
+        if file.filename == '':
+            flash('Nessun file selezionato', 'warning')
+            return redirect(request.url)
+        if file and file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
+            try:
+                db = SessionLocal()
+                df = pd.read_excel(file, engine='openpyxl')
                 
-                # Cerca la colonna nel file Excel
-                col_name_real = df_cols_norm.get(str(excel_header).strip().upper())
-                
-                if col_name_real:
-                    val = row[col_name_real]
-                    
-                    # Se il valore è vuoto o NaN, saltalo
-                    if pd.isna(val) or str(val).strip() == "": 
-                        continue
-                    
-                    try:
-                        # Conversione Numeri
-                        if db_field in numeric_fields:
-                            if isinstance(val, str): 
-                                val = val.replace('.', '').replace(',', '.')
-                            val = float(val)
-                            if db_field in ['n_colli', 'pezzo']: 
-                                val = int(round(val))
-                        
-                        # Conversione Date
-                        elif db_field in ['data_ingresso', 'data_uscita']:
-                             val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
-                        
-                        # Testo normale
-                        else:
-                            val = str(val).strip()
-                        
-                        setattr(new_art, db_field, val)
-                        has_data = True
-                        
-                    except Exception as e_conv:
-                        # Logghiamo l'errore ma non blocchiamo tutto
-                        if len(errors_log) < 5: # Limitiamo i log per non intasare
-                            print(f"Errore conversione riga {index}, campo {excel_header}: {val} -> {e_conv}")
-                        continue
-                else:
-                    # Se manca una colonna fondamentale, stampiamolo una volta sola
-                    if index == 0:
-                        print(f"ATTENZIONE: Colonna mappa '{excel_header}' NON TROVATA nel file Excel.")
+                df.columns = [c.strip().lower().replace(' ', '_').replace('.', '').replace('°', '') for c in df.columns]
 
-            if has_data:
-                # Calcoli automatici se mancano
-                if not new_art.m2:
+                column_map = {
+                    'codice_articolo': 'codice_articolo', 'pezzo': 'pezzo', 'larghezza': 'larghezza', 'lunghezza': 'lunghezza',
+                    'altezza': 'altezza', 'protocollo': 'protocollo', 'ordine': 'ordine', 'commessa': 'commessa', 'magazzino': 'magazzino',
+                    'fornitore': 'fornitore', 'data_ingresso': 'data_ingresso', 'n_ddt_ingresso': 'n_ddt_ingresso', 'cliente': 'cliente',
+                    'descrizione': 'descrizione', 'peso': 'peso', 'n_colli': 'n_colli', 'posizione': 'posizione', 'n_arrivo': 'n_arrivo',
+                    'buono_n': 'buono_n', 'note': 'note', 'serial_number': 'serial_number', 'stato': 'stato',
+                    'mezzi_in_uscita': 'mezzi_in_uscita', 'ns_rif': 'ns_rif'
+                }
+
+                imported_count = 0
+                for _, row in df.iterrows():
+                    new_art = Articolo()
+                    for col_name, attr_name in column_map.items():
+                        if col_name in row and not pd.isna(row[col_name]):
+                            val = row[col_name]
+                            if attr_name in ['larghezza', 'lunghezza', 'altezza', 'peso']:
+                                val = to_float_eu(val)
+                            elif attr_name in ['n_colli', 'pezzo']:
+                                val = to_int_eu(val)
+                            elif attr_name == 'data_ingresso':
+                                val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
+                            setattr(new_art, attr_name, val)
+                    
                     new_art.m2, new_art.m3 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)
+                    db.add(new_art)
+                    imported_count += 1
                 
-                db.add(new_art)
-                imported_count += 1
-        
-        db.commit()
-        
-        print(f"DEBUG EXCEL IMPORT - Totale importati: {imported_count}")
-        
-        if imported_count == 0:
-            flash("Importazione completata ma 0 articoli aggiunti. Controlla i LOG di Render per vedere i nomi delle colonne.", "warning")
+                db.commit()
+                flash(f'{imported_count} articoli importati con successo dal file Excel.', 'success')
+                return redirect(url_for('giacenze'))
+
+            except Exception as e:
+                db.rollback()
+                flash(f"Errore durante l'importazione: {e}", 'danger')
+                return redirect(request.url)
         else:
-            flash(f"{imported_count} articoli importati con successo.", "success")
-            
-        return redirect(url_for('giacenze'))
-        
-    except Exception as e:
-        db.rollback()
-        print(f"ERRORE CRITICO IMPORT DB: {e}")
-        flash(f"Errore importazione database: {e}", "danger")
-        return redirect(request.url)
-    finally:
-        db.close()
+            flash('Formato file non supportato. Usare .xlsx, .xls o .xlsm', 'warning')
+            return redirect(request.url)
+
+    return render_template('import_excel.html')
+
+
 
 def get_all_fields_map():
     return {
