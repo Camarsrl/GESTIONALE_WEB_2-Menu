@@ -1608,7 +1608,7 @@ def login():
             # 4. Reindirizza alla pagina richiesta o alle giacenze
             next_page = request.args.get('next')
             if not next_page or not next_page.startswith('/'):
-                next_page = url_for('giacenze')
+                next_page = url_for('home')
             return redirect(next_page)
         else:
             flash("Credenziali non valide", "danger")
