@@ -3395,9 +3395,8 @@ def labels_pdf():
     finally:
         db.close()
 
-# --- FUNZIONE ETICHETTE AGGIORNATA (Arrivo 10/25 N.1) ---
-# --- FUNZIONE ETICHETTE CORRETTA (Formato Orizzontale 100x62) ---
-def _genera_pdf_etichetta(articoli, formato, anteprima=False):
+# --- FUNZIONE ETICHETTE COMPATTA (100x62) ---
+def _genera_pdf_etichetta(articoli, formato='62x100', anteprima=False):
     import io
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -3407,18 +3406,11 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
     bio = io.BytesIO()
     
-    # IMPOSTAZIONE FORMATO PAGINA
-    # Se '62x100', impostiamo Larghezza=100mm, Altezza=62mm (Orizzontale)
-    if formato == '62x100':
-        pagesize = (100*mm, 62*mm) 
-        margin_top = 2*mm
-        margin_side = 2*mm
-    else:
-        # Default A4 se servisse in futuro
-        from reportlab.lib.pagesizes import A4
-        pagesize = A4
-        margin_top = 10*mm
-        margin_side = 10*mm
+    # Formato Etichetta Orizzontale
+    pagesize = (100*mm, 62*mm) 
+    # Margini ridotti al minimo per sfruttare lo spazio
+    margin_top = 1*mm
+    margin_side = 2*mm
 
     doc = SimpleDocTemplate(
         bio, 
@@ -3432,65 +3424,72 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     story = []
     styles = getSampleStyleSheet()
     
-    # Stili ottimizzati per etichetta piccola
-    s_lbl = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=10)
-    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=9, leading=10)
-    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=12, leading=14, alignment=1) # Centrato
+    # --- STILI PERSONALIZZATI PER RIDURRE SPAZIO ---
+    # leading = spazio tra le righe. Lo teniamo basso.
+    
+    # Etichetta (es. "CLIENTE:") - Font 9
+    s_lbl = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=9)
+    # Valore (es. "WINGECO") - Font 10
+    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=10)
+    
+    # Stile GRANDE per Arrivo e Collo - Font 14, Bold
+    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=16, alignment=1) # Centrato
 
     for art in articoli:
-        # Calcola quanti colli stampare (minimo 1)
         tot = int(art.n_colli) if (art.n_colli and str(art.n_colli).isdigit()) else 1
         if tot < 1: tot = 1
 
         for i in range(1, tot + 1):
-            # 1. LOGO (Se esiste)
+            # 1. LOGO
             if LOGO_PATH and Path(LOGO_PATH).exists():
-                # Logo leggermente più piccolo per stare nell'etichetta
-                story.append(Image(LOGO_PATH, width=35*mm, height=10*mm, hAlign='LEFT'))
+                story.append(Image(LOGO_PATH, width=35*mm, height=9*mm, hAlign='LEFT'))
+                # Pochissimo spazio dopo il logo
                 story.append(Spacer(1, 1*mm))
             
-            # 2. DATI
-            # Stringhe composte
+            # 2. STRINGHE COMPOSTE
+            # Combina: ARRIVO: 01/24 N.1
             arr_base = art.n_arrivo or ''
-            # Se c'è N. Arrivo lo mostriamo, altrimenti vuoto
-            arr_str = f"{arr_base}" 
-            collo_str = f"{i} / {tot}"
+            txt_arrivo_combined = f"ARRIVO: {arr_base}  N.{i}"
+            
+            txt_collo = f"COLLO: {i} / {tot}"
 
-            # Struttura dati tabella (Etichetta e Valore)
-            # Usiamo larghezze fisse per evitare che il testo esca
+            # 3. TABELLA DATI (Compatta)
             dati = [
-                [Paragraph("CLIENTE:", s_lbl), Paragraph(art.cliente or '', s_val)],
-                [Paragraph("FORNITORE:", s_lbl), Paragraph(art.fornitore or '', s_val)],
-                [Paragraph("ORDINE:", s_lbl), Paragraph(art.ordine or '', s_val)],
-                [Paragraph("COMMESSA:", s_lbl), Paragraph(art.commessa or '', s_val)],
-                [Paragraph("DDT ING.:", s_lbl), Paragraph(art.n_ddt_ingresso or '', s_val)],
+                [Paragraph("CLIENTE:", s_lbl), Paragraph(str(art.cliente or '')[:25], s_val)],
+                [Paragraph("FORNITORE:", s_lbl), Paragraph(str(art.fornitore or '')[:25], s_val)],
+                [Paragraph("ORDINE:", s_lbl), Paragraph(str(art.ordine or ''), s_val)],
+                [Paragraph("COMMESSA:", s_lbl), Paragraph(str(art.commessa or ''), s_val)],
+                [Paragraph("DDT ING.:", s_lbl), Paragraph(str(art.n_ddt_ingresso or ''), s_val)],
                 [Paragraph("DATA ING.:", s_lbl), Paragraph(fmt_date(art.data_ingresso), s_val)],
-                # Riga Vuota per spaziare un po'
+                
+                # Riga separatoria invisibile (spazio minimo)
                 ['', ''],
-                # Arrivo e Collo più grandi
-                [Paragraph("ARRIVO:", s_lbl), Paragraph(arr_str, s_big)],
-                [Paragraph("COLLO:", s_lbl), Paragraph(collo_str, s_big)],
-                [Paragraph("POSIZIONE:", s_lbl), Paragraph(art.posizione or '', s_val)],
+                
+                # Arrivo Combinato (es. ARRIVO: 01/24 N.1) su tutta la larghezza
+                [Paragraph(txt_arrivo_combined, s_big), ''], 
+                # Collo su tutta la larghezza
+                [Paragraph(txt_collo, s_big), '']
             ]
             
-            # Larghezza colonne: 25mm etichetta, 70mm valore (totale ~95mm che sta nei 100mm)
-            t = Table(dati, colWidths=[25*mm, 70*mm])
+            t = Table(dati, colWidths=[23*mm, 72*mm])
             t.setStyle(TableStyle([
                 ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                ('LEFTPADDING', (0,0), (-1,-1), 1),
+                ('LEFTPADDING', (0,0), (-1,-1), 0),
                 ('RIGHTPADDING', (0,0), (-1,-1), 0),
-                ('TOPPADDING', (0,0), (-1,-1), 1),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+                # Riduciamo il padding interno celle a zero per compattare
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+                # Unisci le celle delle ultime due righe (Arrivo e Collo) per centrarle meglio
+                ('SPAN', (0,6), (1,6)), # Riga Arrivo
+                ('SPAN', (0,7), (1,7)), # Riga Collo
             ]))
             story.append(t)
             
-            # Salto pagina per etichetta successiva
             story.append(PageBreak())
 
     doc.build(story)
     bio.seek(0)
     return bio
-
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
 app.jinja_env.globals['getattr'] = getattr
