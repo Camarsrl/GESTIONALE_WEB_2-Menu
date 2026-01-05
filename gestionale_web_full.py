@@ -1628,9 +1628,6 @@ def home():
 
 
 # --- GESTIONE MAPPE E IMPORTAZIONE RIGIDA ---
-# ========================================================
-# GESTIONE MAPPE EXCEL (CORRETTA + LOG DEBUG)
-# ========================================================
 
 # ========================================================
 # GESTIONE MAPPE EXCEL (CORRETTA + LOG DEBUG)
@@ -1644,28 +1641,21 @@ def load_mappe():
     print("\n--- DEBUG: Inizio load_mappe() ---")
     
     # 1. Definiamo i percorsi da controllare
-    # MEDIA_DIR è il disco persistente (/var/data/app) definito all'inizio del file
-    persistent_json = MEDIA_DIR / "mappe_excel.json"          
-    
-    # APP_DIR/config è dove sta il file originale su GitHub
-    repo_config_json = APP_DIR / "config" / "mappe_excel.json" 
-    
-    # APP_DIR semplice (fallback)
-    repo_root_json = APP_DIR / "mappe_excel.json"              
+    persistent_json = MEDIA_DIR / "mappe_excel.json"          # Disco persistente
+    repo_config_json = APP_DIR / "config" / "mappe_excel.json" # Cartella config (GitHub)
+    repo_root_json = APP_DIR / "mappe_excel.json"              # Cartella root (Fallback)
 
     print(f"DEBUG: Path Persistente atteso: {persistent_json}")
     print(f"DEBUG: Path Config atteso: {repo_config_json}")
 
-    # 2. Controllo Disco Persistente (Priorità massima: qui salviamo le tue modifiche)
+    # 2. Controllo Disco Persistente (Priorità massima)
     if persistent_json.exists():
         print("DEBUG: ✅ Trovato file nel disco PERSISTENTE.")
         try:
             content = persistent_json.read_text(encoding='utf-8')
-            data = json.loads(content)
-            print(f"DEBUG: JSON caricato con successo. Profili trovati: {list(data.keys())}")
-            return data
+            return json.loads(content)
         except Exception as e:
-            print(f"DEBUG: ❌ File persistente esistente ma CORROTTO o ILLEGIBILE: {e}")
+            print(f"DEBUG: ❌ File persistente esistente ma CORROTTO: {e}")
 
     # 3. Controllo File Originale (Config o Root)
     source_file = None
@@ -1676,24 +1666,20 @@ def load_mappe():
         print("DEBUG: ✅ Trovato file originale in cartella 'ROOT'.")
         source_file = repo_root_json
     else:
-        print("DEBUG: ❌ NESSUN file mappe trovato in nessuna posizione (Config, Root o Persistente).")
+        print("DEBUG: ❌ NESSUN file mappe trovato in nessuna posizione.")
 
     # 4. Copia e Attivazione
-    # Se non c'era nel disco persistente ma c'è l'originale, lo copiamo per attivarlo.
     if source_file:
         try:
             content = source_file.read_text(encoding='utf-8')
-            print(f"DEBUG: Contenuto letto da originale ({len(content)} bytes).")
-            
-            # Copiamo nel persistente
+            # Copiamo nel persistente per attivarlo
             persistent_json.write_text(content, encoding='utf-8')
-            print("DEBUG: 🚀 File originale copiato nel disco persistente. Ora è pronto all'uso.")
-            
+            print("DEBUG: 🚀 File originale copiato nel disco persistente.")
             return json.loads(content)
         except Exception as e:
-            print(f"DEBUG: ❌ Errore critico importazione/copia originale: {e}")
+            print(f"DEBUG: ❌ Errore critico importazione originale: {e}")
 
-    print("DEBUG: ⚠️ Ritorno mappa vuota {}")
+    print("DEBUG: Ritorno mappa vuota {}")
     print("--- DEBUG: Fine load_mappe() ---\n")
     return {}
 
@@ -1705,21 +1691,15 @@ def manage_mappe():
     
     if request.method == 'POST':
         content = request.form.get('json_content')
-        print(f"DEBUG MANAGE: Tentativo salvataggio mappa manuale ({len(content)} bytes).")
         try:
-            # Verifica validità JSON
-            json.loads(content)
-            # Scrittura
-            json_path.write_text(content, encoding='utf-8')
-            print("DEBUG MANAGE: ✅ Salvataggio riuscito nel disco persistente.")
+            json.loads(content) # Verifica validità
+            json_path.write_text(content, encoding='utf-8') # Scrittura
             flash("Mappa aggiornata e salvata nel disco persistente.", "success")
         except json.JSONDecodeError as e:
-            print(f"DEBUG MANAGE: ❌ Errore sintassi JSON: {e}")
             flash(f"Errore nel formato JSON: {e}", "danger")
         return redirect(url_for('manage_mappe'))
 
     content = ""
-    # Carica usando la funzione loggata intelligente
     mappe = load_mappe()
     if mappe:
         content = json.dumps(mappe, indent=4, ensure_ascii=False)
@@ -1729,32 +1709,22 @@ def manage_mappe():
 @app.post('/upload_mappe_json')
 @login_required
 def upload_mappe_json():
-    print("DEBUG UPLOAD: Inizio caricamento file JSON...")
     if 'json_file' not in request.files:
-        flash("Nessun file selezionato", "warning")
         return redirect(url_for('manage_mappe'))
-        
     f = request.files['json_file']
     if f.filename == '':
-        flash("Nessun file selezionato", "warning")
         return redirect(url_for('manage_mappe'))
     
     try:
         content = f.read().decode('utf-8')
-        print(f"DEBUG UPLOAD: File letto ({len(content)} bytes). Validazione...")
         json.loads(content) # Validazione
-        
-        # Salva nel disco persistente
-        target = MEDIA_DIR / "mappe_excel.json"
-        target.write_text(content, encoding='utf-8')
-        
-        print(f"DEBUG UPLOAD: ✅ Scritto file upload in: {target}")
+        (MEDIA_DIR / "mappe_excel.json").write_text(content, encoding='utf-8')
         flash("Nuovo file mappe caricato correttamente.", "success")
     except Exception as e:
-        print(f"DEBUG UPLOAD: ❌ Errore: {e}")
         flash(f"Errore nel file caricato: {e}", "danger")
     
     return redirect(url_for('manage_mappe'))
+
 # --- IMPORTAZIONE EXCEL ---
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
