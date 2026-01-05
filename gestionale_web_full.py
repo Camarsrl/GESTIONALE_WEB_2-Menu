@@ -1633,73 +1633,84 @@ def home():
 # GESTIONE MAPPE EXCEL (PERSISTENTE + CONFIG)
 # ========================================================
 
+# ========================================================
+# GESTIONE MAPPE EXCEL (CON LOG DI DEBUG)
+# ========================================================
+
 def load_mappe():
     """
-    Carica il file mappe_excel.json con la seguente priorità:
-    1. Disco Persistente (MEDIA_DIR): dove salviamo le modifiche.
-    2. Cartella 'config' (APP_DIR/config): dove sta il file originale di GitHub.
-    3. Cartella Root (APP_DIR): fallback.
+    Carica il file mappe_excel.json con priorità e LOGGA ogni passaggio.
     """
-    
-    # 1. Percorso Persistente (Modifiche salvate dall'utente)
+    # Definisci i percorsi
     persistent_json = MEDIA_DIR / "mappe_excel.json"
-    
-    # 2. Percorso Originale (GitHub/Render - Cartella config)
     repo_config_json = APP_DIR / "config" / "mappe_excel.json"
-    
-    # 3. Percorso Fallback (Root)
     repo_root_json = APP_DIR / "mappe_excel.json"
 
-    # --- A. Se esiste la versione persistente (modificata), usa QUELLA! ---
+    print("--- INIZIO CARICAMENTO MAPPE ---")
+    print(f"DEBUG: 1. Cerco nel PERSISTENTE: {persistent_json}")
+    
+    # 1. TENTATIVO PERSISTENTE
     if persistent_json.exists():
         try:
-            return json.loads(persistent_json.read_text(encoding='utf-8'))
-        except Exception:
-            print("Avviso: File JSON persistente corrotto, provo originale.")
-            # Se è corrotto, prosegue e prova a ricaricare l'originale
-            
-    # --- B. Se non c'è nel disco, cerchiamo l'originale in 'config' ---
+            content = persistent_json.read_text(encoding='utf-8')
+            data = json.loads(content)
+            print(f"DEBUG: ✅ Trovato in PERSISTENTE. Profili: {list(data.keys())}")
+            return data
+        except Exception as e:
+            print(f"DEBUG: ❌ File persistente esistente ma ERRORE lettura: {e}")
+    else:
+        print("DEBUG: ⚠️ File persistente NON trovato.")
+
+    # 2. TENTATIVO ORIGINALE (Fallback)
     source_file = None
     if repo_config_json.exists():
+        print(f"DEBUG: 2. Trovato originale in CONFIG: {repo_config_json}")
         source_file = repo_config_json
     elif repo_root_json.exists():
+        print(f"DEBUG: 2. Trovato originale in ROOT: {repo_root_json}")
         source_file = repo_root_json
-        
+    else:
+        print(f"DEBUG: ❌ Nessun file originale trovato in {repo_config_json} o {repo_root_json}")
+
+    # 3. COPIA E ATTIVAZIONE
     if source_file:
         try:
+            print(f"DEBUG: Tentativo copia da {source_file} a {persistent_json}...")
             content = source_file.read_text(encoding='utf-8')
-            # COPIA AUTOMATICA: Lo salviamo nel disco persistente per il futuro
-            # Così quando lo modifichi dal sito, le modifiche restano!
+            # Scrivi nel disco persistente
             persistent_json.write_text(content, encoding='utf-8')
-            print(f"DEBUG: Copiato {source_file} in disco persistente.")
+            print("DEBUG: ✅ Copia riuscita e file salvato nel disco persistente.")
             return json.loads(content)
         except Exception as e:
-            print(f"Errore lettura file originale: {e}")
-            
-    # Se proprio non esiste nulla, ritorna dizionario vuoto
+            print(f"DEBUG: ❌ Errore critico durante la copia/lettura originale: {e}")
+
+    print("DEBUG: ⚠️ Ritorno mappa vuota {}")
+    print("--- FINE CARICAMENTO MAPPE ---")
     return {}
 
 @app.route('/manage_mappe', methods=['GET', 'POST'])
 @login_required
 def manage_mappe():
-    # Puntiamo sempre al file nel disco persistente per salvare
     json_path = MEDIA_DIR / "mappe_excel.json"
     
     if request.method == 'POST':
         content = request.form.get('json_content')
+        print(f"DEBUG MANAGE: Ricevuta richiesta di salvataggio. Lunghezza: {len(content)}")
         try:
-            # Verifica che sia un JSON valido
+            # Verifica JSON
             json.loads(content)
-            # SALVA NEL DISCO PERSISTENTE /var/data/app/...
+            # Salvataggio
             json_path.write_text(content, encoding='utf-8')
+            print(f"DEBUG MANAGE: ✅ File salvato correttamente in {json_path}")
             flash("Mappa aggiornata e salvata nel disco persistente.", "success")
         except json.JSONDecodeError as e:
+            print(f"DEBUG MANAGE: ❌ Errore sintassi JSON: {e}")
             flash(f"Errore nel formato JSON: {e}", "danger")
         return redirect(url_for('manage_mappe'))
 
-    # GET: Carichiamo il contenuto attuale
+    # GET
     content = ""
-    mappe = load_mappe() # Usa la funzione intelligente sopra
+    mappe = load_mappe() # Usa la funzione con i log
     if mappe:
         content = json.dumps(mappe, indent=4, ensure_ascii=False)
     
@@ -1708,9 +1719,11 @@ def manage_mappe():
 @app.post('/upload_mappe_json')
 @login_required
 def upload_mappe_json():
+    print("DEBUG UPLOAD: Inizio caricamento file JSON...")
     if 'json_file' not in request.files:
         flash("Nessun file selezionato", "warning")
         return redirect(url_for('manage_mappe'))
+        
     f = request.files['json_file']
     if f.filename == '':
         flash("Nessun file selezionato", "warning")
@@ -1718,16 +1731,21 @@ def upload_mappe_json():
     
     try:
         content = f.read().decode('utf-8')
-        json.loads(content) # Validazione JSON
+        print(f"DEBUG UPLOAD: File letto. Lunghezza: {len(content)}")
         
-        # SALVA SEMPRE NEL DISCO PERSISTENTE
-        (MEDIA_DIR / "mappe_excel.json").write_text(content, encoding='utf-8')
+        json.loads(content) # Validazione
         
+        target = MEDIA_DIR / "mappe_excel.json"
+        target.write_text(content, encoding='utf-8')
+        
+        print(f"DEBUG UPLOAD: ✅ Scritto in {target}")
         flash("File caricato correttamente nel disco persistente.", "success")
     except Exception as e:
+        print(f"DEBUG UPLOAD: ❌ Errore: {e}")
         flash(f"Errore nel file caricato: {e}", "danger")
     
     return redirect(url_for('manage_mappe'))
+
 # --- ROUTE IMPORT PDF (PROTETTA ADMIN) ---
 @app.route('/import_pdf', methods=['GET', 'POST'])
 @login_required
