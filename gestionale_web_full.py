@@ -79,7 +79,6 @@ mail = Mail(app)
 # ========================================================
 # 2. CONFIGURAZIONE PATH E FILES
 # ========================================================
-
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = APP_DIR / "static"
 
@@ -97,6 +96,11 @@ else:
 
 DOCS_DIR = MEDIA_DIR / "docs"
 PHOTOS_DIR = MEDIA_DIR / "photos"
+
+# --- CONFIGURAZIONE FILE MAPPE EXCEL ---
+# Definiamo qui i percorsi esatti per evitare confusione
+MAPPE_FILE_PERSISTENT = MEDIA_DIR / "mappe_excel.json"        # File modificabile (nel disco dati)
+MAPPE_FILE_ORIGINAL = APP_DIR / "config" / "mappe_excel.json" # File originale (da GitHub)
 
 # Crea le cartelle se non esistono
 for d in (STATIC_DIR, MEDIA_DIR, DOCS_DIR, PHOTOS_DIR):
@@ -124,6 +128,7 @@ def _discover_logo_path():
     return None
 
 LOGO_PATH = _discover_logo_path()
+
 # ========================================================
 # 3. CONFIGURAZIONE DATABASE
 # ========================================================
