@@ -3336,73 +3336,61 @@ def labels_pdf():
         db.close()
 
 # --- FUNZIONE ETICHETTE AGGIORNATA (Arrivo 10/25 N.1) ---
-def _genera_pdf_etichetta(articoli):
-    import io
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import mm
-    from reportlab.lib import colors
-
+def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     bio = io.BytesIO()
-    
-    # IMPOSTA PAGINA 100mm x 62mm
-    doc = SimpleDocTemplate(bio, pagesize=(100*mm, 62*mm), 
-                            leftMargin=1*mm, rightMargin=1*mm, 
-                            topMargin=1*mm, bottomMargin=1*mm)
+    if formato == '62x100':
+        pagesize = (100*mm, 62*mm); margin = 2*mm
+    else:
+        pagesize = A4; margin = 10*mm
+
+    doc = SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=margin, rightMargin=margin, topMargin=margin, bottomMargin=margin)
+    story = []
     
     styles = getSampleStyleSheet()
-    s_bold = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, leading=12)
-    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=11, leading=12)
-    s_big = ParagraphStyle('Big', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=15, leading=17)
-
-    elements_buffer = []
+    # Font piccoli per far stare tutto
+    s_lbl = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=9)
+    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=9)
+    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
 
     for art in articoli:
-        qty = int(art.n_colli) if art.n_colli else 1
-        if qty < 1: qty = 1
-        
-        for i in range(1, qty + 1):
-            # 1. LOGO
+        tot = int(art.n_colli) if art.n_colli else 1
+        if tot < 1: tot = 1
+
+        for i in range(1, tot + 1):
             if LOGO_PATH and Path(LOGO_PATH).exists():
-                img = Image(LOGO_PATH, width=40*mm, height=12*mm, hAlign='LEFT')
-                elements_buffer.append(img)
-            elements_buffer.append(Spacer(1, 1*mm))
+                story.append(Image(LOGO_PATH, width=30*mm, height=8*mm, hAlign='LEFT'))
+                story.append(Spacer(1, 1*mm))
             
-            # 2. DATI
-            dati = []
-            if art.cliente: dati.append([Paragraph("CLIENTE:", s_bold), Paragraph(str(art.cliente), s_val)])
-            if art.fornitore: dati.append([Paragraph("FORNITORE:", s_bold), Paragraph(str(art.fornitore), s_val)])
-            if art.ordine: dati.append([Paragraph("ORDINE:", s_bold), Paragraph(str(art.ordine), s_val)])
-            if art.commessa: dati.append([Paragraph("COMMESSA:", s_bold), Paragraph(str(art.commessa), s_val)])
-            if art.n_ddt_ingresso: dati.append([Paragraph("N. DDT:", s_bold), Paragraph(str(art.n_ddt_ingresso), s_val)])
-            if art.data_ingresso: dati.append([Paragraph("DATA ING.:", s_bold), Paragraph(fmt_date(art.data_ingresso), s_val)])
-            if art.posizione: dati.append([Paragraph("POSIZIONE:", s_bold), Paragraph(str(art.posizione), s_val)])
+            # STRINGA ARRIVO: Es. "10/25 N.1"
+            arr_base = art.n_arrivo or ''
+            arr_str = f"{arr_base} N.{i}"
+            collo_str = f"{i} / {tot}"
 
-            if dati:
-                t = Table(dati, colWidths=[30*mm, 68*mm])
-                t.setStyle(TableStyle([
-                    ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                    ('LEFTPADDING', (0,0), (-1,-1), 0),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-                    ('TOPPADDING', (0,0), (-1,-1), 0),
-                ]))
-                elements_buffer.append(t)
+            dati = [
+                [Paragraph("CLIENTE:", s_lbl), Paragraph(art.cliente or '', s_val)],
+                [Paragraph("FORNITORE:", s_lbl), Paragraph(art.fornitore or '', s_val)],
+                [Paragraph("ORDINE:", s_lbl), Paragraph(art.ordine or '', s_val)],
+                [Paragraph("COMMESSA:", s_lbl), Paragraph(art.commessa or '', s_val)],
+                [Paragraph("DDT ING.:", s_lbl), Paragraph(art.n_ddt_ingresso or '', s_val)],
+                [Paragraph("DATA ING.:", s_lbl), Paragraph(fmt_date(art.data_ingresso), s_val)],
+                # Arrivo e Collo in evidenza
+                [Paragraph("ARRIVO:", s_lbl), Paragraph(arr_str, s_big)],
+                [Paragraph("COLLO:", s_lbl), Paragraph(collo_str, s_big)],
+                [Paragraph("POSIZIONE:", s_lbl), Paragraph(art.posizione or '', s_val)],
+            ]
             
-            elements_buffer.append(Spacer(1, 2*mm))
-            
-            # 3. FOOTER
-            txt_arrivo = f"ARRIVO: {art.n_arrivo or ''} N.{i}"
-            elements_buffer.append(Paragraph(txt_arrivo, s_big))
-            
-            txt_colli = f"COLLO: {i}/{qty}"
-            elements_buffer.append(Paragraph(txt_colli, s_big))
-            
-            elements_buffer.append(PageBreak())
+            t = Table(dati, colWidths=[22*mm, 72*mm])
+            t.setStyle(TableStyle([
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('LEFTPADDING', (0,0), (-1,-1), 0),
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+            ]))
+            story.append(t)
+            story.append(PageBreak())
 
-    if elements_buffer and isinstance(elements_buffer[-1], PageBreak):
-        elements_buffer.pop()
-
-    doc.build(elements_buffer)
+    doc.build(story)
     bio.seek(0)
     return bio
 
