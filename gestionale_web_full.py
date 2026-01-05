@@ -3404,36 +3404,68 @@ def labels_pdf():
         db.close()
 
 # --- FUNZIONE ETICHETTE AGGIORNATA (Arrivo 10/25 N.1) ---
+# --- FUNZIONE ETICHETTE CORRETTA (Formato Orizzontale 100x62) ---
 def _genera_pdf_etichetta(articoli, formato, anteprima=False):
-    bio = io.BytesIO()
-    if formato == '62x100':
-        pagesize = (100*mm, 62*mm); margin = 2*mm
-    else:
-        pagesize = A4; margin = 10*mm
+    import io
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from pathlib import Path
 
-    doc = SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=margin, rightMargin=margin, topMargin=margin, bottomMargin=margin)
-    story = []
+    bio = io.BytesIO()
     
+    # IMPOSTAZIONE FORMATO PAGINA
+    # Se '62x100', impostiamo Larghezza=100mm, Altezza=62mm (Orizzontale)
+    if formato == '62x100':
+        pagesize = (100*mm, 62*mm) 
+        margin_top = 2*mm
+        margin_side = 2*mm
+    else:
+        # Default A4 se servisse in futuro
+        from reportlab.lib.pagesizes import A4
+        pagesize = A4
+        margin_top = 10*mm
+        margin_side = 10*mm
+
+    doc = SimpleDocTemplate(
+        bio, 
+        pagesize=pagesize, 
+        leftMargin=margin_side, 
+        rightMargin=margin_side, 
+        topMargin=margin_top, 
+        bottomMargin=margin_top
+    )
+    
+    story = []
     styles = getSampleStyleSheet()
-    # Font piccoli per far stare tutto
-    s_lbl = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=9)
-    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=9)
-    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
+    
+    # Stili ottimizzati per etichetta piccola
+    s_lbl = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=10)
+    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=9, leading=10)
+    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=12, leading=14, alignment=1) # Centrato
 
     for art in articoli:
-        tot = int(art.n_colli) if art.n_colli else 1
+        # Calcola quanti colli stampare (minimo 1)
+        tot = int(art.n_colli) if (art.n_colli and str(art.n_colli).isdigit()) else 1
         if tot < 1: tot = 1
 
         for i in range(1, tot + 1):
+            # 1. LOGO (Se esiste)
             if LOGO_PATH and Path(LOGO_PATH).exists():
-                story.append(Image(LOGO_PATH, width=30*mm, height=8*mm, hAlign='LEFT'))
+                # Logo leggermente più piccolo per stare nell'etichetta
+                story.append(Image(LOGO_PATH, width=35*mm, height=10*mm, hAlign='LEFT'))
                 story.append(Spacer(1, 1*mm))
             
-            # STRINGA ARRIVO: Es. "10/25 N.1"
+            # 2. DATI
+            # Stringhe composte
             arr_base = art.n_arrivo or ''
-            arr_str = f"{arr_base} N.{i}"
+            # Se c'è N. Arrivo lo mostriamo, altrimenti vuoto
+            arr_str = f"{arr_base}" 
             collo_str = f"{i} / {tot}"
 
+            # Struttura dati tabella (Etichetta e Valore)
+            # Usiamo larghezze fisse per evitare che il testo esca
             dati = [
                 [Paragraph("CLIENTE:", s_lbl), Paragraph(art.cliente or '', s_val)],
                 [Paragraph("FORNITORE:", s_lbl), Paragraph(art.fornitore or '', s_val)],
@@ -3441,21 +3473,26 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 [Paragraph("COMMESSA:", s_lbl), Paragraph(art.commessa or '', s_val)],
                 [Paragraph("DDT ING.:", s_lbl), Paragraph(art.n_ddt_ingresso or '', s_val)],
                 [Paragraph("DATA ING.:", s_lbl), Paragraph(fmt_date(art.data_ingresso), s_val)],
-                # Arrivo e Collo in evidenza
+                # Riga Vuota per spaziare un po'
+                ['', ''],
+                # Arrivo e Collo più grandi
                 [Paragraph("ARRIVO:", s_lbl), Paragraph(arr_str, s_big)],
                 [Paragraph("COLLO:", s_lbl), Paragraph(collo_str, s_big)],
                 [Paragraph("POSIZIONE:", s_lbl), Paragraph(art.posizione or '', s_val)],
             ]
             
-            t = Table(dati, colWidths=[22*mm, 72*mm])
+            # Larghezza colonne: 25mm etichetta, 70mm valore (totale ~95mm che sta nei 100mm)
+            t = Table(dati, colWidths=[25*mm, 70*mm])
             t.setStyle(TableStyle([
                 ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                ('LEFTPADDING', (0,0), (-1,-1), 0),
+                ('LEFTPADDING', (0,0), (-1,-1), 1),
                 ('RIGHTPADDING', (0,0), (-1,-1), 0),
-                ('TOPPADDING', (0,0), (-1,-1), 0),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 1),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 1),
             ]))
             story.append(t)
+            
+            # Salto pagina per etichetta successiva
             story.append(PageBreak())
 
     doc.build(story)
