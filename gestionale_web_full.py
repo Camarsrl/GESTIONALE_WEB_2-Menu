@@ -79,9 +79,7 @@ mail = Mail(app)
 # ========================================================
 # 2. CONFIGURAZIONE PATH E FILES
 # ========================================================
-# ========================================================
-# 2. CONFIGURAZIONE PATH E FILES
-# ========================================================
+
 APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = APP_DIR / "static"
 
