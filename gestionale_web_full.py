@@ -1632,6 +1632,10 @@ def home():
 # GESTIONE MAPPE EXCEL (CORRETTA + LOG DEBUG)
 # ========================================================
 
+# ========================================================
+# GESTIONE MAPPE EXCEL (CORRETTA + LOG DEBUG)
+# ========================================================
+
 def load_mappe():
     """
     Carica il file mappe_excel.json cercando in tutti i percorsi possibili.
@@ -1751,8 +1755,6 @@ def upload_mappe_json():
         flash(f"Errore nel file caricato: {e}", "danger")
     
     return redirect(url_for('manage_mappe'))
-
-
 # --- IMPORTAZIONE EXCEL ---
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
