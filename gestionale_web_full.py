@@ -1681,7 +1681,6 @@ def upload_mappe_json():
         flash(f"Errore nel file caricato: {e}", "danger")
     
     return redirect(url_for('manage_mappe'))
-
 # --- IMPORTAZIONE EXCEL ---
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
