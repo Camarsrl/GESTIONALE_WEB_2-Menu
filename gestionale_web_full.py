@@ -1628,102 +1628,45 @@ def home():
 
 
 # --- GESTIONE MAPPE E IMPORTAZIONE RIGIDA ---
-
-# ========================================================
-# GESTIONE MAPPE EXCEL (PERSISTENTE + CONFIG)
-# ========================================================
-
-# ========================================================
-# GESTIONE MAPPE EXCEL (CON LOG DI DEBUG)
-# ========================================================
-
 def load_mappe():
-    """
-    Carica il file mappe_excel.json con priorità e LOGGA ogni passaggio.
-    """
-    # Definisci i percorsi
-    persistent_json = MEDIA_DIR / "mappe_excel.json"
-    repo_config_json = APP_DIR / "config" / "mappe_excel.json"
-    repo_root_json = APP_DIR / "mappe_excel.json"
-
-    print("--- INIZIO CARICAMENTO MAPPE ---")
-    print(f"DEBUG: 1. Cerco nel PERSISTENTE: {persistent_json}")
-    
-    # 1. TENTATIVO PERSISTENTE
-    if persistent_json.exists():
-        try:
-            content = persistent_json.read_text(encoding='utf-8')
-            data = json.loads(content)
-            print(f"DEBUG: ✅ Trovato in PERSISTENTE. Profili: {list(data.keys())}")
-            return data
-        except Exception as e:
-            print(f"DEBUG: ❌ File persistente esistente ma ERRORE lettura: {e}")
-    else:
-        print("DEBUG: ⚠️ File persistente NON trovato.")
-
-    # 2. TENTATIVO ORIGINALE (Fallback)
-    source_file = None
-    if repo_config_json.exists():
-        print(f"DEBUG: 2. Trovato originale in CONFIG: {repo_config_json}")
-        source_file = repo_config_json
-    elif repo_root_json.exists():
-        print(f"DEBUG: 2. Trovato originale in ROOT: {repo_root_json}")
-        source_file = repo_root_json
-    else:
-        print(f"DEBUG: ❌ Nessun file originale trovato in {repo_config_json} o {repo_root_json}")
-
-    # 3. COPIA E ATTIVAZIONE
-    if source_file:
-        try:
-            print(f"DEBUG: Tentativo copia da {source_file} a {persistent_json}...")
-            content = source_file.read_text(encoding='utf-8')
-            # Scrivi nel disco persistente
-            persistent_json.write_text(content, encoding='utf-8')
-            print("DEBUG: ✅ Copia riuscita e file salvato nel disco persistente.")
-            return json.loads(content)
-        except Exception as e:
-            print(f"DEBUG: ❌ Errore critico durante la copia/lettura originale: {e}")
-
-    print("DEBUG: ⚠️ Ritorno mappa vuota {}")
-    print("--- FINE CARICAMENTO MAPPE ---")
-    return {}
+    """Carica il file mappe_excel.json"""
+    json_path = APP_DIR / "mappe_excel.json"
+    if not json_path.exists():
+        # Crea un default vuoto se non esiste
+        return {}
+    try:
+        return json.loads(json_path.read_text(encoding='utf-8'))
+    except Exception as e:
+        return {}
 
 @app.route('/manage_mappe', methods=['GET', 'POST'])
 @login_required
 def manage_mappe():
-    json_path = MEDIA_DIR / "mappe_excel.json"
+    json_path = APP_DIR / "mappe_excel.json"
     
     if request.method == 'POST':
         content = request.form.get('json_content')
-        print(f"DEBUG MANAGE: Ricevuta richiesta di salvataggio. Lunghezza: {len(content)}")
         try:
-            # Verifica JSON
+            # Verifica che sia un JSON valido
             json.loads(content)
-            # Salvataggio
             json_path.write_text(content, encoding='utf-8')
-            print(f"DEBUG MANAGE: ✅ File salvato correttamente in {json_path}")
-            flash("Mappa aggiornata e salvata nel disco persistente.", "success")
+            flash("Mappa aggiornata con successo.", "success")
         except json.JSONDecodeError as e:
-            print(f"DEBUG MANAGE: ❌ Errore sintassi JSON: {e}")
             flash(f"Errore nel formato JSON: {e}", "danger")
         return redirect(url_for('manage_mappe'))
 
-    # GET
     content = ""
-    mappe = load_mappe() # Usa la funzione con i log
-    if mappe:
-        content = json.dumps(mappe, indent=4, ensure_ascii=False)
+    if json_path.exists():
+        content = json_path.read_text(encoding='utf-8')
     
     return render_template('mappe_excel.html', content=content)
 
 @app.post('/upload_mappe_json')
 @login_required
 def upload_mappe_json():
-    print("DEBUG UPLOAD: Inizio caricamento file JSON...")
     if 'json_file' not in request.files:
         flash("Nessun file selezionato", "warning")
         return redirect(url_for('manage_mappe'))
-        
     f = request.files['json_file']
     if f.filename == '':
         flash("Nessun file selezionato", "warning")
@@ -1731,78 +1674,13 @@ def upload_mappe_json():
     
     try:
         content = f.read().decode('utf-8')
-        print(f"DEBUG UPLOAD: File letto. Lunghezza: {len(content)}")
-        
         json.loads(content) # Validazione
-        
-        target = MEDIA_DIR / "mappe_excel.json"
-        target.write_text(content, encoding='utf-8')
-        
-        print(f"DEBUG UPLOAD: ✅ Scritto in {target}")
-        flash("File caricato correttamente nel disco persistente.", "success")
+        (APP_DIR / "mappe_excel.json").write_text(content, encoding='utf-8')
+        flash("File mappe_excel.json caricato correttamente.", "success")
     except Exception as e:
-        print(f"DEBUG UPLOAD: ❌ Errore: {e}")
         flash(f"Errore nel file caricato: {e}", "danger")
     
     return redirect(url_for('manage_mappe'))
-
-# --- ROUTE IMPORT PDF (PROTETTA ADMIN) ---
-@app.route('/import_pdf', methods=['GET', 'POST'])
-@login_required
-def import_pdf():
-    # PROTEZIONE ADMIN
-    if session.get('role') != 'admin':
-        flash("Accesso negato: Funzione riservata agli amministratori.", "danger")
-        return redirect(url_for('giacenze'))
-
-    if request.method == 'POST':
-        if 'file' not in request.files: return redirect(request.url)
-        f = request.files['file']
-        if f.filename:
-            temp_path = os.path.join(DOCS_DIR, f"temp_{uuid.uuid4().hex}.pdf")
-            f.save(temp_path)
-            try:
-                meta, rows = extract_data_from_ddt_pdf(temp_path)
-                # Pulisce file temp
-                if os.path.exists(temp_path): os.remove(temp_path)
-                return render_template('import_pdf.html', meta=meta, rows=rows)
-            except Exception as e:
-                flash(f"Errore PDF: {e}", "danger")
-                return redirect(url_for('giacenze'))
-                
-    return render_template('import_pdf.html', meta={}, rows=[])
-
-@app.route('/save_pdf_import', methods=['POST'])
-@login_required
-def save_pdf_import():
-    # PROTEZIONE ADMIN
-    if session.get('role') != 'admin':
-        return "Accesso Negato", 403
-
-    db = SessionLocal()
-    try:
-        codici = request.form.getlist('codice[]')
-        descrizioni = request.form.getlist('descrizione[]')
-        qtas = request.form.getlist('qta[]')
-        
-        c = 0
-        for i in range(len(codici)):
-            if codici[i].strip() or descrizioni[i].strip():
-                art = Articolo()
-                art.cliente = request.form.get('cliente')
-                art.commessa = request.form.get('commessa')
-                art.n_ddt_ingresso = request.form.get('n_ddt')
-                art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
-                art.fornitore = request.form.get('fornitore')
-                art.stato = "DOGANALE"
-                art.codice_articolo = codici[i]
-                art.descrizione = descrizioni[i]
-                art.n_colli = to_int_eu(qtas[i])
-                db.add(art); c += 1
-        db.commit()
-        flash(f"Importati {c} articoli.", "success")
-        return redirect(url_for('giacenze'))
-    finally: db.close()
 
 # --- IMPORTAZIONE EXCEL ---
 @app.route('/import_excel', methods=['GET', 'POST'])
@@ -1880,6 +1758,66 @@ def get_all_fields_map():
         'altezza': 'Altezza (m)', 'serial_number': 'Serial Number',
         'ns_rif': 'NS Rif', 'mezzi_in_uscita': 'Mezzi in Uscita', 'note': 'Note'
     }
+
+# --- ROUTE IMPORT PDF (PROTETTA ADMIN) ---
+@app.route('/import_pdf', methods=['GET', 'POST'])
+@login_required
+def import_pdf():
+    # PROTEZIONE ADMIN
+    if session.get('role') != 'admin':
+        flash("Accesso negato: Funzione riservata agli amministratori.", "danger")
+        return redirect(url_for('giacenze'))
+
+    if request.method == 'POST':
+        if 'file' not in request.files: return redirect(request.url)
+        f = request.files['file']
+        if f.filename:
+            temp_path = os.path.join(DOCS_DIR, f"temp_{uuid.uuid4().hex}.pdf")
+            f.save(temp_path)
+            try:
+                meta, rows = extract_data_from_ddt_pdf(temp_path)
+                # Pulisce file temp
+                if os.path.exists(temp_path): os.remove(temp_path)
+                return render_template('import_pdf.html', meta=meta, rows=rows)
+            except Exception as e:
+                flash(f"Errore PDF: {e}", "danger")
+                return redirect(url_for('giacenze'))
+                
+    return render_template('import_pdf.html', meta={}, rows=[])
+
+@app.route('/save_pdf_import', methods=['POST'])
+@login_required
+def save_pdf_import():
+    # PROTEZIONE ADMIN
+    if session.get('role') != 'admin':
+        return "Accesso Negato", 403
+
+    db = SessionLocal()
+    try:
+        codici = request.form.getlist('codice[]')
+        descrizioni = request.form.getlist('descrizione[]')
+        qtas = request.form.getlist('qta[]')
+        
+        c = 0
+        for i in range(len(codici)):
+            if codici[i].strip() or descrizioni[i].strip():
+                art = Articolo()
+                art.cliente = request.form.get('cliente')
+                art.commessa = request.form.get('commessa')
+                art.n_ddt_ingresso = request.form.get('n_ddt')
+                art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
+                art.fornitore = request.form.get('fornitore')
+                art.stato = "DOGANALE"
+                art.codice_articolo = codici[i]
+                art.descrizione = descrizioni[i]
+                art.n_colli = to_int_eu(qtas[i])
+                db.add(art); c += 1
+        db.commit()
+        flash(f"Importati {c} articoli.", "success")
+        return redirect(url_for('giacenze'))
+    finally: db.close()
+
+
 
 # --- EXPORTAZIONE EXCEL ---
 @app.get('/export_excel')
