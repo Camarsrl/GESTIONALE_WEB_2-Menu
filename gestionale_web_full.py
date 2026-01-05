@@ -3189,19 +3189,6 @@ def buono_finalize_and_get_pdf():
     finally:
         db.close()
         
-@app.post('/pdf/ddt')
-@login_required
-def pdf_ddt():
-    ids = [int(i) for i in request.form.get('ids','').split(',') if i.isdigit()]
-    rows = _get_rows_from_ids(ids)
-    dest = load_destinatari().get(request.form.get('dest_key'), {})
-    pdf_bio = _generate_ddt_pdf(
-        n_ddt=request.form.get('n_ddt', ''), data_ddt=request.form.get('data_ddt'), targa=request.form.get('targa'),
-        dest=dest, rows=rows, form_data=request.form
-    )
-    return send_file(pdf_bio, as_attachment=False, download_name='DDT_Anteprima.pdf', mimetype='application/pdf')
-
-import io # Assicurati che questo sia importato in alto, se no aggiungilo dentro
 
 @app.route('/ddt/finalize', methods=['POST'])
 @login_required
