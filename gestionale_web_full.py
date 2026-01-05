@@ -3386,8 +3386,8 @@ def labels_pdf():
             flash("Nessun dato per la stampa.", "warning")
             return redirect(url_for('giacenze'))
 
-        # Genera il PDF
-        pdf_file = _genera_pdf_etichetta(articoli_da_stampare)
+        # Genera il PDF (Passiamo '62x100' come richiesto)
+        pdf_file = _genera_pdf_etichetta(articoli_da_stampare, '62x100')
         
         # Scarica il file
         return send_file(
