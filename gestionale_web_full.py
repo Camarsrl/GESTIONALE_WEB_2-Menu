@@ -1726,7 +1726,7 @@ def upload_mappe_json():
     return redirect(url_for('manage_mappe'))
 
 # --- IMPORTAZIONE EXCEL ---
-
+# --- IMPORTAZIONE EXCEL (CORRETTA CON LOG E MAPPE) ---
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
 def import_excel():
@@ -1735,7 +1735,7 @@ def import_excel():
         flash("Accesso negato: Solo gli amministratori possono importare dati.", "danger")
         return redirect(url_for('giacenze'))
 
-    # Carica le mappe disponibili (dal disco persistente o config)
+    # Carica le mappe disponibili
     mappe = load_mappe()
     profiles = list(mappe.keys()) if mappe else []
 
@@ -1744,12 +1744,10 @@ def import_excel():
 
     # --- LOGICA DI IMPORTAZIONE ---
     if request.method == 'POST':
-        # 1. Recupera il profilo scelto dall'utente
         profile_name = request.form.get('profile')
         
-        # Se non c'è profilo o file, errore
         if not profile_name or profile_name not in mappe:
-            flash("Seleziona un profilo di importazione valido.", "warning")
+            flash("Seleziona un profilo valido.", "warning")
             return redirect(request.url)
         
         if 'excel_file' not in request.files:
@@ -1761,88 +1759,82 @@ def import_excel():
             flash('Nessun file selezionato', 'warning')
             return redirect(request.url)
 
-        # 2. Carica configurazione dal JSON
+        # Configurazione Mappa
         config = mappe[profile_name]
         column_map = config.get('column_map', {}) or {}
-        
-        # Campi numerici da convertire
         numeric_fields = ['larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3', 'n_colli', 'pezzo']
 
         try:
-            # 3. Legge Excel saltando le righe indicate nel JSON (header_row)
-            # Se header_row è 2, pandas vuole index 1 (perché parte da 0)
-            header_idx = int(config.get('header_row', 1)) - 1
+            # Calcola riga intestazione (Se JSON dice 2, pandas vuole 1 perché parte da 0)
+            header_row_json = int(config.get('header_row', 1))
+            header_idx = header_row_json - 1
             
-            # Motore openpyxl per file moderni
+            # Lettura Excel
             df = pd.read_excel(file, engine='openpyxl', header=header_idx)
             
-            # DEBUG: Stampa le colonne trovate nei LOG di Render
-            print(f"DEBUG IMPORT - Profilo: {profile_name}")
-            print(f"DEBUG IMPORT - Colonne Excel lette: {list(df.columns)}")
+            # --- DEBUG LOG SUI LOG DI RENDER ---
+            print(f"\nDEBUG IMPORT - Profilo: {profile_name}")
+            print(f"DEBUG IMPORT - Riga Intestazione usata: {header_row_json}")
+            print(f"DEBUG IMPORT - Colonne trovate nel file: {list(df.columns)}")
+            print(f"DEBUG IMPORT - Mappa attesa: {column_map}\n")
+            # -----------------------------------
 
         except Exception as e:
-            flash(f"Errore lettura file Excel: {e}", "danger")
+            print(f"ERRORE LETTURA EXCEL: {e}")
+            flash(f"Errore lettura file: {e}", "danger")
             return redirect(request.url)
 
-        # Normalizza i nomi colonne del file Excel (tutto maiuscolo, spazi rimossi ai lati) per il confronto
+        # Normalizza nomi colonne Excel (Tutto maiuscolo e senza spazi ai lati)
         df_cols_norm = {str(c).strip().upper(): c for c in df.columns}
         
         db = SessionLocal()
         try:
             imported_count = 0
-            
             for index, row in df.iterrows():
-                # Salta righe vuote
                 if row.isnull().all(): continue
                 
                 new_art = Articolo()
                 has_data = False
                 
-                # Cicla sulla mappa definita nel JSON
                 for excel_header, db_field in column_map.items():
-                    if excel_header.upper() == "ID": continue # Ignora ID
+                    if excel_header.upper() == "ID": continue
                     
-                    # Cerca la colonna Excel ignorando maiuscole/minuscole
+                    # Cerca la colonna nella mappa normalizzata
                     col_name_real = df_cols_norm.get(str(excel_header).strip().upper())
                     
                     if col_name_real:
                         val = row[col_name_real]
-                        
-                        # Ignora celle vuote
                         if pd.isna(val) or str(val).strip() == "": continue
                         
                         try:
-                            # Conversione dati
                             if db_field in numeric_fields:
-                                if isinstance(val, str): 
-                                    val = val.replace('.', '').replace(',', '.')
+                                if isinstance(val, str): val = val.replace('.', '').replace(',', '.')
                                 val = float(val)
-                                if db_field in ['n_colli', 'pezzo']: 
-                                    val = int(round(val))
+                                if db_field in ['n_colli', 'pezzo']: val = int(round(val))
                             
                             elif db_field in ['data_ingresso', 'data_uscita']:
                                  val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
-                            
                             else:
                                 val = str(val).strip()
                             
                             setattr(new_art, db_field, val)
                             has_data = True
-                        except: 
-                            continue # Se errore conversione singolo campo, vai avanti
+                        except: continue
+                    else:
+                        # Logga solo la prima riga se manca una colonna fondamentale
+                        if index == 0:
+                            print(f"DEBUG WARNING: Colonna '{excel_header}' definita nella mappa NON trovata nell'Excel.")
 
                 if has_data:
-                    # Calcoli automatici se mancano
                     if not new_art.m2:
                         new_art.m2, new_art.m3 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)
-                    
                     db.add(new_art)
                     imported_count += 1
             
             db.commit()
             
             if imported_count == 0:
-                flash("0 articoli importati. Probabile errore nei nomi colonne. Controlla i LOG di Render.", "warning")
+                flash("0 articoli importati. Controlla i LOG di Render: i nomi delle colonne nel file Excel potrebbero non coincidere con la Mappa.", "warning")
             else:
                 flash(f"{imported_count} articoli importati con successo.", "success")
                 
