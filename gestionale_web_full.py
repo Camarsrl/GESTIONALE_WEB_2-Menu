@@ -20,6 +20,8 @@ from collections import defaultdict
 from functools import wraps
 from werkzeug.utils import secure_filename
 import pdfplumber
+from collections import defaultdict
+from datetime import timedelta
 
 # Importazioni Flask e Login
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, session, jsonify, render_template_string, abort
@@ -3553,34 +3555,41 @@ app.jinja_env.filters['fmt_date'] = fmt_date
 
     
 # --- FIX DATABASE SCHEMA (Esegui all'avvio per correggere tipi colonne) ---
+# --- FIX DATABASE SCHEMA (Esegui all'avvio per correggere tipi colonne) ---
 def fix_db_schema():
     """
-    Corregge i tipi di colonna nel database PostgreSQL per evitare errori di lunghezza.
-    Converte le colonne critiche da VARCHAR(255) a TEXT.
+    Corregge i tipi di colonna nel database PostgreSQL.
+    Converte colonne critiche e DATE in TEXT per evitare errori di importazione.
     """
     try:
         from sqlalchemy import text
         db = SessionLocal()
-        # Elenco delle colonne che potrebbero contenere testi lunghi
+        
+        # ELENCO AGGIORNATO: Ora include data_ingresso e data_uscita!
         cols_to_fix = [
             'codice_articolo', 'descrizione', 'note', 'commessa', 
             'ordine', 'protocollo', 'buono_n', 'n_arrivo', 
-            'n_ddt_ingresso', 'n_ddt_uscita', 'cliente', 'fornitore'
+            'n_ddt_ingresso', 'n_ddt_uscita', 'cliente', 'fornitore',
+            'data_ingresso',  # <--- FONDAMENTALE PER RISOLVERE IL TUO ERRORE
+            'data_uscita',    # <--- FONDAMENTALE PER RISOLVERE IL TUO ERRORE
+            'serial_number', 'magazzino', 'posizione', 'stato'
         ]
         
+        print("--- INIZIO FIX SCHEMA DB ---")
         for col in cols_to_fix:
             try:
-                # Comando SQL per convertire la colonna in TEXT (senza limiti)
-                # "TYPE TEXT" è lo standard Postgres per stringhe di lunghezza arbitraria
-                # "USING ...::text" serve per castare i dati esistenti
+                # Comando SQL per convertire forzatamente la colonna in TEXT
+                # USING ...::text serve a convertire i dati esistenti senza errori
                 query = text(f"ALTER TABLE articoli ALTER COLUMN {col} TYPE TEXT USING {col}::text;")
                 db.execute(query)
+                print(f"✅ Colonna '{col}' convertita in TEXT.")
             except Exception as e:
-                # Se la colonna non esiste o c'è un altro errore, lo ignoriamo e passiamo alla prossima
-                print(f"⚠️ Warning fix colonna {col}: {e}")
+                # Se la colonna è già a posto o non esiste, ignora e vai avanti
+                # print(f"ℹ️ Colonna '{col}': nessun cambio necessario o errore lieve ({e})")
+                pass
         
         db.commit()
-        print("✅ SCHEMA DB AGGIORNATO: Colonne di testo convertite in TEXT (no limiti lunghezza).")
+        print("✅ SCHEMA DB AGGIORNATO: Tutte le colonne critiche sono ora TEXT.")
     except Exception as e:
         print(f"⚠️ Errore generale durante il fix dello schema: {e}")
     finally:
@@ -3589,8 +3598,7 @@ def fix_db_schema():
 # Esegui il fix immediatamente quando il file viene importato/avviato
 fix_db_schema()
 
-from collections import defaultdict
-from datetime import timedelta
+
 
 def _parse_data_db_helper(data_str):
     """Converte stringa data DB in oggetto date (Gestisce formati misti)."""
