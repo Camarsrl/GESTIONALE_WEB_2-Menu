@@ -1723,7 +1723,7 @@ def upload_mappe_json():
     
     return redirect(url_for('manage_mappe'))
 
-# --- IMPORTAZIONE EXCEL ---
+
 # --- IMPORTAZIONE EXCEL (CORRETTA CON LOG E MAPPE) ---
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
