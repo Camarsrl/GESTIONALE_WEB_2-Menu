@@ -1643,37 +1643,88 @@ def home():
 # ========================================================
 
 def load_mappe():
-    """Carica il file mappe_excel.json"""
+    """Carica il file mappe_excel.json + LOG per capire quale file viene usato davvero."""
     json_path = APP_DIR / "mappe_excel.json"
+
+    print("\n=== DEBUG load_mappe() ===")
+    print(f"DEBUG mappe path: {json_path}")
+    print(f"DEBUG cwd: {Path.cwd()}")
+    print(f"DEBUG APP_DIR: {APP_DIR}")
+
     if not json_path.exists():
-        # Crea un default vuoto se non esiste
+        print("DEBUG mappe_excel.json NON ESISTE in APP_DIR -> ritorno {}")
+        print("=== FINE DEBUG load_mappe() ===\n")
         return {}
+
     try:
-        return json.loads(json_path.read_text(encoding='utf-8'))
+        raw = json_path.read_text(encoding="utf-8")
+        print(f"DEBUG mappe size: {len(raw)} bytes")
+        print(f"DEBUG mappe md5: {_file_digest(json_path)}")
+
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            print("DEBUG mappe: JSON valido ma NON è un oggetto dict -> ritorno {}")
+            print("=== FINE DEBUG load_mappe() ===\n")
+            return {}
+
+        keys = list(data.keys())
+        print(f"DEBUG mappe profili trovati: {keys[:20]}{'...' if len(keys) > 20 else ''}")
+        print("=== FINE DEBUG load_mappe() ===\n")
+        return data
+
     except Exception as e:
+        print(f"DEBUG ERRORE lettura/parsing mappe_excel.json: {e}")
+        print("=== FINE DEBUG load_mappe() ===\n")
         return {}
+
 
 @app.route('/manage_mappe', methods=['GET', 'POST'])
 @login_required
 def manage_mappe():
     json_path = APP_DIR / "mappe_excel.json"
-    
+
+    print("\n=== DEBUG manage_mappe() ===")
+    print(f"DEBUG manage_mappe: json_path={json_path}")
+
     if request.method == 'POST':
-        content = request.form.get('json_content')
+        content = request.form.get('json_content', '')
         try:
-            # Verifica che sia un JSON valido
-            json.loads(content)
+            json.loads(content)  # Validazione
+            print(f"DEBUG manage_mappe: scrivo su {json_path}")
+
             json_path.write_text(content, encoding='utf-8')
+
+            try:
+                size = json_path.stat().st_size
+            except Exception:
+                size = "N/A"
+            print(f"DEBUG manage_mappe: scritto OK. md5={_file_digest(json_path)} size={size}")
+
             flash("Mappa aggiornata con successo.", "success")
         except json.JSONDecodeError as e:
+            print(f"DEBUG manage_mappe: JSON NON valido: {e}")
             flash(f"Errore nel formato JSON: {e}", "danger")
+        except Exception as e:
+            print(f"DEBUG manage_mappe: ERRORE scrittura file: {e}")
+            flash(f"Errore scrittura mappa: {e}", "danger")
+
+        print("=== FINE DEBUG manage_mappe() ===\n")
         return redirect(url_for('manage_mappe'))
 
+    # GET
     content = ""
     if json_path.exists():
-        content = json_path.read_text(encoding='utf-8')
-    
+        try:
+            content = json_path.read_text(encoding='utf-8')
+            print(f"DEBUG manage_mappe GET: file esiste, md5={_file_digest(json_path)} size={len(content)}")
+        except Exception as e:
+            print(f"DEBUG manage_mappe GET: errore lettura file: {e}")
+    else:
+        print("DEBUG manage_mappe GET: file NON esiste")
+
+    print("=== FINE DEBUG manage_mappe() ===\n")
     return render_template('mappe_excel.html', content=content)
+
 
 @app.post('/upload_mappe_json')
 @login_required
@@ -1681,20 +1732,41 @@ def upload_mappe_json():
     if 'json_file' not in request.files:
         flash("Nessun file selezionato", "warning")
         return redirect(url_for('manage_mappe'))
+
     f = request.files['json_file']
     if f.filename == '':
         flash("Nessun file selezionato", "warning")
         return redirect(url_for('manage_mappe'))
-    
+
+    target = APP_DIR / "mappe_excel.json"
+
+    print("\n=== DEBUG upload_mappe_json() ===")
+    print(f"DEBUG upload_mappe_json: filename={f.filename}")
+    print(f"DEBUG upload_mappe_json: target={target}")
+
     try:
         content = f.read().decode('utf-8')
-        json.loads(content) # Validazione
-        (APP_DIR / "mappe_excel.json").write_text(content, encoding='utf-8')
+        json.loads(content)  # Validazione
+
+        target.write_text(content, encoding='utf-8')
+
+        try:
+            size = target.stat().st_size
+        except Exception:
+            size = "N/A"
+        print(f"DEBUG upload_mappe_json: scritto OK. md5={_file_digest(target)} size={size}")
+
         flash("File mappe_excel.json caricato correttamente.", "success")
     except Exception as e:
+        print(f"DEBUG upload_mappe_json: ERRORE: {e}")
         flash(f"Errore nel file caricato: {e}", "danger")
-    
+
+    print("=== FINE DEBUG upload_mappe_json() ===\n")
     return redirect(url_for('manage_mappe'))
+
+# =========================
+# IMPORT EXCEL (con log)
+# =========================
 
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
@@ -1702,83 +1774,152 @@ def import_excel():
     mappe = load_mappe()
     profiles = list(mappe.keys()) if mappe else []
 
-    if request.method == 'POST':
-        profile_name = request.form.get('profile')
-        if not profile_name or profile_name not in mappe:
-            flash("Seleziona un profilo valido.", "warning")
-            return redirect(request.url)
-        
-        if 'excel_file' not in request.files:
-            flash('Nessun file selezionato', 'warning')
-            return redirect(request.url)
-        file = request.files['excel_file']
-        if file.filename == '':
-            flash('Nessun file selezionato', 'warning')
-            return redirect(request.url)
+    if request.method == 'GET':
+        return render_template('import_excel.html', profiles=profiles)
 
-        if file and file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
-            db = SessionLocal()
-            try:
-                # Carica configurazione profilo
-                config = mappe[profile_name]
-                header_row_idx = int(config.get('header_row', 1)) - 1 # Excel 1-based -> Pandas 0-based
-                column_map = config.get('column_map', {})
+    # POST
+    profile_name = request.form.get('profile')
+    if not profile_name or profile_name not in mappe:
+        flash("Seleziona un profilo valido.", "warning")
+        return redirect(request.url)
 
-                # Leggi Excel
-                df = pd.read_excel(file, engine='openpyxl', header=header_row_idx)
-                
-                # Normalizza i nomi colonne dell'Excel per il confronto (rimuovi spazi e maiuscole)
-                # Ma per la mappatura usiamo le chiavi esatte del JSON se possibile, o facciamo un match case-insensitive
-                df_cols_upper = {str(c).strip().upper(): c for c in df.columns}
-                
-                imported_count = 0
-                for _, row in df.iterrows():
-                    new_art = Articolo()
-                    has_data = False
-                    
-                    # Itera sulla mappa definita nel JSON
-                    # Chiave JSON (es. "N.BUONO") -> Valore DB (es. "buono_n")
-                    for excel_header, db_field in column_map.items():
-                        # Cerca la colonna nel DF ignorando maiuscole/minuscole
-                        col_name_in_df = df_cols_upper.get(str(excel_header).strip().upper())
-                        
-                        if col_name_in_df is not None:
-                            val = row[col_name_in_df]
-                            if not pd.isna(val) and str(val).strip() != "":
-                                # Conversione tipi
-                                if db_field in ['larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3']:
-                                    val = to_float_eu(val)
-                                elif db_field in ['n_colli', 'pezzo']:
-                                    val = to_int_eu(val)
-                                elif db_field in ['data_ingresso', 'data_uscita']:
-                                    val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
-                                
-                                setattr(new_art, db_field, val)
-                                has_data = True
-                    
-                    if has_data:
-                        # Calcolo automatico se non presenti
-                        if not new_art.m2 or new_art.m2 == 0:
-                            new_art.m2, new_art.m3 = calc_m2_m3(new_art.lunghezza, new_art.larghezza, new_art.altezza, new_art.n_colli)
-                        
-                        db.add(new_art)
-                        imported_count += 1
-                
-                db.commit()
-                flash(f'{imported_count} articoli importati con successo con la mappa \'{profile_name}\'.', 'success')
-                return redirect(url_for('giacenze', v=uuid.uuid4().hex[:6]))
+    if 'excel_file' not in request.files:
+        flash('Nessun file selezionato', 'warning')
+        return redirect(request.url)
 
-            except Exception as e:
-                db.rollback()
-                flash(f"Errore durante l'importazione: {e}", 'danger')
-                return redirect(request.url)
-            finally:
-                db.close()
+    file = request.files['excel_file']
+    if file.filename == '':
+        flash('Nessun file selezionato', 'warning')
+        return redirect(request.url)
+
+    if not file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
+        flash('Formato file non supportato.', 'warning')
+        return redirect(request.url)
+
+    db = SessionLocal()
+    try:
+        config = mappe[profile_name]
+        header_row_idx = int(config.get('header_row', 1)) - 1  # Excel 1-based -> Pandas 0-based
+        column_map = config.get('column_map', {}) or {}
+
+        print("\n" + "=" * 70)
+        print(f"DEBUG IMPORT: profile={profile_name}")
+        print(f"DEBUG IMPORT: header_row(json)={config.get('header_row')} -> header_idx={header_row_idx}")
+        print(f"DEBUG IMPORT: column_map keys({len(column_map)}): {list(column_map.keys())[:20]}{'...' if len(column_map) > 20 else ''}")
+        print(f"DEBUG IMPORT: file ricevuto: {file.filename}")
+
+        # Ispezione fogli
+        xls = pd.ExcelFile(file, engine="openpyxl")
+        print(f"DEBUG IMPORT: fogli trovati: {xls.sheet_names}")
+        print(f"DEBUG IMPORT: leggo foglio 0: {xls.sheet_names[0]}")
+
+        # Lettura con header indicato
+        df = xls.parse(0, header=header_row_idx)
+
+        print(f"DEBUG IMPORT: df.shape={df.shape}")
+        print(f"DEBUG IMPORT: df.columns={list(df.columns)}")
+
+        unnamed_ratio = sum(str(c).startswith("Unnamed") for c in df.columns) / max(1, len(df.columns))
+        print(f"DEBUG IMPORT: unnamed_ratio={unnamed_ratio:.2f}")
+
+        print("DEBUG IMPORT: prime 2 righe:")
+        try:
+            print(df.head(2).to_string())
+        except Exception as e:
+            print(f"DEBUG IMPORT: errore stampa head: {e}")
+
+        # Normalizzazione colonne
+        df_cols_upper = {str(c).strip().upper(): c for c in df.columns}
+        print(f"DEBUG IMPORT: colonne normalizzate (prime 30): {list(df_cols_upper.keys())[:30]}")
+
+        # Import
+        imported_count = 0
+        missing_logged = set()
+        setattr_errors = 0
+
+        for row_idx, row in df.iterrows():
+            # salta righe completamente vuote
+            if row.isnull().all():
+                continue
+
+            new_art = Articolo()
+            has_data = False
+
+            for excel_header, db_field in column_map.items():
+                # Match colonna in Excel
+                key = str(excel_header).strip().upper()
+                col_name_in_df = df_cols_upper.get(key)
+
+                if col_name_in_df is None:
+                    # logga le colonne mancanti solo poche volte per non sporcare i log
+                    if excel_header not in missing_logged and len(missing_logged) < 25:
+                        print(f"DEBUG IMPORT: MISSING COL in Excel -> '{excel_header}' (attesa da mappa)")
+                        missing_logged.add(excel_header)
+                    continue
+
+                val = row[col_name_in_df]
+                if pd.isna(val) or str(val).strip() == "":
+                    continue
+
+                # Conversioni (usa le tue funzioni esistenti)
+                try:
+                    if db_field in ['larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3']:
+                        val = to_float_eu(val)
+                    elif db_field in ['n_colli', 'pezzo']:
+                        val = to_int_eu(val)
+                    elif db_field in ['data_ingresso', 'data_uscita']:
+                        val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
+                except Exception as e:
+                    print(f"DEBUG IMPORT: conversione fallita field='{db_field}' val='{val}' err={e}")
+                    continue
+
+                # setattr con log errori (campo DB inesistente ecc.)
+                try:
+                    setattr(new_art, db_field, val)
+                    has_data = True
+                except Exception as e:
+                    setattr_errors += 1
+                    if setattr_errors <= 25:
+                        print(f"DEBUG IMPORT: setattr FALLITO field='{db_field}' val='{val}' err={e}")
+
+            if has_data:
+                # Calcolo automatico M2/M3 se non presenti
+                try:
+                    if not getattr(new_art, "m2", None) or getattr(new_art, "m2", 0) == 0:
+                        new_art.m2, new_art.m3 = calc_m2_m3(
+                            getattr(new_art, "lunghezza", None),
+                            getattr(new_art, "larghezza", None),
+                            getattr(new_art, "altezza", None),
+                            getattr(new_art, "n_colli", None)
+                        )
+                except Exception as e:
+                    print(f"DEBUG IMPORT: calc_m2_m3 fallito: {e}")
+
+                db.add(new_art)
+                imported_count += 1
+
+        db.commit()
+
+        print(f"DEBUG IMPORT: imported_count={imported_count}")
+        print(f"DEBUG IMPORT: setattr_errors={setattr_errors}")
+        print("=" * 70 + "\n")
+
+        # Flash coerente (non verde se 0)
+        if imported_count == 0:
+            flash(f"0 articoli importati con la mappa '{profile_name}'. Controlla i LOG (header/colonne/campi).", "warning")
         else:
-            flash('Formato file non supportato.', 'warning')
-            return redirect(request.url)
+            flash(f"{imported_count} articoli importati con successo con la mappa '{profile_name}'.", "success")
 
-    return render_template('import_excel.html', profiles=profiles)
+        return redirect(url_for('giacenze', v=uuid.uuid4().hex[:6]))
+
+    except Exception as e:
+        db.rollback()
+        print(f"DEBUG IMPORT: ERRORE durante importazione: {e}")
+        flash(f"Errore durante l'importazione: {e}", 'danger')
+        return redirect(request.url)
+
+    finally:
+        db.close()
 
 def get_all_fields_map():
     return {
