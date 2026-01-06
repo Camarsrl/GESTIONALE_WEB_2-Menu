@@ -63,7 +63,17 @@ login_manager.init_app(app)
 login_manager.login_view = 'login'
 
 
+# =========================
+# Helpers debug mappe file
+# =========================
 
+def _file_digest(p: Path) -> str:
+    """MD5 del file (per capire se su Render stai usando davvero la versione corretta)."""
+    try:
+        data = p.read_bytes()
+        return hashlib.md5(data).hexdigest()
+    except Exception:
+        return "N/A"
 
 
 app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
