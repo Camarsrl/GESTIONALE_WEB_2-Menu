@@ -1763,22 +1763,35 @@ def import_excel():
         numeric_fields = ['larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3', 'n_colli', 'pezzo']
 
         try:
-            # Calcola riga intestazione (Se JSON dice 2, pandas vuole 1 perché parte da 0)
+            # Calcola riga intestazione
             header_row_json = int(config.get('header_row', 1))
             header_idx = header_row_json - 1
             
-            # Lettura Excel
-            df = pd.read_excel(file, engine='openpyxl', header=header_idx)
+            # --- SUPER LOG DEBUG ---
+            print("="*60)
+            print(f"DEBUG IMPORT - File ricevuto: {file.filename}")
             
-            # --- DEBUG LOG SUI LOG DI RENDER ---
-            print(f"\nDEBUG IMPORT - Profilo: {profile_name}")
-            print(f"DEBUG IMPORT - Riga Intestazione usata: {header_row_json}")
-            print(f"DEBUG IMPORT - Colonne trovate nel file: {list(df.columns)}")
-            print(f"DEBUG IMPORT - Mappa attesa: {column_map}\n")
+            # Usiamo ExcelFile per ispezionare i fogli prima di leggere
+            xls = pd.ExcelFile(file, engine='openpyxl')
+            sheet_names = xls.sheet_names
+            print(f"DEBUG IMPORT - Fogli trovati nel file: {sheet_names}")
+            print(f"DEBUG IMPORT - Sto leggendo il PRIMO foglio: '{sheet_names[0]}'")
+            
+            # Lettura del primo foglio
+            df = xls.parse(0, header=header_idx)
+            
+            print(f"DEBUG IMPORT - Profilo selezionato: {profile_name}")
+            print(f"DEBUG IMPORT - Riga Intestazione usata (da JSON): {header_row_json} (indice 0-based: {header_idx})")
+            print(f"DEBUG IMPORT - Colonne trovate (intestazioni): {list(df.columns)}")
+            
+            print("\n--- ANTEPRIMA PRIMI 3 DATI LETTI ---")
+            # Stampa le prime 3 righe per vedere se i dati sono allineati
+            print(df.head(3).to_string())
+            print("------------------------------------\n")
             # -----------------------------------
 
         except Exception as e:
-            print(f"ERRORE LETTURA EXCEL: {e}")
+            print(f"ERRORE CRITICO LETTURA EXCEL: {e}")
             flash(f"Errore lettura file: {e}", "danger")
             return redirect(request.url)
 
@@ -1821,7 +1834,7 @@ def import_excel():
                     else:
                         # Logga solo la prima riga se manca una colonna fondamentale
                         if index == 0:
-                            print(f"DEBUG WARNING: Colonna '{excel_header}' definita nella mappa NON trovata nell'Excel.")
+                            print(f"DEBUG WARNING: Colonna mappa '{excel_header}' NON TROVATA nel file Excel.")
 
                 if has_data:
                     if not new_art.m2:
@@ -1830,9 +1843,11 @@ def import_excel():
                     imported_count += 1
             
             db.commit()
+            print(f"DEBUG IMPORT - Totale articoli salvati nel DB: {imported_count}")
+            print("="*60)
             
             if imported_count == 0:
-                flash("0 articoli importati. Controlla i LOG di Render: i nomi delle colonne nel file Excel potrebbero non coincidere con la Mappa.", "warning")
+                flash("0 articoli importati. Controlla i LOG di Render: controlla se il foglio letto è quello giusto.", "warning")
             else:
                 flash(f"{imported_count} articoli importati con successo.", "success")
                 
@@ -1845,7 +1860,6 @@ def import_excel():
             return redirect(request.url)
         finally:
             db.close()
-
 def get_all_fields_map():
     return {
         'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi',
