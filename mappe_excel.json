@@ -112,7 +112,6 @@
             "NOTE": "note"
         }
     },
-	
 		"Giacenze DE WAVE":{
         "header_row":2,
         "column_map":{
@@ -136,7 +135,6 @@
 			"MAGAZZINO":"magazzino"
 			}	
 		},
-		
 	    "Giacenze Armatore":{
         "header_row":2,
         "column_map":{
@@ -292,7 +290,6 @@
 			"MAGAZZINO":"magazzino"
 			}	
 		},
-
 		"Giacenze De wave Sama":{
         "header_row":2,
         "column_map":{
@@ -319,7 +316,6 @@
             "DATA USCITA":"data_uscita"
 			}
         },	
-
 		"Giacenze Galvano Tecnica":{
         "header_row":2,
         "column_map":{
@@ -338,7 +334,6 @@
             "DATA USCITA":"data_uscita"
 			}
         },		
-
 		"Giacenze MARINE INTERIORS":{
         "header_row":2,
         "column_map":{
@@ -366,3 +361,4 @@
 			}	
 		}
 	}	
+
