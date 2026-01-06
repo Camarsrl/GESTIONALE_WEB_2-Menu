@@ -1,6 +1,6 @@
 {
     	"Giacenze Wingeco": {
-        "header_row":3,
+        "header_row":2,
         "column_map": {
             "ID": "ID",
             "FORNITORE": "fornitore",
@@ -21,12 +21,12 @@
             "DATA DI USCITA": "data_uscita",
             "POSIZIONE": "posizione",
             "MAGAZZINO": "magazzino",
-			"NOTES": "Notes",
+			"NOTE": "Note",
             "DDT USCITA": "n_ddt_uscita"
         }
     },
     	"Giacenze Fincantieri":{
-        "header_row":3,
+        "header_row":2,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -39,10 +39,10 @@
             "LUNGHEZZA":"lunghezza",
             "LARGHEZZA":"larghezza",
             "ALTEZZA":"altezza",
-			"M2":"M2",
-            "M3":"M3",
+			"M2":"m2",
+            "M3":"m3",
             "ORDINE":"ordine",
-            "DATA INGRESSO":"data_ingresso",
+            "DATA NGRESSO":"data_ingresso",
             "DDT INGRESSO":"n_ddt_ingresso",
             "CLIENTE":"cliente",
             "PESO":"peso",
@@ -58,7 +58,7 @@
         }
     },
     	"Giacenze SGDP":{
-        "header_row":3,
+        "header_row":2,
         "column_map":{
             "ID":"ID",
 			"CLIENTE":"cliente",
@@ -70,8 +70,8 @@
 			"CODICE ARTICOLO":"codice_articolo",
 			"COMMESSA":"commessa",
 			"DESCRIZIONE":"descrizione",
-            "M2":"M2",
-            "M3":"M3",
+            "M2":"m2",
+            "M3":"m3",
             "LUNGHEZZA":"lunghezza",
             "LARGHEZZA":"larghezza",
             "ALTEZZA":"altezza",
@@ -85,7 +85,7 @@
         }
     },
     	"Giacenze Default (Intestazione Riga 3)": {
-        "header_row":3,
+        "header_row":2,
         "column_map": {
             "CODICE ARTICOLO": "codice_articolo",
             "FORNITORE": "fornitore",
@@ -95,8 +95,8 @@
             "LUNGHEZZA": "lunghezza",
             "LARGHEZZA": "larghezza",
             "ALTEZZA": "altezza",
-			"M2": "M2",
-            "M3": "M3",
+			"M2": "m2",
+            "M3": "m3",
             "ORDINE": "ordine",
             "DATA INGRESSO": "data_ingresso",
             "DDT INGRESSO": "n_ddt_ingresso",
@@ -114,7 +114,7 @@
     },
 	
 		"Giacenze DE WAVE":{
-        "header_row":3,
+        "header_row":2,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -124,7 +124,7 @@
             "LUNGHEZZA":"lunghezza",
             "LARGHEZZA":"larghezza",
             "ALTEZZA":"altezza",
-			"M2":"M2",
+			"M2":"m2",
             "DATA INGRESSO":"data_ingresso",
             "DDT INGRESSO":"n_ddt_ingresso",
 			"DATA USCITA":"data_uscita",
@@ -138,7 +138,7 @@
 		},
 		
 	    "Giacenze Armatore":{
-        "header_row":3,
+        "header_row":2,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -151,8 +151,8 @@
             "LUNGHEZZA":"lunghezza",
             "LARGHEZZA":"larghezza",
             "ALTEZZA":"altezza",
-			"M2":"M2",
-            "M3":"M3",
+			"M2":"m2",
+            "M3":"m3",
             "DATA INGRESSO":"data_ingresso",
             "DDT INGRESSO":"n_ddt_ingresso",
             "CLIENTE":"cliente",
@@ -169,7 +169,7 @@
 			}
         },
 		"Giacenze De wave Refitting":{
-        "header_row":3,
+        "header_row":2,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -181,7 +181,7 @@
             "LUNGHEZZA":"lunghezza",
             "LARGHEZZA":"larghezza",
             "ALTEZZA":"altezza",
-			"M2":"M2",
+			"M2":"m2",
             "DATA INGRESSO":"data_ingresso",
             "DDT INGRESSO":"n_ddt_ingresso",
 			"TRUCKER":"Trucker",
@@ -195,7 +195,7 @@
 			}
         },
 		"Giacenze DUFERCO":{
-        "header_row":3,
+        "header_row":2,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -208,7 +208,7 @@
             "LUNGHEZZA":"lunghezza",
             "LARGHEZZA":"larghezza",
             "ALTEZZA":"altezza",
-			"M2":"M2",
+			"M2":"m2",
             "DATA INGRESSO":"data_ingresso",
             "DDT INGRESSO":"n_ddt_ingresso",
             "CLIENTE":"cliente",
@@ -218,7 +218,7 @@
 			}			
         },
 		"Giacenze Amico & co":{
-        "header_row":3,
+        "header_row":2,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -229,7 +229,7 @@
             "LUNGHEZZA":"lunghezza",
             "LARGHEZZA":"larghezza",
             "ALTEZZA":"altezza",
-			"M2":"M2",
+			"M2":"m2",
             "DATA INGRESSO":"data_ingresso",
             "DDT INGRESSO":"n_ddt_ingresso",
             "CLIENTE":"cliente",
@@ -244,8 +244,8 @@
             "DATA USCITA":"data_uscita"
 			}
         },
-	    "Giacenze Scorza":{
-        "header_row":3,
+    	"Giacenze Scorza":{
+        "header_row":2,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -256,7 +256,7 @@
             "LUNGHEZZA":"lunghezza",
             "LARGHEZZA":"larghezza",
             "ALTEZZA":"altezza",
-			"M2":"M2",
+			"M2":"m2",
             "DATA INGRESSO":"data_ingresso",
             "DDT INGRESSO":"n_ddt_ingresso",
             "CLIENTE":"cliente",
@@ -269,7 +269,7 @@
 			}
 		},
 		"Giacenze SIEM":{
-        "header_row":3,
+        "header_row":2,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -279,7 +279,7 @@
             "LUNGHEZZA":"lunghezza",
             "LARGHEZZA":"larghezza",
             "ALTEZZA":"altezza",
-			"M2":"M2",
+			"M2":"m2",
             "DATA INGRESSO":"data_ingresso",
             "DDT INGRESSO":"n_ddt_ingresso",
 			"DATA USCITA":"data_uscita",
@@ -293,8 +293,8 @@
 			}	
 		},
 
-		"Giacenze De wave sama":{
-        "header_row":3,
+		"Giacenze De wave Sama":{
+        "header_row":2,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -306,7 +306,7 @@
             "LUNGHEZZA":"lunghezza",
             "LARGHEZZA":"larghezza",
             "ALTEZZA":"altezza",
-			"M2":"M2",
+			"M2":"m2",
             "DATA INGRESSO":"data_ingresso",
             "DDT INGRESSO":"n_ddt_ingresso",
 			"TRUCKER":"Trucker",
@@ -321,7 +321,7 @@
         },	
 
 		"Giacenze Galvano Tecnica":{
-        "header_row":3,
+        "header_row":2,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -340,7 +340,7 @@
         },		
 
 		"Giacenze MARINE INTERIORS":{
-        "header_row":3,
+        "header_row":2,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -351,10 +351,10 @@
             "LUNGHEZZA":"lunghezza",
             "LARGHEZZA":"larghezza",
             "ALTEZZA":"altezza",
-			"M2":"M2",
+			"M2":"m2",
             "DATA INGRESSO":"data_ingresso",
             "DDT INGRESSO":"n_ddt_ingresso",
-			"DDT USCITA":"data_uscita",
+			"DATA USCITA":"data_uscita",
             "CLIENTE":"cliente",
             "PESO":"peso",
             "COLLI":"n_colli",
@@ -366,6 +366,3 @@
 			}	
 		}
 	}	
-		
-
-
