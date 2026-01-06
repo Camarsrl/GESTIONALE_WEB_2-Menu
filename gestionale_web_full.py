@@ -45,6 +45,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
+import os
+from flask_mail import Mail
 
 # Jinja loader
 from jinja2 import DictLoader
@@ -62,8 +64,7 @@ login_manager.login_view = 'login'
 
 
 
-import os
-from flask_mail import Mail
+
 
 app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
 app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', '587'))
