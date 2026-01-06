@@ -1643,37 +1643,31 @@ def home():
 # ========================================================
 
 def load_mappe():
-    """Carica il file mappe_excel.json + LOG per capire quale file viene usato davvero."""
-    json_path = APP_DIR / "mappe_excel.json"
+    """Carica mappe_excel.json: prima da /config, poi fallback su root."""
+    config_path = APP_DIR / "config" / "mappe_excel.json"
+    root_path = APP_DIR / "mappe_excel.json"
 
     print("\n=== DEBUG load_mappe() ===")
-    print(f"DEBUG mappe path: {json_path}")
-    print(f"DEBUG cwd: {Path.cwd()}")
     print(f"DEBUG APP_DIR: {APP_DIR}")
+    print(f"DEBUG config_path: {config_path} exists={config_path.exists()}")
+    print(f"DEBUG root_path:   {root_path} exists={root_path.exists()}")
+
+    json_path = config_path if config_path.exists() else root_path
+    print(f"DEBUG scelto json_path: {json_path}")
 
     if not json_path.exists():
-        print("DEBUG mappe_excel.json NON ESISTE in APP_DIR -> ritorno {}")
+        print("DEBUG NESSUN mappe_excel.json trovato -> {}")
         print("=== FINE DEBUG load_mappe() ===\n")
         return {}
 
     try:
         raw = json_path.read_text(encoding="utf-8")
-        print(f"DEBUG mappe size: {len(raw)} bytes")
-        print(f"DEBUG mappe md5: {_file_digest(json_path)}")
-
         data = json.loads(raw)
-        if not isinstance(data, dict):
-            print("DEBUG mappe: JSON valido ma NON è un oggetto dict -> ritorno {}")
-            print("=== FINE DEBUG load_mappe() ===\n")
-            return {}
-
-        keys = list(data.keys())
-        print(f"DEBUG mappe profili trovati: {keys[:20]}{'...' if len(keys) > 20 else ''}")
+        print(f"DEBUG size={len(raw)} bytes | profili={len(data) if isinstance(data, dict) else 'N/A'}")
         print("=== FINE DEBUG load_mappe() ===\n")
-        return data
-
+        return data if isinstance(data, dict) else {}
     except Exception as e:
-        print(f"DEBUG ERRORE lettura/parsing mappe_excel.json: {e}")
+        print(f"DEBUG ERRORE parsing mappe: {e}")
         print("=== FINE DEBUG load_mappe() ===\n")
         return {}
 
