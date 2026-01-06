@@ -1627,9 +1627,6 @@ def logout():
 def home():
     return render_template('home.html')
 
-
-# --- GESTIONE MAPPE E IMPORTAZIONE RIGIDA ---
-
 # ========================================================
 # GESTIONE MAPPE EXCEL (CORRETTA + LOG DEBUG)
 # ========================================================
