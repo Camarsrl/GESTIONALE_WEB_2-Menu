@@ -1759,6 +1759,15 @@ def import_excel():
 
         # Configurazione Mappa
         config = mappe[profile_name]
+        
+        # --- LOG CRITICO AGGIUNTO ---
+        print("\n" + "!"*60)
+        print(f"DEBUG VERITÀ - Profilo Scelto: {profile_name}")
+        print(f"DEBUG VERITÀ - Ecco la configurazione ESATTA che il sistema sta usando:")
+        print(json.dumps(config, indent=4)) 
+        print("!"*60 + "\n")
+        # ----------------------------
+
         column_map = config.get('column_map', {}) or {}
         numeric_fields = ['larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3', 'n_colli', 'pezzo']
 
@@ -1780,12 +1789,10 @@ def import_excel():
             # Lettura del primo foglio
             df = xls.parse(0, header=header_idx)
             
-            print(f"DEBUG IMPORT - Profilo selezionato: {profile_name}")
             print(f"DEBUG IMPORT - Riga Intestazione usata (da JSON): {header_row_json} (indice 0-based: {header_idx})")
             print(f"DEBUG IMPORT - Colonne trovate (intestazioni): {list(df.columns)}")
             
             print("\n--- ANTEPRIMA PRIMI 3 DATI LETTI ---")
-            # Stampa le prime 3 righe per vedere se i dati sono allineati
             print(df.head(3).to_string())
             print("------------------------------------\n")
             # -----------------------------------
@@ -1847,7 +1854,7 @@ def import_excel():
             print("="*60)
             
             if imported_count == 0:
-                flash("0 articoli importati. Controlla i LOG di Render: controlla se il foglio letto è quello giusto.", "warning")
+                flash("0 articoli importati. Controlla i LOG di Render per vedere la configurazione caricata.", "warning")
             else:
                 flash(f"{imported_count} articoli importati con successo.", "success")
                 
