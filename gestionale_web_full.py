@@ -3555,48 +3555,61 @@ app.jinja_env.filters['fmt_date'] = fmt_date
 
     
 # --- FIX DATABASE SCHEMA (Esegui all'avvio per correggere tipi colonne) ---
-# --- FIX DATABASE SCHEMA (Esegui all'avvio per correggere tipi colonne) ---
-def fix_db_schema():
-    """
-    Corregge i tipi di colonna nel database PostgreSQL.
-    Converte colonne critiche e DATE in TEXT per evitare errori di importazione.
-    """
+# ========================================================
+# 🚑 PULSANTE DI EMERGENZA PER FIX DATABASE
+# ========================================================
+@app.route('/fix_db_types')
+@login_required
+def fix_db_types():
+    if session.get('role') != 'admin':
+        return "Accesso Negato", 403
+    
+    db = SessionLocal()
     try:
         from sqlalchemy import text
-        db = SessionLocal()
-        
-        # ELENCO AGGIORNATO: Ora include data_ingresso e data_uscita!
-        cols_to_fix = [
-            'codice_articolo', 'descrizione', 'note', 'commessa', 
-            'ordine', 'protocollo', 'buono_n', 'n_arrivo', 
-            'n_ddt_ingresso', 'n_ddt_uscita', 'cliente', 'fornitore',
-            'data_ingresso',  # <--- FONDAMENTALE PER RISOLVERE IL TUO ERRORE
-            'data_uscita',    # <--- FONDAMENTALE PER RISOLVERE IL TUO ERRORE
-            'serial_number', 'magazzino', 'posizione', 'stato'
+        # ELENCO DI TUTTE LE COLONNE DA SBLOCCARE (Convertire in TEXT)
+        colonne_da_sbloccare = [
+            'codice_articolo', 
+            'descrizione', 
+            'commessa', 
+            'ordine', 
+            'n_ddt_ingresso', 
+            'n_ddt_uscita', 
+            'n_arrivo',
+            'buono_n',
+            'protocollo',
+            'cliente',
+            'fornitore',
+            # AGGIUNTO ORA: Convertiamo anche le date per evitare errori Timestamp!
+            'data_ingresso', 
+            'data_uscita',
+            'serial_number',
+            'magazzino',
+            'posizione',
+            'stato'
         ]
         
-        print("--- INIZIO FIX SCHEMA DB ---")
-        for col in cols_to_fix:
+        log_msg = "<h3>Operazioni Database (Fix Tipi):</h3><ul>"
+        
+        for col in colonne_da_sbloccare:
             try:
-                # Comando SQL per convertire forzatamente la colonna in TEXT
-                # USING ...::text serve a convertire i dati esistenti senza errori
-                query = text(f"ALTER TABLE articoli ALTER COLUMN {col} TYPE TEXT USING {col}::text;")
-                db.execute(query)
-                print(f"✅ Colonna '{col}' convertita in TEXT.")
+                # Comando SQL per convertire forzatamente in TEXT
+                sql = text(f"ALTER TABLE articoli ALTER COLUMN {col} TYPE TEXT USING {col}::text")
+                db.execute(sql)
+                log_msg += f"<li>✅ Colonna <b>{col}</b> convertita in TEXT.</li>"
             except Exception as e:
-                # Se la colonna è già a posto o non esiste, ignora e vai avanti
-                # print(f"ℹ️ Colonna '{col}': nessun cambio necessario o errore lieve ({e})")
-                pass
+                log_msg += f"<li>⚠️ Colonna <b>{col}</b>: {str(e)}</li>"
         
         db.commit()
-        print("✅ SCHEMA DB AGGIORNATO: Tutte le colonne critiche sono ora TEXT.")
+        log_msg += "</ul><br><h3 style='color:green'>DATABASE SBLOCCATO! Ora riprova l'importazione.</h3>"
+        log_msg += f'<br><a href="{url_for("home")}">Torna alla Home</a>'
+        return log_msg
+        
     except Exception as e:
-        print(f"⚠️ Errore generale durante il fix dello schema: {e}")
+        db.rollback()
+        return f"<h1>ERRORE CRITICO:</h1> {e}"
     finally:
         db.close()
-
-# Esegui il fix immediatamente quando il file viene importato/avviato
-fix_db_schema()
 
 
 
