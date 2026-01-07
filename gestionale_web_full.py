@@ -69,6 +69,55 @@ login_manager.login_view = 'login'
 # Helpers debug mappe file
 # =========================
 
+# --- ASSICURATI DI AVERE QUESTI IMPORT IN ALTO ---
+from datetime import datetime, date, timedelta
+import pandas as pd
+
+# --- AGGIUNGI QUESTA FUNZIONE HELPER (fuori dalle rotte) ---
+def to_date_db(val):
+    """
+    Converte val in datetime.date (per DB).
+    Gestisce: datetime/date, pandas Timestamp, numeri Excel (seriali), stringhe.
+    """
+    if val is None or (isinstance(val, float) and pd.isna(val)) or pd.isna(val) or val == '':
+        return None
+
+    # pandas Timestamp / datetime / date
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, date):
+        return val
+
+    # Excel serial date (es. 45234)
+    if isinstance(val, (int, float)):
+        try:
+            # Excel origin: 1899-12-30
+            return (datetime(1899, 12, 30) + timedelta(days=int(val))).date()
+        except Exception:
+            return None
+
+    # Stringa
+    s = str(val).strip()
+    if not s:
+        return None
+
+    # Tentativi di parsing formati comuni
+    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except Exception:
+            pass
+
+    # Ultima spiaggia: pandas to_datetime
+    try:
+        dt = pd.to_datetime(s, dayfirst=True, errors="coerce")
+        if not pd.isna(dt):
+            return dt.date()
+    except Exception:
+        pass
+        
+    return None
+
 def _file_digest(p: Path) -> str:
     """MD5 del file (per capire se su Render stai usando davvero la versione corretta)."""
     try:
