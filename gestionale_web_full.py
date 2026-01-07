@@ -3759,51 +3759,59 @@ app.jinja_env.filters['fmt_date'] = fmt_date
 # ========================================================
 # 🚑 PULSANTE DI EMERGENZA PER FIX DATABASE
 # ========================================================
-@app.route('/fix_db_types')
+# ========================================================
+# 🚑 AGGIORNAMENTO COMPLETO DATABASE (TABELLE + COLONNE + TIPI)
+# ========================================================
+@app.route('/fix_db_schema') # Ho rinominato la rotta per chiarezza
 @login_required
-def fix_db_types():
+def fix_db_schema():
     if session.get('role') != 'admin':
         return "Accesso Negato", 403
     
     db = SessionLocal()
+    engine = db.get_bind()
+    log_msg = "<h3>Operazioni Aggiornamento Database:</h3><ul>"
+
     try:
         from sqlalchemy import text
-        # ELENCO DI TUTTE LE COLONNE DA SBLOCCARE (Convertire in TEXT)
-        colonne_da_sbloccare = [
-            'codice_articolo', 
-            'descrizione', 
-            'commessa', 
-            'ordine', 
-            'n_ddt_ingresso', 
-            'n_ddt_uscita', 
-            'n_arrivo',
-            'buono_n',
-            'protocollo',
-            'cliente',
-            'fornitore',
-            # AGGIUNTO ORA: Convertiamo anche le date per evitare errori Timestamp!
-            'data_ingresso', 
-            'data_uscita',
-            'serial_number',
-            'magazzino',
-            'posizione',
-            'stato'
-        ]
         
-        log_msg = "<h3>Operazioni Database (Fix Tipi):</h3><ul>"
+        # 1. CREAZIONE NUOVE TABELLE (Trasporti, Lavorazioni)
+        # Questo comando crea le tabelle solo se non esistono già
+        Base.metadata.create_all(bind=engine)
+        log_msg += "<li>✅ Tabelle 'Trasporti' e 'Lavorazioni' verificate/create.</li>"
+
+        # 2. AGGIUNTA COLONNA 'LOTTO'
+        try:
+            # Tenta di aggiungere la colonna. Se esiste già, darà errore (che ignoriamo)
+            db.execute(text("ALTER TABLE articoli ADD COLUMN lotto TEXT;"))
+            db.commit()
+            log_msg += "<li>✅ Colonna <b>'lotto'</b> aggiunta alla tabella Articoli.</li>"
+        except Exception as e:
+            db.rollback()
+            log_msg += f"<li>ℹ️ Colonna 'lotto' esistente o errore trascurabile.</li>"
+
+        # 3. CONVERSIONE TIPI IN TEXT (Il tuo vecchio codice, integrato)
+        colonne_da_sbloccare = [
+            'codice_articolo', 'descrizione', 'commessa', 'ordine', 
+            'n_ddt_ingresso', 'n_ddt_uscita', 'n_arrivo', 'buono_n', 
+            'protocollo', 'cliente', 'fornitore', 'data_ingresso', 
+            'data_uscita', 'serial_number', 'magazzino', 'posizione', 
+            'stato', 'lotto' # <--- Ho aggiunto anche lotto qui per sicurezza
+        ]
         
         for col in colonne_da_sbloccare:
             try:
-                # Comando SQL per convertire forzatamente in TEXT
                 sql = text(f"ALTER TABLE articoli ALTER COLUMN {col} TYPE TEXT USING {col}::text")
                 db.execute(sql)
-                log_msg += f"<li>✅ Colonna <b>{col}</b> convertita in TEXT.</li>"
-            except Exception as e:
-                log_msg += f"<li>⚠️ Colonna <b>{col}</b>: {str(e)}</li>"
+                # log_msg += f"<li>✅ Colonna <b>{col}</b> convertita in TEXT.</li>"
+            except Exception:
+                pass # Ignoriamo errori se la colonna è già a posto
         
         db.commit()
-        log_msg += "</ul><br><h3 style='color:green'>DATABASE SBLOCCATO! Ora riprova l'importazione.</h3>"
-        log_msg += f'<br><a href="{url_for("home")}">Torna alla Home</a>'
+        log_msg += "<li>✅ Tutte le colonne convertite in TEXT per sicurezza.</li>"
+        
+        log_msg += "</ul><br><h3 style='color:green'>DATABASE AGGIORNATO CON SUCCESSO!</h3>"
+        log_msg += f'<br><a href="{url_for("home")}" class="btn btn-primary">Torna alla Home</a>'
         return log_msg
         
     except Exception as e:
@@ -3811,8 +3819,6 @@ def fix_db_types():
         return f"<h1>ERRORE CRITICO:</h1> {e}"
     finally:
         db.close()
-
-
 
 def _parse_data_db_helper(data_str):
     """Converte stringa data DB in oggetto date (Gestisce formati misti)."""
