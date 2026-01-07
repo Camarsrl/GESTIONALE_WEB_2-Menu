@@ -1698,11 +1698,6 @@ def load_mappe():
     config_path = APP_DIR / "config." / "mappe_excel.json"   # <-- cartella con il punto
     root_path = APP_DIR / "mappe_excel.json"
 
-    print("\n=== DEBUG load_mappe() ===")
-    print(f"DEBUG APP_DIR: {APP_DIR}")
-    print(f"DEBUG config_path: {config_path} exists={config_path.exists()}")
-    print(f"DEBUG root_path:   {root_path} exists={root_path.exists()}")
-
     json_path = config_path if config_path.exists() else root_path
     print(f"DEBUG scelto json_path: {json_path}")
 
