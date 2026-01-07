@@ -1844,13 +1844,14 @@ def import_excel():
     db = SessionLocal()
     try:
         config = mappe[profile_name]
-        header_row_idx = int(config.get('header_row', 1)) - 1  # Excel 1-based -> Pandas 0-based
+        # Excel 1-based -> Pandas 0-based
+        header_row_idx = int(config.get('header_row', 1)) - 1  
         column_map = config.get('column_map', {}) or {}
 
         print("\n" + "=" * 70)
         print(f"DEBUG IMPORT: profile={profile_name}")
         print(f"DEBUG IMPORT: header_row(json)={config.get('header_row')} -> header_idx={header_row_idx}")
-        print(f"DEBUG IMPORT: column_map keys({len(column_map)}): {list(column_map.keys())[:20]}{'...' if len(column_map) > 20 else ''}")
+        print(f"DEBUG IMPORT: column_map keys({len(column_map)}): {list(column_map.keys())[:20]}...")
         print(f"DEBUG IMPORT: file ricevuto: {file.filename}")
 
         # Ispezione fogli
@@ -1873,7 +1874,7 @@ def import_excel():
         except Exception as e:
             print(f"DEBUG IMPORT: errore stampa head: {e}")
 
-        # Normalizzazione colonne
+        # Normalizzazione colonne (rimuove spazi e mette tutto in maiuscolo per il match)
         df_cols_upper = {str(c).strip().upper(): c for c in df.columns}
         print(f"DEBUG IMPORT: colonne normalizzate (prime 30): {list(df_cols_upper.keys())[:30]}")
 
@@ -1891,12 +1892,12 @@ def import_excel():
             has_data = False
 
             for excel_header, db_field in column_map.items():
-                # Match colonna in Excel
+                # Match colonna in Excel (usando la chiave normalizzata)
                 key = str(excel_header).strip().upper()
                 col_name_in_df = df_cols_upper.get(key)
 
                 if col_name_in_df is None:
-                    # logga le colonne mancanti solo poche volte per non sporcare i log
+                    # logga le colonne mancanti solo poche volte per non intasare i log
                     if excel_header not in missing_logged and len(missing_logged) < 25:
                         print(f"DEBUG IMPORT: MISSING COL in Excel -> '{excel_header}' (attesa da mappa)")
                         missing_logged.add(excel_header)
@@ -1913,7 +1914,11 @@ def import_excel():
                     elif db_field in ['n_colli', 'pezzo']:
                         val = to_int_eu(val)
                     elif db_field in ['data_ingresso', 'data_uscita']:
+                        # Usa to_date_db se l'hai aggiunta, altrimenti usa fmt_date/parse_date_ui
+                        # val = to_date_db(val) # Scommenta se hai aggiunto la funzione helper
                         val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
+                    else:
+                        val = str(val).strip()
                 except Exception as e:
                     print(f"DEBUG IMPORT: conversione fallita field='{db_field}' val='{val}' err={e}")
                     continue
@@ -1949,7 +1954,7 @@ def import_excel():
         print(f"DEBUG IMPORT: setattr_errors={setattr_errors}")
         print("=" * 70 + "\n")
 
-        # Flash coerente (non verde se 0)
+        # Flash coerente
         if imported_count == 0:
             flash(f"0 articoli importati con la mappa '{profile_name}'. Controlla i LOG (header/colonne/campi).", "warning")
         else:
@@ -1965,7 +1970,6 @@ def import_excel():
 
     finally:
         db.close()
-
 def get_all_fields_map():
     return {
         'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi',
