@@ -228,6 +228,7 @@ class Articolo(Base):
     data_ingresso = Column(String(32)); n_ddt_ingresso = Column(Text)
     data_uscita = Column(String(32)); n_ddt_uscita = Column(Text)
     attachments = relationship("Attachment", back_populates="articolo", cascade="all, delete-orphan", passive_deletes=True)
+    lotto = Column(Text) # <--- AGGIUNGI QUESTA
 
 class Attachment(Base):
     __tablename__ = "attachments"
@@ -237,6 +238,33 @@ class Attachment(Base):
     articolo = relationship("Articolo", back_populates="attachments")
 
 Base.metadata.create_all(engine)
+
+
+
+
+# --- NUOVI MODELLI PER TRASPORTI E LAVORAZIONI ---
+
+class Trasporto(Base):
+    __tablename__ = 'trasporti'
+    id = Column(Integer, primary_key=True)
+    data = Column(Text)          # Salviamo come Text per uniformità
+    cliente = Column(Text)
+    trasportatore = Column(Text)
+    tipo_mezzo = Column(Text)
+    ddt_uscita = Column(Text)
+    costo = Column(Float)
+    consolidato = Column(Text)   # Si/No o altro
+
+class Lavorazione(Base):
+    __tablename__ = 'lavorazioni'
+    id = Column(Integer, primary_key=True)
+    data = Column(Text)
+    cliente = Column(Text)
+    descrizione = Column(Text)
+    ore_white_collar = Column(Float)
+    ore_blue_collar = Column(Float)
+    pallet_forniti = Column(Integer)
+    note = Column(Text)
 
 # ========================================================
 # 5. GESTIONE UTENTI (Definizione PRIMA dell'uso)
