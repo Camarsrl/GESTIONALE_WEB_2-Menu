@@ -1936,7 +1936,7 @@ def import_excel():
 
 def get_all_fields_map():
     return {
-        'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi',
+        'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi','lotto':'Lotto',
         'descrizione': 'Descrizione', 'cliente': 'Cliente','ordine':'Ordine',
         'protocollo': 'Protocollo', 'peso': 'Peso (Kg)',
         'n_colli': 'N° Colli', 'posizione': 'Posizione', 'stato': 'Stato',
