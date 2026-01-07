@@ -818,7 +818,7 @@ GIACENZE_HTML = """
                         </div>
                     </div>
                     <div class="col-md-2 text-end">
-                        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm w-100">Reset</a>
+                        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm w-100" onclick="localStorage.removeItem('camar_selected_articles');">Reset</a>
                     </div>
                 </div>
             </form>
@@ -843,13 +843,14 @@ GIACENZE_HTML = """
                     <th>ID</th> <th>Doc</th> <th>Foto</th> <th>Codice</th> <th>Descrizione</th>
                     <th>Cliente</th> <th>Fornitore</th> <th>Commessa</th> <th>Ordine</th> <th>Protocollo</th>
                     <th>Buono</th> <th>N.Arr</th> <th>Data Ing</th> <th>DDT Ing</th> <th>Pos</th> <th>Stato</th>
-                    <th>Pz</th> <th>Colli</th> <th>Kg</th> <th>LxPxH</th> <th>M2</th> <th>M3</th> <th>Act</th>
+                    <th>Pz</th> <th>Colli</th> <th>Kg</th> <th>LxPxH</th> 
+                    <th>Lotto</th> <th>M2</th> <th>M3</th> <th>Act</th>
                 </tr>
             </thead>
             <tbody>
                 {% for r in rows %}
                 <tr>
-                    <td class="text-center"><input type="checkbox" name="ids" value="{{ r.id_articolo }}"></td>
+                    <td class="text-center"><input type="checkbox" name="ids" value="{{ r.id_articolo }}" class="row-checkbox"></td>
                     <td>{{ r.id_articolo }}</td>
                     
                     <td class="text-center">
@@ -881,20 +882,58 @@ GIACENZE_HTML = """
                     <td>{{ r.peso or '' }}</td>
                     <td>{{ r.lunghezza|int }}x{{ r.larghezza|int }}x{{ r.altezza|int }}</td>
                     
-                    <td>{{ r.m2 or '' }}</td>
+                    <td>{{ r.lotto or '' }}</td> <td>{{ r.m2|round(3) if r.m2 else '' }}</td>
+                    <td>{{ r.m3|round(3) if r.m3 else '' }}</td>
                     
-                    <td>{{ r.m3 or '' }}</td>
-                    <td class="text-center"><a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}">✏️</a></td>
+                    <td class="text-center">
+                        <a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}" title="Modifica" class="text-decoration-none me-1">✏️</a>
+                        <a href="{{ url_for('duplica_articolo', id=r.id_articolo) }}" title="Duplica" class="text-decoration-none">📄</a>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
             <tfoot class="sticky-bottom bg-white fw-bold">
-                <tr><td colspan="24">Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}</td></tr>
+                <tr><td colspan="25">Totali: Colli {{ total_colli }} | M2 {{ total_m2|round(2) }} | Peso {{ total_peso }}</td></tr>
             </tfoot>
         </table>
     </div>
 </form>
-<script>function toggleAll(s){ document.getElementsByName('ids').forEach(c => c.checked = s.checked); }</script>
+
+<script>
+    function toggleAll(source) {
+        document.getElementsByName('ids').forEach(c => {
+            c.checked = source.checked;
+            // Scatena l'evento change per aggiornare il localStorage
+            c.dispatchEvent(new Event('change'));
+        });
+    }
+
+    // SCRIPT PER MANTENERE LA SELEZIONE DOPO IL REFRESH
+    document.addEventListener("DOMContentLoaded", function() {
+        const STORAGE_KEY = 'camar_selected_articles';
+        
+        // 1. Ripristina selezioni
+        let savedIds = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        const checkboxes = document.querySelectorAll('input[name="ids"]');
+        
+        checkboxes.forEach(cb => {
+            if (savedIds.includes(cb.value)) {
+                cb.checked = true;
+            }
+            
+            // 2. Salva su cambio stato
+            cb.addEventListener('change', function() {
+                let currentIds = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+                if (this.checked) {
+                    if (!currentIds.includes(this.value)) currentIds.push(this.value);
+                } else {
+                    currentIds = currentIds.filter(id => id !== this.value);
+                }
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(currentIds));
+            });
+        });
+    });
+</script>
 {% endblock %}
 """
 
