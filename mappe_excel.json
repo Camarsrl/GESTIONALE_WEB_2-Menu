@@ -1,6 +1,6 @@
 {
     	"Giacenze Wingeco": {
-        "header_row":2,
+        "header_row":3,
         "column_map": {
             "ID": "ID",
             "FORNITORE": "fornitore",
@@ -26,7 +26,7 @@
         }
     },
     	"Giacenze Fincantieri":{
-        "header_row":2,
+        "header_row":3,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -58,7 +58,7 @@
         }
     },
     	"Giacenze SGDP":{
-        "header_row":2,
+        "header_row":3,
         "column_map":{
             "ID":"ID",
 			"CLIENTE":"cliente",
@@ -85,7 +85,7 @@
         }
     },
     	"Giacenze Default (Intestazione Riga 3)": {
-        "header_row":2,
+        "header_row":3,
         "column_map": {
             "CODICE ARTICOLO": "codice_articolo",
             "FORNITORE": "fornitore",
@@ -112,8 +112,9 @@
             "NOTE": "note"
         }
     },
+	
 		"Giacenze DE WAVE":{
-        "header_row":2,
+        "header_row":3,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -135,8 +136,9 @@
 			"MAGAZZINO":"magazzino"
 			}	
 		},
+		
 	    "Giacenze Armatore":{
-        "header_row":2,
+        "header_row":3,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -167,7 +169,7 @@
 			}
         },
 		"Giacenze De wave Refitting":{
-        "header_row":2,
+        "header_row":3,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -193,7 +195,7 @@
 			}
         },
 		"Giacenze DUFERCO":{
-        "header_row":2,
+        "header_row":3,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -216,7 +218,7 @@
 			}			
         },
 		"Giacenze Amico & co":{
-        "header_row":2,
+        "header_row":3,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -243,7 +245,7 @@
 			}
         },
     	"Giacenze Scorza":{
-        "header_row":2,
+        "header_row":3,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -267,7 +269,7 @@
 			}
 		},
 		"Giacenze SIEM":{
-        "header_row":2,
+        "header_row":3,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -290,8 +292,9 @@
 			"MAGAZZINO":"magazzino"
 			}	
 		},
+
 		"Giacenze De wave Sama":{
-        "header_row":2,
+        "header_row":3,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -316,8 +319,9 @@
             "DATA USCITA":"data_uscita"
 			}
         },	
+
 		"Giacenze Galvano Tecnica":{
-        "header_row":2,
+        "header_row":3,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -334,8 +338,9 @@
             "DATA USCITA":"data_uscita"
 			}
         },		
+
 		"Giacenze MARINE INTERIORS":{
-        "header_row":2,
+        "header_row":3,
         "column_map":{
             "ID":"ID",
             "CODICE ARTICOLO":"codice_articolo",
@@ -361,4 +366,5 @@
 			}	
 		}
 	}	
-
+		
+		
