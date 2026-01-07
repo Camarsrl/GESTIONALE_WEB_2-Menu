@@ -1645,8 +1645,8 @@ def home():
 # ========================================================
 
 def load_mappe():
-    """Carica mappe_excel.json: prima da /config, poi fallback su root."""
-    config_path = APP_DIR / "config" / "mappe_excel.json"
+    """Carica mappe_excel.json: prima da config. (con punto), poi fallback su root."""
+    config_path = APP_DIR / "config." / "mappe_excel.json"   # <-- cartella con il punto
     root_path = APP_DIR / "mappe_excel.json"
 
     print("\n=== DEBUG load_mappe() ===")
