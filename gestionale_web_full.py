@@ -1832,6 +1832,123 @@ def upload_mappe_json():
     print("=== FINE DEBUG upload_mappe_json() ===\n")
     return redirect(url_for('manage_mappe'))
 
+
+# --- GESTIONE TRASPORTI (ADMIN) ---
+@app.route('/trasporti', methods=['GET', 'POST'])
+@login_required
+def trasporti():
+    if session.get('role') != 'admin':
+        flash("Accesso non autorizzato", "danger")
+        return redirect(url_for('home'))
+
+    db = SessionLocal()
+    query = db.query(Trasporto)
+
+    # Filtri
+    f_consolidato = request.args.get('consolidato', '')
+    f_trasportatore = request.args.get('trasportatore', '')
+    f_mezzo = request.args.get('tipo_mezzo', '')
+    f_cliente = request.args.get('cliente', '')
+    f_data = request.args.get('data', '')
+
+    if f_consolidato: query = query.filter(Trasporto.consolidato.ilike(f"%{f_consolidato}%"))
+    if f_trasportatore: query = query.filter(Trasporto.trasportatore.ilike(f"%{f_trasportatore}%"))
+    if f_mezzo: query = query.filter(Trasporto.tipo_mezzo.ilike(f"%{f_mezzo}%"))
+    if f_cliente: query = query.filter(Trasporto.cliente.ilike(f"%{f_cliente}%"))
+    if f_data: query = query.filter(Trasporto.data.ilike(f"%{f_data}%"))
+
+    dati = query.all()
+    db.close()
+    return render_template('trasporti.html', trasporti=dati)
+
+@app.route('/report_trasporti', methods=['POST'])
+@login_required
+def report_trasporti():
+    if session.get('role') != 'admin': return "No Access", 403
+    
+    # Prendi i dati filtrati dal form
+    mese = request.form.get('mese') # Es. '2025-01'
+    mezzo = request.form.get('tipo_mezzo')
+    cliente = request.form.get('cliente')
+    
+    db = SessionLocal()
+    query = db.query(Trasporto)
+    
+    if mese: query = query.filter(Trasporto.data.like(f"{mese}%")) # Filtra per YYYY-MM
+    if mezzo: query = query.filter(Trasporto.tipo_mezzo == mezzo)
+    if cliente: query = query.filter(Trasporto.cliente == cliente)
+    
+    dati = query.all()
+    
+    # Calcolo totali
+    totale_costo = sum(t.costo for t in dati if t.costo)
+    
+    db.close()
+    
+    # Renderizza un template pulito per la stampa
+    return render_template('report_trasporti_print.html', dati=dati, totale=totale_costo, mese=mese, cliente=cliente)
+
+
+# --- GESTIONE LAVORAZIONI (ADMIN) ---
+@app.route('/lavorazioni', methods=['GET'])
+@login_required
+def lavorazioni():
+    if session.get('role') != 'admin':
+        flash("Accesso non autorizzato", "danger")
+        return redirect(url_for('home'))
+
+    db = SessionLocal()
+    query = db.query(Lavorazione)
+
+    # Filtri
+    f_cliente = request.args.get('cliente', '')
+    f_desc = request.args.get('descrizione', '')
+    
+    if f_cliente: query = query.filter(Lavorazione.cliente.ilike(f"%{f_cliente}%"))
+    if f_desc: query = query.filter(Lavorazione.descrizione.ilike(f"%{f_desc}%"))
+
+    dati = query.all()
+    db.close()
+    return render_template('lavorazioni.html', lavorazioni=dati)
+
+
+
+# --- REPORT INVENTARIO PER CLIENTE/DATA ---
+@app.route('/report_inventario', methods=['POST'])
+@login_required
+def report_inventario():
+    data_rif = request.form.get('data_inventario') # Data scelta
+    
+    db = SessionLocal()
+    
+    # Logica Inventario Storico:
+    # Cerchiamo articoli che erano DENTRO in quella data (Ingresso <= Data)
+    # E che NON erano ancora usciti (Uscita IS NULL oppure Uscita > Data)
+    
+    # Nota: Poiché le date sono TEXT nel DB, usiamo il confronto stringhe ISO YYYY-MM-DD
+    # Assicurati che data_rif sia YYYY-MM-DD
+    
+    query = db.query(Articolo).filter(Articolo.data_ingresso <= data_rif)
+    
+    # Filtro uscita: O è NULL, O è successiva alla data rif
+    from sqlalchemy import or_
+    query = query.filter(or_(Articolo.data_uscita == None, Articolo.data_uscita == '', Articolo.data_uscita > data_rif))
+    
+    articoli = query.all()
+    
+    # Raggruppa per Cliente
+    inventario = {}
+    for art in articoli:
+        cli = art.cliente or "NESSUN CLIENTE"
+        if cli not in inventario: inventario[cli] = []
+        inventario[cli].append(art)
+        
+    db.close()
+    
+    return render_template('report_inventario_print.html', inventario=inventario, data_rif=data_rif)
+
+
+
 # =========================
 # IMPORT EXCEL (con log)
 # =========================
