@@ -773,6 +773,14 @@ GIACENZE_HTML = """
        <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark">Import PDF</a>
        <a href="{{ url_for('labels_form') }}" class="btn btn-sm btn-info text-white">Etichette</a>
        <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning">Calcoli</a>
+       {% if session.get('role') == 'admin' %}
+       <form action="{{ url_for('report_inventario') }}" method="POST" target="_blank" class="d-inline-block ms-1">
+            <div class="input-group input-group-sm">
+                <input type="date" name="data_inventario" class="form-control" required value="{{ today }}">
+                <button class="btn btn-warning" type="submit" title="Stampa Inventario">📋</button>
+            </div>
+       </form>
+       {% endif %}
     </div>
 </div>
 
@@ -934,6 +942,134 @@ GIACENZE_HTML = """
         });
     });
 </script>
+{% endblock %}
+"""
+
+EDIT_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3>
+        <i class="bi bi-pencil-square"></i> 
+        {% if row.id_articolo %}Modifica Articolo #{{ row.id_articolo }}{% else %}Nuovo Articolo{% endif %}
+    </h3>
+    <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Torna alla Lista</a>
+</div>
+
+<form method="post" enctype="multipart/form-data" class="card p-4 shadow-sm mb-4">
+    <div class="row g-3">
+        <div class="col-md-3">
+            <label class="form-label fw-bold">Codice Articolo</label>
+            <input type="text" name="codice_articolo" class="form-control" value="{{ row.codice_articolo or '' }}">
+        </div>
+        <div class="col-md-5">
+            <label class="form-label fw-bold">Descrizione</label>
+            <input type="text" name="descrizione" class="form-control" value="{{ row.descrizione or '' }}">
+        </div>
+        
+        <div class="col-md-2">
+            <label class="form-label">Stato</label>
+            <input class="form-control" list="statoList" name="stato" value="{{ row.stato or '' }}" placeholder="Seleziona...">
+            <datalist id="statoList">
+                <option value="NAZIONALE">
+                <option value="DOGANALE">
+                <option value="ESTERO">
+                <option value="USCITO">
+                <option value="FINCANTIERI SCOPERTO">
+                <option value="AGGIUNTO A MANO">
+            </datalist>
+        </div>
+
+        <div class="col-md-2"><label class="form-label">Commessa</label><input type="text" name="commessa" class="form-control" value="{{ row.commessa or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">Cliente</label><input type="text" name="cliente" class="form-control" value="{{ row.cliente or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">Fornitore</label><input type="text" name="fornitore" class="form-control" value="{{ row.fornitore or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">Protocollo</label><input type="text" name="protocollo" class="form-control" value="{{ row.protocollo or '' }}"></div>
+        
+        <div class="col-md-3"><label class="form-label">N. Buono</label><input type="text" name="buono_n" class="form-control" value="{{ row.buono_n or '' }}"></div>
+        <div class="col-md-3"><label class="form-label">Magazzino</label><input type="text" name="magazzino" class="form-control" value="{{ row.magazzino or 'STRUPPA' }}"></div>
+        <div class="col-md-3"><label class="form-label">Posizione</label><input type="text" name="posizione" class="form-control" value="{{ row.posizione or '' }}"></div>
+        <div class="col-md-3"><label class="form-label">Ordine</label><input type="text" name="ordine" class="form-control" value="{{ row.ordine or '' }}"></div>
+        
+        <div class="col-md-3"><label class="form-label">Data Ingresso</label><input type="date" name="data_ingresso" class="form-control" value="{{ row.data_ingresso or '' }}"></div>
+        <div class="col-md-3"><label class="form-label">DDT Ingresso</label><input type="text" name="n_ddt_ingresso" class="form-control" value="{{ row.n_ddt_ingresso or '' }}"></div>
+        <div class="col-md-3"><label class="form-label">Data Uscita</label><input type="date" name="data_uscita" class="form-control" value="{{ row.data_uscita or '' }}"></div>
+        <div class="col-md-3"><label class="form-label">DDT Uscita</label><input type="text" name="n_ddt_uscita" class="form-control" value="{{ row.n_ddt_uscita or '' }}"></div>
+        
+        <div class="col-md-2"><label class="form-label">Pezzi</label><input type="number" name="pezzo" class="form-control" value="{{ row.pezzo or '' }}"></div>
+        <div class="col-md-2 bg-warning bg-opacity-10 rounded">
+            <label class="form-label fw-bold">Colli</label>
+            <input type="number" name="n_colli" class="form-control fw-bold" value="{{ row.n_colli or '' }}">
+            <small style="font-size:10px">Se >1 crea copie</small>
+        </div>
+        <div class="col-md-2"><label class="form-label">Peso (Kg)</label><input type="number" step="0.01" name="peso" class="form-control" value="{{ row.peso or '' }}"></div>
+        <div class="col-md-2"><label class="form-label">M³</label><input type="number" step="0.001" name="m3" class="form-control" value="{{ row.m3 or '' }}"></div>
+        <div class="col-md-2"><label class="form-label">N. Arrivo</label><input type="text" name="n_arrivo" class="form-control" value="{{ row.n_arrivo or '' }}"></div>
+        
+        <div class="col-md-2"><label class="form-label">Lotto</label><input type="text" name="lotto" class="form-control" value="{{ row.lotto or '' }}"></div>
+        
+        <div class="col-md-4">
+            <label class="form-label">Dimensioni (LxPxH)</label>
+            <div class="input-group">
+                <input type="number" step="0.01" name="lunghezza" class="form-control" placeholder="L" value="{{ row.lunghezza or '' }}">
+                <span class="input-group-text">x</span>
+                <input type="number" step="0.01" name="larghezza" class="form-control" placeholder="P" value="{{ row.larghezza or '' }}">
+                <span class="input-group-text">x</span>
+                <input type="number" step="0.01" name="altezza" class="form-control" placeholder="H" value="{{ row.altezza or '' }}">
+            </div>
+        </div>
+        
+        <div class="col-md-4"><label class="form-label">Serial Number</label><input type="text" name="serial_number" class="form-control" value="{{ row.serial_number or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">Mezzi in Uscita</label><input type="text" name="mezzi_in_uscita" class="form-control" value="{{ row.mezzi_in_uscita or '' }}"></div>
+        <div class="col-12"><label class="form-label">Note</label><textarea name="note" class="form-control" rows="3">{{ row.note or '' }}</textarea></div>
+
+        {% if not row.id_articolo %}
+        <div class="col-12 mt-3">
+            <div class="card bg-light border-dashed p-3">
+                 <label class="form-label fw-bold text-primary"><i class="bi bi-paperclip"></i> Carica Allegati (Subito)</label>
+                 <input type="file" name="new_files" class="form-control" multiple>
+                 <small class="text-muted">Seleziona i file da caricare insieme alla creazione dell'articolo.</small>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="mt-4 text-end">
+        <button type="submit" class="btn btn-primary px-5 btn-lg"><i class="bi bi-save"></i> {% if row.id_articolo %}Salva Modifiche{% else %}Crea Articolo{% endif %}</button>
+    </div>
+</form>
+
+{% if row and row.id_articolo %}
+<div class="card p-4 shadow-sm">
+    <div class="d-flex justify-content-between">
+        <h5><i class="bi bi-paperclip"></i> Allegati Salvati</h5>
+        <form action="{{ url_for('upload_file', id_articolo=row.id_articolo) }}" method="post" enctype="multipart/form-data" class="d-flex gap-2">
+            <input type="file" name="file" class="form-control form-control-sm" required>
+            <button type="submit" class="btn btn-success btn-sm">Carica</button>
+        </form>
+    </div>
+    <hr>
+    
+    <div class="row g-3">
+        {% for att in row.attachments %}
+        <div class="col-md-2 col-6">
+            <div class="card h-100 text-center p-2 border bg-light">
+                <div class="mb-2" style="font-size:2em;">
+                    {% if att.kind == 'photo' %}📷{% else %}📄{% endif %}
+                </div>
+                <div class="text-truncate small fw-bold mb-2" title="{{ att.filename }}">{{ att.filename }}</div>
+                
+                <div class="btn-group btn-group-sm w-100">
+                    <a href="{{ url_for('serve_uploaded_file', filename=att.filename) }}" target="_blank" class="btn btn-outline-primary">Apri</a>
+                    <a href="{{ url_for('delete_attachment', id_attachment=att.id) }}" class="btn btn-outline-danger" onclick="return confirm('Sicuro di eliminare questo file?')">X</a>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="col-12 text-muted fst-italic">Nessun allegato caricato.</div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 """
 
