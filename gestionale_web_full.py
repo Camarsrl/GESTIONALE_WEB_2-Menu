@@ -3904,125 +3904,100 @@ def labels_pdf():
 
 
 # --- FUNZIONE GENERAZIONE PDF (REPORTLAB - Layout Grafico) ---
-def _genera_pdf_etichetta(articoli):
+def _genera_pdf_etichetta(articoli, formato='62x100', anteprima=False):
     import io
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import mm
     from reportlab.lib import colors
-    from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+    from pathlib import Path
 
     bio = io.BytesIO()
     
-    # Formato Etichetta 100x50 mm (Standard Zebra/Stampanti termiche)
-    # Se usi 100x62 mm, cambia height=62*mm
-    W, H = 100*mm, 50*mm
-    
+    # Formato Etichetta Orizzontale
+    pagesize = (100*mm, 62*mm) 
+    # Margini ridotti al minimo per sfruttare lo spazio
+    margin_top = 1*mm
+    margin_side = 2*mm
+
     doc = SimpleDocTemplate(
         bio, 
-        pagesize=(W, H),
-        leftMargin=2*mm, rightMargin=2*mm, 
-        topMargin=2*mm, bottomMargin=2*mm
+        pagesize=pagesize, 
+        leftMargin=margin_side, 
+        rightMargin=margin_side, 
+        topMargin=margin_top, 
+        bottomMargin=margin_top
     )
     
     story = []
     styles = getSampleStyleSheet()
     
-    # --- STILI ---
-    # Header Cliente (Centrato, Grassetto)
-    s_header = ParagraphStyle('H', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=12, alignment=TA_CENTER, leading=14)
+    # --- STILI PERSONALIZZATI PER RIDURRE SPAZIO ---
+    # leading = spazio tra le righe. Lo teniamo basso.
     
-    # Arrivo (Sinistra)
-    s_arr_lbl = ParagraphStyle('AL', parent=styles['Normal'], fontName='Helvetica', fontSize=8, alignment=TA_LEFT, leading=8, textColor=colors.gray)
-    s_arr_val = ParagraphStyle('AV', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, alignment=TA_LEFT, leading=12)
-
-    # Collo (Destra)
-    s_col_lbl = ParagraphStyle('CL', parent=styles['Normal'], fontName='Helvetica', fontSize=8, alignment=TA_RIGHT, leading=8, textColor=colors.gray)
-    s_col_val = ParagraphStyle('CV', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, alignment=TA_RIGHT, leading=12)
-
-    # Codice Articolo (Grande, Centrato, Sfondo grigio simulato da tabella)
-    s_code = ParagraphStyle('C', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=16, alignment=TA_CENTER, leading=18)
-
-    # Descrizione (Piccola)
-    s_desc_lbl = ParagraphStyle('DL', parent=styles['Normal'], fontName='Helvetica', fontSize=7, alignment=TA_LEFT, leading=7, textColor=colors.gray)
-    s_desc_val = ParagraphStyle('DV', parent=styles['Normal'], fontName='Helvetica', fontSize=10, alignment=TA_LEFT, leading=11)
-
-    # Dimensioni (In basso a destra)
-    s_dim = ParagraphStyle('D', parent=styles['Normal'], fontName='Helvetica', fontSize=9, alignment=TA_RIGHT, leading=10)
+    # Etichetta (es. "CLIENTE:") - Font 9
+    s_lbl = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=9)
+    # Valore (es. "WINGECO") - Font 10
+    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=10)
+    
+    # Stile GRANDE per Arrivo e Collo - Font 14, Bold
+    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=16, alignment=1) # Centrato
 
     for art in articoli:
         tot = int(art.n_colli) if (art.n_colli and str(art.n_colli).isdigit()) else 1
         if tot < 1: tot = 1
 
         for i in range(1, tot + 1):
-            # 1. HEADER: CLIENTE
-            cli = str(art.cliente or 'CLIENTE').upper()
-            story.append(Paragraph(cli, s_header))
-            story.append(Spacer(1, 1*mm))
+            # 1. LOGO
+            if LOGO_PATH and Path(LOGO_PATH).exists():
+                story.append(Image(LOGO_PATH, width=35*mm, height=9*mm, hAlign='LEFT'))
+                # Pochissimo spazio dopo il logo
+                story.append(Spacer(1, 1*mm))
             
-            # Linea separatrice
-            story.append(Table([['']], colWidths=[96*mm], rowHeights=[1], style=[('LINEBELOW', (0,0), (-1,-1), 1, colors.black)]))
-            story.append(Spacer(1, 2*mm))
+            # 2. STRINGHE COMPOSTE
+            # Combina: ARRIVO: 01/24 N.1
+            arr_base = art.n_arrivo or ''
+            txt_arrivo_combined = f"ARRIVO: {arr_base}  N.{i}"
+            
+            txt_collo = f"COLLO: {i} / {tot}"
 
-            # 2. RIGA: ARRIVO (SX) e COLLO (DX)
-            # Usiamo una tabella per allinearli perfettamente
-            txt_arr = str(art.n_arrivo or '-')
-            txt_col = f"{i} / {tot}"
-            
-            data_row = [
-                [Paragraph("N. ARRIVO", s_arr_lbl), Paragraph("COLLO", s_col_lbl)], # Etichette
-                [Paragraph(txt_arr, s_arr_val),     Paragraph(txt_col, s_col_val)]  # Valori
+            # 3. TABELLA DATI (Compatta)
+            dati = [
+                [Paragraph("CLIENTE:", s_lbl), Paragraph(str(art.cliente or '')[:25], s_val)],
+                [Paragraph("FORNITORE:", s_lbl), Paragraph(str(art.fornitore or '')[:25], s_val)],
+                [Paragraph("ORDINE:", s_lbl), Paragraph(str(art.ordine or ''), s_val)],
+                [Paragraph("COMMESSA:", s_lbl), Paragraph(str(art.commessa or ''), s_val)],
+                [Paragraph("DDT ING.:", s_lbl), Paragraph(str(art.n_ddt_ingresso or ''), s_val)],
+                [Paragraph("DATA ING.:", s_lbl), Paragraph(fmt_date(art.data_ingresso), s_val)],
+                
+                # Riga separatoria invisibile (spazio minimo)
+                ['', ''],
+                
+                # Arrivo Combinato (es. ARRIVO: 01/24 N.1) su tutta la larghezza
+                [Paragraph(txt_arrivo_combined, s_big), ''], 
+                # Collo su tutta la larghezza
+                [Paragraph(txt_collo, s_big), '']
             ]
             
-            # Tabella annidata o struttura diretta? Facciamo diretta.
-            # Colonna SX (Arrivo) = 60%, Colonna DX (Collo) = 40%
-            tbl_info = Table(data_row, colWidths=[60*mm, 36*mm])
-            tbl_info.setStyle(TableStyle([
+            t = Table(dati, colWidths=[23*mm, 72*mm])
+            t.setStyle(TableStyle([
                 ('VALIGN', (0,0), (-1,-1), 'TOP'),
                 ('LEFTPADDING', (0,0), (-1,-1), 0),
                 ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                # Riduciamo il padding interno celle a zero per compattare
                 ('TOPPADDING', (0,0), (-1,-1), 0),
                 ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+                # Unisci le celle delle ultime due righe (Arrivo e Collo) per centrarle meglio
+                ('SPAN', (0,6), (1,6)), # Riga Arrivo
+                ('SPAN', (0,7), (1,7)), # Riga Collo
             ]))
-            story.append(tbl_info)
-            story.append(Spacer(1, 3*mm))
-
-            # 3. CODICE ARTICOLO (Grande)
-            code = str(art.codice_articolo or 'CODICE')
-            # Tabella con sfondo grigio chiaro per evidenziare
-            tbl_code = Table([[Paragraph(code, s_code)]], colWidths=[96*mm])
-            tbl_code.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,-1), colors.lightgrey),
-                ('TOPPADDING', (0,0), (-1,-1), 2),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-            ]))
-            story.append(tbl_code)
-            story.append(Spacer(1, 3*mm))
-
-            # 4. DESCRIZIONE e DIMENSIONI
-            desc = str(art.descrizione or '')[:45]
-            dims = f"{int(art.lunghezza or 0)}x{int(art.larghezza or 0)}x{int(art.altezza or 0)}"
+            story.append(t)
             
-            # Tabella finale
-            row_end = [
-                [Paragraph("DESCRIZIONE", s_desc_lbl), Paragraph("DIMENSIONI", s_col_lbl)], # Uso stile col_lbl per allineare a destra la label dim
-                [Paragraph(desc, s_desc_val),          Paragraph(dims, s_dim)]
-            ]
-            tbl_end = Table(row_end, colWidths=[65*mm, 31*mm])
-            tbl_end.setStyle(TableStyle([
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                ('LEFTPADDING', (0,0), (-1,-1), 0),
-                ('RIGHTPADDING', (0,0), (-1,-1), 0),
-                ('TOPPADDING', (0,0), (-1,-1), 0),
-            ]))
-            story.append(tbl_end)
-
             story.append(PageBreak())
 
     doc.build(story)
     bio.seek(0)
     return bio
-
 
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
