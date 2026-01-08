@@ -1888,34 +1888,39 @@ Camar S.r.l.</textarea>
 {% endblock %}
 """
 
-
-
-
 templates = {
-    'base.html': BASE_HTML,
-    'login.html': LOGIN_HTML,
-    'home.html': HOME_HTML,
-    'giacenze.html': GIACENZE_HTML,
-    'edit.html': EDIT_HTML,
-    'bulk_edit.html': BULK_EDIT_HTML,
-    'buono_preview.html': BUONO_PREVIEW_HTML,
-    'ddt_preview.html': DDT_PREVIEW_HTML,
-    'labels_form.html': LABELS_FORM_HTML,
-    'labels_preview.html': LABELS_PREVIEW_HTML,
-    'import_excel.html': IMPORT_EXCEL_HTML,
-    'import_pdf.html': IMPORT_PDF_HTML,      # <--- NUOVO
-    'trasporti.html': TRASPORTI_HTML,
-    'lavorazioni.html': LAVORAZIONI_HTML,
+        'base.html': BASE_HTML,
+        'login.html': LOGIN_HTML,
+        'home.html': HOME_HTML,
+        'giacenze.html': GIACENZE_HTML,
+        
+        
+        'edit.html': EDIT_HTML,  
+        
+        'bulk_edit.html': BULK_EDIT_HTML,
+        'buono_preview.html': BUONO_PREVIEW_HTML,
+        'ddt_preview.html': DDT_PREVIEW_HTML,
+        'labels_form.html': LABELS_FORM_HTML,
+        'labels_preview.html': LABELS_PREVIEW_HTML,
+        
+        'import_excel.html': IMPORT_EXCEL_HTML,
+        'import_pdf.html': IMPORT_PDF_HTML,
+        'mappe_excel.html': MAPPE_EXCEL_HTML,
+        
+        # NUOVI MODULI (Trasporti e Picking)
+        'trasporti.html': TRASPORTI_HTML,
+        'lavorazioni.html': LAVORAZIONI_HTML,
 
-    # ✅ AGGIUNGI QUESTA RIGA
-    'mappe_excel.html': MAPPE_EXCEL_HTML,
-    'invia_email.html': INVIA_EMAIL_HTML,
- 
+        # ⚠️ MANCAVANO QUESTI DUE PER LE STAMPE:
+        'report_trasporti_print.html': REPORT_TRASPORTI_HTML,
+        'report_inventario_print.html': REPORT_INVENTARIO_HTML,
 
-    'export_client.html': EXPORT_CLIENT_HTML,
-    'destinatari.html': DESTINATARI_HTML,
-    'calcoli.html': CALCOLI_HTML  
-}
+        # ALTRI MODULI (Se hai le variabili definite sopra, lasciali)
+        'invia_email.html': INVIA_EMAIL_HTML,
+        'export_client.html': EXPORT_CLIENT_HTML,
+        'destinatari.html': DESTINATARI_HTML,
+        'calcoli.html': CALCOLI_HTML
+    }
 
 # ========================================================
 # CONFIGURAZIONE FINALE (SENZA RICREARE L'APP)
