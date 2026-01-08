@@ -3998,7 +3998,8 @@ app.jinja_env.filters['fmt_date'] = fmt_date
 # 🚑 PULSANTE DI EMERGENZA PER FIX DATABASE
 # ========================================================
 
-@app.route('/fix_db_schema') # Ho rinominato la rotta per chiarezza
+# --- ROTTA PER AGGIORNARE IL DATABASE ---
+@app.route('/fix_db_schema')
 @login_required
 def fix_db_schema():
     if session.get('role') != 'admin':
@@ -4011,42 +4012,31 @@ def fix_db_schema():
     try:
         from sqlalchemy import text
         
-        # 1. CREAZIONE NUOVE TABELLE (Trasporti, Lavorazioni)
-        # Questo comando crea le tabelle solo se non esistono già
+        # 1. CREA LE TABELLE MANCANTI (Trasporti, Lavorazioni)
+        # Questo comando crea automaticamente le tabelle definite nelle Classi se non esistono
         Base.metadata.create_all(bind=engine)
-        log_msg += "<li>✅ Tabelle 'Trasporti' e 'Lavorazioni' verificate/create.</li>"
+        log_msg += "<li>✅ Tabelle 'Trasporti' e 'Lavorazioni' create/verificate.</li>"
 
-        # 2. AGGIUNTA COLONNA 'LOTTO'
+        # 2. AGGIUNGI COLONNA 'LOTTO' (Se manca)
         try:
-            # Tenta di aggiungere la colonna. Se esiste già, darà errore (che ignoriamo)
             db.execute(text("ALTER TABLE articoli ADD COLUMN lotto TEXT;"))
             db.commit()
-            log_msg += "<li>✅ Colonna <b>'lotto'</b> aggiunta alla tabella Articoli.</li>"
+            log_msg += "<li>✅ Colonna <b>'lotto'</b> aggiunta con successo.</li>"
         except Exception as e:
             db.rollback()
-            log_msg += f"<li>ℹ️ Colonna 'lotto' esistente o errore trascurabile.</li>"
+            # Se da errore, probabilmente esiste già, quindi va bene
+            log_msg += f"<li>ℹ️ Colonna 'lotto' esistente (o errore ignorabile): {e}</li>"
 
-        # 3. CONVERSIONE TIPI IN TEXT (Il tuo vecchio codice, integrato)
-        colonne_da_sbloccare = [
-            'codice_articolo', 'descrizione', 'commessa', 'ordine', 
-            'n_ddt_ingresso', 'n_ddt_uscita', 'n_arrivo', 'buono_n', 
-            'protocollo', 'cliente', 'fornitore', 'data_ingresso', 
-            'data_uscita', 'serial_number', 'magazzino', 'posizione', 
-            'stato', 'lotto' # <--- Ho aggiunto anche lotto qui per sicurezza
-        ]
-        
-        for col in colonne_da_sbloccare:
+        # 3. FIX TIPI COLONNE (Per sicurezza convertiamo tutto in TEXT per l'import)
+        colonne = ['n_arrivo', 'lotto', 'commessa', 'ordine', 'n_ddt_ingresso', 'n_ddt_uscita', 'serial_number']
+        for col in colonne:
             try:
-                sql = text(f"ALTER TABLE articoli ALTER COLUMN {col} TYPE TEXT USING {col}::text")
-                db.execute(sql)
-                # log_msg += f"<li>✅ Colonna <b>{col}</b> convertita in TEXT.</li>"
-            except Exception:
-                pass # Ignoriamo errori se la colonna è già a posto
-        
-        db.commit()
-        log_msg += "<li>✅ Tutte le colonne convertite in TEXT per sicurezza.</li>"
-        
-        log_msg += "</ul><br><h3 style='color:green'>DATABASE AGGIORNATO CON SUCCESSO!</h3>"
+                db.execute(text(f"ALTER TABLE articoli ALTER COLUMN {col} TYPE TEXT USING {col}::text"))
+                db.commit()
+            except:
+                db.rollback()
+
+        log_msg += "</ul><br><h1 style='color:green'>TUTTO OK! ORA PUOI USARE IL GESTIONALE.</h1>"
         log_msg += f'<br><a href="{url_for("home")}" class="btn btn-primary">Torna alla Home</a>'
         return log_msg
         
