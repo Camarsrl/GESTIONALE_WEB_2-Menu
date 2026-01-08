@@ -559,6 +559,38 @@ BASE_HTML = """
 </html>
 """
 
+REPORT_TRASPORTI_HTML = """
+<!DOCTYPE html>
+<html>
+<head><title>Report Trasporti</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body onload="window.print()">
+    <div class="container mt-5">
+        <h1>Report Trasporti</h1>
+        <p>Periodo: {{ mese }} | Cliente: {{ cliente or 'Tutti' }}</p>
+        <table class="table table-bordered">
+            <thead><tr><th>Data</th><th>Mezzo</th><th>Cliente</th><th>Trasportatore</th><th>Costo</th></tr></thead>
+            <tbody>
+                {% for t in dati %}
+                <tr>
+                    <td>{{ t.data }}</td><td>{{ t.tipo_mezzo }}</td>
+                    <td>{{ t.cliente }}</td><td>{{ t.trasportatore }}</td><td>€ {{ t.costo }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr class="table-dark">
+                    <td colspan="4" class="text-end">TOTALE</td>
+                    <td>€ {{ totale }}</td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</body>
+</html>
+"""
+
 LOGIN_HTML = """
 {% extends 'base.html' %}
 {% block content %}
