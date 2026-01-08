@@ -471,31 +471,69 @@ BASE_HTML = """
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
         body { background: #f8f9fa; font-size: 14px; }
+        .navbar { background-color: #1f6fb2; } /* Blu Camar */
+        .navbar-brand, .nav-link, .navbar-text { color: white !important; }
+        .nav-link:hover { opacity: 0.8; }
+        
         .card { border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.08); border: none; }
         .table-container { overflow: auto; max-height: 65vh; }
         .table thead th { position: sticky; top: 0; background: #f0f2f5; z-index: 2; }
         .dropzone { border: 2px dashed #0d6efd; background: #eef4ff; padding: 20px; border-radius: 12px; text-align: center; color: #0d6efd; cursor: pointer; }
-        .logo { height: 40px; }
+        .logo { height: 32px; width: auto; }
         .table-compact th, .table-compact td { font-size: 11px; padding: 4px 5px; white-space: normal; word-wrap: break-word; vertical-align: middle; }
         .table-striped tbody tr:nth-of-type(odd) { background-color: rgba(0,0,0,.03); }
+        
+        /* Stile Bottoni Admin nel Menu */
+        .btn-nav-admin { font-weight: bold; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        
         @media print { .no-print { display: none !important; } }
     </style>
 </head>
 <body>
-<nav class="navbar bg-white shadow-sm no-print">
+<nav class="navbar navbar-expand-lg navbar-dark shadow-sm no-print">
     <div class="container-fluid">
-        <div class="d-flex align-items-center gap-2">
+        <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('home') }}">
             {% if logo_url %}<img src="{{ logo_url }}" class="logo" alt="logo">{% endif %}
-            <a class="navbar-brand" href="{{ url_for('home') }}">Camar • Gestionale</a>
-        </div>
-        <div class="ms-auto">
-            {% if session.get('user') %}
-                <span class="me-3">Utente: <b>{{ session['user'] }}</b></span>
-                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i> Logout</a>
-            {% endif %}
+            Camar • Gestionale
+        </a>
+
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav ms-auto align-items-center gap-2">
+                
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('giacenze') }}">📦 Magazzino</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('import_excel') }}">📥 Import Excel</a></li>
+
+                {% if session.get('role') == 'admin' %}
+                    <li class="nav-item border-start border-light ps-2 ms-2 d-none d-lg-block"></li> <li class="nav-item">
+                        <a class="nav-link btn btn-danger text-white px-3 ms-2 btn-nav-admin" href="{{ url_for('trasporti') }}">
+                            <i class="bi bi-truck"></i> TRASPORTI
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-success text-white px-3 ms-2 btn-nav-admin" href="{{ url_for('lavorazioni') }}">
+                            <i class="bi bi-box-seam"></i> PICKING
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                         <a class="nav-link text-white-50 ms-1" href="{{ url_for('manage_mappe') }}" title="Gestione Mappe"><i class="bi bi-gear"></i></a>
+                    </li>
+                {% endif %}
+
+                {% if session.get('user') %}
+                    <li class="nav-item ms-4 text-white-50 small d-none d-lg-block">Utente: <b>{{ session['user'] }}</b></li>
+                    <li class="nav-item">
+                        <a class="btn btn-outline-light btn-sm ms-2" href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i> Esci</a>
+                    </li>
+                {% endif %}
+            </ul>
         </div>
     </div>
 </nav>
+
 <main class="container-fluid my-4">
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
@@ -507,11 +545,14 @@ BASE_HTML = """
             {% endfor %}
         {% endif %}
     {% endwith %}
+
     {% block content %}{% endblock %}
 </main>
-<footer class="text-center text-muted py-3 small no-print">
+
+<footer class="text-center text-white py-3 small no-print" style="background-color: #1f6fb2; margin-top: auto;">
     © Alessia Moncalvo – Gestionale Camar Web Edition • Tutti i diritti riservati.
 </footer>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 {% block extra_js %}{% endblock %}
 </body>
