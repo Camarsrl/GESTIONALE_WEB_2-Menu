@@ -1720,6 +1720,41 @@ DESTINATARI_HTML = """
 {% endblock %}
 """
 
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid mt-4">
+    <h2>⚙️ Lavorazioni / Picking</h2>
+    
+    <form method="GET" class="row g-3 mb-4 p-3 bg-light border rounded">
+        <div class="col-md-3"><input type="text" name="cliente" class="form-control" placeholder="Cliente"></div>
+        <div class="col-md-3"><input type="text" name="descrizione" class="form-control" placeholder="Descrizione"></div>
+        <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">Filtra</button></div>
+    </form>
+
+    <table class="table table-bordered">
+        <thead class="table-dark">
+            <tr>
+                <th>Data</th><th>Cliente</th><th>Descrizione</th>
+                <th>Ore White</th><th>Ore Blue</th><th>Pallet</th><th>Note</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for l in lavorazioni %}
+            <tr>
+                <td>{{ l.data }}</td>
+                <td>{{ l.cliente }}</td>
+                <td>{{ l.descrizione }}</td>
+                <td>{{ l.ore_white_collar }}</td>
+                <td>{{ l.ore_blue_collar }}</td>
+                <td>{{ l.pallet_forniti }}</td>
+                <td>{{ l.note }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
 CALCOLA_COSTI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -1759,6 +1794,68 @@ CALCOLA_COSTI_HTML = """
 </div>
 {% endblock %}
 """
+
+<!DOCTYPE html>
+<html>
+<head><title>Inventario al {{ data_rif }}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body onload="window.print()">
+    <div class="container mt-4">
+        <h1 class="text-center">Inventario al {{ data_rif }}</h1>
+        <hr>
+        {% for cliente, articoli in inventario.items() %}
+            <h3 class="mt-4 bg-light p-2">{{ cliente }}</h3>
+            <table class="table table-sm table-bordered">
+                <thead><tr><th>Codice</th><th>Descrizione</th><th>Lotto</th><th>Q.tà</th><th>Posizione</th></tr></thead>
+                <tbody>
+                    {% for art in articoli %}
+                    <tr>
+                        <td>{{ art.codice_articolo }}</td>
+                        <td>{{ art.descrizione }}</td>
+                        <td>{{ art.lotto }}</td>
+                        <td>{{ art.n_colli }}</td>
+                        <td>{{ art.posizione }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <div style="page-break-after: always;"></div>
+        {% endfor %}
+    </div>
+</body>
+</html>
+
+
+<!DOCTYPE html>
+<html>
+<head><title>Report Trasporti</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body onload="window.print()">
+    <div class="container mt-5">
+        <h1>Report Trasporti</h1>
+        <p>Periodo: {{ mese }} | Cliente: {{ cliente or 'Tutti' }}</p>
+        <table class="table table-bordered">
+            <thead><tr><th>Data</th><th>Mezzo</th><th>Cliente</th><th>Trasportatore</th><th>Costo</th></tr></thead>
+            <tbody>
+                {% for t in dati %}
+                <tr>
+                    <td>{{ t.data }}</td><td>{{ t.tipo_mezzo }}</td>
+                    <td>{{ t.cliente }}</td><td>{{ t.trasportatore }}</td><td>€ {{ t.costo }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr class="table-dark">
+                    <td colspan="4" class="text-end">TOTALE</td>
+                    <td>€ {{ totale }}</td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</body>
+</html>
 
 INVIA_EMAIL_HTML = """
 {% extends "base.html" %}
