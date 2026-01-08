@@ -3895,9 +3895,7 @@ app.jinja_env.filters['fmt_date'] = fmt_date
 # ========================================================
 # 🚑 PULSANTE DI EMERGENZA PER FIX DATABASE
 # ========================================================
-# ========================================================
-# 🚑 AGGIORNAMENTO COMPLETO DATABASE (TABELLE + COLONNE + TIPI)
-# ========================================================
+
 @app.route('/fix_db_schema') # Ho rinominato la rotta per chiarezza
 @login_required
 def fix_db_schema():
