@@ -1904,7 +1904,8 @@ templates = {
     'labels_preview.html': LABELS_PREVIEW_HTML,
     'import_excel.html': IMPORT_EXCEL_HTML,
     'import_pdf.html': IMPORT_PDF_HTML,      # <--- NUOVO
-    
+    'trasporti.html': TRASPORTI_HTML
+    'lavorazioni.html': LAVORAZIONI_HTML
 
     # ✅ AGGIUNGI QUESTA RIGA
     'mappe_excel.html': MAPPE_EXCEL_HTML,
