@@ -1794,68 +1794,71 @@ CALCOLA_COSTI_HTML = """
 </div>
 {% endblock %}
 """
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid mt-4">
+    <h2>🚚 Gestione Trasporti</h2>
+    
+    <form method="GET" class="row g-3 mb-4 p-3 bg-light border rounded">
+        <div class="col-md-2"><input type="text" name="data" class="form-control" placeholder="Data"></div>
+        <div class="col-md-2"><input type="text" name="cliente" class="form-control" placeholder="Cliente"></div>
+        <div class="col-md-2"><input type="text" name="trasportatore" class="form-control" placeholder="Trasportatore"></div>
+        <div class="col-md-2"><input type="text" name="tipo_mezzo" class="form-control" placeholder="Mezzo"></div>
+        <div class="col-md-2"><input type="text" name="consolidato" class="form-control" placeholder="Consolidato"></div>
+        <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">Filtra</button></div>
+    </form>
 
-<!DOCTYPE html>
-<html>
-<head><title>Inventario al {{ data_rif }}</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body onload="window.print()">
-    <div class="container mt-4">
-        <h1 class="text-center">Inventario al {{ data_rif }}</h1>
-        <hr>
-        {% for cliente, articoli in inventario.items() %}
-            <h3 class="mt-4 bg-light p-2">{{ cliente }}</h3>
-            <table class="table table-sm table-bordered">
-                <thead><tr><th>Codice</th><th>Descrizione</th><th>Lotto</th><th>Q.tà</th><th>Posizione</th></tr></thead>
-                <tbody>
-                    {% for art in articoli %}
-                    <tr>
-                        <td>{{ art.codice_articolo }}</td>
-                        <td>{{ art.descrizione }}</td>
-                        <td>{{ art.lotto }}</td>
-                        <td>{{ art.n_colli }}</td>
-                        <td>{{ art.posizione }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            <div style="page-break-after: always;"></div>
-        {% endfor %}
-    </div>
-</body>
-</html>
+    <button type="button" class="btn btn-success mb-3" data-bs-toggle="modal" data-bs-target="#reportModal">
+        📊 Crea Report Mensile
+    </button>
 
-
-<!DOCTYPE html>
-<html>
-<head><title>Report Trasporti</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body onload="window.print()">
-    <div class="container mt-5">
-        <h1>Report Trasporti</h1>
-        <p>Periodo: {{ mese }} | Cliente: {{ cliente or 'Tutti' }}</p>
-        <table class="table table-bordered">
-            <thead><tr><th>Data</th><th>Mezzo</th><th>Cliente</th><th>Trasportatore</th><th>Costo</th></tr></thead>
-            <tbody>
-                {% for t in dati %}
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead class="table-dark">
                 <tr>
-                    <td>{{ t.data }}</td><td>{{ t.tipo_mezzo }}</td>
-                    <td>{{ t.cliente }}</td><td>{{ t.trasportatore }}</td><td>€ {{ t.costo }}</td>
+                    <th>Data</th><th>Cliente</th><th>Destinazione</th><th>Mezzo</th>
+                    <th>Trasportatore</th><th>DDT Uscita</th><th>Consolidato</th><th>Costo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in trasporti %}
+                <tr>
+                    <td>{{ t.data }}</td>
+                    <td>{{ t.cliente }}</td>
+                    <td>-</td> <td>{{ t.tipo_mezzo }}</td>
+                    <td>{{ t.trasportatore }}</td>
+                    <td>{{ t.ddt_uscita }}</td>
+                    <td>{{ t.consolidato }}</td>
+                    <td>€ {{ t.costo }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
-            <tfoot>
-                <tr class="table-dark">
-                    <td colspan="4" class="text-end">TOTALE</td>
-                    <td>€ {{ totale }}</td>
-                </tr>
-            </tfoot>
         </table>
     </div>
-</body>
-</html>
+</div>
+
+<div class="modal fade" id="reportModal" tabindex="-1">
+    <div class="modal-dialog">
+        <form action="{{ url_for('report_trasporti') }}" method="POST">
+        <div class="modal-content">
+            <div class="modal-header"><h5>Genera Report Trasporti</h5></div>
+            <div class="modal-body">
+                <label>Mese (YYYY-MM)</label>
+                <input type="month" name="mese" class="form-control mb-2" required>
+                <label>Filtra Mezzo (Opzionale)</label>
+                <input type="text" name="tipo_mezzo" class="form-control mb-2">
+                <label>Filtra Cliente (Opzionale)</label>
+                <input type="text" name="cliente" class="form-control">
+            </div>
+            <div class="modal-footer">
+                <button type="submit" class="btn btn-success">Stampa Report</button>
+            </div>
+        </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
 
 INVIA_EMAIL_HTML = """
 {% extends "base.html" %}
