@@ -558,6 +558,38 @@ BASE_HTML = """
 </body>
 </html>
 """
+REPORT_INVENTARIO_HTML = """
+<!DOCTYPE html>
+<html>
+<head><title>Inventario al {{ data_rif }}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body onload="window.print()">
+    <div class="container mt-4">
+        <h1 class="text-center">Inventario al {{ data_rif }}</h1>
+        <hr>
+        {% for cliente, articoli in inventario.items() %}
+            <h3 class="mt-4 bg-light p-2">{{ cliente }}</h3>
+            <table class="table table-sm table-bordered">
+                <thead><tr><th>Codice</th><th>Descrizione</th><th>Lotto</th><th>Q.tà</th><th>Posizione</th></tr></thead>
+                <tbody>
+                    {% for art in articoli %}
+                    <tr>
+                        <td>{{ art.codice_articolo }}</td>
+                        <td>{{ art.descrizione }}</td>
+                        <td>{{ art.lotto }}</td>
+                        <td>{{ art.n_colli }}</td>
+                        <td>{{ art.posizione }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <div style="page-break-after: always;"></div>
+        {% endfor %}
+    </div>
+</body>
+</html>
+"""
 
 REPORT_TRASPORTI_HTML = """
 <!DOCTYPE html>
