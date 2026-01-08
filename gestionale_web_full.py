@@ -931,8 +931,10 @@ GIACENZE_HTML = """
                     <td>{{ r.peso or '' }}</td>
                     <td>{{ r.lunghezza|int }}x{{ r.larghezza|int }}x{{ r.altezza|int }}</td>
                     
-                    <td>{{ r.lotto or '' }}</td> <td>{{ r.m2|round(3) if r.m2 else '' }}</td>
-                    <td>{{ r.m3|round(3) if r.m3 else '' }}</td>
+                    <td>{{ r.lotto or '' }}</td> 
+                    
+                    <td>{{ r.m2|float|round(3) if r.m2 else '' }}</td>
+                    <td>{{ r.m3|float|round(3) if r.m3 else '' }}</td>
                     
                     <td class="text-center">
                         <a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}" title="Modifica" class="text-decoration-none me-1">✏️</a>
@@ -942,7 +944,7 @@ GIACENZE_HTML = """
                 {% endfor %}
             </tbody>
             <tfoot class="sticky-bottom bg-white fw-bold">
-                <tr><td colspan="25">Totali: Colli {{ total_colli }} | M2 {{ total_m2|round(2) }} | Peso {{ total_peso }}</td></tr>
+                <tr><td colspan="25">Totali: Colli {{ total_colli }} | M2 {{ total_m2|float|round(2) }} | Peso {{ total_peso }}</td></tr>
             </tfoot>
         </table>
     </div>
@@ -952,16 +954,13 @@ GIACENZE_HTML = """
     function toggleAll(source) {
         document.getElementsByName('ids').forEach(c => {
             c.checked = source.checked;
-            // Scatena l'evento change per aggiornare il localStorage
             c.dispatchEvent(new Event('change'));
         });
     }
 
-    // SCRIPT PER MANTENERE LA SELEZIONE DOPO IL REFRESH
     document.addEventListener("DOMContentLoaded", function() {
         const STORAGE_KEY = 'camar_selected_articles';
         
-        // 1. Ripristina selezioni
         let savedIds = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
         const checkboxes = document.querySelectorAll('input[name="ids"]');
         
@@ -970,7 +969,6 @@ GIACENZE_HTML = """
                 cb.checked = true;
             }
             
-            // 2. Salva su cambio stato
             cb.addEventListener('change', function() {
                 let currentIds = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
                 if (this.checked) {
