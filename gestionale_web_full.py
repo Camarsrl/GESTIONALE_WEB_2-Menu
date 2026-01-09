@@ -1664,22 +1664,37 @@ LAVORAZIONI_HTML = """
 <div class="container-fluid mt-4">
     <h2><i class="bi bi-gear"></i> Gestione Picking / Lavorazioni</h2>
     
-    <form method="GET" class="row g-3 mb-4 p-3 bg-light border rounded shadow-sm">
-        <div class="col-md-3"><input type="text" name="cliente" class="form-control" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
-        <div class="col-md-3"><input type="text" name="descrizione" class="form-control" placeholder="Descrizione" value="{{ request.args.get('descrizione','') }}"></div>
-        <div class="col-md-2 d-flex gap-1">
-            <button type="submit" class="btn btn-primary flex-grow-1">Filtra</button>
-            <a href="{{ url_for('lavorazioni') }}" class="btn btn-outline-secondary">X</a>
-        </div>
-    </form>
+    <div class="card p-3 mb-4 bg-light border shadow-sm">
+        <h5 class="mb-3">Inserisci Nuovo Picking</h5>
+        <form method="POST" class="row g-2">
+            <div class="col-md-2"><label class="small">Data</label><input type="date" name="data" class="form-control" required value="{{ today }}"></div>
+            <div class="col-md-2"><label class="small">Cliente</label><input type="text" name="cliente" class="form-control"></div>
+            <div class="col-md-3"><label class="small">Descrizione</label><input type="text" name="descrizione" class="form-control"></div>
+            <div class="col-md-2"><label class="small">Richiesta Di</label><input type="text" name="richiesta_di" class="form-control"></div>
+            <div class="col-md-3"><label class="small">Seriali</label><input type="text" name="seriali" class="form-control"></div>
+            
+            <div class="col-md-1"><label class="small">Colli</label><input type="number" name="colli" class="form-control"></div>
+            <div class="col-md-1"><label class="small">Pallet IN</label><input type="number" name="pallet_forniti" class="form-control"></div>
+            <div class="col-md-1"><label class="small">Pallet OUT</label><input type="number" name="pallet_uscita" class="form-control"></div>
+            <div class="col-md-1"><label class="small">Ore Blue</label><input type="number" step="0.5" name="ore_blue_collar" class="form-control"></div>
+            <div class="col-md-1"><label class="small">Ore White</label><input type="number" step="0.5" name="ore_white_collar" class="form-control"></div>
+            
+            <div class="col-md-12 text-end mt-2">
+                <button type="submit" class="btn btn-success"><i class="bi bi-plus-lg"></i> Aggiungi</button>
+            </div>
+        </form>
+    </div>
 
     <div class="card shadow-sm">
         <div class="table-responsive">
-            <table class="table table-bordered table-hover mb-0">
+            <table class="table table-bordered table-hover mb-0 align-middle">
                 <thead class="table-dark">
                     <tr>
                         <th>Data</th><th>Cliente</th><th>Descrizione</th>
-                        <th>Ore White</th><th>Ore Blue</th><th>Pallet</th><th>Note</th>
+                        <th>Richiesta</th><th>Seriali</th><th>Colli</th>
+                        <th>P. IN</th><th>P. OUT</th>
+                        <th>Blue</th><th>White</th>
+                        <th>Azioni</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1688,13 +1703,19 @@ LAVORAZIONI_HTML = """
                         <td>{{ l.data }}</td>
                         <td>{{ l.cliente }}</td>
                         <td>{{ l.descrizione }}</td>
-                        <td>{{ l.ore_white_collar }}</td>
-                        <td>{{ l.ore_blue_collar }}</td>
+                        <td>{{ l.richiesta_di }}</td>
+                        <td>{{ l.seriali }}</td>
+                        <td>{{ l.colli }}</td>
                         <td>{{ l.pallet_forniti }}</td>
-                        <td>{{ l.note }}</td>
+                        <td>{{ l.pallet_uscita }}</td>
+                        <td>{{ l.ore_blue_collar }}</td>
+                        <td>{{ l.ore_white_collar }}</td>
+                        <td>
+                            <a href="{{ url_for('elimina_record', table='lavorazioni', id=l.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Eliminare?')">X</a>
+                        </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="7" class="text-center text-muted">Nessuna lavorazione trovata.</td></tr>
+                    <tr><td colspan="11" class="text-center text-muted">Nessuna attività.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
