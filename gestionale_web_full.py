@@ -2864,59 +2864,6 @@ def duplica_articolo(id_articolo):
     
     return redirect(url_for('giacenze'))
 
-# --- DUPLICAZIONE MASSIVA (Quella che mi hai mandato tu) ---
-@app.route('/bulk/duplicate', methods=['POST'])
-@login_required
-def bulk_duplicate():
-    if session.get('role') != 'admin':
-        flash("Non hai i permessi.", "danger")
-        return redirect(url_for('giacenze'))
-
-    ids = request.form.getlist('ids')
-    if not ids:
-        flash("Nessuna selezione.", "warning")
-        return redirect(url_for('giacenze'))
-
-    db = SessionLocal()
-    try:
-        count = 0
-        for id_str in ids:
-            if not id_str.isdigit(): continue
-            original = db.query(Articolo).get(int(id_str))
-            if original:
-                new_art = Articolo(
-                    codice_articolo=original.codice_articolo,
-                    descrizione=original.descrizione,
-                    cliente=original.cliente,
-                    fornitore=original.fornitore,
-                    commessa=original.commessa,
-                    protocollo=original.protocollo,
-                    buono_n=original.buono_n,
-                    ordine=original.ordine,
-                    data_ingresso=date.today(), # Aggiorniamo a oggi
-                    n_ddt_ingresso=original.n_ddt_ingresso,
-                    pezzo=original.pezzo,
-                    n_colli=original.n_colli,
-                    peso=original.peso,
-                    m2=original.m2,
-                    m3=original.m3,
-                    n_arrivo=original.n_arrivo,
-                    stato=original.stato,
-                    magazzino=original.magazzino,
-                    posizione=original.posizione,
-                    lotto=original.lotto, # Aggiunto Lotto
-                    note=original.note
-                )
-                db.add(new_art)
-                count += 1
-        db.commit()
-        flash(f"{count} articoli duplicati.", "success")
-    except Exception as e:
-        db.rollback()
-        flash(f"Errore: {e}", "danger")
-    finally:
-        db.close()
-    return redirect(url_for('giacenze'))
 
 @app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
 @login_required
