@@ -1752,72 +1752,55 @@ TRASPORTI_HTML = """
 <div class="container-fluid mt-4">
     <h2><i class="bi bi-truck"></i> Gestione Trasporti</h2>
     
-    <form method="GET" class="row g-3 mb-4 p-3 bg-light border rounded shadow-sm">
-        <div class="col-md-2"><input type="text" name="data" class="form-control" placeholder="Data" value="{{ request.args.get('data','') }}"></div>
-        <div class="col-md-2"><input type="text" name="cliente" class="form-control" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
-        <div class="col-md-2"><input type="text" name="trasportatore" class="form-control" placeholder="Trasportatore" value="{{ request.args.get('trasportatore','') }}"></div>
-        <div class="col-md-2"><input type="text" name="tipo_mezzo" class="form-control" placeholder="Mezzo" value="{{ request.args.get('tipo_mezzo','') }}"></div>
-        <div class="col-md-2"><input type="text" name="consolidato" class="form-control" placeholder="Consolidato" value="{{ request.args.get('consolidato','') }}"></div>
-        <div class="col-md-2 d-flex gap-1">
-            <button type="submit" class="btn btn-primary flex-grow-1">Filtra</button>
-            <a href="{{ url_for('trasporti') }}" class="btn btn-outline-secondary">X</a>
-        </div>
-    </form>
-
-    <button type="button" class="btn btn-success mb-3" data-bs-toggle="modal" data-bs-target="#reportModal">
-        <i class="bi bi-file-earmark-bar-graph"></i> Crea Report Mensile
-    </button>
+    <div class="card p-3 mb-4 bg-light border shadow-sm">
+        <h5 class="mb-3">Inserisci Nuovo Trasporto</h5>
+        <form method="POST" class="row g-2">
+            <div class="col-md-2"><label class="small">Data</label><input type="date" name="data" class="form-control" required value="{{ today }}"></div>
+            <div class="col-md-2"><label class="small">Tipo Mezzo</label><input type="text" name="tipo_mezzo" class="form-control" placeholder="es. Bilico"></div>
+            <div class="col-md-2"><label class="small">Cliente</label><input type="text" name="cliente" class="form-control"></div>
+            <div class="col-md-2"><label class="small">Trasportatore</label><input type="text" name="trasportatore" class="form-control"></div>
+            <div class="col-md-1"><label class="small">N. DDT</label><input type="text" name="ddt_uscita" class="form-control"></div>
+            <div class="col-md-1"><label class="small">Magazzino</label><input type="text" name="magazzino" class="form-control"></div>
+            <div class="col-md-1"><label class="small">Consolidato</label><input type="text" name="consolidato" class="form-control"></div>
+            <div class="col-md-1"><label class="small">Costo €</label><input type="number" step="0.01" name="costo" class="form-control"></div>
+            <div class="col-md-12 text-end mt-2">
+                <button type="submit" class="btn btn-success"><i class="bi bi-plus-lg"></i> Aggiungi</button>
+            </div>
+        </form>
+    </div>
 
     <div class="card shadow-sm">
         <div class="table-responsive">
-            <table class="table table-striped table-hover mb-0">
+            <table class="table table-striped table-hover mb-0 align-middle">
                 <thead class="table-dark">
                     <tr>
-                        <th>Data</th><th>Cliente</th><th>Mezzo</th>
-                        <th>Trasportatore</th><th>DDT Uscita</th><th>Consolidato</th><th>Costo</th>
+                        <th>Data</th><th>Mezzo</th><th>Cliente</th>
+                        <th>Trasportatore</th><th>DDT</th><th>Mag.</th>
+                        <th>Consolidato</th><th>Costo</th>
+                        <th>Azioni</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for t in trasporti %}
                     <tr>
                         <td>{{ t.data }}</td>
-                        <td>{{ t.cliente }}</td>
                         <td>{{ t.tipo_mezzo }}</td>
+                        <td>{{ t.cliente }}</td>
                         <td>{{ t.trasportatore }}</td>
                         <td>{{ t.ddt_uscita }}</td>
+                        <td>{{ t.magazzino }}</td>
                         <td>{{ t.consolidato }}</td>
                         <td>€ {{ t.costo }}</td>
+                        <td>
+                            <a href="{{ url_for('elimina_record', table='trasporti', id=t.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Eliminare?')">X</a>
+                        </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="7" class="text-center text-muted">Nessun trasporto trovato.</td></tr>
+                    <tr><td colspan="9" class="text-center text-muted">Nessun trasporto.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
-    </div>
-</div>
-
-<div class="modal fade" id="reportModal" tabindex="-1">
-    <div class="modal-dialog">
-        <form action="{{ url_for('report_trasporti') }}" method="POST" target="_blank">
-        <div class="modal-content">
-            <div class="modal-header"><h5>Genera Report Trasporti</h5></div>
-            <div class="modal-body">
-                <label class="form-label">Mese (YYYY-MM)</label>
-                <input type="month" name="mese" class="form-control mb-3" required>
-                
-                <label class="form-label">Filtra Mezzo (Opzionale)</label>
-                <input type="text" name="tipo_mezzo" class="form-control mb-3" placeholder="Es. BILICO">
-                
-                <label class="form-label">Filtra Cliente (Opzionale)</label>
-                <input type="text" name="cliente" class="form-control" placeholder="Es. FINCANTIERI">
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
-                <button type="submit" class="btn btn-success">Stampa Report</button>
-            </div>
-        </div>
-        </form>
     </div>
 </div>
 {% endblock %}
