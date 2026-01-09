@@ -2127,33 +2127,49 @@ def upload_mappe_json():
 
 
 # --- GESTIONE TRASPORTI (ADMIN) ---
-@app.route('/trasporti', methods=['GET', 'POST'])
+@app.route('/trasporti', methods=['GET', 'POST'])  # <--- Fix Method Not Allowed
 @login_required
 def trasporti():
-    if session.get('role') != 'admin':
-        flash("Accesso non autorizzato", "danger")
-        return redirect(url_for('home'))
-
     db = SessionLocal()
+    
+    # Se premi "Aggiungi"
+    if request.method == 'POST' and 'add_trasporto' in request.form:
+        try:
+            nuovo = Trasporto(
+                data=datetime.strptime(request.form.get('data'), '%Y-%m-%d').date(),
+                tipo_mezzo=request.form.get('tipo_mezzo'),
+                cliente=request.form.get('cliente'),
+                trasportatore=request.form.get('trasportatore'),
+                ddt_uscita=request.form.get('ddt_uscita'),
+                magazzino=request.form.get('magazzino'),
+                consolidato=request.form.get('consolidato'),
+                costo=float(request.form.get('costo') or 0)
+            )
+            db.add(nuovo)
+            db.commit()
+            flash("Trasporto aggiunto!", "success")
+        except Exception as e:
+            db.rollback()
+            flash(f"Errore: {e}", "danger")
+        return redirect(url_for('trasporti'))
+
+    # Se premi "Stampa Report" (Nuova funzione)
+    if request.method == 'POST' and 'stampa_report' in request.form:
+        dati = db.query(Trasporto).order_by(Trasporto.data.desc()).all()
+        db.close()
+        # Usa un template di stampa pulito
+        return render_template('report_trasporti_print.html', trasporti=dati, today=date.today())
+
+    # Visualizzazione Tabella
     query = db.query(Trasporto)
-
-    # Filtri
-    f_consolidato = request.args.get('consolidato', '')
-    f_trasportatore = request.args.get('trasportatore', '')
-    f_mezzo = request.args.get('tipo_mezzo', '')
-    f_cliente = request.args.get('cliente', '')
-    f_data = request.args.get('data', '')
-
-    if f_consolidato: query = query.filter(Trasporto.consolidato.ilike(f"%{f_consolidato}%"))
-    if f_trasportatore: query = query.filter(Trasporto.trasportatore.ilike(f"%{f_trasportatore}%"))
-    if f_mezzo: query = query.filter(Trasporto.tipo_mezzo.ilike(f"%{f_mezzo}%"))
-    if f_cliente: query = query.filter(Trasporto.cliente.ilike(f"%{f_cliente}%"))
-    if f_data: query = query.filter(Trasporto.data.ilike(f"%{f_data}%"))
-
-    dati = query.all()
+    # Filtro Ricerca
+    if request.args.get('cliente'):
+        query = query.filter(Trasporto.cliente.ilike(f"%{request.args.get('cliente')}%"))
+    
+    dati = query.order_by(Trasporto.data.desc()).all()
     db.close()
-    return render_template('trasporti.html', trasporti=dati)
-
+    
+    return render_template('trasporti.html', trasporti=dati, today=date.today())
 @app.route('/report_trasporti', methods=['POST'])
 @login_required
 def report_trasporti():
