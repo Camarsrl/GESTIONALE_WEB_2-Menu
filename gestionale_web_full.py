@@ -4019,6 +4019,10 @@ app.jinja_env.filters['fmt_date'] = fmt_date
 # ==============================================================================
 #  FUNZIONE SPECIALE PER RIPARARE IL DATABASE (TABELLE + COLONNE + TIPI)
 # ==============================================================================
+
+# ==============================================================================
+#  FUNZIONE SPECIALE PER RIPARARE IL DATABASE (TABELLE + COLONNE + TIPI)
+# ==============================================================================
 @app.route('/fix_db_schema')
 @login_required
 def fix_db_schema():
@@ -4078,6 +4082,7 @@ def fix_db_schema():
         return f"<h1>ERRORE CRITICO DURANTE IL FIX:</h1> {e}"
     finally:
         db.close()
+
 def _parse_data_db_helper(data_str):
     """Converte stringa data DB in oggetto date (Gestisce formati misti)."""
     if not data_str: return None
