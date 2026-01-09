@@ -163,7 +163,7 @@ PHOTOS_DIR = MEDIA_DIR / "photos"
 # --- CONFIGURAZIONE FILE MAPPE EXCEL ---
 # Definiamo qui i percorsi esatti per evitare confusione
 MAPPE_FILE_PERSISTENT = MEDIA_DIR / "mappe_excel.json"        # File modificabile (nel disco dati)
-MAPPE_FILE_ORIGINAL = APP_DIR / "config" / "mappe_excel.json" # File originale (da GitHub)
+MAPPE_FILE_ORIGINAL = APP_DIR / "config." / "mappe_excel.json" # File originale (da GitHub)
 
 # Crea le cartelle se non esistono
 for d in (STATIC_DIR, MEDIA_DIR, DOCS_DIR, PHOTOS_DIR):
