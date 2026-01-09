@@ -2199,28 +2199,49 @@ def report_trasporti():
 
 
 # --- GESTIONE LAVORAZIONI (ADMIN) ---
-@app.route('/lavorazioni', methods=['GET'])
+@app.route('/lavorazioni', methods=['GET', 'POST'])
 @login_required
 def lavorazioni():
-    if session.get('role') != 'admin':
-        flash("Accesso non autorizzato", "danger")
-        return redirect(url_for('home'))
-
     db = SessionLocal()
+
+    # GESTIONE INSERIMENTO NUOVO DATO
+    if request.method == 'POST':
+        # --- QUI C'È IL CONTROLLO ADMIN ---
+        if session.get('role') != 'admin':
+            flash("ACCESSO NEGATO: Solo l'Amministratore può aggiungere dati.", "danger")
+            return redirect(url_for('lavorazioni'))
+        # ----------------------------------
+
+        try:
+            nuovo = Lavorazione(
+                data=datetime.strptime(request.form.get('data'), '%Y-%m-%d').date(),
+                cliente=request.form.get('cliente'),
+                descrizione=request.form.get('descrizione'),
+                richiesta_di=request.form.get('richiesta_di'),
+                seriali=request.form.get('seriali'),
+                colli=int(request.form.get('colli') or 0),
+                pallet_forniti=int(request.form.get('pallet_forniti') or 0),
+                pallet_uscita=int(request.form.get('pallet_uscita') or 0),
+                ore_blue_collar=float(request.form.get('ore_blue_collar') or 0),
+                ore_white_collar=float(request.form.get('ore_white_collar') or 0)
+            )
+            db.add(nuovo)
+            db.commit()
+            flash("Picking aggiunto con successo!", "success")
+        except Exception as e:
+            db.rollback()
+            flash(f"Errore inserimento: {e}", "danger")
+        return redirect(url_for('lavorazioni'))
+
+    # VISUALIZZAZIONE (Eseguita da TUTTI)
     query = db.query(Lavorazione)
+    if request.args.get('cliente'):
+        query = query.filter(Lavorazione.cliente.ilike(f"%{request.args.get('cliente')}%"))
 
-    # Filtri
-    f_cliente = request.args.get('cliente', '')
-    f_desc = request.args.get('descrizione', '')
-    
-    if f_cliente: query = query.filter(Lavorazione.cliente.ilike(f"%{f_cliente}%"))
-    if f_desc: query = query.filter(Lavorazione.descrizione.ilike(f"%{f_desc}%"))
-
-    dati = query.all()
+    dati = query.order_by(Lavorazione.data.desc()).all()
     db.close()
-    return render_template('lavorazioni.html', lavorazioni=dati)
-
-
+    
+    return render_template('lavorazioni.html', lavorazioni=dati, today=date.today())
 
 # --- REPORT INVENTARIO PER CLIENTE/DATA ---
 @app.route('/report_inventario', methods=['POST'])
