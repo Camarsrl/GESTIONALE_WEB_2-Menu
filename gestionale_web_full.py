@@ -2811,6 +2811,105 @@ def nuovo_articolo():
     dummy_art.data_ingresso = date.today().strftime("%d/%m/%Y") # Data di default
     return render_template('edit.html', row=dummy_art)
 
+# --- DUPLICAZIONE SINGOLA (Quella che mancava e dava errore) ---
+@app.route('/duplica_articolo/<int:id_articolo>')
+@login_required
+def duplica_articolo(id_articolo):
+    db = SessionLocal()
+    originale = db.query(Articolo).filter_by(id_articolo=id_articolo).first()
+    
+    if not originale:
+        flash("Articolo non trovato", "danger")
+        return redirect(url_for('giacenze'))
+
+    # Crea copia esatta (tranne ID)
+    nuovo = Articolo(
+        codice_articolo=originale.codice_articolo,
+        descrizione=originale.descrizione,
+        cliente=originale.cliente,
+        fornitore=originale.fornitore,
+        magazzino=originale.magazzino,
+        posizione=originale.posizione,
+        stato=originale.stato,
+        n_colli=originale.n_colli,
+        peso=originale.peso,
+        larghezza=originale.larghezza,
+        lunghezza=originale.lunghezza,
+        altezza=originale.altezza,
+        m2=originale.m2,
+        m3=originale.m3,
+        # Copiamo anche i campi nuovi se servono
+        lotto=originale.lotto,
+        note=f"Copia di ID {originale.id_articolo}",
+        data_ingresso=date.today() # La data diventa oggi
+    )
+    
+    try:
+        db.add(nuovo)
+        db.commit()
+        flash("Articolo duplicato con successo!", "success")
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore duplicazione: {e}", "danger")
+    finally:
+        db.close()
+    
+    return redirect(url_for('giacenze'))
+
+# --- DUPLICAZIONE MASSIVA (Quella che mi hai mandato tu) ---
+@app.route('/bulk/duplicate', methods=['POST'])
+@login_required
+def bulk_duplicate():
+    if session.get('role') != 'admin':
+        flash("Non hai i permessi.", "danger")
+        return redirect(url_for('giacenze'))
+
+    ids = request.form.getlist('ids')
+    if not ids:
+        flash("Nessuna selezione.", "warning")
+        return redirect(url_for('giacenze'))
+
+    db = SessionLocal()
+    try:
+        count = 0
+        for id_str in ids:
+            if not id_str.isdigit(): continue
+            original = db.query(Articolo).get(int(id_str))
+            if original:
+                new_art = Articolo(
+                    codice_articolo=original.codice_articolo,
+                    descrizione=original.descrizione,
+                    cliente=original.cliente,
+                    fornitore=original.fornitore,
+                    commessa=original.commessa,
+                    protocollo=original.protocollo,
+                    buono_n=original.buono_n,
+                    ordine=original.ordine,
+                    data_ingresso=date.today(), # Aggiorniamo a oggi
+                    n_ddt_ingresso=original.n_ddt_ingresso,
+                    pezzo=original.pezzo,
+                    n_colli=original.n_colli,
+                    peso=original.peso,
+                    m2=original.m2,
+                    m3=original.m3,
+                    n_arrivo=original.n_arrivo,
+                    stato=original.stato,
+                    magazzino=original.magazzino,
+                    posizione=original.posizione,
+                    lotto=original.lotto, # Aggiunto Lotto
+                    note=original.note
+                )
+                db.add(new_art)
+                count += 1
+        db.commit()
+        flash(f"{count} articoli duplicati.", "success")
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore: {e}", "danger")
+    finally:
+        db.close()
+    return redirect(url_for('giacenze'))
+
 @app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
 @login_required
 def edit_record(id_articolo):
