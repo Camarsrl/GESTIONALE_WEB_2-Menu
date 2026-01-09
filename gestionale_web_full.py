@@ -240,31 +240,33 @@ class Attachment(Base):
 Base.metadata.create_all(engine)
 
 
-
-
-# --- NUOVI MODELLI PER TRASPORTI E LAVORAZIONI ---
-
+# --- MODELLO TABELLA TRASPORTI (Separata da Articoli) ---
 class Trasporto(Base):
     __tablename__ = 'trasporti'
     id = Column(Integer, primary_key=True)
-    data = Column(Text)          # Salviamo come Text per uniformità
+    data = Column(Date)
+    tipo_mezzo = Column(Text)       # Es. Motrice, Bilico
     cliente = Column(Text)
     trasportatore = Column(Text)
-    tipo_mezzo = Column(Text)
-    ddt_uscita = Column(Text)
+    ddt_uscita = Column(Text)       # N. DDT
+    magazzino = Column(Text)        # Nuovo
+    consolidato = Column(Text)      # Nuovo
     costo = Column(Float)
-    consolidato = Column(Text)   # Si/No o altro
 
+# --- MODELLO TABELLA PICKING / LAVORAZIONI (Separata da Articoli) ---
 class Lavorazione(Base):
     __tablename__ = 'lavorazioni'
     id = Column(Integer, primary_key=True)
-    data = Column(Text)
+    data = Column(Date)
     cliente = Column(Text)
     descrizione = Column(Text)
-    ore_white_collar = Column(Float)
-    ore_blue_collar = Column(Float)
-    pallet_forniti = Column(Integer)
-    note = Column(Text)
+    richiesta_di = Column(Text)     # Nuovo
+    seriali = Column(Text)          # Nuovo
+    colli = Column(Integer)
+    pallet_forniti = Column(Integer) # Pallet IN
+    pallet_uscita = Column(Integer)  # Pallet OUT
+    ore_blue_collar = Column(Float)  # Ore Blue
+    ore_white_collar = Column(Float) # Ore White
 
 # ========================================================
 # 5. GESTIONE UTENTI (Definizione PRIMA dell'uso)
