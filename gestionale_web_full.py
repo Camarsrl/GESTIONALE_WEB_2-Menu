@@ -946,6 +946,8 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Mod. Multipla</button>
         <button type="submit" formaction="{{ url_for('labels_pdf') }}" class="btn btn-warning btn-sm"><i class="bi bi-download"></i> Scarica Etichette</button>
         <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare?')">Elimina</button>
+        
+        <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-primary btn-sm" onclick="return confirm('Duplicare gli articoli selezionati?')">Duplica Selezionati</button>
     </div>
 
     <div class="table-responsive" style="max-height: 70vh;">
@@ -1001,8 +1003,11 @@ GIACENZE_HTML = """
                     <td>{{ r.m3|float|round(3) if r.m3 else '' }}</td>
                     
                     <td class="text-center">
-                        <a href="{{ url_for('edit_record', id_articolo=r.id_articolo) }}" title="Modifica" class="text-decoration-none me-1">✏️</a>
-                        <a href="{{ url_for('duplica_articolo', id=r.id_articolo) }}" title="Duplica" class="text-decoration-none">📄</a>
+                        <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" title="Modifica" class="text-decoration-none me-1">✏️</a>
+                        
+                        <a href="{{ url_for('duplica_articolo', id_articolo=r.id_articolo) }}" title="Duplica" class="text-decoration-none me-1" onclick="return confirm('Duplicare questo articolo?');">📄</a>
+                        
+                        <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" title="Elimina" class="text-decoration-none text-danger" onclick="return confirm('Eliminare?');">🗑️</a>
                     </td>
                 </tr>
                 {% endfor %}
@@ -1047,7 +1052,6 @@ GIACENZE_HTML = """
 </script>
 {% endblock %}
 """
-
 
 EDIT_HTML = """
 {% extends 'base.html' %}
