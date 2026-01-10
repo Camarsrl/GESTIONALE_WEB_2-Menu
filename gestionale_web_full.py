@@ -3281,43 +3281,6 @@ def giacenze():
         db.close()
 
 
-# ==============================================================================
-#  2. FUNZIONE MODIFICA (Risolve l'errore 'endpoint edit_articolo')
-# ==============================================================================
-@app.route('/edit_articolo/<int:id>', methods=['GET', 'POST'])
-@login_required
-def edit_articolo(id):
-    db = SessionLocal()
-    articolo = db.query(Articolo).get(id)
-    
-    if not articolo:
-        flash("Articolo non trovato", "danger")
-        return redirect(url_for('giacenze'))
-
-    if request.method == 'POST':
-        try:
-            # Aggiorna i campi principali
-            articolo.cliente = request.form.get('cliente')
-            articolo.fornitore = request.form.get('fornitore')
-            articolo.codice_articolo = request.form.get('codice_articolo')
-            articolo.descrizione = request.form.get('descrizione')
-            articolo.n_colli = request.form.get('n_colli')
-            articolo.stato = request.form.get('stato')
-            articolo.lotto = request.form.get('lotto')
-            articolo.magazzino = request.form.get('magazzino')
-            articolo.posizione = request.form.get('posizione')
-            articolo.note = request.form.get('note')
-            
-            db.commit()
-            flash("Articolo aggiornato con successo!", "success")
-            return redirect(url_for('giacenze'))
-        except Exception as e:
-            db.rollback()
-            flash(f"Errore aggiornamento: {e}", "danger")
-
-    db.close()
-    # Usa il template di nuovo articolo precompilato per la modifica
-    return render_template('nuovo_articolo.html', articolo=articolo, today=date.today(), edit_mode=True)
 
 
 # ==============================================================================
