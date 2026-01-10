@@ -3050,50 +3050,6 @@ def edit_articolo(id):
     return render_template('nuovo_articolo.html', articolo=art, today=date.today(), edit_mode=True)
 
 
-# ==============================================================================
-#  2. ELIMINAZIONE UNIFICATA (Gestisce Articoli, Trasporti e Picking)
-# ==============================================================================
-@app.route('/elimina_record/<string:tipo_tabella>/<int:id>')
-@login_required
-def elimina_record(tipo_tabella, id):
-    # Protezione: Solo Admin elimina
-    if session.get('role') != 'admin':
-        flash("Solo l'Admin può eliminare i record.", "danger")
-        return redirect(url_for('home'))
-
-    db = SessionLocal()
-    try:
-        record = None
-        redirect_url = 'home'
-
-        # Logica intelligente: capisce cosa cancellare in base al 'tipo_tabella'
-        if tipo_tabella == 'articoli':
-            record = db.query(Articolo).get(id)
-            redirect_url = 'giacenze'
-            
-        elif tipo_tabella == 'trasporti':
-            record = db.query(Trasporto).get(id)
-            redirect_url = 'trasporti'
-            
-        elif tipo_tabella == 'lavorazioni':
-            record = db.query(Lavorazione).get(id)
-            redirect_url = 'lavorazioni'
-
-        if record:
-            db.delete(record)
-            db.commit()
-            flash("Elemento eliminato correttamente.", "success")
-        else:
-            flash("Elemento non trovato.", "warning")
-
-        return redirect(url_for(redirect_url))
-
-    except Exception as e:
-        db.rollback()
-        flash(f"Errore eliminazione: {e}", "danger")
-        return redirect(url_for('home'))
-    finally:
-        db.close()
 
 @app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
 @login_required
