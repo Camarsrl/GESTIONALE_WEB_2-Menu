@@ -4005,6 +4005,7 @@ def labels_pdf():
 # --- FUNZIONE GENERAZIONE PDF (REPORTLAB - Layout Grafico) ---
 def _genera_pdf_etichetta(articoli):
     import io
+    from pathlib import Path
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import mm
@@ -4020,47 +4021,66 @@ def _genera_pdf_etichetta(articoli):
     story = []
     styles = getSampleStyleSheet()
     
-    # STILI COME DA FOTO
-    # Testo dati a sinistra (Grassetto, grande il giusto)
-    s_norm = ParagraphStyle('N', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, leading=13)
+    # --- STILI ---
+    # Testo dati a sinistra (Grassetto, allineato a sinistra)
+    s_norm = ParagraphStyle('N', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=TA_LEFT)
     
     # Numeri Grandi a Destra (ARRIVO e COLLI)
-    s_big_lbl = ParagraphStyle('BL', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=12, alignment=TA_RIGHT, leading=12)
-    s_big_val = ParagraphStyle('BV', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=18, alignment=TA_RIGHT, leading=20)
+    s_big_lbl = ParagraphStyle('BL', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, alignment=TA_RIGHT, leading=10)
+    s_big_val = ParagraphStyle('BV', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=16, alignment=TA_RIGHT, leading=18)
 
     for art in articoli:
-        tot = int(art.n_colli) if (art.n_colli and str(art.n_colli).isdigit()) else 1
+        # Calcolo sicuro del numero colli
+        try:
+            tot = int(art.n_colli) if art.n_colli else 1
+        except:
+            tot = 1
         if tot < 1: tot = 1
 
         for i in range(1, tot + 1):
-            # LOGO
-            if LOGO_PATH and Path(LOGO_PATH).exists():
-                story.append(RLImage(LOGO_PATH, width=35*mm, height=9*mm, hAlign='LEFT'))
-                story.append(Spacer(1, 2*mm))
             
-            # DATI SINISTRA
+            # 1. LOGO (Se esiste)
+            # Assicurati che il percorso del logo sia corretto o togli questo if se non hai il logo
+            logo_path = "static/logo camar.jpg" # O il percorso corretto sul tuo server
+            if Path(logo_path).exists():
+                try:
+                    story.append(RLImage(logo_path, width=35*mm, height=9*mm, hAlign='LEFT'))
+                    story.append(Spacer(1, 2*mm))
+                except: pass # Se il logo è corrotto, ignora
+            
+            # 2. PREPARAZIONE DATI SINISTRA
             txt_sx = []
             if art.cliente: txt_sx.append(f"CLIENTE:  {art.cliente}")
             if art.fornitore: txt_sx.append(f"FORNITORE: {art.fornitore}")
             if art.ordine: txt_sx.append(f"ORDINE:  {art.ordine}")
             if art.commessa: txt_sx.append(f"COMMESSA: {art.commessa}")
             if art.n_ddt_ingresso: txt_sx.append(f"DDT ING.:  {art.n_ddt_ingresso}")
-            if art.data_ingresso: txt_sx.append(f"DATA ING.:  {fmt_date(art.data_ingresso)}")
             
+            # Gestione Data sicura (sostituisce fmt_date)
+            d_str = ""
+            if art.data_ingresso:
+                try:
+                    if hasattr(art.data_ingresso, 'strftime'):
+                        d_str = art.data_ingresso.strftime('%d/%m/%Y')
+                    else:
+                        d_str = str(art.data_ingresso)
+                except: pass
+            if d_str: txt_sx.append(f"DATA ING.:  {d_str}")
+            
+            # Crea i paragrafi di sinistra
             p_sx = [Paragraph(line, s_norm) for line in txt_sx]
             
-            # DATI DESTRA (Arrivo e Colli)
+            # 3. PREPARAZIONE DATI DESTRA (Arrivo e Colli)
             p_dx = [
                 Spacer(1, 4*mm),
                 Paragraph("ARRIVO:", s_big_lbl),
                 Paragraph(str(art.n_arrivo or '-'), s_big_val),
                 Spacer(1, 5*mm),
-                Paragraph(f"COLLO: {i} / {tot}", s_big_val),
-                # Se vuoi anche il totale colli separato come nella foto:
-                # Paragraph(f"COLLI: {tot}", s_norm) 
+                Paragraph("COLLO:", s_big_lbl),
+                Paragraph(f"{i} / {tot}", s_big_val),
             ]
             
-            # Tabella layout: 60% spazio SX, 40% spazio DX
+            # 4. TABELLA PRINCIPALE (Layout 60% SX - 40% DX)
             data_main = [[p_sx, p_dx]]
             tbl = Table(data_main, colWidths=[60*mm, 36*mm])
             tbl.setStyle(TableStyle([
@@ -4069,12 +4089,17 @@ def _genera_pdf_etichetta(articoli):
                 ('RIGHTPADDING', (0,0), (-1,-1), 0),
             ]))
             story.append(tbl)
+            
+            # Descrizione opzionale sotto
+            if art.descrizione:
+                story.append(Spacer(1, 2*mm))
+                story.append(Paragraph(str(art.descrizione)[:45], s_norm))
+
             story.append(PageBreak())
 
     doc.build(story)
     bio.seek(0)
     return bio
-
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
 app.jinja_env.globals['getattr'] = getattr
