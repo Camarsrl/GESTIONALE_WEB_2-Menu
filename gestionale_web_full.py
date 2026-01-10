@@ -3153,37 +3153,39 @@ def elimina_record(table, id):
     if table == 'trasporti': return redirect(url_for('trasporti'))
     if table == 'lavorazioni': return redirect(url_for('lavorazioni'))
     return redirect(url_for('home'))
-        
+
+# ==============================================================================
+#  1. FUNZIONE GIACENZE (Visualizzazione Magazzino)
+# ==============================================================================
 @app.route('/giacenze', methods=['GET', 'POST'])
 @login_required
 def giacenze():
-    # Importiamo qui per sicurezza, così non dipendiamo dall'intestazione del file
+    # Import interni per evitare errori di dipendenze
     import logging
     from sqlalchemy import desc
     from sqlalchemy.orm import selectinload
-    from datetime import datetime
+    from datetime import datetime, date
 
     db = SessionLocal()
     try:
-        # 1. Query Base (Carica anche gli allegati in modo efficiente)
+        # Query base: carica articoli e allegati, ordinati per ID decrescente
         qs = db.query(Articolo).options(selectinload(Articolo.attachments)).order_by(Articolo.id_articolo.desc())
 
         args = request.args
 
-        # 2. Filtro Cliente (Sicurezza per utenti Client)
+        # A. Filtro Cliente (Sicurezza)
         if session.get('role') == 'client':
             qs = qs.filter(Articolo.cliente.ilike(f"%{current_user.id}%"))
         elif args.get('cliente'):
             qs = qs.filter(Articolo.cliente.ilike(f"%{args.get('cliente')}%"))
 
-        # 3. Filtro ID univoco
+        # B. Filtro ID univoco
         if args.get('id'):
             try:
                 qs = qs.filter(Articolo.id_articolo == int(args.get('id')))
-            except ValueError:
-                pass
+            except ValueError: pass
 
-        # 4. Filtri Testuali (Cerca in tutti questi campi)
+        # C. Filtri Testuali (Cerca in tutti questi campi)
         text_filters = [
             'commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo', 'lotto',
             'fornitore', 'ordine', 'magazzino', 'mezzi_in_uscita', 'stato',
@@ -3194,13 +3196,12 @@ def giacenze():
         for field in text_filters:
             val = args.get(field)
             if val and val.strip():
-                # getattr permette di prendere la colonna dinamicamente
                 qs = qs.filter(getattr(Articolo, field).ilike(f"%{val.strip()}%"))
 
-        # Esecuzione query DB (Prende tutti i risultati testuali)
+        # Esecuzione query DB
         rows_raw = qs.all()
         
-        # 5. FILTRI DATE (Fatti in Python per gestire formati misti nel DB ed evitare crash)
+        # D. Filtri DATE (Gestione sicura formati misti)
         rows = []
         
         def get_ui_date(k): 
@@ -3216,31 +3217,27 @@ def giacenze():
         for r in rows_raw:
             keep = True
             
-            # --- Controllo Data Ingresso ---
+            # Check Data Ingresso
             if d_ing_da or d_ing_a:
                 r_dt = None
                 if r.data_ingresso:
-                    # Gestisce sia se è oggetto date sia se è stringa
-                    if isinstance(r.data_ingresso, date):
-                        r_dt = r.data_ingresso
+                    if isinstance(r.data_ingresso, date): r_dt = r.data_ingresso
                     else:
                         try: r_dt = datetime.strptime(str(r.data_ingresso)[:10], "%Y-%m-%d").date()
-                        except:
+                        except: 
                             try: r_dt = datetime.strptime(str(r.data_ingresso)[:10], "%d/%m/%Y").date()
                             except: pass
                 
-                if not r_dt: 
-                    keep = False # Se cerco per data ma il record non ne ha una valida -> nascondi
+                if not r_dt: keep = False
                 else:
                     if d_ing_da and r_dt < d_ing_da: keep = False
                     if d_ing_a and r_dt > d_ing_a: keep = False
             
-            # --- Controllo Data Uscita ---
+            # Check Data Uscita
             if keep and (d_usc_da or d_usc_a):
                 r_dt = None
                 if r.data_uscita:
-                    if isinstance(r.data_uscita, date):
-                        r_dt = r.data_uscita
+                    if isinstance(r.data_uscita, date): r_dt = r.data_uscita
                     else:
                         try: r_dt = datetime.strptime(str(r.data_uscita)[:10], "%Y-%m-%d").date()
                         except:
@@ -3252,31 +3249,25 @@ def giacenze():
                     if d_usc_da and r_dt < d_usc_da: keep = False
                     if d_usc_a and r_dt > d_usc_a: keep = False
 
-            if keep:
-                rows.append(r)
+            if keep: rows.append(r)
 
-        # 6. Calcolo Totali Sicuro (evita errori se i campi sono vuoti)
+        # E. Calcolo Totali Sicuro
         total_colli = 0
         total_m2 = 0.0
         total_peso = 0.0
 
         for r in rows:
-            # Colli
             try: total_colli += int(r.n_colli) if r.n_colli else 0
             except: pass
-            
-            # M2
             try: total_m2 += float(r.m2) if r.m2 else 0
             except: pass
-            
-            # Peso
             try: total_peso += float(r.peso) if r.peso else 0
             except: pass
 
         return render_template(
             'giacenze.html',
-            rows=rows,       # Passiamo rows per il nuovo template
-            result=rows,     # Passiamo anche result per compatibilità vecchi template
+            rows=rows,
+            result=rows,
             total_colli=total_colli,
             total_m2=f"{total_m2:.2f}",
             total_peso=f"{total_peso:.2f}",
@@ -3284,10 +3275,93 @@ def giacenze():
         )
 
     except Exception as e:
-        logging.error(f"ERRORE GIACENZE: {e}")
-        return f"<h1>Errore caricamento magazzino:</h1><p>{e}</p>"
+        logging.error(f"Errore giacenze: {e}")
+        return f"<h1>Errore caricamento: {e}</h1>"
     finally:
         db.close()
+
+
+# ==============================================================================
+#  2. FUNZIONE MODIFICA (Risolve l'errore 'endpoint edit_articolo')
+# ==============================================================================
+@app.route('/edit_articolo/<int:id>', methods=['GET', 'POST'])
+@login_required
+def edit_articolo(id):
+    db = SessionLocal()
+    articolo = db.query(Articolo).get(id)
+    
+    if not articolo:
+        flash("Articolo non trovato", "danger")
+        return redirect(url_for('giacenze'))
+
+    if request.method == 'POST':
+        try:
+            # Aggiorna i campi principali
+            articolo.cliente = request.form.get('cliente')
+            articolo.fornitore = request.form.get('fornitore')
+            articolo.codice_articolo = request.form.get('codice_articolo')
+            articolo.descrizione = request.form.get('descrizione')
+            articolo.n_colli = request.form.get('n_colli')
+            articolo.stato = request.form.get('stato')
+            articolo.lotto = request.form.get('lotto')
+            articolo.magazzino = request.form.get('magazzino')
+            articolo.posizione = request.form.get('posizione')
+            articolo.note = request.form.get('note')
+            
+            db.commit()
+            flash("Articolo aggiornato con successo!", "success")
+            return redirect(url_for('giacenze'))
+        except Exception as e:
+            db.rollback()
+            flash(f"Errore aggiornamento: {e}", "danger")
+
+    db.close()
+    # Usa il template di nuovo articolo precompilato per la modifica
+    return render_template('nuovo_articolo.html', articolo=articolo, today=date.today(), edit_mode=True)
+
+
+# ==============================================================================
+#  3. FUNZIONE ELIMINA (Risolve l'errore 'endpoint elimina_record')
+# ==============================================================================
+@app.route('/elimina_record/<table>/<int:id>')
+@login_required
+def elimina_record(table, id):
+    # Solo Admin può eliminare
+    if session.get('role') != 'admin':
+        flash("Accesso Negato: Solo Admin può eliminare.", "danger")
+        return redirect(url_for('giacenze'))
+
+    db = SessionLocal()
+    try:
+        record = None
+        redirect_url = 'home'
+
+        if table == 'articoli':
+            record = db.query(Articolo).get(id)
+            redirect_url = 'giacenze'
+        elif table == 'trasporti':
+            record = db.query(Trasporto).get(id)
+            redirect_url = 'trasporti'
+        elif table == 'lavorazioni':
+            record = db.query(Lavorazione).get(id)
+            redirect_url = 'lavorazioni'
+        
+        if record:
+            db.delete(record)
+            db.commit()
+            flash("Elemento eliminato.", "success")
+        else:
+            flash("Elemento non trovato.", "warning")
+
+        return redirect(url_for(redirect_url))
+
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore eliminazione: {e}", "danger")
+        return redirect(url_for('home'))
+    finally:
+        db.close()
+
 # --- MODIFICA MULTIPLA COMPLETA CON CALCOLI ---
 @app.route('/bulk_edit', methods=['GET', 'POST'])
 @login_required
