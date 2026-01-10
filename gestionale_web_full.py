@@ -4359,34 +4359,59 @@ app.jinja_env.filters['fmt_date'] = fmt_date
 def fix_db_schema():
     if session.get('role') != 'admin': return "Accesso Negato", 403
     db = SessionLocal()
+    log = []
     try:
         from sqlalchemy import text
+        # 1. Crea tabelle fisiche se mancano
         Base.metadata.create_all(bind=db.get_bind())
-        
-        log = []
-        # FIX GIACENZE
-        cols_art = [("lotto", "TEXT"), ("peso", "FLOAT"), ("m2", "FLOAT"), ("m3", "FLOAT"), ("n_arrivo", "TEXT")]
+        log.append("Struttura base verificata.")
+
+        # 2. COLONNE GIACENZE (Articoli)
+        # Aggiungiamo tutte le colonne che potrebbero mancare
+        cols_art = [
+            ("lotto", "TEXT"), ("peso", "FLOAT"), ("m2", "FLOAT"), ("m3", "FLOAT"), 
+            ("n_arrivo", "TEXT"), ("data_uscita", "DATE"), ("serial_number", "TEXT"),
+            ("lunghezza", "FLOAT"), ("larghezza", "FLOAT"), ("altezza", "FLOAT")
+        ]
         for c, t in cols_art:
-            try: db.execute(text(f"ALTER TABLE articoli ADD COLUMN {c} {t};")); db.commit()
+            try: 
+                db.execute(text(f"ALTER TABLE articoli ADD COLUMN {c} {t};"))
+                db.commit()
+                log.append(f"Aggiunto {c} ad Articoli")
             except: db.rollback()
 
-        # FIX TRASPORTI
-        cols_tra = [("magazzino", "TEXT"), ("consolidato", "TEXT"), ("tipo_mezzo", "TEXT"), ("ddt_uscita", "TEXT"), ("costo", "FLOAT")]
+        # 3. COLONNE TRASPORTI
+        cols_tra = [
+            ("magazzino", "TEXT"), ("consolidato", "TEXT"), 
+            ("tipo_mezzo", "TEXT"), ("ddt_uscita", "TEXT"), ("costo", "FLOAT")
+        ]
         for c, t in cols_tra:
-            try: db.execute(text(f"ALTER TABLE trasporti ADD COLUMN {c} {t};")); db.commit()
+            try: 
+                db.execute(text(f"ALTER TABLE trasporti ADD COLUMN {c} {t};"))
+                db.commit()
+                log.append(f"Aggiunto {c} a Trasporti")
             except: db.rollback()
 
-        # FIX PICKING
-        cols_lav = [("seriali", "TEXT"), ("colli", "INTEGER"), ("pallet_forniti", "INTEGER"), ("pallet_uscita", "INTEGER"), ("ore_blue_collar", "FLOAT")]
+        # 4. COLONNE PICKING (Lavorazioni)
+        cols_lav = [
+            ("seriali", "TEXT"), ("colli", "INTEGER"), 
+            ("pallet_forniti", "INTEGER"), ("pallet_uscita", "INTEGER"), 
+            ("ore_blue_collar", "FLOAT"), ("ore_white_collar", "FLOAT"),
+            ("richiesta_di", "TEXT")
+        ]
         for c, t in cols_lav:
-            try: db.execute(text(f"ALTER TABLE lavorazioni ADD COLUMN {c} {t};")); db.commit()
+            try: 
+                db.execute(text(f"ALTER TABLE lavorazioni ADD COLUMN {c} {t};"))
+                db.commit()
+                log.append(f"Aggiunto {c} a Picking")
             except: db.rollback()
 
-        return "<h1>DATABASE AGGIORNATO CON SUCCESSO!</h1><a href='/home'>Torna alla Home</a>"
+        return f"<h1>Database Aggiornato!</h1><ul>{''.join(['<li>'+l+'</li>' for l in log])}</ul><a href='/home'>Torna alla Home</a>"
     except Exception as e:
-        return f"Errore: {e}"
+        return f"Errore Fix: {e}"
     finally:
         db.close()
+
 def _parse_data_db_helper(data_str):
     """Converte stringa data DB in oggetto date (Gestisce formati misti)."""
     if not data_str: return None
