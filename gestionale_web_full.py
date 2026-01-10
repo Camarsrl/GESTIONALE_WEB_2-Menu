@@ -1820,11 +1820,15 @@ TRASPORTI_HTML = """
                         <td>{{ t.consolidato }}</td>
                         <td>€ {{ t.costo }}</td>
                         <td>
-                            <a href="{{ url_for('elimina_record', table='trasporti', id=t.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Eliminare?')">X</a>
+                            <a href="{{ url_for('elimina_record', table='trasporti', id=t.id) }}" 
+                               class="btn btn-sm btn-danger" 
+                               onclick="return confirm('Sei sicuro di voler eliminare questo trasporto?')">
+                               <i class="bi bi-trash"></i>
+                            </a>
                         </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="9" class="text-center text-muted">Nessun trasporto.</td></tr>
+                    <tr><td colspan="9" class="text-center text-muted">Nessun trasporto inserito.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -1833,7 +1837,6 @@ TRASPORTI_HTML = """
 </div>
 {% endblock %}
 """
-
 INVIA_EMAIL_HTML = """
 {% extends "base.html" %}
 {% block content %}
