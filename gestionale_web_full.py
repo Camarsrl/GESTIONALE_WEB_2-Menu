@@ -863,6 +863,7 @@ CALCOLI_HTML = """
 </div>
 {% endblock %}
 """
+# --- TEMPLATE PAGINA MAGAZZINO (GIACENZE) - VERSIONE CORRETTA E STABILE ---
 GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -875,12 +876,17 @@ GIACENZE_HTML = """
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-2">
-    <h4>Magazzino</h4>
+    <h4><i class="bi bi-box-seam"></i> Magazzino</h4>
     <div class="d-flex gap-2">
-       <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success">Nuovo</a>
-       <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark">Import PDF</a>
-       <a href="{{ url_for('labels_form') }}" class="btn btn-sm btn-info text-white">Etichette</a>
-       <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning">Calcoli</a>
+       <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> Nuovo</a>
+       <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>
+       
+       <form action="{{ url_for('labels_pdf') }}" method="POST" target="_blank" class="d-inline">
+           <button class="btn btn-sm btn-info text-white"><i class="bi bi-tag"></i> Etichette</button>
+       </form>
+
+       <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
+       
        {% if session.get('role') == 'admin' %}
        <form action="{{ url_for('report_inventario') }}" method="POST" target="_blank" class="d-inline-block ms-1">
             <div class="input-group input-group-sm">
@@ -892,7 +898,7 @@ GIACENZE_HTML = """
     </div>
 </div>
 
-<div class="card mb-2 bg-light">
+<div class="card mb-2 bg-light shadow-sm">
     <div class="card-header py-1" data-bs-toggle="collapse" data-bs-target="#filterBody" style="cursor:pointer">
         <small><i class="bi bi-funnel"></i> <b>Filtri Avanzati</b></small>
     </div>
@@ -947,13 +953,14 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('buono_preview') }}" class="btn btn-outline-dark btn-sm">Buono</button>
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Mod. Multipla</button>
-        <button type="submit" formaction="{{ url_for('labels_pdf') }}" class="btn btn-warning btn-sm"><i class="bi bi-download"></i> Scarica Etichette</button>
-        <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare?')">Elimina</button>
+        <button type="submit" formaction="{{ url_for('labels_pdf') }}" formtarget="_blank" class="btn btn-warning btn-sm"><i class="bi bi-download"></i> Scarica Etichette</button>
+        
+        <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare SELEZIONATI?')">Elimina Selezionati</button>
         
         <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-primary btn-sm" onclick="return confirm('Duplicare gli articoli selezionati?')">Duplica Selezionati</button>
     </div>
 
-    <div class="table-responsive" style="max-height: 70vh;">
+    <div class="table-responsive shadow-sm" style="max-height: 70vh;">
         <table class="table table-striped table-bordered table-hover table-compact mb-0">
             <thead class="sticky-top" style="top:0; z-index:5;">
                 <tr>
@@ -962,7 +969,7 @@ GIACENZE_HTML = """
                     <th>Cliente</th> <th>Fornitore</th> <th>Commessa</th> <th>Ordine</th> <th>Protocollo</th>
                     <th>Buono</th> <th>N.Arr</th> <th>Data Ing</th> <th>DDT Ing</th> <th>Pos</th> <th>Stato</th>
                     <th>Pz</th> <th>Colli</th> <th>Kg</th> <th>LxPxH</th> 
-                    <th>Lotto</th> <th>M2</th> <th>M3</th> <th>Act</th>
+                    <th>Lotto</th> <th>M2</th> <th>M3</th> <th style="min-width: 80px;">Act</th>
                 </tr>
             </thead>
             <tbody>
@@ -983,7 +990,7 @@ GIACENZE_HTML = """
                     </td>
 
                     <td title="{{ r.codice_articolo }}">{{ r.codice_articolo or '' }}</td>
-                    <td title="{{ r.descrizione }}">{{ r.descrizione or '' }}</td>
+                    <td title="{{ r.descrizione }}">{{ r.descrizione[:30] }}{% if r.descrizione|length > 30 %}...{% endif %}</td>
                     <td>{{ r.cliente or '' }}</td>
                     <td>{{ r.fornitore or '' }}</td>
                     <td>{{ r.commessa or '' }}</td>
@@ -1006,17 +1013,17 @@ GIACENZE_HTML = """
                     <td>{{ r.m3|float|round(3) if r.m3 else '' }}</td>
                     
                     <td class="text-center">
-                        <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" title="Modifica" class="text-decoration-none me-1">✏️</a>
+                        <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" title="Modifica" class="text-decoration-none me-2">✏️</a>
                         
-                        <a href="{{ url_for('duplica_articolo', id_articolo=r.id_articolo) }}" title="Duplica" class="text-decoration-none me-1" onclick="return confirm('Duplicare questo articolo?');">📄</a>
-                        
-                        <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" title="Elimina" class="text-decoration-none text-danger" onclick="return confirm('Eliminare?');">🗑️</a>
+                        <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" title="Elimina" class="text-decoration-none text-danger" onclick="return confirm('Eliminare articolo {{ r.id_articolo }}?');">🗑️</a>
                     </td>
                 </tr>
+                {% else %}
+                <tr><td colspan="25" class="text-center p-3 text-muted">Nessun articolo trovato con questi filtri.</td></tr>
                 {% endfor %}
             </tbody>
             <tfoot class="sticky-bottom bg-white fw-bold">
-                <tr><td colspan="25">Totali: Colli {{ total_colli }} | M2 {{ total_m2|float|round(2) }} | Peso {{ total_peso }}</td></tr>
+                <tr><td colspan="25">Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}</td></tr>
             </tfoot>
         </table>
     </div>
