@@ -4085,71 +4085,35 @@ app.jinja_env.filters['fmt_date'] = fmt_date
 # ========================================================
 # 🚑 PULSANTE DI EMERGENZA PER FIX DATABASE
 # ========================================================
-
-# ==============================================================================
-#  FUNZIONE SPECIALE PER RIPARARE IL DATABASE (TABELLE + COLONNE + TIPI)
-# ==============================================================================
-
-# ==============================================================================
-#  FUNZIONE SPECIALE PER RIPARARE IL DATABASE (TABELLE + COLONNE + TIPI)
-# ==============================================================================
 @app.route('/fix_db_schema')
 @login_required
 def fix_db_schema():
-    # Solo l'admin può toccare il database
-    if session.get('role') != 'admin':
-        return "Accesso Negato: Serve essere Admin.", 403
-    
+    if session.get('role') != 'admin': return "Accesso Negato", 403
     db = SessionLocal()
-    engine = db.get_bind()
-    log_msg = "<h3>Log Operazioni Database:</h3><ul>"
-
+    log = []
     try:
         from sqlalchemy import text
-        
-        # 1. CREA LE TABELLE MANCANTI (Trasporti, Lavorazioni)
-        # Questo è il passaggio che risolve l'errore "relation does not exist"
-        Base.metadata.create_all(bind=engine)
-        log_msg += "<li>✅ Tabelle 'Trasporti' e 'Lavorazioni' create o verificate.</li>"
+        # 1. CREA LE TABELLE FISICHE (Se non esistono)
+        # Questo crea 'trasporti' e 'lavorazioni' come tabelle vuote e separate
+        Base.metadata.create_all(bind=db.get_bind())
+        log.append("✅ Tabelle 'trasporti' e 'lavorazioni' verificate.")
 
-        # 2. AGGIUNGI COLONNA 'LOTTO' (Se manca)
-        # Risolve l'errore "column lotto does not exist"
-        try:
-            db.execute(text("ALTER TABLE articoli ADD COLUMN lotto TEXT;"))
-            db.commit()
-            log_msg += "<li>✅ Colonna <b>'lotto'</b> aggiunta con successo.</li>"
-        except Exception as e:
-            db.rollback()
-            log_msg += f"<li>ℹ️ Colonna 'lotto' probabilmente già presente (Ignorato).</li>"
+        # 2. AGGIUNGI COLONNE MANCANTI (Se le tabelle esistevano ma erano vecchie)
+        for col, tipo in [("magazzino", "TEXT"), ("consolidato", "TEXT"), ("tipo_mezzo", "TEXT"), ("ddt_uscita", "TEXT")]:
+            try: db.execute(text(f"ALTER TABLE trasporti ADD COLUMN {col} {tipo};")); db.commit()
+            except: db.rollback()
 
-        # 3. CONVERSIONE TIPI IN TEXT (Per evitare errori di lunghezza)
-        # Include anche le nuove colonne
-        colonne_da_sbloccare = [
-            'codice_articolo', 'descrizione', 'commessa', 'ordine', 
-            'n_ddt_ingresso', 'n_ddt_uscita', 'n_arrivo', 'buono_n', 
-            'protocollo', 'cliente', 'fornitore', 'data_ingresso', 
-            'data_uscita', 'serial_number', 'magazzino', 'posizione', 
-            'stato', 'lotto', 'note'
-        ]
-        
-        for col in colonne_da_sbloccare:
-            try:
-                db.execute(text(f"ALTER TABLE articoli ALTER COLUMN {col} TYPE TEXT USING {col}::text"))
-                db.commit()
-            except Exception:
-                db.rollback()
-                # Ignoriamo errori silenziosi qui, l'importante è che ci provi
-        
-        log_msg += "<li>✅ Tutte le colonne critiche convertite in TEXT.</li>"
-        log_msg += "</ul><br><h1 style='color:green'>DATABASE RIPARATO CON SUCCESSO!</h1>"
-        log_msg += "<p>Ora le funzioni Trasporti, Picking e Import Excel dovrebbero funzionare.</p>"
-        log_msg += f'<br><a href="{url_for("home")}" class="btn btn-primary">Torna alla Home</a>'
-        
-        return log_msg
-        
+        for col, tipo in [("seriali", "TEXT"), ("richiesta_di", "TEXT"), ("pallet_uscita", "INTEGER"), ("colli", "INTEGER"), ("ore_white_collar", "FLOAT"), ("ore_blue_collar", "FLOAT")]:
+            try: db.execute(text(f"ALTER TABLE lavorazioni ADD COLUMN {col} {tipo};")); db.commit()
+            except: db.rollback()
+
+        # 3. FIX IMPORT EXCEL (Magazzino)
+        try: db.execute(text("ALTER TABLE articoli ADD COLUMN lotto TEXT;")); db.commit()
+        except: db.rollback()
+
+        return f"<h1>Tabelle Separate Create!</h1><ul>{''.join([f'<li>{l}</li>' for l in log])}</ul><a href='/home'>Home</a>"
     except Exception as e:
-        db.rollback()
-        return f"<h1>ERRORE CRITICO DURANTE IL FIX:</h1> {e}"
+        return f"Errore: {e}"
     finally:
         db.close()
 
