@@ -3072,36 +3072,39 @@ def delete_attachment(id_attachment):
         return redirect(url_for('giacenze'))
     finally:
         db.close()
+        
 @app.route('/giacenze', methods=['GET', 'POST'])
 @login_required
 def giacenze():
+    # Importiamo qui per sicurezza, così non dipendiamo dall'intestazione del file
     import logging
-    from sqlalchemy import func
+    from sqlalchemy import desc
     from sqlalchemy.orm import selectinload
+    from datetime import datetime
 
     db = SessionLocal()
     try:
-        # Query base ottimizzata
+        # 1. Query Base (Carica anche gli allegati in modo efficiente)
         qs = db.query(Articolo).options(selectinload(Articolo.attachments)).order_by(Articolo.id_articolo.desc())
 
         args = request.args
 
-        # 1. Filtro Cliente (Sicurezza)
+        # 2. Filtro Cliente (Sicurezza per utenti Client)
         if session.get('role') == 'client':
             qs = qs.filter(Articolo.cliente.ilike(f"%{current_user.id}%"))
         elif args.get('cliente'):
             qs = qs.filter(Articolo.cliente.ilike(f"%{args.get('cliente')}%"))
 
-        # 2. Filtro ID univoco
+        # 3. Filtro ID univoco
         if args.get('id'):
             try:
                 qs = qs.filter(Articolo.id_articolo == int(args.get('id')))
             except ValueError:
                 pass
 
-        # 3. Filtri Testuali (incluso 'stato' che ora è libero)
+        # 4. Filtri Testuali (Cerca in tutti questi campi)
         text_filters = [
-            'commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo','lotto', 
+            'commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo', 'lotto',
             'fornitore', 'ordine', 'magazzino', 'mezzi_in_uscita', 'stato',
             'n_ddt_ingresso', 'n_ddt_uscita', 'codice_articolo', 'serial_number',
             'n_arrivo'
@@ -3110,50 +3113,58 @@ def giacenze():
         for field in text_filters:
             val = args.get(field)
             if val and val.strip():
-                # Usa ilike per ricerca case-insensitive parziale
+                # getattr permette di prendere la colonna dinamicamente
                 qs = qs.filter(getattr(Articolo, field).ilike(f"%{val.strip()}%"))
 
-        # Esecuzione query DB
+        # Esecuzione query DB (Prende tutti i risultati testuali)
         rows_raw = qs.all()
         
-        # 4. Filtri DATE (Post-processing in Python per sicurezza)
+        # 5. FILTRI DATE (Fatti in Python per gestire formati misti nel DB ed evitare crash)
         rows = []
         
-        def get_date(k): 
+        def get_ui_date(k): 
             v = args.get(k)
             try: return datetime.strptime(v, "%Y-%m-%d").date() if v else None
             except: return None
 
-        d_ing_da = get_date('data_ing_da')
-        d_ing_a = get_date('data_ing_a')
-        d_usc_da = get_date('data_usc_da')
-        d_usc_a = get_date('data_usc_a')
+        d_ing_da = get_ui_date('data_ing_da')
+        d_ing_a = get_ui_date('data_ing_a')
+        d_usc_da = get_ui_date('data_usc_da')
+        d_usc_a = get_ui_date('data_usc_a')
 
         for r in rows_raw:
             keep = True
             
-            # Filtro Data Ingresso
+            # --- Controllo Data Ingresso ---
             if d_ing_da or d_ing_a:
                 r_dt = None
                 if r.data_ingresso:
-                    try: r_dt = datetime.strptime(r.data_ingresso, "%Y-%m-%d").date()
-                    except: 
-                        try: r_dt = datetime.strptime(r.data_ingresso, "%d/%m/%Y").date()
-                        except: pass
+                    # Gestisce sia se è oggetto date sia se è stringa
+                    if isinstance(r.data_ingresso, date):
+                        r_dt = r.data_ingresso
+                    else:
+                        try: r_dt = datetime.strptime(str(r.data_ingresso)[:10], "%Y-%m-%d").date()
+                        except:
+                            try: r_dt = datetime.strptime(str(r.data_ingresso)[:10], "%d/%m/%Y").date()
+                            except: pass
                 
-                if not r_dt: keep = False # Se filtro data attivo ma record senza data -> nascondi
+                if not r_dt: 
+                    keep = False # Se cerco per data ma il record non ne ha una valida -> nascondi
                 else:
                     if d_ing_da and r_dt < d_ing_da: keep = False
                     if d_ing_a and r_dt > d_ing_a: keep = False
             
-            # Filtro Data Uscita
+            # --- Controllo Data Uscita ---
             if keep and (d_usc_da or d_usc_a):
                 r_dt = None
                 if r.data_uscita:
-                    try: r_dt = datetime.strptime(r.data_uscita, "%Y-%m-%d").date()
-                    except:
-                        try: r_dt = datetime.strptime(r.data_uscita, "%d/%m/%Y").date()
-                        except: pass
+                    if isinstance(r.data_uscita, date):
+                        r_dt = r.data_uscita
+                    else:
+                        try: r_dt = datetime.strptime(str(r.data_uscita)[:10], "%Y-%m-%d").date()
+                        except:
+                            try: r_dt = datetime.strptime(str(r.data_uscita)[:10], "%d/%m/%Y").date()
+                            except: pass
                 
                 if not r_dt: keep = False
                 else:
@@ -3163,22 +3174,37 @@ def giacenze():
             if keep:
                 rows.append(r)
 
-        # Totali (Calcolati su ciò che si vede)
-        # Nota: totale peso/m2 calcolato solo su merce NON uscita (opzionale, qui su tutto il filtrato)
-        total_colli = sum((r.n_colli or 0) for r in rows)
-        total_m2 = sum((r.m2 or 0) for r in rows)
-        total_peso = sum((r.peso or 0) for r in rows)
+        # 6. Calcolo Totali Sicuro (evita errori se i campi sono vuoti)
+        total_colli = 0
+        total_m2 = 0.0
+        total_peso = 0.0
+
+        for r in rows:
+            # Colli
+            try: total_colli += int(r.n_colli) if r.n_colli else 0
+            except: pass
+            
+            # M2
+            try: total_m2 += float(r.m2) if r.m2 else 0
+            except: pass
+            
+            # Peso
+            try: total_peso += float(r.peso) if r.peso else 0
+            except: pass
 
         return render_template(
             'giacenze.html',
-            rows=rows,
+            rows=rows,       # Passiamo rows per il nuovo template
+            result=rows,     # Passiamo anche result per compatibilità vecchi template
             total_colli=total_colli,
             total_m2=f"{total_m2:.2f}",
-            total_peso=f"{total_peso:.2f}"
+            total_peso=f"{total_peso:.2f}",
+            today=date.today()
         )
+
     except Exception as e:
-        logging.error(f"Errore giacenze: {e}")
-        return render_template('giacenze.html', rows=[], total_colli=0, total_m2="0", total_peso="0")
+        logging.error(f"ERRORE GIACENZE: {e}")
+        return f"<h1>Errore caricamento magazzino:</h1><p>{e}</p>"
     finally:
         db.close()
 # --- MODIFICA MULTIPLA COMPLETA CON CALCOLI ---
