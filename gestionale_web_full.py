@@ -3072,6 +3072,53 @@ def delete_attachment(id_attachment):
         return redirect(url_for('giacenze'))
     finally:
         db.close()
+
+# ==============================================================================
+#  DELETE FUNCTION (Fixes 'elimina_record' crash)
+# ==============================================================================
+@app.route('/elimina_record/<table>/<int:id>')
+@login_required
+def elimina_record(table, id):
+    # Security: Only Admin can delete
+    if session.get('role') != 'admin':
+        flash("Access Denied: Admin only.", "danger")
+        if table == 'trasporti': return redirect(url_for('trasporti'))
+        if table == 'lavorazioni': return redirect(url_for('lavorazioni'))
+        return redirect(url_for('home'))
+
+    db = SessionLocal()
+    try:
+        if table == 'trasporti':
+            record = db.query(Trasporto).get(id)
+            if record:
+                db.delete(record)
+                db.commit()
+                flash("Trasporto eliminato.", "success")
+            else:
+                flash("Record non trovato.", "warning")
+                
+        elif table == 'lavorazioni':
+            record = db.query(Lavorazione).get(id)
+            if record:
+                db.delete(record)
+                db.commit()
+                flash("Picking eliminato.", "success")
+            else:
+                flash("Record non trovato.", "warning")
+                
+        else:
+            flash(f"Tabella '{table}' sconosciuta.", "danger")
+
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore eliminazione: {e}", "danger")
+    finally:
+        db.close()
+
+    # Redirect back to the correct page
+    if table == 'trasporti': return redirect(url_for('trasporti'))
+    if table == 'lavorazioni': return redirect(url_for('lavorazioni'))
+    return redirect(url_for('home'))
         
 @app.route('/giacenze', methods=['GET', 'POST'])
 @login_required
