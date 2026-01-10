@@ -2904,6 +2904,40 @@ def duplica_articolo(id_articolo):
     
     return redirect(url_for('giacenze'))
 
+@app.route('/edit_articolo/<int:id>', methods=['GET', 'POST'])
+@login_required
+def edit_articolo(id):
+    db = SessionLocal()
+    articolo = db.query(Articolo).get(id)
+    
+    if not articolo:
+        flash("Articolo non trovato", "danger")
+        return redirect(url_for('giacenze'))
+
+    if request.method == 'POST':
+        try:
+            # Aggiorna i campi dal form
+            articolo.cliente = request.form.get('cliente')
+            articolo.fornitore = request.form.get('fornitore')
+            articolo.codice_articolo = request.form.get('codice_articolo')
+            articolo.descrizione = request.form.get('descrizione')
+            articolo.n_colli = request.form.get('n_colli')
+            articolo.stato = request.form.get('stato')
+            articolo.lotto = request.form.get('lotto')
+            articolo.magazzino = request.form.get('magazzino')
+            # ... puoi aggiungere altri campi qui se servono ...
+            
+            db.commit()
+            flash("Articolo aggiornato!", "success")
+            return redirect(url_for('giacenze'))
+        except Exception as e:
+            db.rollback()
+            flash(f"Errore aggiornamento: {e}", "danger")
+
+    db.close()
+    # Se non hai un template edit_articolo.html, usiamo quello nuovo o reindirizziamo
+    # Per ora creiamo una vista semplice o usiamo quella di inserimento precompilata
+    return render_template('nuovo_articolo.html', articolo=articolo, today=date.today(), edit_mode=True)
 
 @app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
 @login_required
