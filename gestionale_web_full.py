@@ -2874,6 +2874,32 @@ def nuovo_articolo():
     dummy_art.data_ingresso = date.today().strftime("%d/%m/%Y") # Data di default
     return render_template('edit.html', row=dummy_art)
 
+
+
+# 1. ELIMINA ARTICOLO (Per la pagina Magazzino)
+@app.route('/delete_articolo/<int:id>')
+@login_required
+def delete_articolo(id):
+    if session.get('role') != 'admin':
+        flash("Accesso Negato: Solo Admin può eliminare.", "danger")
+        return redirect(url_for('giacenze'))
+        
+    db = SessionLocal()
+    try:
+        record = db.query(Articolo).get(id)
+        if record:
+            db.delete(record)
+            db.commit()
+            flash("Articolo eliminato.", "success")
+        else:
+            flash("Articolo non trovato.", "warning")
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore eliminazione: {e}", "danger")
+    finally:
+        db.close()
+    return redirect(url_for('giacenze'))
+
 # --- DUPLICAZIONE SINGOLA (Quella che mancava e dava errore) ---
 @app.route('/duplica_articolo/<int:id_articolo>')
 @login_required
