@@ -4411,7 +4411,6 @@ def fix_db_schema():
         return f"Errore Fix: {e}"
     finally:
         db.close()
-
 def _parse_data_db_helper(data_str):
     """Converte stringa data DB in oggetto date (Gestisce formati misti)."""
     if not data_str: return None
