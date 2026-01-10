@@ -864,6 +864,7 @@ CALCOLI_HTML = """
 {% endblock %}
 """
 # --- TEMPLATE PAGINA MAGAZZINO (GIACENZE) - VERSIONE CORRETTA E STABILE ---
+
 GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -974,6 +975,7 @@ GIACENZE_HTML = """
             </thead>
             <tbody>
                 {% for r in rows %}
+                {% set desc = (r.descrizione or '') %}
                 <tr>
                     <td class="text-center"><input type="checkbox" name="ids" value="{{ r.id_articolo }}" class="row-checkbox"></td>
                     <td>{{ r.id_articolo }}</td>
@@ -990,7 +992,10 @@ GIACENZE_HTML = """
                     </td>
 
                     <td title="{{ r.codice_articolo }}">{{ r.codice_articolo or '' }}</td>
-                    <td title="{{ r.descrizione }}">{{ r.descrizione[:30] }}{% if r.descrizione|length > 30 %}...{% endif %}</td>
+
+                    <!-- FIX: descrizione può essere None, quindi uso desc sempre stringa -->
+                    <td title="{{ desc }}">{{ desc[:30] }}{% if desc|length > 30 %}...{% endif %}</td>
+
                     <td>{{ r.cliente or '' }}</td>
                     <td>{{ r.fornitore or '' }}</td>
                     <td>{{ r.commessa or '' }}</td>
@@ -1062,6 +1067,7 @@ GIACENZE_HTML = """
 </script>
 {% endblock %}
 """
+
 
 EDIT_HTML = """
 {% extends 'base.html' %}
