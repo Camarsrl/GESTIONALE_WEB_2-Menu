@@ -1677,7 +1677,13 @@ LAVORAZIONI_HTML = """
 {% extends "base.html" %}
 {% block content %}
 <div class="container-fluid mt-4">
-    <h2><i class="bi bi-gear"></i> Gestione Picking / Lavorazioni</h2>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2><i class="bi bi-gear"></i> Gestione Picking / Lavorazioni</h2>
+        
+        <form action="{{ url_for('stampa_picking_pdf') }}" method="POST" target="_blank">
+            <button type="submit" class="btn btn-warning shadow-sm"><i class="bi bi-printer"></i> Stampa Report PDF</button>
+        </form>
+    </div>
     
     <div class="card p-3 mb-4 bg-light border shadow-sm">
         <h5 class="mb-3">Inserisci Nuovo Picking</h5>
@@ -1726,11 +1732,7 @@ LAVORAZIONI_HTML = """
                         <td>{{ l.ore_blue_collar }}</td>
                         <td>{{ l.ore_white_collar }}</td>
                         <td>
-                            <a href="{{ url_for('elimina_record', table='lavorazioni', id=l.id) }}" 
-                               class="btn btn-sm btn-danger" 
-                               onclick="return confirm('Sei sicuro di voler eliminare questo picking?')">
-                               <i class="bi bi-trash"></i>
-                            </a>
+                            <a href="{{ url_for('delete_lavorazione', id=l.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Sei sicuro di voler eliminare?')"><i class="bi bi-trash"></i></a>
                         </td>
                     </tr>
                     {% else %}
@@ -1743,7 +1745,6 @@ LAVORAZIONI_HTML = """
 </div>
 {% endblock %}
 """
-
 CALCOLA_COSTI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
