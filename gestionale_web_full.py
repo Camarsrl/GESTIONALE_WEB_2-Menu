@@ -3101,7 +3101,7 @@ def giacenze():
 
         # 3. Filtri Testuali (incluso 'stato' che ora è libero)
         text_filters = [
-            'commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo', 
+            'commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo','lotto', 
             'fornitore', 'ordine', 'magazzino', 'mezzi_in_uscita', 'stato',
             'n_ddt_ingresso', 'n_ddt_uscita', 'codice_articolo', 'serial_number',
             'n_arrivo'
