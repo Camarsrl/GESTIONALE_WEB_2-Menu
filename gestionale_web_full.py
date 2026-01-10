@@ -2294,7 +2294,66 @@ def report_inventario():
     
     return render_template('report_inventario_print.html', inventario=inventario, data_rif=data_rif)
 
+@app.route('/stampa_picking_pdf', methods=['POST'])
+@login_required
+def stampa_picking_pdf():
+    import io
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from datetime import date
 
+    db = SessionLocal()
+    try:
+        # Recupera picking ordinati per data
+        rows = db.query(Lavorazione).order_by(Lavorazione.data.desc()).all()
+        
+        bio = io.BytesIO()
+        doc = SimpleDocTemplate(bio, pagesize=landscape(A4), topMargin=10*mm, bottomMargin=10*mm)
+        elements = []
+        styles = getSampleStyleSheet()
+
+        elements.append(Paragraph("<b>REPORT PICKING / LAVORAZIONI</b>", styles['Title']))
+        elements.append(Spacer(1, 5*mm))
+
+        table_data = [['DATA', 'CLIENTE', 'DESCRIZIONE', 'RICHIESTA', 'COLLI', 'PALLET (IN/OUT)', 'BLUE', 'WHITE']]
+        
+        for r in rows:
+            d_str = r.data.strftime('%d/%m/%Y') if r.data else ""
+            pallet_str = f"{r.pallet_forniti or 0} / {r.pallet_uscita or 0}"
+            row = [
+                d_str,
+                str(r.cliente or '')[:20],
+                str(r.descrizione or '')[:30],
+                str(r.richiesta_di or '')[:15],
+                str(r.colli or 0),
+                pallet_str,
+                str(r.ore_blue_collar or 0),
+                str(r.ore_white_collar or 0)
+            ]
+            table_data.append(row)
+
+        t = Table(table_data, colWidths=[25*mm, 45*mm, 65*mm, 35*mm, 15*mm, 35*mm, 15*mm, 15*mm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        
+        elements.append(t)
+        doc.build(elements)
+        bio.seek(0)
+        return send_file(bio, as_attachment=True, download_name=f"report_picking_{date.today()}.pdf", mimetype='application/pdf')
+
+    except Exception as e:
+        return f"Errore PDF: {e}"
+    finally:
+        db.close()
 
 # =========================
 # IMPORT EXCEL (con log)
