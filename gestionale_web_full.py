@@ -2154,45 +2154,71 @@ def upload_mappe_json():
 @login_required
 def trasporti():
     db = SessionLocal()
-    
-    # Se premi "Aggiungi"
-    if request.method == 'POST' and 'add_trasporto' in request.form:
-        try:
-            nuovo = Trasporto(
-                data=datetime.strptime(request.form.get('data'), '%Y-%m-%d').date(),
-                tipo_mezzo=request.form.get('tipo_mezzo'),
-                cliente=request.form.get('cliente'),
-                trasportatore=request.form.get('trasportatore'),
-                ddt_uscita=request.form.get('ddt_uscita'),
-                magazzino=request.form.get('magazzino'),
-                consolidato=request.form.get('consolidato'),
-                costo=float(request.form.get('costo') or 0)
-            )
-            db.add(nuovo)
-            db.commit()
-            flash("Trasporto aggiunto!", "success")
-        except Exception as e:
-            db.rollback()
-            flash(f"Errore: {e}", "danger")
-        return redirect(url_for('trasporti'))
 
-    # Se premi "Stampa Report" (Nuova funzione)
-    if request.method == 'POST' and 'stampa_report' in request.form:
-        dati = db.query(Trasporto).order_by(Trasporto.data.desc()).all()
+    try:
+        # ---------------------------
+        # POST: Aggiungi Trasporto
+        # ---------------------------
+        if request.method == 'POST' and request.form.get('add_trasporto'):
+            try:
+                data_str = (request.form.get('data') or '').strip()
+
+                # Accetta sia YYYY-MM-DD (input type="date") che DD/MM/YYYY (se lo inserisci a mano)
+                data_val = None
+                if data_str:
+                    try:
+                        data_val = datetime.strptime(data_str, '%Y-%m-%d').date()
+                    except Exception:
+                        data_val = datetime.strptime(data_str, '%d/%m/%Y').date()
+
+                costo_str = (request.form.get('costo') or '').strip()
+                costo_val = None
+                if costo_str != '':
+                    # permette virgola
+                    costo_val = float(costo_str.replace(',', '.'))
+
+                nuovo = Trasporto(
+                    data=data_val,
+                    tipo_mezzo=(request.form.get('tipo_mezzo') or '').strip() or None,
+                    cliente=(request.form.get('cliente') or '').strip() or None,
+                    trasportatore=(request.form.get('trasportatore') or '').strip() or None,
+                    ddt_uscita=(request.form.get('ddt_uscita') or '').strip() or None,
+                    magazzino=(request.form.get('magazzino') or '').strip() or None,
+                    consolidato=(request.form.get('consolidato') or '').strip() or None,
+                    costo=costo_val
+                )
+                db.add(nuovo)
+                db.commit()
+                flash("Trasporto aggiunto!", "success")
+
+            except Exception as e:
+                db.rollback()
+                flash(f"Errore aggiunta trasporto: {e}", "danger")
+
+            return redirect(url_for('trasporti'))
+
+        # ---------------------------
+        # POST: Stampa Report
+        # ---------------------------
+        if request.method == 'POST' and request.form.get('stampa_report'):
+            dati = db.query(Trasporto).order_by(Trasporto.data.desc()).all()
+            return render_template('report_trasporti_print.html', trasporti=dati, today=date.today())
+
+        # ---------------------------
+        # GET: Visualizzazione Tabella + Filtri
+        # ---------------------------
+        query = db.query(Trasporto)
+
+        cliente_q = (request.args.get('cliente') or '').strip()
+        if cliente_q:
+            query = query.filter(Trasporto.cliente.ilike(f"%{cliente_q}%"))
+
+        dati = query.order_by(Trasporto.data.desc()).all()
+        return render_template('trasporti.html', trasporti=dati, today=date.today())
+
+    finally:
         db.close()
-        # Usa un template di stampa pulito
-        return render_template('report_trasporti_print.html', trasporti=dati, today=date.today())
 
-    # Visualizzazione Tabella
-    query = db.query(Trasporto)
-    # Filtro Ricerca
-    if request.args.get('cliente'):
-        query = query.filter(Trasporto.cliente.ilike(f"%{request.args.get('cliente')}%"))
-    
-    dati = query.order_by(Trasporto.data.desc()).all()
-    db.close()
-    
-    return render_template('trasporti.html', trasporti=dati, today=date.today())
 @app.route('/report_trasporti', methods=['POST'])
 @login_required
 def report_trasporti():
