@@ -3771,6 +3771,71 @@ def _generate_buono_pdf(form_data, rows):
     bio.seek(0)
     return bio
 
+
+@app.route('/stampa_picking_pdf', methods=['POST'])
+@login_required
+def stampa_picking_pdf():
+    import io
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+
+    db = SessionLocal()
+    try:
+        # Prendi tutti i picking (o filtra per data se vuoi, qui stampiamo tutto)
+        rows = db.query(Lavorazione).order_by(Lavorazione.data.desc()).all()
+        
+        bio = io.BytesIO()
+        doc = SimpleDocTemplate(bio, pagesize=landscape(A4), topMargin=10*mm, bottomMargin=10*mm)
+        elements = []
+        styles = getSampleStyleSheet()
+
+        # Titolo
+        elements.append(Paragraph("<b>REPORT PICKING / LAVORAZIONI</b>", styles['Title']))
+        elements.append(Spacer(1, 5*mm))
+
+        # Intestazione Tabella
+        data = [['DATA', 'CLIENTE', 'DESCRIZIONE', 'RICHIESTA DI', 'COLLI', 'PALLET', 'BLUE', 'WHITE']]
+        
+        # Righe Dati
+        for r in rows:
+            d_str = r.data.strftime('%d/%m/%Y') if r.data else ""
+            p_str = f"IN:{r.pallet_forniti or 0} / OUT:{r.pallet_uscita or 0}"
+            data.append([
+                d_str,
+                str(r.cliente or '')[:20],
+                str(r.descrizione or '')[:30],
+                str(r.richiesta_di or '')[:15],
+                str(r.colli or 0),
+                p_str,
+                str(r.ore_blue_collar or 0),
+                str(r.ore_white_collar or 0)
+            ])
+
+        # Creazione Tabella
+        t = Table(data, colWidths=[25*mm, 40*mm, 60*mm, 35*mm, 15*mm, 35*mm, 15*mm, 15*mm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+            ('fontName', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        
+        elements.append(t)
+        doc.build(elements)
+        
+        bio.seek(0)
+        return send_file(bio, as_attachment=True, download_name=f"report_picking_{date.today()}.pdf", mimetype='application/pdf')
+
+    except Exception as e:
+        return f"Errore stampa: {e}"
+    finally:
+        db.close()
+
 # --- GENERAZIONE PDF DDT (LAYOUT RICHIESTO) ---
 
 def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
