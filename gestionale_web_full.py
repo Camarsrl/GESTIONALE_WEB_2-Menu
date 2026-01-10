@@ -4292,105 +4292,34 @@ app.jinja_env.filters['fmt_date'] = fmt_date
 @app.route('/fix_db_schema')
 @login_required
 def fix_db_schema():
-    if session.get('role') != 'admin':
-        return "Accesso Negato", 403
-    
+    if session.get('role') != 'admin': return "Accesso Negato", 403
     db = SessionLocal()
-    engine = db.get_bind()
-    log_msg = "<h3>Operazioni Aggiornamento Database:</h3><ul>"
-
     try:
         from sqlalchemy import text
+        Base.metadata.create_all(bind=db.get_bind())
         
-        # 1. CREA TUTTE LE TABELLE FISICHE (Se non esistono)
-        # Questo comando crea 'articoli', 'trasporti' e 'lavorazioni' se mancano
-        Base.metadata.create_all(bind=engine)
-        log_msg += "<li>✅ Struttura Tabelle Base (Giacenze, Trasporti, Picking) verificata.</li>"
+        log = []
+        # FIX GIACENZE
+        cols_art = [("lotto", "TEXT"), ("peso", "FLOAT"), ("m2", "FLOAT"), ("m3", "FLOAT"), ("n_arrivo", "TEXT")]
+        for c, t in cols_art:
+            try: db.execute(text(f"ALTER TABLE articoli ADD COLUMN {c} {t};")); db.commit()
+            except: db.rollback()
 
-        # ---------------------------------------------------------
-        # 2. AGGIORNAMENTO TABELLA 'ARTICOLI' (GIACENZE)
-        # ---------------------------------------------------------
-        # Elenco colonne nuove che potrebbero mancare nel vecchio DB
-        cols_articoli = [
-            ("lotto", "TEXT"),
-            ("serial_number", "TEXT"),
-            ("peso", "FLOAT"),
-            ("m2", "FLOAT"),
-            ("m3", "FLOAT"),
-            ("lunghezza", "FLOAT"),
-            ("larghezza", "FLOAT"),
-            ("altezza", "FLOAT"),
-            ("n_arrivo", "TEXT"),
-            ("data_uscita", "DATE"),
-            ("n_ddt_uscita", "TEXT"),
-            ("mezzi_in_uscita", "TEXT")
-        ]
-        
-        for col, tipo in cols_articoli:
-            try:
-                db.execute(text(f"ALTER TABLE articoli ADD COLUMN {col} {tipo};"))
-                db.commit()
-                log_msg += f"<li>➕ Aggiunta colonna <b>{col}</b> in Giacenze.</li>"
-            except:
-                db.rollback() # La colonna esiste già, ignoriamo l'errore
+        # FIX TRASPORTI
+        cols_tra = [("magazzino", "TEXT"), ("consolidato", "TEXT"), ("tipo_mezzo", "TEXT"), ("ddt_uscita", "TEXT"), ("costo", "FLOAT")]
+        for c, t in cols_tra:
+            try: db.execute(text(f"ALTER TABLE trasporti ADD COLUMN {c} {t};")); db.commit()
+            except: db.rollback()
 
-        # ---------------------------------------------------------
-        # 3. AGGIORNAMENTO TABELLA 'TRASPORTI'
-        # ---------------------------------------------------------
-        cols_trasporti = [
-            ("magazzino", "TEXT"), 
-            ("consolidato", "TEXT"), 
-            ("tipo_mezzo", "TEXT"), 
-            ("ddt_uscita", "TEXT"),
-            ("costo", "FLOAT")
-        ]
-        for col, tipo in cols_trasporti:
-            try:
-                db.execute(text(f"ALTER TABLE trasporti ADD COLUMN {col} {tipo};"))
-                db.commit()
-                log_msg += f"<li>➕ Aggiunta colonna <b>{col}</b> in Trasporti.</li>"
-            except:
-                db.rollback()
+        # FIX PICKING
+        cols_lav = [("seriali", "TEXT"), ("colli", "INTEGER"), ("pallet_forniti", "INTEGER"), ("pallet_uscita", "INTEGER"), ("ore_blue_collar", "FLOAT")]
+        for c, t in cols_lav:
+            try: db.execute(text(f"ALTER TABLE lavorazioni ADD COLUMN {c} {t};")); db.commit()
+            except: db.rollback()
 
-        # ---------------------------------------------------------
-        # 4. AGGIORNAMENTO TABELLA 'LAVORAZIONI' (PICKING)
-        # ---------------------------------------------------------
-        cols_lavorazioni = [
-            ("seriali", "TEXT"), 
-            ("richiesta_di", "TEXT"), 
-            ("pallet_uscita", "INTEGER"), 
-            ("pallet_forniti", "INTEGER"),
-            ("colli", "INTEGER"), 
-            ("ore_white_collar", "FLOAT"), 
-            ("ore_blue_collar", "FLOAT")
-        ]
-        for col, tipo in cols_lavorazioni:
-            try:
-                db.execute(text(f"ALTER TABLE lavorazioni ADD COLUMN {col} {tipo};"))
-                db.commit()
-                log_msg += f"<li>➕ Aggiunta colonna <b>{col}</b> in Picking.</li>"
-            except:
-                db.rollback()
-
-        # 5. FIX TIPI COLONNE (Conversione TEXT sicura per importazione)
-        colonne_text = ['n_arrivo', 'lotto', 'commessa', 'ordine', 'n_ddt_ingresso', 'n_ddt_uscita', 'serial_number']
-        for col in colonne_text:
-            try:
-                # Tenta di convertire in TEXT se non lo è già (utile per numeri che iniziano con 0)
-                db.execute(text(f"ALTER TABLE articoli ALTER COLUMN {col} TYPE TEXT USING {col}::text"))
-                db.commit()
-            except:
-                db.rollback()
-
-        log_msg += "</ul><br><h1 style='color:green'>TUTTO OK! DATABASE AGGIORNATO.</h1>"
-        log_msg += f'<br><p>Ora le pagine Trasporti e Picking funzioneranno correttamente.</p>'
-        log_msg += f'<br><a href="{url_for("home")}" class="btn btn-primary">Torna alla Home</a>'
-        
-        return log_msg
-        
+        return "<h1>DATABASE AGGIORNATO CON SUCCESSO!</h1><a href='/home'>Torna alla Home</a>"
     except Exception as e:
-        db.rollback()
-        return f"<h1>ERRORE CRITICO DURANTE IL FIX:</h1> {e}"
+        return f"Errore: {e}"
     finally:
         db.close()
 def _parse_data_db_helper(data_str):
