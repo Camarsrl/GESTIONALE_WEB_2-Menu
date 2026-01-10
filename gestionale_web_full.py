@@ -1665,6 +1665,7 @@ DESTINATARI_HTML = """
 """
 
 # --- TEMPLATE PAGINA PICKING / LAVORAZIONI (Senza Emoji, usa Icone Bootstrap) ---
+
 LAVORAZIONI_HTML = """
 {% extends "base.html" %}
 {% block content %}
@@ -1718,11 +1719,15 @@ LAVORAZIONI_HTML = """
                         <td>{{ l.ore_blue_collar }}</td>
                         <td>{{ l.ore_white_collar }}</td>
                         <td>
-                            <a href="{{ url_for('elimina_record', table='lavorazioni', id=l.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Eliminare?')">X</a>
+                            <a href="{{ url_for('elimina_record', table='lavorazioni', id=l.id) }}" 
+                               class="btn btn-sm btn-danger" 
+                               onclick="return confirm('Sei sicuro di voler eliminare questo picking?')">
+                               <i class="bi bi-trash"></i>
+                            </a>
                         </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="11" class="text-center text-muted">Nessuna attività.</td></tr>
+                    <tr><td colspan="11" class="text-center text-muted">Nessuna attività registrata.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
