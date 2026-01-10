@@ -4312,88 +4312,90 @@ def _genera_pdf_etichetta(articoli):
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import mm
-    from reportlab.lib import colors
-    from reportlab.lib.enums import TA_LEFT, TA_RIGHT
+    from reportlab.lib.enums import TA_LEFT
 
     bio = io.BytesIO()
     W, H = 100*mm, 62*mm 
     
+    # Margini: Tutto spostato a sinistra
     doc = SimpleDocTemplate(bio, pagesize=(W, H),
-        leftMargin=2*mm, rightMargin=2*mm, topMargin=2*mm, bottomMargin=2*mm)
+        leftMargin=3*mm, rightMargin=1*mm, topMargin=2*mm, bottomMargin=1*mm)
     
     story = []
     styles = getSampleStyleSheet()
     
-    # --- STILI ---
-    # Testo dati a sinistra (Grassetto, allineato a sinistra)
-    s_norm = ParagraphStyle('N', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=TA_LEFT)
+    # --- STILI (TUTTI ALLINEATI A SINISTRA) ---
     
-    # Numeri Grandi a Destra (ARRIVO e COLLI)
-    s_big_lbl = ParagraphStyle('BL', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, alignment=TA_RIGHT, leading=10)
-    s_big_val = ParagraphStyle('BV', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=16, alignment=TA_RIGHT, leading=18)
+    # Stile Normale (font Helvetica base) che supporta i tag <b> per il grassetto
+    s_norm = ParagraphStyle('N', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=12, alignment=TA_LEFT)
+    
+    # Stile per i Numeri Grandi (Grassetto)
+    s_big_bold = ParagraphStyle('BB', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=16, leading=18, alignment=TA_LEFT)
+    
+    # Stile per le etichette piccole dei numeri grandi (es. "ARRIVO:")
+    s_lbl_small = ParagraphStyle('LS', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=10, alignment=TA_LEFT)
 
     for art in articoli:
-        # Calcolo sicuro del numero colli
-        try:
-            tot = int(art.n_colli) if art.n_colli else 1
-        except:
-            tot = 1
+        try: tot = int(art.n_colli) if art.n_colli else 1
+        except: tot = 1
         if tot < 1: tot = 1
 
         for i in range(1, tot + 1):
             
-            # 1. LOGO (Se esiste)
-            # Assicurati che il percorso del logo sia corretto o togli questo if se non hai il logo
-            logo_path = "static/logo camar.jpg" # O il percorso corretto sul tuo server
+            # 1. LOGO
+            logo_path = "static/logo camar.jpg" 
             if Path(logo_path).exists():
                 try:
+                    # Logo allineato a sinistra
                     story.append(RLImage(logo_path, width=35*mm, height=9*mm, hAlign='LEFT'))
                     story.append(Spacer(1, 2*mm))
-                except: pass # Se il logo è corrotto, ignora
+                except: pass
+
+            # 2. DATI ANAGRAFICI
+            # Usiamo i tag <b> per fare il grassetto SOLO sulla categoria
+            lines_data = []
+            if art.cliente: lines_data.append(f"<b>CLIENTE:</b> {art.cliente}")
+            if art.fornitore: lines_data.append(f"<b>FORNITORE:</b> {art.fornitore}")
+            if art.ordine: lines_data.append(f"<b>ORDINE:</b> {art.ordine}")
+            if art.commessa: lines_data.append(f"<b>COMMESSA:</b> {art.commessa}")
+            if art.n_ddt_ingresso: lines_data.append(f"<b>DDT ING.:</b> {art.n_ddt_ingresso}")
             
-            # 2. PREPARAZIONE DATI SINISTRA
-            txt_sx = []
-            if art.cliente: txt_sx.append(f"CLIENTE:  {art.cliente}")
-            if art.fornitore: txt_sx.append(f"FORNITORE: {art.fornitore}")
-            if art.ordine: txt_sx.append(f"ORDINE:  {art.ordine}")
-            if art.commessa: txt_sx.append(f"COMMESSA: {art.commessa}")
-            if art.n_ddt_ingresso: txt_sx.append(f"DDT ING.:  {art.n_ddt_ingresso}")
-            
-            # Gestione Data sicura (sostituisce fmt_date)
             d_str = ""
             if art.data_ingresso:
-                try:
-                    if hasattr(art.data_ingresso, 'strftime'):
-                        d_str = art.data_ingresso.strftime('%d/%m/%Y')
-                    else:
-                        d_str = str(art.data_ingresso)
-                except: pass
-            if d_str: txt_sx.append(f"DATA ING.:  {d_str}")
+                try: d_str = art.data_ingresso.strftime('%d/%m/%Y')
+                except: d_str = str(art.data_ingresso)
+            if d_str: lines_data.append(f"<b>DATA ING.:</b> {d_str}")
+
+            for line in lines_data:
+                story.append(Paragraph(line, s_norm))
             
-            # Crea i paragrafi di sinistra
-            p_sx = [Paragraph(line, s_norm) for line in txt_sx]
+            story.append(Spacer(1, 4*mm))
+
+            # 3. BLOCCO DATI GRANDI (ARRIVO e COLLO) - Tutto a Sinistra
             
-            # 3. PREPARAZIONE DATI DESTRA (Arrivo e Colli)
-            p_dx = [
-                Spacer(1, 4*mm),
-                Paragraph("ARRIVO:", s_big_lbl),
-                Paragraph(str(art.n_arrivo or '-'), s_big_val),
-                Spacer(1, 5*mm),
-                Paragraph("COLLO:", s_big_lbl),
-                Paragraph(f"{i} / {tot}", s_big_val),
+            # Cella ARRIVO
+            cell_arr = [
+                Paragraph("ARRIVO:", s_lbl_small),
+                Paragraph(str(art.n_arrivo or '-'), s_big_bold)
             ]
             
-            # 4. TABELLA PRINCIPALE (Layout 60% SX - 40% DX)
-            data_main = [[p_sx, p_dx]]
-            tbl = Table(data_main, colWidths=[60*mm, 36*mm])
-            tbl.setStyle(TableStyle([
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                ('LEFTPADDING', (0,0), (-1,-1), 0),
-                ('RIGHTPADDING', (0,0), (-1,-1), 0),
-            ]))
-            story.append(tbl)
+            # Cella COLLO
+            cell_collo = [
+                Paragraph("COLLO:", s_lbl_small),
+                Paragraph(f"{i} / {tot}", s_big_bold)
+            ]
             
-            # Descrizione opzionale sotto
+            # Tabella affiancata ma tutto a sinistra
+            # [ARRIVO] [spazio] [COLLO]
+            data_tbl = [[ cell_arr, "", cell_collo ]]
+            t = Table(data_tbl, colWidths=[40*mm, 5*mm, 40*mm], hAlign='LEFT')
+            t.setStyle(TableStyle([
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('LEFTPADDING', (0,0), (-1,-1), 0), # Toglie padding extra a sinistra
+            ]))
+            story.append(t)
+            
+            # 4. DESCRIZIONE (Opzionale sotto)
             if art.descrizione:
                 story.append(Spacer(1, 2*mm))
                 story.append(Paragraph(str(art.descrizione)[:45], s_norm))
