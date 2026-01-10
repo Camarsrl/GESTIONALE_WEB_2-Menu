@@ -3940,68 +3940,63 @@ def labels_form():
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
 def labels_pdf():
-    # PROTEZIONE ADMIN
-    if session.get('role') != 'admin':
-        flash("Funzione riservata agli amministratori.", "danger")
-        return redirect(url_for('giacenze'))
-
-    db = SessionLocal()
+    # 1. Recupera gli ID selezionati dalla tabella
     ids = request.form.getlist('ids')
+    
+    db = SessionLocal()
     articoli_da_stampare = []
 
     try:
+        # CASO A: Selezione multipla (dal Magazzino)
         if ids:
-            # CASO A: Selezione Multipla dalla Tabella
-            records = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-            articoli_da_stampare = records
-        else:
-            # CASO B: Inserimento Manuale
+            articoli_da_stampare = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+        
+        # CASO B: Dati manuali (se arrivano da un form manuale)
+        elif request.form.get('cliente'): 
             a = Articolo()
             a.cliente = request.form.get('cliente')
             a.fornitore = request.form.get('fornitore')
             a.ordine = request.form.get('ordine')
             a.commessa = request.form.get('commessa')
             a.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
-            
-            d_ing = request.form.get('data_ingresso')
-            a.data_ingresso = parse_date_ui(d_ing) if d_ing else date.today().strftime("%Y-%m-%d")
-            
             a.n_arrivo = request.form.get('n_arrivo')
-            a.posizione = request.form.get('posizione')
-            # Lotto (anche se non lo stampiamo, lo salviamo nell'oggetto se servisse in futuro)
-            a.lotto = request.form.get('lotto') 
-
-            # N. Colli manuale
-            a.n_colli = to_int_eu(request.form.get('n_colli')) or 1
+            a.descrizione = request.form.get('descrizione')
             
-            # Dimensioni manuali (se presenti nel form, altrimenti 0)
-            a.lunghezza = to_float_eu(request.form.get('lunghezza'))
-            a.larghezza = to_float_eu(request.form.get('larghezza'))
-            a.altezza = to_float_eu(request.form.get('altezza'))
+            # Gestione Data
+            d_ing = request.form.get('data_ingresso')
+            if d_ing:
+                try: a.data_ingresso = datetime.strptime(d_ing, "%Y-%m-%d").date()
+                except: a.data_ingresso = date.today()
+            else:
+                a.data_ingresso = date.today()
+
+            # Gestione Numeri (Colli)
+            try: a.n_colli = int(request.form.get('n_colli'))
+            except: a.n_colli = 1
             
             articoli_da_stampare = [a]
-        
+
         if not articoli_da_stampare:
-            flash("Nessun dato per la stampa.", "warning")
+            flash("Nessun articolo selezionato.", "warning")
             return redirect(url_for('giacenze'))
 
-        # Genera il PDF
+        # 2. Genera il PDF
         pdf_file = _genera_pdf_etichetta(articoli_da_stampare)
         
         return send_file(
             pdf_file, 
             as_attachment=True, 
-            download_name='Etichette_Camar.pdf', 
+            download_name=f'etichette_{datetime.now().strftime("%H%M%S")}.pdf', 
             mimetype='application/pdf'
         )
-    
+
     except Exception as e:
-        flash(f"Errore generazione PDF: {e}", "danger")
+        # Stampa l'errore nei log del server per capire cosa succede
+        print(f"ERRORE PDF: {e}")
+        flash(f"Errore durante la creazione del PDF: {e}", "danger")
         return redirect(url_for('giacenze'))
     finally:
         db.close()
-
-
 # --- FUNZIONE GENERAZIONE PDF (REPORTLAB - Layout Grafico) ---
 def _genera_pdf_etichetta(articoli):
     import io
