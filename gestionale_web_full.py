@@ -33,6 +33,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Text, Float, Fore
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session, selectinload
 from sqlalchemy.sql import func
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import create_engine, Column, Integer, String, Text, Date, Float, Boolean, ForeignKey, text
 
 # --- IMPORTAZIONI PDF (ReportLab) ---
 from reportlab.lib.pagesizes import A4, landscape
