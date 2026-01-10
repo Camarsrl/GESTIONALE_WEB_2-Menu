@@ -1687,27 +1687,64 @@ LAVORAZIONI_HTML = """
         <h2><i class="bi bi-gear"></i> Gestione Picking / Lavorazioni</h2>
         
         <form action="{{ url_for('stampa_picking_pdf') }}" method="POST" target="_blank">
-            <button type="submit" class="btn btn-warning shadow-sm"><i class="bi bi-printer"></i> Stampa Report PDF</button>
+            <button type="submit" class="btn btn-warning shadow-sm">
+                <i class="bi bi-printer"></i> Stampa Report PDF
+            </button>
         </form>
     </div>
     
     <div class="card p-3 mb-4 bg-light border shadow-sm">
         <h5 class="mb-3">Inserisci Nuovo Picking</h5>
         <form method="POST" class="row g-2">
-            <div class="col-md-2"><label class="small">Data</label><input type="date" name="data" class="form-control" required value="{{ today }}"></div>
-            <div class="col-md-2"><label class="small">Cliente</label><input type="text" name="cliente" class="form-control"></div>
-            <div class="col-md-3"><label class="small">Descrizione</label><input type="text" name="descrizione" class="form-control"></div>
-            <div class="col-md-2"><label class="small">Richiesta Di</label><input type="text" name="richiesta_di" class="form-control"></div>
-            <div class="col-md-3"><label class="small">Seriali</label><input type="text" name="seriali" class="form-control"></div>
+            <!-- FIX: flag per far entrare la route nel blocco "add_lavorazione" (se la route lo controlla) -->
+            <input type="hidden" name="add_lavorazione" value="1">
+
+            <div class="col-md-2">
+                <label class="small">Data</label>
+                <input type="date" name="data" class="form-control" required value="{{ today }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Cliente</label>
+                <input type="text" name="cliente" class="form-control">
+            </div>
+            <div class="col-md-3">
+                <label class="small">Descrizione</label>
+                <input type="text" name="descrizione" class="form-control">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Richiesta Di</label>
+                <input type="text" name="richiesta_di" class="form-control">
+            </div>
+            <div class="col-md-3">
+                <label class="small">Seriali</label>
+                <input type="text" name="seriali" class="form-control">
+            </div>
             
-            <div class="col-md-1"><label class="small">Colli</label><input type="number" name="colli" class="form-control"></div>
-            <div class="col-md-1"><label class="small">Pallet IN</label><input type="number" name="pallet_forniti" class="form-control"></div>
-            <div class="col-md-1"><label class="small">Pallet OUT</label><input type="number" name="pallet_uscita" class="form-control"></div>
-            <div class="col-md-1"><label class="small">Ore Blue</label><input type="number" step="0.5" name="ore_blue_collar" class="form-control"></div>
-            <div class="col-md-1"><label class="small">Ore White</label><input type="number" step="0.5" name="ore_white_collar" class="form-control"></div>
+            <div class="col-md-1">
+                <label class="small">Colli</label>
+                <input type="number" name="colli" class="form-control">
+            </div>
+            <div class="col-md-1">
+                <label class="small">Pallet IN</label>
+                <input type="number" name="pallet_forniti" class="form-control">
+            </div>
+            <div class="col-md-1">
+                <label class="small">Pallet OUT</label>
+                <input type="number" name="pallet_uscita" class="form-control">
+            </div>
+            <div class="col-md-1">
+                <label class="small">Ore Blue</label>
+                <input type="number" step="0.5" name="ore_blue_collar" class="form-control">
+            </div>
+            <div class="col-md-1">
+                <label class="small">Ore White</label>
+                <input type="number" step="0.5" name="ore_white_collar" class="form-control">
+            </div>
             
             <div class="col-md-12 text-end mt-2">
-                <button type="submit" class="btn btn-success"><i class="bi bi-plus-lg"></i> Aggiungi</button>
+                <button type="submit" class="btn btn-success">
+                    <i class="bi bi-plus-lg"></i> Aggiungi
+                </button>
             </div>
         </form>
     </div>
@@ -1727,18 +1764,23 @@ LAVORAZIONI_HTML = """
                 <tbody>
                     {% for l in lavorazioni %}
                     <tr>
-                        <td>{{ l.data }}</td>
-                        <td>{{ l.cliente }}</td>
-                        <td>{{ l.descrizione }}</td>
-                        <td>{{ l.richiesta_di }}</td>
-                        <td>{{ l.seriali }}</td>
-                        <td>{{ l.colli }}</td>
-                        <td>{{ l.pallet_forniti }}</td>
-                        <td>{{ l.pallet_uscita }}</td>
-                        <td>{{ l.ore_blue_collar }}</td>
-                        <td>{{ l.ore_white_collar }}</td>
+                        <td>{{ l.data or '' }}</td>
+                        <td>{{ l.cliente or '' }}</td>
+                        <td>{{ l.descrizione or '' }}</td>
+                        <td>{{ l.richiesta_di or '' }}</td>
+                        <td>{{ l.seriali or '' }}</td>
+                        <td>{{ l.colli or '' }}</td>
+                        <td>{{ l.pallet_forniti or '' }}</td>
+                        <td>{{ l.pallet_uscita or '' }}</td>
+                        <td>{{ l.ore_blue_collar or '' }}</td>
+                        <td>{{ l.ore_white_collar or '' }}</td>
                         <td>
-                            <a href="{{ url_for('delete_lavorazione', id=l.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Sei sicuro di voler eliminare?')"><i class="bi bi-trash"></i></a>
+                            <!-- FIX: evita endpoint mancante "delete_lavorazione" -->
+                            <a href="{{ url_for('elimina_record', table='lavorazioni', id=l.id) }}"
+                               class="btn btn-sm btn-danger"
+                               onclick="return confirm('Sei sicuro di voler eliminare?')">
+                               <i class="bi bi-trash"></i>
+                            </a>
                         </td>
                     </tr>
                     {% else %}
@@ -1751,6 +1793,9 @@ LAVORAZIONI_HTML = """
 </div>
 {% endblock %}
 """
+
+
+
 CALCOLA_COSTI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
