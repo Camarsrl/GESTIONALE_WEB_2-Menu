@@ -2904,40 +2904,196 @@ def duplica_articolo(id_articolo):
     
     return redirect(url_for('giacenze'))
 
+# ==============================================================================
+#  1. MODIFICA ARTICOLO (Solo per TABELLA GIACENZE)
+# ==============================================================================
 @app.route('/edit_articolo/<int:id>', methods=['GET', 'POST'])
 @login_required
 def edit_articolo(id):
+    # Questa funzione gestisce SOLO la modifica dell'anagrafica articoli
     db = SessionLocal()
-    articolo = db.query(Articolo).get(id)
+    art = db.query(Articolo).get(id)
     
-    if not articolo:
+    if not art:
         flash("Articolo non trovato", "danger")
         return redirect(url_for('giacenze'))
 
     if request.method == 'POST':
         try:
-            # Aggiorna i campi dal form
-            articolo.cliente = request.form.get('cliente')
-            articolo.fornitore = request.form.get('fornitore')
-            articolo.codice_articolo = request.form.get('codice_articolo')
-            articolo.descrizione = request.form.get('descrizione')
-            articolo.n_colli = request.form.get('n_colli')
-            articolo.stato = request.form.get('stato')
-            articolo.lotto = request.form.get('lotto')
-            articolo.magazzino = request.form.get('magazzino')
-            # ... puoi aggiungere altri campi qui se servono ...
+            # Aggiornamento Campi
+            art.codice_articolo = request.form.get('codice_articolo')
+            art.descrizione = request.form.get('descrizione')
+            art.cliente = request.form.get('cliente')
+            art.fornitore = request.form.get('fornitore')
+            art.commessa = request.form.get('commessa')
+            art.ordine = request.form.get('ordine')
+            art.protocollo = request.form.get('protocollo')
+            art.buono_n = request.form.get('buono_n')
+            art.n_arrivo = request.form.get('n_arrivo')
+            art.magazzino = request.form.get('magazzino')
+            art.posizione = request.form.get('posizione')
+            art.stato = request.form.get('stato')
+            art.note = request.form.get('note')
+            art.serial_number = request.form.get('serial_number')
+            art.lotto = request.form.get('lotto')
+
+            # Gestione sicura dei numeri (evita crash se vuoti)
+            try: art.n_colli = int(request.form.get('n_colli'))
+            except: pass
             
+            try: art.peso = float(request.form.get('peso').replace(',', '.'))
+            except: pass
+
+            try: art.lunghezza = float(request.form.get('lunghezza').replace(',', '.'))
+            except: pass
+            try: art.larghezza = float(request.form.get('larghezza').replace(',', '.'))
+            except: pass
+            try: art.altezza = float(request.form.get('altezza').replace(',', '.'))
+            except: pass
+
+            # Gestione sicura Date
+            d_ing = request.form.get('data_ingresso')
+            if d_ing:
+                try: art.data_ingresso = datetime.strptime(d_ing, "%Y-%m-%d").date()
+                except: pass
+
+            d_usc = request.form.get('data_uscita')
+            if d_usc:
+                try: art.data_uscita = datetime.strptime(d_usc, "%Y-%m-%d").date()
+                except: pass
+
             db.commit()
-            flash("Articolo aggiornato!", "success")
+            flash("Articolo modificato con successo!", "success")
             return redirect(url_for('giacenze'))
+
         except Exception as e:
             db.rollback()
-            flash(f"Errore aggiornamento: {e}", "danger")
+            flash(f"Errore salvataggio: {e}", "danger")
+        finally:
+            db.close()
 
     db.close()
-    # Se non hai un template edit_articolo.html, usiamo quello nuovo o reindirizziamo
-    # Per ora creiamo una vista semplice o usiamo quella di inserimento precompilata
-    return render_template('nuovo_articolo.html', articolo=articolo, today=date.today(), edit_mode=True)
+    # Usa il template esistente in modalità modifica
+    return render_template('nuovo_articolo.html', articolo=art, today=date.today(), edit_mode=True)
+
+
+# ==============================================================================
+#  1. MODIFICA ARTICOLO (Solo per TABELLA GIACENZE)
+# ==============================================================================
+@app.route('/edit_articolo/<int:id>', methods=['GET', 'POST'])
+@login_required
+def edit_articolo(id):
+    # Questa funzione gestisce SOLO la modifica dell'anagrafica articoli
+    db = SessionLocal()
+    art = db.query(Articolo).get(id)
+    
+    if not art:
+        flash("Articolo non trovato", "danger")
+        return redirect(url_for('giacenze'))
+
+    if request.method == 'POST':
+        try:
+            # Aggiornamento Campi
+            art.codice_articolo = request.form.get('codice_articolo')
+            art.descrizione = request.form.get('descrizione')
+            art.cliente = request.form.get('cliente')
+            art.fornitore = request.form.get('fornitore')
+            art.commessa = request.form.get('commessa')
+            art.ordine = request.form.get('ordine')
+            art.protocollo = request.form.get('protocollo')
+            art.buono_n = request.form.get('buono_n')
+            art.n_arrivo = request.form.get('n_arrivo')
+            art.magazzino = request.form.get('magazzino')
+            art.posizione = request.form.get('posizione')
+            art.stato = request.form.get('stato')
+            art.note = request.form.get('note')
+            art.serial_number = request.form.get('serial_number')
+            art.lotto = request.form.get('lotto')
+
+            # Gestione sicura dei numeri (evita crash se vuoti)
+            try: art.n_colli = int(request.form.get('n_colli'))
+            except: pass
+            
+            try: art.peso = float(request.form.get('peso').replace(',', '.'))
+            except: pass
+
+            try: art.lunghezza = float(request.form.get('lunghezza').replace(',', '.'))
+            except: pass
+            try: art.larghezza = float(request.form.get('larghezza').replace(',', '.'))
+            except: pass
+            try: art.altezza = float(request.form.get('altezza').replace(',', '.'))
+            except: pass
+
+            # Gestione sicura Date
+            d_ing = request.form.get('data_ingresso')
+            if d_ing:
+                try: art.data_ingresso = datetime.strptime(d_ing, "%Y-%m-%d").date()
+                except: pass
+
+            d_usc = request.form.get('data_uscita')
+            if d_usc:
+                try: art.data_uscita = datetime.strptime(d_usc, "%Y-%m-%d").date()
+                except: pass
+
+            db.commit()
+            flash("Articolo modificato con successo!", "success")
+            return redirect(url_for('giacenze'))
+
+        except Exception as e:
+            db.rollback()
+            flash(f"Errore salvataggio: {e}", "danger")
+        finally:
+            db.close()
+
+    db.close()
+    # Usa il template esistente in modalità modifica
+    return render_template('nuovo_articolo.html', articolo=art, today=date.today(), edit_mode=True)
+
+
+# ==============================================================================
+#  2. ELIMINAZIONE UNIFICATA (Gestisce Articoli, Trasporti e Picking)
+# ==============================================================================
+@app.route('/elimina_record/<string:tipo_tabella>/<int:id>')
+@login_required
+def elimina_record(tipo_tabella, id):
+    # Protezione: Solo Admin elimina
+    if session.get('role') != 'admin':
+        flash("Solo l'Admin può eliminare i record.", "danger")
+        return redirect(url_for('home'))
+
+    db = SessionLocal()
+    try:
+        record = None
+        redirect_url = 'home'
+
+        # Logica intelligente: capisce cosa cancellare in base al 'tipo_tabella'
+        if tipo_tabella == 'articoli':
+            record = db.query(Articolo).get(id)
+            redirect_url = 'giacenze'
+            
+        elif tipo_tabella == 'trasporti':
+            record = db.query(Trasporto).get(id)
+            redirect_url = 'trasporti'
+            
+        elif tipo_tabella == 'lavorazioni':
+            record = db.query(Lavorazione).get(id)
+            redirect_url = 'lavorazioni'
+
+        if record:
+            db.delete(record)
+            db.commit()
+            flash("Elemento eliminato correttamente.", "success")
+        else:
+            flash("Elemento non trovato.", "warning")
+
+        return redirect(url_for(redirect_url))
+
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore eliminazione: {e}", "danger")
+        return redirect(url_for('home'))
+    finally:
+        db.close()
 
 @app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
 @login_required
