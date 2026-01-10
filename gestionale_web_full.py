@@ -3259,39 +3259,35 @@ def delete_attachment(id_attachment):
 @app.route('/giacenze', methods=['GET', 'POST'])
 @login_required
 def giacenze():
-    # Import interni per evitare errori di dipendenze
+    # Import interni per sicurezza e pulizia
     import logging
-    from sqlalchemy import desc
     from sqlalchemy.orm import selectinload
     from datetime import datetime, date
 
     db = SessionLocal()
     try:
-        # Query base: carica articoli e allegati, ordinati per ID decrescente
+        # 1. Query Base: Carica articoli e allegati, ordinati per ID decrescente
         qs = db.query(Articolo).options(selectinload(Articolo.attachments)).order_by(Articolo.id_articolo.desc())
-
         args = request.args
 
-        # A. Filtro Cliente (Sicurezza)
+        # 2. Filtro Cliente (Sicurezza per utenti con ruolo 'client')
         if session.get('role') == 'client':
             qs = qs.filter(Articolo.cliente.ilike(f"%{current_user.id}%"))
         elif args.get('cliente'):
             qs = qs.filter(Articolo.cliente.ilike(f"%{args.get('cliente')}%"))
 
-        # B. Filtro ID univoco
+        # 3. Filtro ID univoco
         if args.get('id'):
-            try:
-                qs = qs.filter(Articolo.id_articolo == int(args.get('id')))
+            try: qs = qs.filter(Articolo.id_articolo == int(args.get('id')))
             except ValueError: pass
 
-        # C. Filtri Testuali (Cerca in tutti questi campi)
+        # 4. Filtri Testuali (Itera su tutti i campi di ricerca)
         text_filters = [
             'commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo', 'lotto',
             'fornitore', 'ordine', 'magazzino', 'mezzi_in_uscita', 'stato',
             'n_ddt_ingresso', 'n_ddt_uscita', 'codice_articolo', 'serial_number',
             'n_arrivo'
         ]
-        
         for field in text_filters:
             val = args.get(field)
             if val and val.strip():
@@ -3299,58 +3295,61 @@ def giacenze():
 
         # Esecuzione query DB
         rows_raw = qs.all()
-        
-        # D. Filtri DATE (Gestione sicura formati misti)
         rows = []
-        
-        def get_ui_date(k): 
+
+        # 5. Gestione Filtri DATE (Robustezza anti-crash)
+        def get_date_arg(k):
             v = args.get(k)
-            try: return datetime.strptime(v, "%Y-%m-%d").date() if v else None
+            if not v: return None
+            try: return datetime.strptime(v, "%Y-%m-%d").date()
             except: return None
 
-        d_ing_da = get_ui_date('data_ing_da')
-        d_ing_a = get_ui_date('data_ing_a')
-        d_usc_da = get_ui_date('data_usc_da')
-        d_usc_a = get_ui_date('data_usc_a')
+        d_ing_da = get_date_arg('data_ing_da')
+        d_ing_a = get_date_arg('data_ing_a')
+        d_usc_da = get_date_arg('data_usc_da')
+        d_usc_a = get_date_arg('data_usc_a')
 
         for r in rows_raw:
             keep = True
             
-            # Check Data Ingresso
+            # --- FILTRO DATA INGRESSO ---
             if d_ing_da or d_ing_a:
                 r_dt = None
-                if r.data_ingresso:
-                    if isinstance(r.data_ingresso, date): r_dt = r.data_ingresso
-                    else:
-                        try: r_dt = datetime.strptime(str(r.data_ingresso)[:10], "%Y-%m-%d").date()
-                        except: 
-                            try: r_dt = datetime.strptime(str(r.data_ingresso)[:10], "%d/%m/%Y").date()
-                            except: pass
+                # Se è già un oggetto date
+                if isinstance(r.data_ingresso, date):
+                    r_dt = r.data_ingresso
+                # Se è una stringa, controlliamo PRIMA che non sia None o vuota
+                elif r.data_ingresso and isinstance(r.data_ingresso, str):
+                    try: r_dt = datetime.strptime(r.data_ingresso[:10], "%Y-%m-%d").date()
+                    except: 
+                        try: r_dt = datetime.strptime(r.data_ingresso[:10], "%d/%m/%Y").date()
+                        except: pass
                 
                 if not r_dt: keep = False
                 else:
                     if d_ing_da and r_dt < d_ing_da: keep = False
                     if d_ing_a and r_dt > d_ing_a: keep = False
             
-            # Check Data Uscita
+            # --- FILTRO DATA USCITA ---
             if keep and (d_usc_da or d_usc_a):
                 r_dt = None
-                if r.data_uscita:
-                    if isinstance(r.data_uscita, date): r_dt = r.data_uscita
-                    else:
-                        try: r_dt = datetime.strptime(str(r.data_uscita)[:10], "%Y-%m-%d").date()
-                        except:
-                            try: r_dt = datetime.strptime(str(r.data_uscita)[:10], "%d/%m/%Y").date()
-                            except: pass
+                if isinstance(r.data_uscita, date):
+                    r_dt = r.data_uscita
+                elif r.data_uscita and isinstance(r.data_uscita, str):
+                    try: r_dt = datetime.strptime(r.data_uscita[:10], "%Y-%m-%d").date()
+                    except:
+                        try: r_dt = datetime.strptime(r.data_uscita[:10], "%d/%m/%Y").date()
+                        except: pass
                 
                 if not r_dt: keep = False
                 else:
                     if d_usc_da and r_dt < d_usc_da: keep = False
                     if d_usc_a and r_dt > d_usc_a: keep = False
 
-            if keep: rows.append(r)
+            if keep:
+                rows.append(r)
 
-        # E. Calcolo Totali Sicuro
+        # 6. Calcolo Totali Sicuro
         total_colli = 0
         total_m2 = 0.0
         total_peso = 0.0
@@ -3358,15 +3357,17 @@ def giacenze():
         for r in rows:
             try: total_colli += int(r.n_colli) if r.n_colli else 0
             except: pass
+            
             try: total_m2 += float(r.m2) if r.m2 else 0
             except: pass
+            
             try: total_peso += float(r.peso) if r.peso else 0
             except: pass
 
         return render_template(
             'giacenze.html',
             rows=rows,
-            result=rows,
+            result=rows, # Per compatibilità
             total_colli=total_colli,
             total_m2=f"{total_m2:.2f}",
             total_peso=f"{total_peso:.2f}",
@@ -3374,14 +3375,11 @@ def giacenze():
         )
 
     except Exception as e:
-        logging.error(f"Errore giacenze: {e}")
-        return f"<h1>Errore caricamento: {e}</h1>"
+        # Log dell'errore per il debug e messaggio utente
+        logging.error(f"ERRORE GIACENZE: {e}")
+        return f"<h1>Errore caricamento magazzino:</h1><p>{e}</p>"
     finally:
         db.close()
-
-
-
-
 # ==============================================================================
 #  3. FUNZIONE ELIMINA (Risolve l'errore 'endpoint elimina_record')
 # ==============================================================================
