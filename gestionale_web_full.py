@@ -3746,15 +3746,19 @@ def elimina_record(table, id):
 def bulk_edit():
     db = SessionLocal()
     try:
+        # Recupera ID (da form POST o query string GET)
         ids = request.form.getlist('ids') or request.args.getlist('ids')
+        
+        # Filtra ID validi
+        ids = [int(i) for i in ids if str(i).isdigit()]
+        
         if not ids:
             flash("Nessun articolo selezionato.", "warning")
             return redirect(url_for('giacenze'))
 
-        ids = [int(i) for i in ids if str(i).isdigit()]
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
 
-        # LISTA DI TUTTI I CAMPI RICHIESTI
+        # Configurazione Campi Modificabili
         editable_fields = [
             ('Cliente', 'cliente'), ('Fornitore', 'fornitore'),
             ('N. DDT Ingresso', 'n_ddt_ingresso'), ('Data Ingresso', 'data_ingresso'),
@@ -3769,16 +3773,15 @@ def bulk_edit():
 
         if request.method == 'POST' and request.form.get('save_bulk') == 'true':
             updates = {}
-            recalc_dims = False # Flag per ricalcolare M2/M3
+            recalc_dims = False 
             
-            # 1. Aggiornamento Campi
+            # 1. Applica Modifiche Campi
             for key in request.form:
                 if key.startswith('chk_'):
                     field_name = key.replace('chk_', '') 
                     if any(f[1] == field_name for f in editable_fields):
                         val = request.form.get(field_name)
                         
-                        # Conversioni Numeriche
                         if field_name in ['n_colli', 'pezzo']:
                             val = to_int_eu(val)
                         elif field_name in ['lunghezza', 'larghezza', 'altezza']:
@@ -3788,52 +3791,52 @@ def bulk_edit():
                         
                         updates[field_name] = val
                         
-                        # Se cambiano le dimensioni o i colli, attiviamo il ricalcolo
                         if field_name in ['lunghezza', 'larghezza', 'altezza', 'n_colli']:
                             recalc_dims = True
 
             if updates:
                 for art in articoli:
-                    # Applica le modifiche
                     for k, v in updates.items():
-                        if hasattr(art, k):
-                            setattr(art, k, v)
+                        if hasattr(art, k): setattr(art, k, v)
                     
-                    # CALCOLO AUTOMATICO M2 / M3
                     if recalc_dims:
-                        # Se un valore non è stato modificato in massa, usa quello attuale dell'articolo
+                        # Ricalcola M2/M3 usando i nuovi valori (o quelli esistenti se non cambiati)
                         L = updates.get('lunghezza', art.lunghezza)
                         W = updates.get('larghezza', art.larghezza)
                         H = updates.get('altezza', art.altezza)
                         C = updates.get('n_colli', art.n_colli)
                         art.m2, art.m3 = calc_m2_m3(L, W, H, C)
 
-            # 2. Upload Massivo (senza uploaded_at)
-            files = request.files.getlist('bulk_file')
-            count_files = 0
-            from werkzeug.utils import secure_filename
+            # 2. UPLOAD MASSIVO MULTIPLO (Modifica Richiesta)
+            files = request.files.getlist('bulk_file') # Prende LISTA di file
+            count_uploaded = 0
             
-            for file in files:
-                if file and file.filename:
-                    raw_name = secure_filename(file.filename)
-                    content = file.read()
-                    file.seek(0)
-                    ext = raw_name.rsplit('.', 1)[-1].lower()
-                    kind = 'photo' if ext in ['jpg','jpeg','png','webp'] else 'doc'
-                    dest_dir = PHOTOS_DIR if kind == 'photo' else DOCS_DIR
-                    
-                    for art in articoli:
-                        new_name = f"{art.id_articolo}_{raw_name}"
-                        save_path = dest_dir / new_name
-                        with open(save_path, 'wb') as f:
-                            f.write(content)
+            if files:
+                from werkzeug.utils import secure_filename
+                for file in files:
+                    if file and file.filename:
+                        raw_name = secure_filename(file.filename)
+                        # Leggi contenuto una volta sola
+                        content = file.read()
                         
-                        att = Attachment(articolo_id=art.id_articolo, filename=new_name, kind=kind)
-                        db.add(att)
-                    count_files += 1
+                        ext = raw_name.rsplit('.', 1)[-1].lower()
+                        kind = 'photo' if ext in ['jpg','jpeg','png','webp'] else 'doc'
+                        dest_dir = PHOTOS_DIR if kind == 'photo' else DOCS_DIR
+                        
+                        # Salva una copia per ogni articolo selezionato
+                        for art in articoli:
+                            new_name = f"{art.id_articolo}_{uuid.uuid4().hex[:6]}_{raw_name}"
+                            save_path = dest_dir / new_name
+                            
+                            with open(save_path, 'wb') as f:
+                                f.write(content)
+                            
+                            att = Attachment(articolo_id=art.id_articolo, filename=new_name, kind=kind)
+                            db.add(att)
+                        count_uploaded += 1
 
             db.commit()
-            flash(f"Aggiornati {len(articoli)} articoli.", "success")
+            flash(f"Aggiornati {len(articoli)} articoli e caricati {count_uploaded} file per ciascuno.", "success")
             return redirect(url_for('giacenze'))
 
         return render_template('bulk_edit.html', rows=articoli, ids_csv=",".join(map(str, ids)), fields=editable_fields)
@@ -3845,7 +3848,6 @@ def bulk_edit():
         return redirect(url_for('giacenze'))
     finally:
         db.close()
-
 @app.post('/delete_rows')
 @login_required
 def delete_rows():
