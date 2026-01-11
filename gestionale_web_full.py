@@ -3024,80 +3024,105 @@ def nuovo_articolo():
     if request.method == 'POST':
         db = SessionLocal()
         try:
-            # --- A. CREAZIONE ARTICOLO ---
-            art = Articolo()
-            # Popola i dati dal form
-            art.codice_articolo = request.form.get('codice_articolo')
-            art.descrizione = request.form.get('descrizione')
-            art.cliente = request.form.get('cliente')
-            art.fornitore = request.form.get('fornitore')
-            art.commessa = request.form.get('commessa')
-            art.ordine = request.form.get('ordine')
-            art.protocollo = request.form.get('protocollo')
-            art.buono_n = request.form.get('buono_n')
-            art.n_arrivo = request.form.get('n_arrivo')
-            art.magazzino = request.form.get('magazzino')
-            art.posizione = request.form.get('posizione')
-            art.stato = request.form.get('stato')
-            art.note = request.form.get('note')
-            art.serial_number = request.form.get('serial_number')
-            art.mezzi_in_uscita = request.form.get('mezzi_in_uscita')
+            # --- RECUPERO DATI FORM ---
+            # Determina quante righe creare in base al numero di colli
+            n_colli_input = to_int_eu(request.form.get('n_colli'))
+            if n_colli_input < 1: n_colli_input = 1
             
-            # Date
-            art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
-            art.data_uscita = parse_date_ui(request.form.get('data_uscita'))
-            art.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
-            art.n_ddt_uscita = request.form.get('n_ddt_uscita')
-            
-            # Numeri
-            art.pezzo = request.form.get('pezzo')
-            art.n_colli = to_int_eu(request.form.get('n_colli')) or 1
-            art.peso = to_float_eu(request.form.get('peso'))
-            art.lunghezza = to_float_eu(request.form.get('lunghezza'))
-            art.larghezza = to_float_eu(request.form.get('larghezza'))
-            art.altezza = to_float_eu(request.form.get('altezza'))
-            
-            # Calcolo M2/M3
-            art.m2, art.m3 = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, 1)
+            created_articles = []
 
-            # Salvataggio iniziale per ottenere l'ID
-            db.add(art)
+            # --- CICLO DI CREAZIONE (Crea N righe identiche) ---
+            for _ in range(n_colli_input):
+                art = Articolo()
+                
+                # Popola i campi testuali
+                art.codice_articolo = request.form.get('codice_articolo')
+                art.descrizione = request.form.get('descrizione')
+                art.cliente = request.form.get('cliente')
+                art.fornitore = request.form.get('fornitore')
+                art.commessa = request.form.get('commessa')
+                art.ordine = request.form.get('ordine')
+                art.protocollo = request.form.get('protocollo')
+                art.buono_n = request.form.get('buono_n')
+                art.n_arrivo = request.form.get('n_arrivo')
+                art.magazzino = request.form.get('magazzino')
+                art.posizione = request.form.get('posizione')
+                art.stato = request.form.get('stato')
+                art.note = request.form.get('note')
+                art.serial_number = request.form.get('serial_number')
+                art.mezzi_in_uscita = request.form.get('mezzi_in_uscita')
+                art.lotto = request.form.get('lotto')
+
+                # Date
+                art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
+                art.data_uscita = parse_date_ui(request.form.get('data_uscita'))
+                art.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
+                art.n_ddt_uscita = request.form.get('n_ddt_uscita')
+                
+                # Numeri
+                art.pezzo = request.form.get('pezzo')
+                art.n_colli = 1  # FORZA 1 COLLO PER OGNI RIGA CREATA
+                art.peso = to_float_eu(request.form.get('peso'))
+                art.lunghezza = to_float_eu(request.form.get('lunghezza'))
+                art.larghezza = to_float_eu(request.form.get('larghezza'))
+                art.altezza = to_float_eu(request.form.get('altezza'))
+                
+                # Calcolo M2/M3 (su 1 collo)
+                art.m2, art.m3 = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, 1)
+
+                db.add(art)
+                created_articles.append(art)
+
+            # Salva tutto per ottenere gli ID
             db.commit() 
             
-            # --- B. SALVATAGGIO ALLEGATI (Se presenti) ---
-            # Recupera i file dal campo input 'new_files'
+            # --- GESTIONE ALLEGATI (Duplicazione su tutte le righe) ---
             files = request.files.getlist('new_files')
-            count_files = 0
+            valid_files = [f for f in files if f and f.filename]
             
-            if files:
+            if valid_files:
+                import shutil
                 from werkzeug.utils import secure_filename
-                for file in files:
-                    if file and file.filename:
-                        # Pulisce il nome file
-                        fname = secure_filename(file.filename)
-                        # Crea nome univoco: ID_NomeOriginale
-                        final_name = f"{art.id_articolo}_{fname}"
-                        
-                        # Decide se è foto o doc
-                        ext = fname.rsplit('.', 1)[-1].lower()
-                        kind = 'photo' if ext in ['jpg', 'jpeg', 'png', 'webp'] else 'doc'
-                        folder = PHOTOS_DIR if kind == 'photo' else DOCS_DIR
-                        
-                        # Salva su disco
-                        file.save(str(folder / final_name))
-                        
-                        # Salva collegamento nel DB
-                        att = Attachment(articolo_id=art.id_articolo, filename=final_name, kind=kind)
-                        db.add(att)
-                        count_files += 1
                 
-                # Se abbiamo aggiunto file, facciamo un secondo commit
-                if count_files > 0:
-                    db.commit()
+                for file in valid_files:
+                    fname = secure_filename(file.filename)
+                    ext = fname.rsplit('.', 1)[-1].lower()
+                    kind = 'photo' if ext in ['jpg', 'jpeg', 'png', 'webp'] else 'doc'
+                    folder = PHOTOS_DIR if kind == 'photo' else DOCS_DIR
+                    
+                    # 1. Salva il file fisico per il PRIMO articolo
+                    first_art = created_articles[0]
+                    first_final_name = f"{first_art.id_articolo}_{fname}"
+                    src_path = folder / first_final_name
+                    
+                    file.seek(0) # Assicura di leggere dall'inizio
+                    file.save(str(src_path))
+                    
+                    # Collega al primo articolo nel DB
+                    db.add(Attachment(articolo_id=first_art.id_articolo, filename=first_final_name, kind=kind))
+                    
+                    # 2. Copia il file fisico e il record DB per gli ALTRI articoli
+                    for other_art in created_articles[1:]:
+                        other_final_name = f"{other_art.id_articolo}_{fname}"
+                        dst_path = folder / other_final_name
+                        
+                        try:
+                            # Copia fisica del file
+                            shutil.copy2(src_path, dst_path)
+                            # Nuovo record nel DB
+                            db.add(Attachment(articolo_id=other_art.id_articolo, filename=other_final_name, kind=kind))
+                        except Exception as e:
+                            print(f"Errore copia file per ID {other_art.id_articolo}: {e}")
 
-            flash(f"Articolo creato (ID: {art.id_articolo}) con {count_files} allegati.", "success")
-            # Rimanda alla pagina di modifica per vedere subito il risultato
-            return redirect(url_for('edit_record', id_articolo=art.id_articolo))
+                db.commit()
+
+            flash(f"Operazione completata: Creati {len(created_articles)} articoli distinti.", "success")
+            
+            # Se ne abbiamo creato uno solo, vai alla modifica, altrimenti torna alla lista
+            if len(created_articles) == 1:
+                return redirect(url_for('edit_record', id_articolo=created_articles[0].id_articolo))
+            else:
+                return redirect(url_for('giacenze'))
             
         except Exception as e:
             db.rollback()
@@ -3108,11 +3133,9 @@ def nuovo_articolo():
 
     # GET: Mostra form vuoto
     dummy_art = Articolo() 
-    dummy_art.data_ingresso = date.today().strftime("%d/%m/%Y") # Data di default
+    dummy_art.data_ingresso = date.today().strftime("%d/%m/%Y")
     return render_template('edit.html', row=dummy_art)
-
-
-
+    
 # 1. ELIMINA ARTICOLO (Per la pagina Magazzino)
 @app.route('/delete_articolo/<int:id>')
 @login_required
