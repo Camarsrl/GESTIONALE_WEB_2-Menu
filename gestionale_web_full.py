@@ -863,7 +863,6 @@ CALCOLI_HTML = """
 </div>
 {% endblock %}
 """
-# --- TEMPLATE PAGINA MAGAZZINO (GIACENZE) - VERSIONE CORRETTA E STABILE ---
 
 GIACENZE_HTML = """
 {% extends 'base.html' %}
@@ -953,6 +952,15 @@ GIACENZE_HTML = """
     <div class="btn-toolbar mb-2 gap-1">
         <button type="submit" formaction="{{ url_for('buono_preview') }}" class="btn btn-outline-dark btn-sm">Buono</button>
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
+
+        <!-- ✅ BOTTONE INVIA EMAIL (GET verso /invia_email con ids selezionati) -->
+        <button type="submit"
+                formaction="{{ url_for('invia_email') }}"
+                formmethod="get"
+                class="btn btn-success btn-sm">
+            <i class="bi bi-envelope"></i> Invia E-mail
+        </button>
+
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Mod. Multipla</button>
         <button type="submit" formaction="{{ url_for('labels_pdf') }}" formtarget="_blank" class="btn btn-warning btn-sm"><i class="bi bi-download"></i> Scarica Etichette</button>
         
@@ -992,8 +1000,6 @@ GIACENZE_HTML = """
                     </td>
 
                     <td title="{{ r.codice_articolo }}">{{ r.codice_articolo or '' }}</td>
-
-                    <!-- FIX: descrizione può essere None, quindi uso desc sempre stringa -->
                     <td title="{{ desc }}">{{ desc[:30] }}{% if desc|length > 30 %}...{% endif %}</td>
 
                     <td>{{ r.cliente or '' }}</td>
