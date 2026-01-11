@@ -1695,7 +1695,7 @@ DESTINATARI_HTML = """
 
 # --- TEMPLATE PAGINA PICKING / LAVORAZIONI (Senza Emoji, usa Icone Bootstrap) ---
 
-LAVORAZIONI_HTML = """
+LAVORAZIONI_HTML = """ 
 {% extends "base.html" %}
 {% block content %}
 <div class="container-fluid mt-4">
@@ -1712,7 +1712,6 @@ LAVORAZIONI_HTML = """
     <div class="card p-3 mb-4 bg-light border shadow-sm">
         <h5 class="mb-3">Inserisci Nuovo Picking</h5>
         <form method="POST" class="row g-2">
-            <!-- FIX: flag per far entrare la route nel blocco "add_lavorazione" (se la route lo controlla) -->
             <input type="hidden" name="add_lavorazione" value="1">
 
             <div class="col-md-2">
@@ -1768,7 +1767,8 @@ LAVORAZIONI_HTML = """
     <div class="card shadow-sm">
         <div class="table-responsive">
             <table class="table table-bordered table-hover mb-0 align-middle">
-                <thead class="table-dark">
+                <!-- ✅ intestazioni con testo nero -->
+                <thead class="table-light" style="color:#000;">
                     <tr>
                         <th>Data</th><th>Cliente</th><th>Descrizione</th>
                         <th>Richiesta</th><th>Seriali</th><th>Colli</th>
@@ -1791,7 +1791,6 @@ LAVORAZIONI_HTML = """
                         <td>{{ l.ore_blue_collar or '' }}</td>
                         <td>{{ l.ore_white_collar or '' }}</td>
                         <td>
-                            <!-- FIX: evita endpoint mancante "delete_lavorazione" -->
                             <a href="{{ url_for('elimina_record', table='lavorazioni', id=l.id) }}"
                                class="btn btn-sm btn-danger"
                                onclick="return confirm('Sei sicuro di voler eliminare?')">
@@ -1809,7 +1808,6 @@ LAVORAZIONI_HTML = """
 </div>
 {% endblock %}
 """
-
 
 
 CALCOLA_COSTI_HTML = """
