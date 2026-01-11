@@ -885,42 +885,35 @@ GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <style>
-    /* Stile compatto per far stare tutte le colonne */
-    .table-super-compact td, .table-super-compact th { 
-        font-size: 0.75rem; 
-        padding: 2px 4px; 
-        white-space: nowrap; 
-        overflow: hidden; 
-        text-overflow: ellipsis; 
-        max-width: 120px; 
+    .table-compact td, .table-compact th {
+        font-size: 0.78rem;
+        padding: 4px 6px;
         vertical-align: middle;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 160px;
     }
-    .table-super-compact th { 
-        background-color: #343a40; 
-        color: white; 
-        text-align: center; 
-        position: sticky; 
-        top: 0; 
-        z-index: 10;
-    }
-    .att-link { text-decoration: none; font-size: 1.2em; cursor: pointer; }
+    .table-compact th { background-color: #f0f0f0; font-weight: 700; text-align: center; }
+    .fw-buono { font-weight: bold; color: #000; }
+    .att-link { text-decoration: none; font-size: 1.3em; cursor: pointer; margin: 0 3px; }
     .att-link:hover { transform: scale(1.2); display:inline-block; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-2">
-    <h4><i class="bi bi-box-seam"></i> Magazzino</h4>
-    <div class="d-flex gap-2">
-       <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> Nuovo Articolo</a>
+    <h4 class="mb-0"><i class="bi bi-box-seam"></i> Magazzino</h4>
+    <div class="d-flex gap-2 flex-wrap">
+       <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> Nuovo</a>
        <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>
-       
+
        <form action="{{ url_for('labels_pdf') }}" method="POST" target="_blank" class="d-inline">
            <button class="btn btn-sm btn-info text-white"><i class="bi bi-tag"></i> Etichette</button>
        </form>
 
        <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
-       
+
        {% if session.get('role') == 'admin' %}
-       <form action="{{ url_for('report_inventario') }}" method="POST" target="_blank" class="d-inline-block ms-1">
+       <form action="{{ url_for('report_inventario') }}" method="POST" target="_blank" class="d-inline-block">
             <div class="input-group input-group-sm">
                 <input type="date" name="data_inventario" class="form-control" required value="{{ today }}">
                 <button class="btn btn-warning" type="submit" title="Stampa Inventario">📋</button>
@@ -932,8 +925,9 @@ GIACENZE_HTML = """
 
 <div class="card mb-2 bg-light shadow-sm">
     <div class="card-header py-1" data-bs-toggle="collapse" data-bs-target="#filterBody" style="cursor:pointer">
-        <small><i class="bi bi-funnel"></i> <b>Filtri di Ricerca</b></small>
+        <small><i class="bi bi-funnel"></i> <b>Filtri Avanzati</b></small>
     </div>
+
     <div id="filterBody" class="collapse {% if request.args %}show{% endif %}">
         <div class="card-body py-2">
             <form method="get">
@@ -941,38 +935,47 @@ GIACENZE_HTML = """
                     <div class="col-md-1"><input name="id" class="form-control form-control-sm" placeholder="ID" value="{{ request.args.get('id','') }}"></div>
                     <div class="col-md-2"><input name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
                     <div class="col-md-2"><input name="fornitore" class="form-control form-control-sm" placeholder="Fornitore" value="{{ request.args.get('fornitore','') }}"></div>
-                    <div class="col-md-2"><input name="codice_articolo" class="form-control form-control-sm" placeholder="Codice Art." value="{{ request.args.get('codice_articolo','') }}"></div>
-                    <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial N." value="{{ request.args.get('serial_number','') }}"></div>
+                    <div class="col-md-2"><input name="codice_articolo" class="form-control form-control-sm" placeholder="Codice Articolo" value="{{ request.args.get('codice_articolo','') }}"></div>
+                    <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial Number" value="{{ request.args.get('serial_number','') }}"></div>
                     <div class="col-md-2"><input name="ordine" class="form-control form-control-sm" placeholder="Ordine" value="{{ request.args.get('ordine','') }}"></div>
                     <div class="col-md-1"><button type="submit" class="btn btn-primary btn-sm w-100">Cerca</button></div>
                 </div>
+
                 <div class="row g-1 mb-1">
                     <div class="col-md-2"><input name="protocollo" class="form-control form-control-sm" placeholder="Protocollo" value="{{ request.args.get('protocollo','') }}"></div>
                     <div class="col-md-2"><input name="descrizione" class="form-control form-control-sm" placeholder="Descrizione" value="{{ request.args.get('descrizione','') }}"></div>
-                    <div class="col-md-2"><input name="buono_n" class="form-control form-control-sm" placeholder="Buono N." value="{{ request.args.get('buono_n','') }}"></div>
+                    <div class="col-md-2"><input name="buono_n" class="form-control form-control-sm" placeholder="N. Buono" value="{{ request.args.get('buono_n','') }}"></div>
+                    <div class="col-md-2"><input name="n_arrivo" class="form-control form-control-sm" placeholder="N. Arrivo" value="{{ request.args.get('n_arrivo','') }}"></div>
                     <div class="col-md-2"><input name="mezzi_in_uscita" class="form-control form-control-sm" placeholder="Mezzo Uscita" value="{{ request.args.get('mezzi_in_uscita','') }}"></div>
                     <div class="col-md-2"><input name="stato" class="form-control form-control-sm" placeholder="Stato" value="{{ request.args.get('stato','') }}"></div>
-                    <div class="col-md-2"><input name="n_arrivo" class="form-control form-control-sm" placeholder="N. Arrivo" value="{{ request.args.get('n_arrivo','') }}"></div>
                 </div>
+
                 <div class="row g-1 mb-1">
-                    <div class="col-md-2"><input name="n_ddt_ingresso" class="form-control form-control-sm" placeholder="DDT Ingresso" value="{{ request.args.get('n_ddt_ingresso','') }}"></div>
-                    <div class="col-md-2"><input name="n_ddt_uscita" class="form-control form-control-sm" placeholder="DDT Uscita" value="{{ request.args.get('n_ddt_uscita','') }}"></div>
-                    <div class="col-md-3">
+                    <div class="col-md-2"><input name="n_ddt_ingresso" class="form-control form-control-sm" placeholder="N. DDT Ingresso" value="{{ request.args.get('n_ddt_ingresso','') }}"></div>
+                    <div class="col-md-2"><input name="n_ddt_uscita" class="form-control form-control-sm" placeholder="N. DDT Uscita" value="{{ request.args.get('n_ddt_uscita','') }}"></div>
+
+                    <div class="col-md-4">
                         <div class="input-group input-group-sm">
-                            <span class="input-group-text">Ingr.</span>
-                            <input name="data_ing_da" type="date" class="form-control" title="Da" value="{{ request.args.get('data_ing_da','') }}">
-                            <input name="data_ing_a" type="date" class="form-control" title="A" value="{{ request.args.get('data_ing_a','') }}">
+                            <span class="input-group-text">Ingresso</span>
+                            <input name="data_ing_da" type="date" class="form-control" value="{{ request.args.get('data_ing_da','') }}">
+                            <span class="input-group-text">-</span>
+                            <input name="data_ing_a" type="date" class="form-control" value="{{ request.args.get('data_ing_a','') }}">
                         </div>
                     </div>
-                    <div class="col-md-3">
+
+                    <div class="col-md-4">
                         <div class="input-group input-group-sm">
                             <span class="input-group-text">Uscita</span>
-                            <input name="data_usc_da" type="date" class="form-control" title="Da" value="{{ request.args.get('data_usc_da','') }}">
-                            <input name="data_usc_a" type="date" class="form-control" title="A" value="{{ request.args.get('data_usc_a','') }}">
+                            <input name="data_usc_da" type="date" class="form-control" value="{{ request.args.get('data_usc_da','') }}">
+                            <span class="input-group-text">-</span>
+                            <input name="data_usc_a" type="date" class="form-control" value="{{ request.args.get('data_usc_a','') }}">
                         </div>
                     </div>
-                    <div class="col-md-2 text-end">
-                        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm w-100">Reset</a>
+                </div>
+
+                <div class="row g-1">
+                    <div class="col-md-2 ms-auto">
+                        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm w-100" onclick="localStorage.removeItem('camar_selected_articles');">Reset</a>
                     </div>
                 </div>
             </form>
@@ -981,130 +984,139 @@ GIACENZE_HTML = """
 </div>
 
 <form method="POST">
-    <div class="btn-toolbar mb-2 gap-1">
+    <div class="btn-toolbar mb-2 gap-1 flex-wrap">
         <button type="submit" formaction="{{ url_for('buono_preview') }}" class="btn btn-outline-dark btn-sm">Buono</button>
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
-        <button type="submit" formaction="{{ url_for('invia_email') }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-envelope"></i> Invia Email</button>
+
+        <!-- ✅ INVIA EMAIL (GET verso /invia_email con ids selezionati) -->
+        <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm">
+            <i class="bi bi-envelope"></i> Invia E-mail
+        </button>
+
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Mod. Multipla</button>
-        <button type="submit" formaction="{{ url_for('labels_pdf') }}" formtarget="_blank" class="btn btn-warning btn-sm"><i class="bi bi-download"></i> Scarica Etichette</button>
-        <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare SELEZIONATI?')">Elimina</button>
-        <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-primary btn-sm" onclick="return confirm('Duplicare i selezionati?')">Duplica</button>
+        <button type="submit" formaction="{{ url_for('labels_pdf') }}" formtarget="_blank" class="btn btn-warning btn-sm">
+            <i class="bi bi-download"></i> Scarica Etichette
+        </button>
+
+        <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare SELEZIONATI?')">
+            Elimina Selezionati
+        </button>
+
+        <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-primary btn-sm" onclick="return confirm('Duplicare gli articoli selezionati?')">
+            Duplica Selezionati
+        </button>
     </div>
 
     <div class="table-responsive shadow-sm" style="max-height: 70vh;">
-        <table class="table table-striped table-bordered table-hover table-super-compact mb-0">
-            <thead>
+        <table class="table table-striped table-bordered table-hover table-compact mb-0">
+            <thead class="sticky-top" style="top:0; z-index:5;">
                 <tr>
-                    <th style="width: 20px;"><input type="checkbox" onclick="toggleAll(this)"></th>
-                    <th style="width: 40px;">Act</th>
+                    <th><input type="checkbox" onclick="toggleAll(this)"></th>
+
                     <th>ID</th>
-                    <th>Codice Art.</th>
-                    <th>Pezzi</th>
-                    <th>Largh.</th>
-                    <th>Lungh.</th>
-                    <th>Alt.</th>
+                    <th>Codice</th>
+                    <th>Pz</th>
+                    <th>Larg</th>
+                    <th>Lung</th>
+                    <th>Alt</th>
                     <th>M2</th>
                     <th>M3</th>
+
                     <th>Descrizione</th>
                     <th>Protocollo</th>
                     <th>Ordine</th>
-                    <th>Collo</th>
+                    <th>Colli</th>
                     <th>Fornitore</th>
                     <th>Magazzino</th>
-                    <th>Data Ing.</th>
-                    <th>DDT Ing.</th>
-                    <th>DDT Usc.</th>
-                    <th>Data Usc.</th>
+
+                    <th>Data Ing</th>
+                    <th>DDT Ing</th>
+                    <th>DDT Usc</th>
+                    <th>Data Usc</th>
+                    <th>Mezzo Usc</th>
+
                     <th>Cliente</th>
-                    <th>Peso</th>
+                    <th>Kg</th>
                     <th>Posizione</th>
-                    <th>N.Arrivo</th>
-                    <th>N.Buono</th>
+                    <th>N.Arr</th>
+                    <th>Buono</th>
                     <th>Note</th>
                     <th>Lotto</th>
                     <th>Ns.Rif</th>
-                    <th>Serial N.</th>
+                    <th>Serial</th>
                     <th>Stato</th>
-                    <th class="text-center">📄 Doc</th>
-                    <th class="text-center">📷 Foto</th>
-                    <th>Mezzo Usc.</th>
+
+                    <th>Doc Arrivo</th>
+                    <th>Foto Arrivo</th>
+
+                    <th style="min-width: 70px;">Act</th>
                 </tr>
             </thead>
+
             <tbody>
                 {% for r in rows %}
+                {% set desc = (r.descrizione or '') %}
                 <tr>
-                    <td class="text-center"><input type="checkbox" name="ids" value="{{ r.id_articolo }}" class="row-checkbox"></td>
                     <td class="text-center">
-                        <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" title="Modifica" class="text-decoration-none me-1">✏️</a>
-                        <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" title="Elimina" class="text-decoration-none text-danger" onclick="return confirm('Eliminare?');">🗑️</a>
+                        <input type="checkbox" name="ids" value="{{ r.id_articolo }}" class="row-checkbox">
                     </td>
+
                     <td>{{ r.id_articolo }}</td>
                     <td title="{{ r.codice_articolo }}">{{ r.codice_articolo or '' }}</td>
                     <td>{{ r.pezzo or '' }}</td>
-                    <td>{{ r.larghezza or '' }}</td>
-                    <td>{{ r.lunghezza or '' }}</td>
-                    <td>{{ r.altezza or '' }}</td>
+
+                    <td>{{ r.larghezza|float|round(2) if r.larghezza is not none else '' }}</td>
+                    <td>{{ r.lunghezza|float|round(2) if r.lunghezza is not none else '' }}</td>
+                    <td>{{ r.altezza|float|round(2) if r.altezza is not none else '' }}</td>
+
                     <td>{{ r.m2|float|round(3) if r.m2 else '' }}</td>
                     <td>{{ r.m3|float|round(3) if r.m3 else '' }}</td>
-                    <td title="{{ r.descrizione }}">{{ r.descrizione[:25] }}...</td>
+
+                    <td title="{{ desc }}">{{ desc[:30] }}{% if desc|length > 30 %}...{% endif %}</td>
                     <td>{{ r.protocollo or '' }}</td>
                     <td>{{ r.ordine or '' }}</td>
                     <td>{{ r.n_colli or '' }}</td>
                     <td>{{ r.fornitore or '' }}</td>
                     <td>{{ r.magazzino or '' }}</td>
-                    
-                    <td>
-                        {% if r.data_ingresso %}
-                            {% if r.data_ingresso is string %}
-                                {{ r.data_ingresso[:10] }}
-                            {% else %}
-                                {{ r.data_ingresso.strftime('%Y-%m-%d') }}
-                            {% endif %}
-                        {% endif %}
-                    </td>
-                    
+
+                    <td>{{ r.data_ingresso or '' }}</td>
                     <td>{{ r.n_ddt_ingresso or '' }}</td>
                     <td>{{ r.n_ddt_uscita or '' }}</td>
-                    
-                    <td>
-                        {% if r.data_uscita %}
-                            {% if r.data_uscita is string %}
-                                {{ r.data_uscita[:10] }}
-                            {% else %}
-                                {{ r.data_uscita.strftime('%Y-%m-%d') }}
-                            {% endif %}
-                        {% endif %}
-                    </td>
+                    <td>{{ r.data_uscita or '' }}</td>
+                    <td>{{ r.mezzi_in_uscita or '' }}</td>
 
                     <td>{{ r.cliente or '' }}</td>
                     <td>{{ r.peso or '' }}</td>
                     <td>{{ r.posizione or '' }}</td>
                     <td>{{ r.n_arrivo or '' }}</td>
-                    <td class="fw-bold">{{ r.buono_n or '' }}</td>
-                    <td title="{{ r.note }}">{{ r.note[:15] }}...</td>
+                    <td class="fw-buono">{{ r.buono_n or '' }}</td>
+                    <td title="{{ r.note or '' }}">{{ (r.note or '')[:20] }}{% if (r.note or '')|length > 20 %}...{% endif %}</td>
                     <td>{{ r.lotto or '' }}</td>
                     <td>{{ r.ns_rif or '' }}</td>
                     <td>{{ r.serial_number or '' }}</td>
-                    <td><span class="badge bg-secondary">{{ r.stato or '' }}</span></td>
-                    
+                    <td>{{ r.stato or '' }}</td>
+
                     <td class="text-center">
                         {% for a in r.attachments if a.kind=='doc' %}
-                        <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link" title="{{ a.filename }}">📄</a>
+                            <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link" title="{{ a.filename }}">📄</a>
                         {% endfor %}
                     </td>
-                    
                     <td class="text-center">
                         {% for a in r.attachments if a.kind=='photo' %}
-                        <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link" title="{{ a.filename }}">📷</a>
+                            <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link" title="{{ a.filename }}">📷</a>
                         {% endfor %}
                     </td>
-                    
-                    <td>{{ r.mezzi_in_uscita or '' }}</td>
+
+                    <td class="text-center">
+                        <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" title="Modifica" class="text-decoration-none me-2">✏️</a>
+                        <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" title="Elimina" class="text-decoration-none text-danger" onclick="return confirm('Eliminare articolo {{ r.id_articolo }}?');">🗑️</a>
+                    </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="33" class="text-center p-3 text-muted">Nessun articolo trovato.</td></tr>
+                <tr><td colspan="33" class="text-center p-3 text-muted">Nessun articolo trovato con questi filtri.</td></tr>
                 {% endfor %}
             </tbody>
+
             <tfoot class="sticky-bottom bg-white fw-bold">
                 <tr><td colspan="33">Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}</td></tr>
             </tfoot>
@@ -1113,15 +1125,36 @@ GIACENZE_HTML = """
 </form>
 
 <script>
-    function toggleAll(source) {
-        document.getElementsByName('ids').forEach(c => {
-            c.checked = source.checked;
+function toggleAll(source) {
+    document.getElementsByName('ids').forEach(c => {
+        c.checked = source.checked;
+        c.dispatchEvent(new Event('change'));
+    });
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+    const STORAGE_KEY = 'camar_selected_articles';
+
+    let savedIds = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    const checkboxes = document.querySelectorAll('input[name="ids"]');
+
+    checkboxes.forEach(cb => {
+        if (savedIds.includes(cb.value)) cb.checked = true;
+
+        cb.addEventListener('change', function() {
+            let currentIds = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+            if (this.checked) {
+                if (!currentIds.includes(this.value)) currentIds.push(this.value);
+            } else {
+                currentIds = currentIds.filter(id => id !== this.value);
+            }
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(currentIds));
         });
-    }
+    });
+});
 </script>
 {% endblock %}
 """
-
 
 EDIT_HTML = """
 {% extends 'base.html' %}
