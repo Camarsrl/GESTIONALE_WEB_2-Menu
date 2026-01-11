@@ -1847,6 +1847,8 @@ TRASPORTI_HTML = """
     <div class="card p-3 mb-4 bg-light border shadow-sm">
         <h5 class="mb-3">Inserisci Nuovo Trasporto</h5>
         <form method="POST" class="row g-2">
+            <input type="hidden" name="add_trasporto" value="1">
+
             <div class="col-md-2"><label class="small">Data</label><input type="date" name="data" class="form-control" required value="{{ today }}"></div>
             <div class="col-md-2"><label class="small">Tipo Mezzo</label><input type="text" name="tipo_mezzo" class="form-control" placeholder="es. Bilico"></div>
             <div class="col-md-2"><label class="small">Cliente</label><input type="text" name="cliente" class="form-control"></div>
@@ -1854,7 +1856,8 @@ TRASPORTI_HTML = """
             <div class="col-md-1"><label class="small">N. DDT</label><input type="text" name="ddt_uscita" class="form-control"></div>
             <div class="col-md-1"><label class="small">Magazzino</label><input type="text" name="magazzino" class="form-control"></div>
             <div class="col-md-1"><label class="small">Consolidato</label><input type="text" name="consolidato" class="form-control"></div>
-            <div class="col-md-1"><label class="small">Costo €</label><input type="number" step="0.01" name="costo" class="form-control"></div>
+            <div class="col-md-1"><label class="small">Costo €</label><input type="text" name="costo" class="form-control" placeholder="0,00"></div>
+
             <div class="col-md-12 text-end mt-2">
                 <button type="submit" class="btn btn-success"><i class="bi bi-plus-lg"></i> Aggiungi</button>
             </div>
@@ -1875,14 +1878,14 @@ TRASPORTI_HTML = """
                 <tbody>
                     {% for t in trasporti %}
                     <tr>
-                        <td>{{ t.data }}</td>
-                        <td>{{ t.tipo_mezzo }}</td>
-                        <td>{{ t.cliente }}</td>
-                        <td>{{ t.trasportatore }}</td>
-                        <td>{{ t.ddt_uscita }}</td>
-                        <td>{{ t.magazzino }}</td>
-                        <td>{{ t.consolidato }}</td>
-                        <td>€ {{ t.costo }}</td>
+                        <td>{{ t.data or '' }}</td>
+                        <td>{{ t.tipo_mezzo or '' }}</td>
+                        <td>{{ t.cliente or '' }}</td>
+                        <td>{{ t.trasportatore or '' }}</td>
+                        <td>{{ t.ddt_uscita or '' }}</td>
+                        <td>{{ t.magazzino or '' }}</td>
+                        <td>{{ t.consolidato or '' }}</td>
+                        <td>€ {{ '%.2f'|format(t.costo) if t.costo is not none else '' }}</td>
                         <td>
                             <a href="{{ url_for('elimina_record', table='trasporti', id=t.id) }}" 
                                class="btn btn-sm btn-danger" 
@@ -1901,6 +1904,7 @@ TRASPORTI_HTML = """
 </div>
 {% endblock %}
 """
+
 INVIA_EMAIL_HTML = """
 {% extends "base.html" %}
 {% block content %}
