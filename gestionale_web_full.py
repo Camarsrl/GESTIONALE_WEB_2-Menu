@@ -574,15 +574,24 @@ REPORT_INVENTARIO_HTML = """
         {% for cliente, articoli in inventario.items() %}
             <h3 class="mt-4 bg-light p-2">{{ cliente }}</h3>
             <table class="table table-sm table-bordered">
-                <thead><tr><th>Codice</th><th>Descrizione</th><th>Lotto</th><th>Q.tà</th><th>Posizione</th></tr></thead>
+                <thead>
+                    <tr>
+                        <th>Codice</th>
+                        <th>Descrizione</th>
+                        <th>Lotto</th>
+                        <th>Q.tà</th>
+                        <th>Posizione</th>
+                    </tr>
+                </thead>
                 <tbody>
                     {% for art in articoli %}
                     <tr>
-                        <td>{{ art.codice_articolo }}</td>
-                        <td>{{ art.descrizione }}</td>
-                        <td>{{ art.lotto }}</td>
-                        <td>{{ art.n_colli }}</td>
-                        <td>{{ art.posizione }}</td>
+                        <td>{{ art.codice_articolo or '' }}</td>
+                        <td>{{ art.descrizione or '' }}</td>
+                        <!-- ✅ se lotto è vuoto/None resta vuoto -->
+                        <td>{{ art.lotto or '' }}</td>
+                        <td>{{ art.n_colli or '' }}</td>
+                        <td>{{ art.posizione or '' }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -593,6 +602,7 @@ REPORT_INVENTARIO_HTML = """
 </body>
 </html>
 """
+
 
 REPORT_TRASPORTI_HTML = """
 <!DOCTYPE html>
