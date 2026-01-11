@@ -1856,7 +1856,25 @@ TRASPORTI_HTML = """
 {% extends "base.html" %}
 {% block content %}
 <div class="container-fluid mt-4">
-    <h2><i class="bi bi-truck"></i> Gestione Trasporti</h2>
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="m-0"><i class="bi bi-truck"></i> Gestione Trasporti</h2>
+
+        <div class="d-flex gap-2">
+            <!-- ✅ STAMPA REPORT -->
+            <form method="POST" class="m-0">
+                <input type="hidden" name="stampa_report" value="1">
+                <button type="submit" class="btn btn-warning shadow-sm">
+                    <i class="bi bi-printer"></i> Stampa
+                </button>
+            </form>
+
+            <!-- ✅ ESCI (torna al menu principale) -->
+            <a href="{{ url_for('home') }}" class="btn btn-secondary shadow-sm">
+                <i class="bi bi-box-arrow-left"></i> Esci
+            </a>
+        </div>
+    </div>
     
     <div class="card p-3 mb-4 bg-light border shadow-sm">
         <h5 class="mb-3">Inserisci Nuovo Trasporto</h5>
@@ -1872,8 +1890,16 @@ TRASPORTI_HTML = """
             <div class="col-md-1"><label class="small">Consolidato</label><input type="text" name="consolidato" class="form-control"></div>
             <div class="col-md-1"><label class="small">Costo €</label><input type="text" name="costo" class="form-control" placeholder="0,00"></div>
 
-            <div class="col-md-12 text-end mt-2">
-                <button type="submit" class="btn btn-success"><i class="bi bi-plus-lg"></i> Aggiungi</button>
+            <div class="col-md-12 text-end mt-2 d-flex justify-content-end gap-2">
+                <!-- ✅ SALVA (stesso submit dell’aggiunta) -->
+                <button type="submit" class="btn btn-success">
+                    <i class="bi bi-save"></i> Salva
+                </button>
+
+                <!-- ✅ ESCI -->
+                <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">
+                    <i class="bi bi-x-circle"></i> Esci
+                </a>
             </div>
         </form>
     </div>
@@ -1881,7 +1907,8 @@ TRASPORTI_HTML = """
     <div class="card shadow-sm">
         <div class="table-responsive">
             <table class="table table-striped table-hover mb-0 align-middle">
-                <thead class="table-dark">
+                <!-- ✅ intestazioni con testo nero -->
+                <thead class="table-light" style="color:#000;">
                     <tr>
                         <th>Data</th><th>Mezzo</th><th>Cliente</th>
                         <th>Trasportatore</th><th>DDT</th><th>Mag.</th>
@@ -1918,6 +1945,7 @@ TRASPORTI_HTML = """
 </div>
 {% endblock %}
 """
+
 
 INVIA_EMAIL_HTML = """
 {% extends "base.html" %}
