@@ -4566,85 +4566,33 @@ def labels_form():
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
 def labels_pdf():
-    # 1) Recupera gli ID selezionati (checkbox name="ids")
+    # ... (tutta la parte di recupero IDs rimane uguale) ...
     ids = request.form.getlist('ids')
-
+    if not ids:
+        # Provo a vedere se sono passati come stringa unica (dal form nascosto)
+        ids_str = request.form.get('ids_hidden')
+        if ids_str:
+            ids = ids_str.split(',')
+            
+    if not ids:
+        return "Nessun articolo selezionato", 400
+        
     db = SessionLocal()
-    articoli_da_stampare = []
-
-    try:
-        # CASO A: Selezione multipla (dal Magazzino)
-        if ids:
-            # se id_articolo è INT, convertiamo
-            try:
-                ids_int = [int(x) for x in ids if str(x).strip() != ""]
-            except Exception:
-                ids_int = ids  # fallback se sono stringhe
-
-            articoli_da_stampare = (
-                db.query(Articolo)
-                  .filter(Articolo.id_articolo.in_(ids_int))
-                  .all()
-            )
-
-        # CASO B: Dati manuali (se arrivano da un form manuale)
-        elif (request.form.get('cliente') or '').strip():
-            a = Articolo()
-            a.cliente = (request.form.get('cliente') or '').strip() or None
-            a.fornitore = (request.form.get('fornitore') or '').strip() or None
-            a.ordine = (request.form.get('ordine') or '').strip() or None
-            a.commessa = (request.form.get('commessa') or '').strip() or None
-            a.n_ddt_ingresso = (request.form.get('n_ddt_ingresso') or '').strip() or None
-            a.n_arrivo = (request.form.get('n_arrivo') or '').strip() or None
-            a.descrizione = (request.form.get('descrizione') or '').strip() or None
-
-            # Data ingresso
-            d_ing = (request.form.get('data_ingresso') or '').strip()
-            if d_ing:
-                try:
-                    a.data_ingresso = datetime.strptime(d_ing, "%Y-%m-%d").date()
-                except Exception:
-                    a.data_ingresso = date.today()
-            else:
-                a.data_ingresso = date.today()
-
-            # Colli
-            n_colli_raw = (request.form.get('n_colli') or '').strip()
-            try:
-                a.n_colli = int(n_colli_raw) if n_colli_raw != "" else 1
-            except Exception:
-                a.n_colli = 1
-
-            articoli_da_stampare = [a]
-
-        if not articoli_da_stampare:
-            flash("Nessun articolo selezionato.", "warning")
-            return redirect(url_for('giacenze'))
-
-        # 2) Genera PDF (deve essere 100x62 ORIZZONTALE dentro _genera_pdf_etichetta)
-        pdf_file = _genera_pdf_etichetta(articoli_da_stampare)
-
-        # ✅ sicurezza: se la funzione non ha fatto seek(0)
-        try:
-            pdf_file.seek(0)
-        except Exception:
-            pass
-
-        return send_file(
-            pdf_file,
-            as_attachment=True,
-            download_name=f"etichette_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-            mimetype="application/pdf"
-        )
-
-    except Exception as e:
-        print(f"ERRORE PDF: {e}")
-        flash(f"Errore durante la creazione del PDF: {e}", "danger")
-        return redirect(url_for('giacenze'))
-
-    finally:
-        db.close()
-
+    articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+    db.close()
+    
+    # CHIAMA LA FUNZIONE MODIFICATA SOPRA
+    pdf_file = _genera_pdf_etichetta(articoli)
+    
+    # RESTITUISCE IL FILE (Nome file con data per evitare cache)
+    filename = f"Etichette_{datetime.now().strftime('%H%M%S')}.pdf"
+    
+    return send_file(
+        pdf_file, 
+        as_attachment=True,       # True = Scarica, False = Apri nel browser
+        download_name=filename, 
+        mimetype='application/pdf'
+    )
 # --- FUNZIONE GENERAZIONE PDF (REPORTLAB - Layout Grafico) ---
 def _genera_pdf_etichetta(articoli):
     import io
