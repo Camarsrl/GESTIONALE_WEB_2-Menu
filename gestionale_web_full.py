@@ -4399,102 +4399,79 @@ def labels_pdf():
 def _genera_pdf_etichetta(articoli):
     import io
     from pathlib import Path
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image as RLImage
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import mm
     from reportlab.lib.enums import TA_LEFT
 
     bio = io.BytesIO()
-    W, H = 100*mm, 62*mm 
-    
-    # Margini: Tutto spostato a sinistra
-    doc = SimpleDocTemplate(bio, pagesize=(W, H),
-        leftMargin=3*mm, rightMargin=1*mm, topMargin=2*mm, bottomMargin=1*mm)
-    
-    story = []
+
+    # ✅ FORMATO ETICHETTA ORIZZONTALE: 100mm (LARGHEZZA) x 62mm (ALTEZZA)
+    W, H = 100 * mm, 62 * mm
+
+    doc = SimpleDocTemplate(
+        bio,
+        pagesize=(W, H),
+        leftMargin=3 * mm,
+        rightMargin=1 * mm,
+        topMargin=2 * mm,
+        bottomMargin=1 * mm
+    )
+
     styles = getSampleStyleSheet()
-    
-    # --- STILI (TUTTI ALLINEATI A SINISTRA) ---
-    
-    # Stile Normale (font Helvetica base) che supporta i tag <b> per il grassetto
-    s_norm = ParagraphStyle('N', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=12, alignment=TA_LEFT)
-    
-    # Stile per i Numeri Grandi (Grassetto)
-    s_big_bold = ParagraphStyle('BB', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=16, leading=18, alignment=TA_LEFT)
-    
-    # Stile per le etichette piccole dei numeri grandi (es. "ARRIVO:")
-    s_lbl_small = ParagraphStyle('LS', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=10, alignment=TA_LEFT)
+    style_txt = ParagraphStyle(
+        "etichetta",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=12,
+        leading=14,
+        alignment=TA_LEFT
+    )
 
-    for art in articoli:
-        try: tot = int(art.n_colli) if art.n_colli else 1
-        except: tot = 1
-        if tot < 1: tot = 1
+    story = []
 
-        for i in range(1, tot + 1):
-            
-            # 1. LOGO
-            logo_path = "static/logo camar.jpg" 
-            if Path(logo_path).exists():
-                try:
-                    # Logo allineato a sinistra
-                    story.append(RLImage(logo_path, width=35*mm, height=9*mm, hAlign='LEFT'))
-                    story.append(Spacer(1, 2*mm))
-                except: pass
+    for idx, art in enumerate(articoli):
+        # Logo
+        logo_path = Path("static/logo camar.jpg")
+        if logo_path.exists():
+            try:
+                story.append(RLImage(str(logo_path), width=35 * mm, height=9 * mm, hAlign="LEFT"))
+                story.append(Spacer(1, 2 * mm))
+            except:
+                pass
 
-            # 2. DATI ANAGRAFICI
-            # Usiamo i tag <b> per fare il grassetto SOLO sulla categoria
-            lines_data = []
-            if art.cliente: lines_data.append(f"<b>CLIENTE:</b> {art.cliente}")
-            if art.fornitore: lines_data.append(f"<b>FORNITORE:</b> {art.fornitore}")
-            if art.ordine: lines_data.append(f"<b>ORDINE:</b> {art.ordine}")
-            if art.commessa: lines_data.append(f"<b>COMMESSA:</b> {art.commessa}")
-            if art.n_ddt_ingresso: lines_data.append(f"<b>DDT ING.:</b> {art.n_ddt_ingresso}")
-            
-            d_str = ""
-            if art.data_ingresso:
-                try: d_str = art.data_ingresso.strftime('%d/%m/%Y')
-                except: d_str = str(art.data_ingresso)
-            if d_str: lines_data.append(f"<b>DATA ING.:</b> {d_str}")
+        # Testo (categorie in grassetto, valori normali)
+        cliente = (art.cliente or "")
+        fornitore = (art.fornitore or "")
+        ordine = (art.ordine or "")
+        commessa = (art.commessa or "")
+        ddt_ing = (art.n_ddt_ingresso or "")
+        data_ing = art.data_ingresso.strftime("%d/%m/%Y") if getattr(art, "data_ingresso", None) else ""
+        n_arrivo = (art.n_arrivo or "")
+        n_colli = int(art.n_colli) if getattr(art, "n_colli", None) else 1
 
-            for line in lines_data:
-                story.append(Paragraph(line, s_norm))
-            
-            story.append(Spacer(1, 4*mm))
+        testo = (
+            f"<b>CLIENTE:</b> {cliente}<br/>"
+            f"<b>FORNITORE:</b> {fornitore}<br/>"
+            f"<b>ORDINE:</b> {ordine}<br/>"
+            f"<b>COMMESSA:</b> {commessa}<br/>"
+            f"<b>DDT ING.:</b> {ddt_ing}<br/>"
+            f"<b>DATA ING.:</b> {data_ing}<br/><br/>"
+            f"<b>ARRIVO:</b> {n_arrivo}<br/>"
+            f"<b>COLLI:</b> 1 / {n_colli}"
+        )
 
-            # 3. BLOCCO DATI GRANDI (ARRIVO e COLLO) - Tutto a Sinistra
-            
-            # Cella ARRIVO
-            cell_arr = [
-                Paragraph("ARRIVO:", s_lbl_small),
-                Paragraph(str(art.n_arrivo or '-'), s_big_bold)
-            ]
-            
-            # Cella COLLO
-            cell_collo = [
-                Paragraph("COLLO:", s_lbl_small),
-                Paragraph(f"{i} / {tot}", s_big_bold)
-            ]
-            
-            # Tabella affiancata ma tutto a sinistra
-            # [ARRIVO] [spazio] [COLLO]
-            data_tbl = [[ cell_arr, "", cell_collo ]]
-            t = Table(data_tbl, colWidths=[40*mm, 5*mm, 40*mm], hAlign='LEFT')
-            t.setStyle(TableStyle([
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                ('LEFTPADDING', (0,0), (-1,-1), 0), # Toglie padding extra a sinistra
-            ]))
-            story.append(t)
-            
-            # 4. DESCRIZIONE (Opzionale sotto)
-            if art.descrizione:
-                story.append(Spacer(1, 2*mm))
-                story.append(Paragraph(str(art.descrizione)[:45], s_norm))
+        story.append(Paragraph(testo, style_txt))
 
+        if idx < len(articoli) - 1:
             story.append(PageBreak())
 
     doc.build(story)
+
+    # ✅ IMPORTANTISSIMO: riporta il cursore all'inizio
     bio.seek(0)
     return bio
+
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
 app.jinja_env.globals['getattr'] = getattr
