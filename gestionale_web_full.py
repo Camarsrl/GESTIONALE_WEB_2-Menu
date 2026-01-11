@@ -4752,16 +4752,43 @@ def fix_db_schema():
         return f"Errore Fix: {e}"
     finally:
         db.close()
-def _parse_data_db_helper(data_str):
-    """Converte stringa data DB in oggetto date (Gestisce formati misti)."""
-    if not data_str: return None
-    formati = ["%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y"]
-    for fmt in formati:
-        try:
-            return datetime.strptime(str(data_str).strip(), fmt).date()
-        except (ValueError, AttributeError):
-            continue
+
+def _parse_data_db_helper(val):
+    """
+    Accetta:
+    - date / datetime
+    - stringa 'YYYY-MM-DD'
+    - stringa 'DD/MM/YYYY'
+    - stringa con orario 'YYYY-MM-DD HH:MM:SS'
+    Ritorna date oppure None.
+    """
+    if val is None:
+        return None
+
+    if isinstance(val, datetime):
+        return val.date()
+
+    if isinstance(val, date):
+        return val
+
+    s = str(val).strip()
+    if not s:
+        return None
+
+    # prova YYYY-MM-DD
+    try:
+        return datetime.strptime(s[:10], "%Y-%m-%d").date()
+    except Exception:
+        pass
+
+    # prova DD/MM/YYYY
+    try:
+        return datetime.strptime(s[:10], "%d/%m/%Y").date()
+    except Exception:
+        pass
+
     return None
+
 
 def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento):
     """
