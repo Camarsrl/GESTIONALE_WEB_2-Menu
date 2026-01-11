@@ -991,67 +991,113 @@ GIACENZE_HTML = """
             <thead class="sticky-top" style="top:0; z-index:5;">
                 <tr>
                     <th><input type="checkbox" onclick="toggleAll(this)"></th>
-                    <th>ID</th> <th>Doc</th> <th>Foto</th> <th>Codice</th> <th>Descrizione</th>
-                    <th>Cliente</th> <th>Fornitore</th> <th>Commessa</th> <th>Ordine</th> <th>Protocollo</th>
-                    <th>Buono</th> <th>N.Arr</th> <th>Data Ing</th> <th>DDT Ing</th> <th>Pos</th> <th>Stato</th>
-                    <th>Pz</th> <th>Colli</th> <th>Kg</th> <th>LxPxH</th> 
-                    <th>Lotto</th> <th>M2</th> <th>M3</th> <th style="min-width: 80px;">Act</th>
+
+                    <!-- ✅ COLONNE come richiesto -->
+                    <th>ID Articolo</th>
+                    <th>Codice Articolo</th>
+                    <th>Pezzi</th>
+                    <th>Larghezza</th>
+                    <th>Lunghezza</th>
+                    <th>Altezza</th>
+                    <th>M2</th>
+                    <th>M3</th>
+                    <th>Descrizione</th>
+                    <th>Protocollo</th>
+                    <th>Ordine</th>
+                    <th>Collo</th>
+                    <th>Fornitore</th>
+                    <th>Magazzino</th>
+                    <th>Data Ingresso</th>
+                    <th>N. DDT Ingresso</th>
+                    <th>N. DDT Uscita</th>
+                    <th>Data Uscita</th>
+                    <th>Cliente</th>
+                    <th>Peso</th>
+                    <th>Posizione</th>
+                    <th>N. Arrivo</th>
+                    <th>N. Buono</th>
+                    <th>Note</th>
+                    <th>Lotto</th>
+                    <th>Ns. Rif</th>
+                    <th>Serial Number</th>
+                    <th>Stato</th>
+                    <th>Doc. Arrivo</th>
+                    <th>Foto Arrivo</th>
+                    <th style="min-width: 80px;">Act</th>
                 </tr>
             </thead>
+
             <tbody>
                 {% for r in rows %}
                 {% set desc = (r.descrizione or '') %}
                 <tr>
                     <td class="text-center"><input type="checkbox" name="ids" value="{{ r.id_articolo }}" class="row-checkbox"></td>
+
                     <td>{{ r.id_articolo }}</td>
-                    
+                    <td title="{{ r.codice_articolo }}">{{ r.codice_articolo or '' }}</td>
+
+                    <td>{{ r.pezzo or '' }}</td>
+                    <td>{{ r.larghezza|int if r.larghezza else '' }}</td>
+                    <td>{{ r.lunghezza|int if r.lunghezza else '' }}</td>
+                    <td>{{ r.altezza|int if r.altezza else '' }}</td>
+
+                    <td>{{ r.m2|float|round(3) if r.m2 else '' }}</td>
+                    <td>{{ r.m3|float|round(3) if r.m3 else '' }}</td>
+
+                    <td title="{{ desc }}">{{ desc[:30] }}{% if desc|length > 30 %}...{% endif %}</td>
+                    <td>{{ r.protocollo or '' }}</td>
+                    <td>{{ r.ordine or '' }}</td>
+
+                    <td>{{ r.n_colli or '' }}</td>
+                    <td>{{ r.fornitore or '' }}</td>
+                    <td>{{ r.magazzino or '' }}</td>
+
+                    <td>{{ r.data_ingresso or '' }}</td>
+                    <td>{{ r.n_ddt_ingresso or '' }}</td>
+
+                    <!-- ⚠️ devono esistere in DB (campo Articolo.n_ddt_uscita / Articolo.data_uscita) -->
+                    <td>{{ r.n_ddt_uscita or '' }}</td>
+                    <td>{{ r.data_uscita or '' }}</td>
+
+                    <td>{{ r.cliente or '' }}</td>
+                    <td>{{ r.peso or '' }}</td>
+                    <td>{{ r.posizione or '' }}</td>
+
+                    <td>{{ r.n_arrivo or '' }}</td>
+                    <td class="fw-buono">{{ r.buono_n or '' }}</td>
+
+                    <td>{{ r.note or '' }}</td>
+                    <td>{{ r.lotto or '' }}</td>
+                    <td>{{ r.ns_rif or '' }}</td>
+                    <td>{{ r.serial_number or '' }}</td>
+                    <td>{{ r.stato or '' }}</td>
+
+                    <!-- DOC ARRIVO -->
                     <td class="text-center">
                         {% for a in r.attachments if a.kind=='doc' %}
                         <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link" title="{{ a.filename }}">📄</a>
                         {% endfor %}
                     </td>
+
+                    <!-- FOTO ARRIVO -->
                     <td class="text-center">
                         {% for a in r.attachments if a.kind=='photo' %}
                         <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link" title="{{ a.filename }}">📷</a>
                         {% endfor %}
                     </td>
 
-                    <td title="{{ r.codice_articolo }}">{{ r.codice_articolo or '' }}</td>
-                    <td title="{{ desc }}">{{ desc[:30] }}{% if desc|length > 30 %}...{% endif %}</td>
-
-                    <td>{{ r.cliente or '' }}</td>
-                    <td>{{ r.fornitore or '' }}</td>
-                    <td>{{ r.commessa or '' }}</td>
-                    <td>{{ r.ordine or '' }}</td>
-                    <td>{{ r.protocollo or '' }}</td>
-                    <td class="fw-buono">{{ r.buono_n or '' }}</td>
-                    <td>{{ r.n_arrivo or '' }}</td>
-                    <td>{{ r.data_ingresso or '' }}</td>
-                    <td>{{ r.n_ddt_ingresso or '' }}</td>
-                    <td>{{ r.posizione or '' }}</td>
-                    <td>{{ r.stato or '' }}</td>
-                    <td>{{ r.pezzo or '' }}</td>
-                    <td>{{ r.n_colli or '' }}</td>
-                    <td>{{ r.peso or '' }}</td>
-                    <td>{{ r.lunghezza|int }}x{{ r.larghezza|int }}x{{ r.altezza|int }}</td>
-                    
-                    <td>{{ r.lotto or '' }}</td> 
-                    
-                    <td>{{ r.m2|float|round(3) if r.m2 else '' }}</td>
-                    <td>{{ r.m3|float|round(3) if r.m3 else '' }}</td>
-                    
                     <td class="text-center">
                         <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" title="Modifica" class="text-decoration-none me-2">✏️</a>
-                        
                         <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" title="Elimina" class="text-decoration-none text-danger" onclick="return confirm('Eliminare articolo {{ r.id_articolo }}?');">🗑️</a>
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="25" class="text-center p-3 text-muted">Nessun articolo trovato con questi filtri.</td></tr>
+                <tr><td colspan="32" class="text-center p-3 text-muted">Nessun articolo trovato con questi filtri.</td></tr>
                 {% endfor %}
             </tbody>
+
             <tfoot class="sticky-bottom bg-white fw-bold">
-                <tr><td colspan="25">Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}</td></tr>
+                <tr><td colspan="32">Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}</td></tr>
             </tfoot>
         </table>
     </div>
@@ -1090,6 +1136,7 @@ GIACENZE_HTML = """
 </script>
 {% endblock %}
 """
+
 
 
 EDIT_HTML = """
