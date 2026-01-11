@@ -2306,32 +2306,24 @@ def upload_mappe_json():
 
 
 # --- GESTIONE TRASPORTI (ADMIN) ---
-@app.route('/trasporti', methods=['GET', 'POST'])  # <--- Fix Method Not Allowed
+@app.route('/trasporti', methods=['GET', 'POST'])
 @login_required
 def trasporti():
     db = SessionLocal()
-
     try:
-        # ---------------------------
-        # POST: Aggiungi Trasporto
-        # ---------------------------
+        # STAMPA REPORT
+        if request.method == 'POST' and request.form.get('stampa_report'):
+            dati = db.query(Trasporto).order_by(Trasporto.data.desc().nullslast(), Trasporto.id.desc()).all()
+            return render_template('report_trasporti_print.html', trasporti=dati, today=date.today())
+
+        # AGGIUNGI
         if request.method == 'POST' and request.form.get('add_trasporto'):
             try:
                 data_str = (request.form.get('data') or '').strip()
-
-                # Accetta sia YYYY-MM-DD (input type="date") che DD/MM/YYYY (se lo inserisci a mano)
-                data_val = None
-                if data_str:
-                    try:
-                        data_val = datetime.strptime(data_str, '%Y-%m-%d').date()
-                    except Exception:
-                        data_val = datetime.strptime(data_str, '%d/%m/%Y').date()
+                data_val = datetime.strptime(data_str, '%Y-%m-%d').date() if data_str else None
 
                 costo_str = (request.form.get('costo') or '').strip()
-                costo_val = None
-                if costo_str != '':
-                    # permette virgola
-                    costo_val = float(costo_str.replace(',', '.'))
+                costo_val = float(costo_str.replace(',', '.')) if costo_str != '' else None
 
                 nuovo = Trasporto(
                     data=data_val,
@@ -2343,33 +2335,18 @@ def trasporti():
                     consolidato=(request.form.get('consolidato') or '').strip() or None,
                     costo=costo_val
                 )
+
                 db.add(nuovo)
                 db.commit()
-                flash("Trasporto aggiunto!", "success")
-
+                flash("Trasporto salvato!", "success")
             except Exception as e:
                 db.rollback()
-                flash(f"Errore aggiunta trasporto: {e}", "danger")
+                flash(f"Errore salvataggio trasporto: {e}", "danger")
 
             return redirect(url_for('trasporti'))
 
-        # ---------------------------
-        # POST: Stampa Report
-        # ---------------------------
-        if request.method == 'POST' and request.form.get('stampa_report'):
-            dati = db.query(Trasporto).order_by(Trasporto.data.desc()).all()
-            return render_template('report_trasporti_print.html', trasporti=dati, today=date.today())
-
-        # ---------------------------
-        # GET: Visualizzazione Tabella + Filtri
-        # ---------------------------
-        query = db.query(Trasporto)
-
-        cliente_q = (request.args.get('cliente') or '').strip()
-        if cliente_q:
-            query = query.filter(Trasporto.cliente.ilike(f"%{cliente_q}%"))
-
-        dati = query.order_by(Trasporto.data.desc()).all()
+        # LISTA
+        dati = db.query(Trasporto).order_by(Trasporto.data.desc().nullslast(), Trasporto.id.desc()).all()
         return render_template('trasporti.html', trasporti=dati, today=date.today())
 
     finally:
