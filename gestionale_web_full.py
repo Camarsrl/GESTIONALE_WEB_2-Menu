@@ -22,6 +22,13 @@ from werkzeug.utils import secure_filename
 import pdfplumber
 from collections import defaultdict
 from datetime import timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
+from email.mime.application import MIMEApplication
+from pathlib import Path
+
+
 
 # Importazioni Flask e Login
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, session, jsonify, render_template_string, abort
