@@ -3290,20 +3290,23 @@ def duplica_articolo(id_articolo):
 # ==============================================================================
 #  1. MODIFICA ARTICOLO (Solo per TABELLA GIACENZE)
 # ==============================================================================
+# --- MODIFICA ARTICOLO SINGOLO (UNICA FUNZIONE CORRETTA) ---
 @app.route('/edit_articolo/<int:id>', methods=['GET', 'POST'])
 @login_required
 def edit_articolo(id):
-    # Questa funzione gestisce SOLO la modifica dell'anagrafica articoli
     db = SessionLocal()
-    art = db.query(Articolo).get(id)
-    
-    if not art:
-        flash("Articolo non trovato", "danger")
-        return redirect(url_for('giacenze'))
+    try:
+        art = db.query(Articolo).get(id)
+        if not art:
+            flash("Articolo non trovato", "danger")
+            return redirect(url_for('giacenze'))
 
-    if request.method == 'POST':
-        try:
-            # Aggiornamento Campi
+        if request.method == 'POST':
+            # 1. Recupera Colli (per eventuale split)
+            colli_input = to_int_eu(request.form.get('n_colli'))
+            if colli_input < 1: colli_input = 1
+
+            # 2. Aggiorna tutti i campi
             art.codice_articolo = request.form.get('codice_articolo')
             art.descrizione = request.form.get('descrizione')
             art.cliente = request.form.get('cliente')
@@ -3318,48 +3321,81 @@ def edit_articolo(id):
             art.stato = request.form.get('stato')
             art.note = request.form.get('note')
             art.serial_number = request.form.get('serial_number')
+            art.mezzi_in_uscita = request.form.get('mezzi_in_uscita')
             art.lotto = request.form.get('lotto')
+            art.ns_rif = request.form.get('ns_rif')
 
-            # Gestione sicura dei numeri (evita crash se vuoti)
-            try: art.n_colli = int(request.form.get('n_colli'))
-            except: pass
+            # Date
+            art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
+            art.data_uscita = parse_date_ui(request.form.get('data_uscita'))
+            art.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
+            art.n_ddt_uscita = request.form.get('n_ddt_uscita')
+
+            # Numeri
+            art.pezzo = request.form.get('pezzo')
+            # In modifica, l'articolo corrente resta sempre 1 collo (perché è una riga sola)
+            # Se l'utente ha scritto 3, creiamo 2 copie e lasciamo questo a 1
+            art.n_colli = 1 
             
-            try: art.peso = float(request.form.get('peso').replace(',', '.'))
-            except: pass
+            art.peso = to_float_eu(request.form.get('peso'))
+            art.lunghezza = to_float_eu(request.form.get('lunghezza'))
+            art.larghezza = to_float_eu(request.form.get('larghezza'))
+            art.altezza = to_float_eu(request.form.get('altezza'))
+            
+            # Calcoli
+            m2_calc, m3_calc = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, 1)
+            art.m2 = m2_calc
+            m3_man = request.form.get('m3')
+            art.m3 = to_float_eu(m3_man) if m3_man and to_float_eu(m3_man) > 0 else m3_calc
 
-            try: art.lunghezza = float(request.form.get('lunghezza').replace(',', '.'))
-            except: pass
-            try: art.larghezza = float(request.form.get('larghezza').replace(',', '.'))
-            except: pass
-            try: art.altezza = float(request.form.get('altezza').replace(',', '.'))
-            except: pass
+            # 3. LOGICA SPLIT (Se colli > 1, crea copie)
+            if colli_input > 1:
+                import shutil
+                # Recupera gli allegati attuali per copiarli sulle nuove righe
+                current_attachments = db.query(Attachment).filter_by(articolo_id=art.id_articolo).all()
+                
+                for _ in range(colli_input - 1):
+                    # Clona l'articolo
+                    clone = Articolo()
+                    for c in Articolo.__table__.columns:
+                        if c.name not in ['id_articolo', 'attachments']:
+                            setattr(clone, c.name, getattr(art, c.name))
+                    
+                    db.add(clone)
+                    db.flush() # Ottieni ID del clone
+                    
+                    # Clona anche gli allegati
+                    for att in current_attachments:
+                        fname = att.filename
+                        ext = fname.rsplit('.', 1)[-1].lower()
+                        kind = att.kind
+                        folder = PHOTOS_DIR if kind == 'photo' else DOCS_DIR
+                        
+                        src_path = folder / fname
+                        if src_path.exists():
+                            new_name = f"{clone.id_articolo}_{uuid.uuid4().hex[:6]}_{fname.split('_',1)[-1]}"
+                            dst_path = folder / new_name
+                            try:
+                                shutil.copy2(src_path, dst_path)
+                                db.add(Attachment(articolo_id=clone.id_articolo, filename=new_name, kind=kind))
+                            except: pass
 
-            # Gestione sicura Date
-            d_ing = request.form.get('data_ingresso')
-            if d_ing:
-                try: art.data_ingresso = datetime.strptime(d_ing, "%Y-%m-%d").date()
-                except: pass
-
-            d_usc = request.form.get('data_uscita')
-            if d_usc:
-                try: art.data_uscita = datetime.strptime(d_usc, "%Y-%m-%d").date()
-                except: pass
+                flash(f"Articolo aggiornato e create {colli_input - 1} copie aggiuntive.", "success")
+            else:
+                flash("Articolo aggiornato con successo.", "success")
 
             db.commit()
-            flash("Articolo modificato con successo!", "success")
             return redirect(url_for('giacenze'))
 
-        except Exception as e:
-            db.rollback()
-            flash(f"Errore salvataggio: {e}", "danger")
-        finally:
-            db.close()
+        # GET: Mostra template modifica
+        return render_template('edit.html', row=art)
 
-    db.close()
-    # Usa il template esistente in modalità modifica
-    return render_template('nuovo_articolo.html', articolo=art, today=date.today(), edit_mode=True)
-
-
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore modifica: {e}", "danger")
+        return redirect(url_for('giacenze'))
+    finally:
+        db.close()
 
 @app.route('/edit/<int:id_articolo>', methods=['GET', 'POST'])
 @login_required
