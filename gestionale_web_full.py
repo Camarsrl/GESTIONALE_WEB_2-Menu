@@ -4881,9 +4881,7 @@ def calcola_costi():
     if session.get('role') != 'admin':
         flash("Accesso negato: Funzione riservata agli amministratori.", "danger")
         return redirect(url_for('giacenze'))
-    # ------------------------
 
-    # Defaults per il form
     oggi = date.today()
     data_da_val = (oggi.replace(day=1)).strftime("%Y-%m-%d")
     data_a_val = oggi.strftime("%Y-%m-%d")
@@ -4892,34 +4890,41 @@ def calcola_costi():
     risultati = []
 
     if request.method == 'POST':
-        data_da_str = request.form.get('data_da')
-        data_a_str = request.form.get('data_a')
-        cliente_val = request.form.get('cliente', '').strip()
-        raggruppamento = request.form.get('raggruppamento', 'mese')
-        
+        data_da_str = (request.form.get('data_da') or "").strip()
+        data_a_str = (request.form.get('data_a') or "").strip()
+        cliente_val = (request.form.get('cliente') or '').strip()
+        raggruppamento = (request.form.get('raggruppamento') or 'mese').strip()
+
         try:
             d_da = datetime.strptime(data_da_str, "%Y-%m-%d").date()
             d_a = datetime.strptime(data_a_str, "%Y-%m-%d").date()
-            
+
+            if d_a < d_da:
+                raise Exception("Intervallo date non valido: 'Data a' è precedente a 'Data da'.")
+
             db = SessionLocal()
-            query = db.query(Articolo).filter(Articolo.data_ingresso.isnot(None), Articolo.data_ingresso != '')
-            
-            if cliente_val:
-                query = query.filter(Articolo.cliente.ilike(f"%{cliente_val}%"))
-                
-            articoli = query.all()
-            db.close()
-            
-            # Esegui calcolo logico (assicurati di avere la funzione _calcola_logica_costi nel file)
+            try:
+                query = db.query(Articolo)
+
+                if cliente_val:
+                    query = query.filter(Articolo.cliente.ilike(f"%{cliente_val}%"))
+
+                articoli = query.all()
+            finally:
+                db.close()
+
             risultati = _calcola_logica_costi(articoli, d_da, d_a, raggruppamento)
-            
+
             data_da_val = data_da_str
             data_a_val = data_a_str
+
+            if not risultati:
+                flash("Nessun dato trovato per i criteri selezionati.", "warning")
 
         except Exception as e:
             flash(f"Errore nel calcolo: {e}", "danger")
 
-    return render_template('calcoli.html', risultati=risultati, data_da=data_da_val, data_a=data_a_val, cliente_filtro=cliente_val, raggruppamento=raggruppamento)
+    return render_template('calcoli.html',risultati=risultati,data_da=data_da_val,data_a=data_a_val,cliente_filtro=cliente_val,raggruppamento=raggruppamento)
 
 
 # --- AVVIO FLASK APP ---
