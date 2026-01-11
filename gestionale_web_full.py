@@ -2713,30 +2713,33 @@ def export_client():
 @app.route('/invia_email', methods=['GET', 'POST'])
 @login_required
 def invia_email():
+    # ------------------------
+    # GET: apre la pagina
+    # ------------------------
     if request.method == 'GET':
         selected_ids = request.args.getlist('ids')
         ids_str = ",".join(selected_ids)
         return render_template('invia_email.html', selected_ids=ids_str)
 
-    # POST: Invio
+    # ------------------------
+    # POST: invio email
+    # ------------------------
     selected_ids = request.form.get('selected_ids', '')
     destinatario = request.form.get('destinatario')
     oggetto = request.form.get('oggetto')
-    messaggio = request.form.get('messaggio')
+    messaggio = request.form.get('messaggio') or ""
     genera_ddt = 'genera_ddt' in request.form
     allega_file = 'allega_file' in request.form
     allegati_extra = request.files.getlist('allegati_extra')
 
     ids_list = [int(i) for i in selected_ids.split(',') if i.isdigit()]
-    
-    # --- CORREZIONE VARIABILI E LOG DEBUG ---
-    # Cerchiamo le variabili con i nomi usati su Render (MAIL_...)
+
+    # --- Variabili Render/Env ---
     SMTP_SERVER = os.environ.get("MAIL_SERVER") or os.environ.get("SMTP_SERVER", "smtp.gmail.com")
     SMTP_PORT = int(os.environ.get("MAIL_PORT") or os.environ.get("SMTP_PORT", 587))
     SMTP_USER = os.environ.get("MAIL_USERNAME") or os.environ.get("SMTP_USER", "")
     SMTP_PASS = os.environ.get("MAIL_PASSWORD") or os.environ.get("SMTP_PASS", "")
 
-    # STAMPA NEI LOG (Visibili nella Dashboard di Render)
     print(f"DEBUG EMAIL - Server: {SMTP_SERVER}, Port: {SMTP_PORT}, User: {SMTP_USER}")
     if not SMTP_PASS:
         print("DEBUG EMAIL - ERRORE: Password non trovata nelle variabili d'ambiente!")
@@ -2745,85 +2748,147 @@ def invia_email():
         flash(f"Configurazione email mancante (User: {SMTP_USER}). Controlla le variabili su Render.", "warning")
         return redirect(url_for('giacenze'))
 
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = SMTP_USER
-        msg['To'] = destinatario
-        msg['Subject'] = oggetto
-        msg.attach(MIMEText(messaggio, 'plain'))
+    # --- helper per HTML ---
+    def _escape_html(s: str) -> str:
+        return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-        # 1. PDF DDT
+    def _text_to_html_preserve_newlines(text: str) -> str:
+        return "<br>".join(_escape_html(text).splitlines())
+
+    try:
+        # ✅ EMAIL multipart/related -> include immagini inline
+        msg_root = MIMEMultipart('related')
+        msg_root['From'] = SMTP_USER
+        msg_root['To'] = destinatario
+        msg_root['Subject'] = oggetto
+
+        # alternative: plain + html
+        msg_alt = MIMEMultipart('alternative')
+        msg_root.attach(msg_alt)
+
+        # HTML con logo inline (CID)
+        html_body = f"""
+        <html>
+          <body style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color:#111;">
+            <div style="margin-bottom: 12px;">
+              <img src="cid:logo_camar" alt="Camar" style="height:60px; width:auto; display:block;">
+            </div>
+            <div>
+              {_text_to_html_preserve_newlines(messaggio)}
+            </div>
+          </body>
+        </html>
+        """
+
+        # fallback testo
+        msg_alt.attach(MIMEText(messaggio, 'plain', 'utf-8'))
+        msg_alt.attach(MIMEText(html_body, 'html', 'utf-8'))
+
+        # ✅ Allego LOGO inline (CID)
+        # ATTENZIONE: il file si chiama con spazio -> "logo camar.jpg"
+        logo_path = os.path.join(app.root_path, "static", "logo camar.jpg")
+        if os.path.exists(logo_path):
+            with open(logo_path, "rb") as f:
+                img = MIMEImage(f.read())
+            img.add_header('Content-ID', '<logo_camar>')
+            img.add_header('Content-Disposition', 'inline', filename='logo_camar.jpg')
+            msg_root.attach(img)
+        else:
+            print("⚠️ Logo non trovato:", logo_path)
+
+        # ------------------------
+        # 1) PDF Riepilogo (DDT)
+        # ------------------------
         if genera_ddt and ids_list:
             db = SessionLocal()
-            rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
-            if rows:
-                # Usa dati fittizi per l'header del riepilogo
-                dest_data = {"ragione_sociale": "RIEPILOGO", "indirizzo": "", "citta": ""}
-                # Genera un DDT temporaneo in memoria
-                pdf_bio = io.BytesIO()
-                # Chiamiamo la funzione di generazione PDF
-                _genera_pdf_ddt_file(
-                    {'n_ddt': 'RIEP', 'data_uscita': date.today().strftime('%d/%m/%Y'), 
-                     'destinatario': 'RIEPILOGO', 'dest_indirizzo': '', 'dest_citta': ''}, 
-                    [{
-                        'id_articolo': r.id_articolo, 'codice_articolo': r.codice_articolo, 
-                        'descrizione': r.descrizione, 'pezzo': r.pezzo, 'n_colli': r.n_colli, 
-                        'peso': r.peso, 'n_arrivo': r.n_arrivo, 'note': r.note
-                    } for r in rows], 
-                    pdf_bio
-                )
-                
-                part = MIMEBase('application', "octet-stream")
-                part.set_payload(pdf_bio.getvalue())
-                encoders.encode_base64(part)
-                part.add_header('Content-Disposition', 'attachment; filename="Riepilogo_Merce.pdf"')
-                msg.attach(part)
-            db.close()
+            try:
+                rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
+                if rows:
+                    pdf_bio = io.BytesIO()
 
-        # 2. Allegati DB
+                    _genera_pdf_ddt_file(
+                        {
+                            'n_ddt': 'RIEP',
+                            'data_uscita': date.today().strftime('%d/%m/%Y'),
+                            'destinatario': 'RIEPILOGO',
+                            'dest_indirizzo': '',
+                            'dest_citta': ''
+                        },
+                        [{
+                            'id_articolo': r.id_articolo,
+                            'codice_articolo': r.codice_articolo,
+                            'descrizione': r.descrizione,
+                            'pezzo': r.pezzo,
+                            'n_colli': r.n_colli,
+                            'peso': r.peso,
+                            'n_arrivo': r.n_arrivo,
+                            'note': r.note
+                        } for r in rows],
+                        pdf_bio
+                    )
+
+                    pdf_bio.seek(0)
+                    part = MIMEBase('application', "octet-stream")
+                    part.set_payload(pdf_bio.read())
+                    encoders.encode_base64(part)
+                    part.add_header('Content-Disposition', 'attachment; filename="Riepilogo_Merce.pdf"')
+                    msg_root.attach(part)
+            finally:
+                db.close()
+
+        # ------------------------
+        # 2) Allegati da DB
+        # ------------------------
         if allega_file and ids_list:
             db = SessionLocal()
-            rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
-            for r in rows:
-                for att in r.attachments:
-                    # Cerca file (decodifica spazi se necessario)
-                    fname = att.filename
-                    path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / fname
-                    if not path.exists():
-                         # Prova con unquote se il file su disco ha spazi
-                         from urllib.parse import unquote
-                         path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / unquote(fname)
-                    
-                    if path.exists():
-                        with open(path, "rb") as f:
-                            part = MIMEBase('application', "octet-stream")
-                            part.set_payload(f.read())
-                        encoders.encode_base64(part)
-                        part.add_header('Content-Disposition', f'attachment; filename="{fname}"')
-                        msg.attach(part)
-            db.close()
+            try:
+                rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
+                for r in rows:
+                    for att in r.attachments:
+                        fname = att.filename
+                        path = (DOCS_DIR if att.kind == 'doc' else PHOTOS_DIR) / fname
+                        if not path.exists():
+                            from urllib.parse import unquote
+                            path = (DOCS_DIR if att.kind == 'doc' else PHOTOS_DIR) / unquote(fname)
 
-        # 3. Allegati Extra
+                        if path.exists():
+                            with open(path, "rb") as f:
+                                part = MIMEBase('application', "octet-stream")
+                                part.set_payload(f.read())
+                            encoders.encode_base64(part)
+                            part.add_header('Content-Disposition', f'attachment; filename="{fname}"')
+                            msg_root.attach(part)
+            finally:
+                db.close()
+
+        # ------------------------
+        # 3) Allegati extra
+        # ------------------------
         for file in allegati_extra:
             if file and file.filename:
                 part = MIMEBase('application', "octet-stream")
                 part.set_payload(file.read())
                 encoders.encode_base64(part)
                 part.add_header('Content-Disposition', f'attachment; filename="{secure_filename(file.filename)}"')
-                msg.attach(part)
+                msg_root.attach(part)
 
+        # ------------------------
+        # INVIO SMTP
+        # ------------------------
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
-        server.send_message(msg)
+        server.sendmail(SMTP_USER, [destinatario], msg_root.as_string())
         server.quit()
 
         flash(f"Email inviata correttamente a {destinatario}", "success")
+
     except Exception as e:
         print(f"DEBUG EMAIL EXCEPTION: {e}")
         flash(f"Errore invio: {e}", "danger")
 
     return redirect(url_for('giacenze'))
+
 # --- ROUTE ALLEGATI (MANCANTI - DA AGGIUNGERE) ---
 from urllib.parse import unquote # <--- Assicurati di importare questo in alto o dentro la funzione
 
