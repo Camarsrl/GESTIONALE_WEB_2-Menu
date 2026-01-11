@@ -1862,47 +1862,82 @@ LAVORAZIONI_HTML = """
 </div>
 {% endblock %}
 """
-
-
 CALCOLA_COSTI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
-<div class="card p-4">
-    <h3><i class="bi bi-calculator"></i> Calcolo Giacenze Mensili</h3>
-    <hr>
-    <form method="post" class="mb-4">
-        <div class="row g-3 align-items-end">
-            <div class="col-md-5">
-                <label for="cliente" class="form-label">Cliente</label>
-                <select class="form-select" id="cliente" name="cliente" required>
-                    <option value="" disabled selected>-- Seleziona un cliente --</option>
-                    {% for c in clienti %}
-                    <option value="{{ c }}" {% if cliente_selezionato == c %}selected{% endif %}>{{ c }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="col-md-5">
-                <label for="mese_anno" class="form-label">Mese e Anno</label>
-                <input type="month" class="form-control" id="mese_anno" name="mese_anno" value="{{ mese_selezionato }}" required>
-            </div>
-            <div class="col-md-2 d-grid">
-                <button type="submit" class="btn btn-primary">Calcola</button>
-            </div>
+<div class="container-fluid mt-4">
+  <h2><i class="bi bi-calculator"></i> Report Costi Magazzino (M² per cliente)</h2>
+
+  <div class="card p-3 mb-3 bg-light border shadow-sm">
+    <form method="post" class="row g-2 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label fw-bold">Data da:</label>
+        <input type="date" name="data_da" class="form-control" value="{{ data_da }}" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-bold">Data a:</label>
+        <input type="date" name="data_a" class="form-control" value="{{ data_a }}" required>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label fw-bold">Cliente (contiene):</label>
+        <input type="text" name="cliente" class="form-control" value="{{ cliente_filtro or '' }}" placeholder="es. FINCANTIERI">
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label fw-bold d-block">Raggruppa:</label>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="radio" name="raggruppamento" id="rg_mese" value="mese" {% if raggruppamento != 'giorno' %}checked{% endif %}>
+          <label class="form-check-label" for="rg_mese">Per mese</label>
         </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="radio" name="raggruppamento" id="rg_giorno" value="giorno" {% if raggruppamento == 'giorno' %}checked{% endif %}>
+          <label class="form-check-label" for="rg_giorno">Per giorno</label>
+        </div>
+      </div>
+
+      <div class="col-md-1 d-grid">
+        <button type="submit" class="btn btn-secondary">Calcola</button>
+      </div>
     </form>
-    {% if risultato %}
-    <hr>
-    <div class="alert alert-success">
-        <h5>Risultato Calcolo</h5>
-        <p>Per il cliente <strong>{{ risultato.cliente }}</strong> alla fine del periodo <strong>{{ risultato.periodo }}</strong>, la giacenza totale era di:</p>
-        <h3 class="display-6">{{ "%.3f"|format(risultato.total_m2) }} m²</h3>
-        <p class="mb-0 text-muted">(calcolato su {{ risultato.count }} articoli in giacenza in quel periodo)</p>
+  </div>
+
+  {% if risultati %}
+  <div class="card shadow-sm">
+    <div class="table-responsive">
+      <table class="table table-striped table-hover mb-0 align-middle">
+        <thead style="background:#f0f0f0;">
+          <tr>
+            <th class="text-center">Periodo</th>
+            <th>Cliente</th>
+            <th class="text-end">M² Tot</th>
+            <th class="text-end">M² Medio</th>
+            <th class="text-center">Giorni</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in risultati %}
+          <tr>
+            <td class="text-center">{{ r.periodo }}</td>
+            <td>{{ r.cliente }}</td>
+            <td class="text-end">{{ r.m2_tot }}</td>
+            <td class="text-end">{{ r.m2_medio }}</td>
+            <td class="text-center">{{ r.giorni }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-    {% endif %}
-     <a href="{{ url_for('home') }}" class="btn btn-secondary mt-3">Torna alla Home</a>
+  </div>
+  {% else %}
+    <div class="alert alert-warning">Nessun dato trovato per i criteri selezionati.</div>
+  {% endif %}
+
+  <a href="{{ url_for('home') }}" class="btn btn-outline-secondary mt-3">Torna alla Home</a>
 </div>
 {% endblock %}
 """
+
 
 
 # --- TEMPLATE PAGINA TRASPORTI (Senza Emoji, usa Icone Bootstrap) ---
