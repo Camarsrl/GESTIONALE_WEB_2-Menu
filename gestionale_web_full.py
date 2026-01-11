@@ -2993,59 +2993,70 @@ from urllib.parse import unquote # <--- Assicurati di importare questo in alto o
 
 # --- AGGIUNGI QUESTO IMPORT IN ALTO NEL FILE SE NON C'È ---
 from urllib.parse import unquote 
-# ----------------------------------------------------------
-
-# --- FUNZIONE PER CARICARE NUOVI FILE (Dalla pagina Modifica) ---
 
 # --- FUNZIONE UPLOAD FILE SINGOLO (CORRETTA) ---
+# --- FUNZIONE UPLOAD FILE MULTIPLI (CORRETTA PER EDIT_RECORD) ---
 @app.route('/upload/<int:id_articolo>', methods=['POST'])
 @login_required
 def upload_file(id_articolo):
+    # 1. Controllo Permessi
     if session.get('role') != 'admin':
         flash("Solo Admin può caricare file", "danger")
         return redirect(url_for('edit_record', id_articolo=id_articolo))
 
-    file = request.files.get('file')
-    # Controllo base
-    if not file or not file.filename:
+    # 2. Recupera LISTA di file
+    files = request.files.getlist('file')
+    
+    if not files or all(f.filename == '' for f in files):
         flash("Nessun file selezionato", "warning")
         return redirect(url_for('edit_record', id_articolo=id_articolo))
 
     db = SessionLocal()
+    count = 0
     try:
         from werkzeug.utils import secure_filename
-        filename = secure_filename(file.filename)
         
-        ext = filename.rsplit('.', 1)[-1].lower()
-        if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
-            kind = 'photo'
-            save_path = PHOTOS_DIR / filename
-        else:
-            kind = 'doc'
-            save_path = DOCS_DIR / filename
-            
-        file.save(str(save_path))
+        for file in files:
+            if file and file.filename:
+                filename = secure_filename(file.filename)
+                
+                # Crea nome univoco: ID_UUID_Nome
+                unique_name = f"{id_articolo}_{uuid.uuid4().hex[:6]}_{filename}"
+                
+                ext = filename.rsplit('.', 1)[-1].lower()
+                if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+                    kind = 'photo'
+                    save_path = PHOTOS_DIR / unique_name
+                else:
+                    kind = 'doc'
+                    save_path = DOCS_DIR / unique_name
+                    
+                file.save(str(save_path))
 
-        # --- CORREZIONE QUI: articolo_id INVECE DI id_articolo ---
-        att = Attachment(
-            articolo_id=id_articolo,  # <--- QUESTA ERA LA CAUSA DELL'ERRORE ROSSO
-            filename=filename,
-            kind=kind
-        )
-        db.add(att)
+                # Salva nel DB
+                att = Attachment(
+                    articolo_id=id_articolo,
+                    filename=unique_name,
+                    kind=kind
+                )
+                db.add(att)
+                count += 1
+        
         db.commit()
-        flash("File caricato correttamente!", "success")
+        if count > 0:
+            flash(f"Caricati {count} file correttamente!", "success")
+        else:
+            flash("Nessun file valido caricato.", "warning")
         
     except Exception as e:
         db.rollback()
-        # Stampa l'errore nei log per capire meglio
         print(f"ERRORE UPLOAD: {e}") 
         flash(f"Errore caricamento: {e}", "danger")
     finally:
         db.close()
 
+    # --- MODIFICA QUI: RITORNA A EDIT_RECORD ---
     return redirect(url_for('edit_record', id_articolo=id_articolo))
-
     
     
 
