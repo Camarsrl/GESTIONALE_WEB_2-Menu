@@ -3765,10 +3765,10 @@ def bulk_edit():
     try:
         # Recupera ID (da form POST o query string GET)
         ids = request.form.getlist('ids') or request.args.getlist('ids')
-        
+
         # Filtra ID validi
         ids = [int(i) for i in ids if str(i).isdigit()]
-        
+
         if not ids:
             flash("Nessun articolo selezionato.", "warning")
             return redirect(url_for('giacenze'))
@@ -3790,32 +3790,37 @@ def bulk_edit():
 
         if request.method == 'POST' and request.form.get('save_bulk') == 'true':
             updates = {}
-            recalc_dims = False 
-            
-            # 1. Applica Modifiche Campi
+            recalc_dims = False
+
+            # 1) Applica Modifiche Campi
             for key in request.form:
-                if key.startswith('chk_'):
-                    field_name = key.replace('chk_', '') 
-                    if any(f[1] == field_name for f in editable_fields):
-                        val = request.form.get(field_name)
-                        
-                        if field_name in ['n_colli', 'pezzo']:
-                            val = to_int_eu(val)
-                        elif field_name in ['lunghezza', 'larghezza', 'altezza']:
-                            val = to_float_eu(val)
-                        elif 'data' in field_name and val:
-                            val = parse_date_ui(val)
-                        
-                        updates[field_name] = val
-                        
-                        if field_name in ['lunghezza', 'larghezza', 'altezza', 'n_colli']:
-                            recalc_dims = True
+                if not key.startswith('chk_'):
+                    continue
+
+                field_name = key.replace('chk_', '')
+                if not any(f[1] == field_name for f in editable_fields):
+                    continue
+
+                val = request.form.get(field_name)
+
+                if field_name in ['n_colli', 'pezzo']:
+                    val = to_int_eu(val)
+                elif field_name in ['lunghezza', 'larghezza', 'altezza']:
+                    val = to_float_eu(val)
+                elif 'data' in field_name:
+                    val = parse_date_ui(val) if val else None
+
+                updates[field_name] = val
+
+                if field_name in ['lunghezza', 'larghezza', 'altezza', 'n_colli']:
+                    recalc_dims = True
 
             if updates:
                 for art in articoli:
                     for k, v in updates.items():
-                        if hasattr(art, k): setattr(art, k, v)
-                    
+                        if hasattr(art, k):
+                            setattr(art, k, v)
+
                     if recalc_dims:
                         # Ricalcola M2/M3 usando i nuovi valori (o quelli esistenti se non cambiati)
                         L = updates.get('lunghezza', art.lunghezza)
@@ -3824,40 +3829,64 @@ def bulk_edit():
                         C = updates.get('n_colli', art.n_colli)
                         art.m2, art.m3 = calc_m2_m3(L, W, H, C)
 
-            # 2. UPLOAD MASSIVO MULTIPLO (Modifica Richiesta)
-            files = request.files.getlist('bulk_file') # Prende LISTA di file
+            # 2) UPLOAD MASSIVO MULTIPLO (più file)
+            # NB: in HTML usa name="bulk_files" multiple
+            files = request.files.getlist('bulk_files')
             count_uploaded = 0
-            
+
             if files:
                 from werkzeug.utils import secure_filename
+
                 for file in files:
-                    if file and file.filename:
-                        raw_name = secure_filename(file.filename)
-                        # Leggi contenuto una volta sola
-                        content = file.read()
-                        
-                        ext = raw_name.rsplit('.', 1)[-1].lower()
-                        kind = 'photo' if ext in ['jpg','jpeg','png','webp'] else 'doc'
-                        dest_dir = PHOTOS_DIR if kind == 'photo' else DOCS_DIR
-                        
-                        # Salva una copia per ogni articolo selezionato
-                        for art in articoli:
-                            new_name = f"{art.id_articolo}_{uuid.uuid4().hex[:6]}_{raw_name}"
-                            save_path = dest_dir / new_name
-                            
-                            with open(save_path, 'wb') as f:
-                                f.write(content)
-                            
-                            att = Attachment(articolo_id=art.id_articolo, filename=new_name, kind=kind)
-                            db.add(att)
-                        count_uploaded += 1
+                    if not file or not file.filename:
+                        continue
+
+                    raw_name = secure_filename(file.filename)
+                    content = file.read()  # leggo UNA volta
+
+                    if not content:
+                        continue
+
+                    ext = os.path.splitext(raw_name)[1].lower()
+
+                    # Coerenza: doc=PDF, photo=immagine
+                    if ext == '.pdf':
+                        kind = 'doc'
+                        dest_dir = DOCS_DIR
+                    elif ext in ['.jpg', '.jpeg', '.png', '.webp']:
+                        kind = 'photo'
+                        dest_dir = PHOTOS_DIR
+                    else:
+                        # fallback: documenti
+                        kind = 'doc'
+                        dest_dir = DOCS_DIR
+
+                    # Salva una copia per ogni articolo selezionato
+                    for art in articoli:
+                        new_name = f"{art.id_articolo}_{uuid.uuid4().hex[:6]}_{raw_name}"
+                        save_path = dest_dir / new_name
+
+                        with open(save_path, 'wb') as f_out:
+                            f_out.write(content)
+
+                        db.add(Attachment(articolo_id=art.id_articolo, filename=new_name, kind=kind))
+
+                    count_uploaded += 1
 
             db.commit()
-            flash(f"Aggiornati {len(articoli)} articoli e caricati {count_uploaded} file per ciascuno.", "success")
+            flash(
+                f"Aggiornati {len(articoli)} articoli e caricati {count_uploaded} file (copiati su ciascun articolo).",
+                "success"
+            )
             return redirect(url_for('giacenze'))
 
-        return render_template('bulk_edit.html', rows=articoli, ids_csv=",".join(map(str, ids)), fields=editable_fields)
-    
+        return render_template(
+            'bulk_edit.html',
+            rows=articoli,
+            ids_csv=",".join(map(str, ids)),
+            fields=editable_fields
+        )
+
     except Exception as e:
         db.rollback()
         print(f"ERRORE BULK: {e}")
@@ -3865,6 +3894,7 @@ def bulk_edit():
         return redirect(url_for('giacenze'))
     finally:
         db.close()
+
 @app.post('/delete_rows')
 @login_required
 def delete_rows():
