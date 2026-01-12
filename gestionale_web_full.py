@@ -1155,7 +1155,6 @@ document.addEventListener("DOMContentLoaded", function() {
 </script>
 {% endblock %}
 """
-
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -1177,7 +1176,6 @@ EDIT_HTML = """
             <label class="form-label fw-bold">Descrizione</label>
             <input type="text" name="descrizione" class="form-control" value="{{ row.descrizione or '' }}">
         </div>
-        
         <div class="col-md-2">
             <label class="form-label">Stato</label>
             <input class="form-control" list="statoList" name="stato" value="{{ row.stato or '' }}" placeholder="Seleziona...">
@@ -1190,8 +1188,8 @@ EDIT_HTML = """
                 <option value="AGGIUNTO A MANO">
             </datalist>
         </div>
-
         <div class="col-md-2"><label class="form-label">Commessa</label><input type="text" name="commessa" class="form-control" value="{{ row.commessa or '' }}"></div>
+
         <div class="col-md-4"><label class="form-label">Cliente</label><input type="text" name="cliente" class="form-control" value="{{ row.cliente or '' }}"></div>
         <div class="col-md-4"><label class="form-label">Fornitore</label><input type="text" name="fornitore" class="form-control" value="{{ row.fornitore or '' }}"></div>
         <div class="col-md-4"><label class="form-label">Protocollo</label><input type="text" name="protocollo" class="form-control" value="{{ row.protocollo or '' }}"></div>
@@ -1207,10 +1205,10 @@ EDIT_HTML = """
         <div class="col-md-3"><label class="form-label">DDT Uscita</label><input type="text" name="n_ddt_uscita" class="form-control" value="{{ row.n_ddt_uscita or '' }}"></div>
         
         <div class="col-md-2"><label class="form-label">Pezzi</label><input type="number" name="pezzo" class="form-control" value="{{ row.pezzo or '' }}"></div>
-        <div class="col-md-2 bg-warning bg-opacity-10 rounded">
-            <label class="form-label fw-bold">Colli</label>
-            <input type="number" name="n_colli" class="form-control fw-bold" value="{{ row.n_colli or '' }}">
-            <small style="font-size:10px">Se >1 crea copie</small>
+        <div class="col-md-2 bg-warning bg-opacity-10 rounded border border-warning">
+            <label class="form-label fw-bold text-dark">N° Colli</label>
+            <input type="number" name="n_colli" class="form-control fw-bold" value="{{ row.n_colli or 1 }}">
+            <small class="text-muted" style="font-size:10px">Se > 1, crea N righe separate!</small>
         </div>
         <div class="col-md-2"><label class="form-label">Peso (Kg)</label><input type="number" step="0.01" name="peso" class="form-control" value="{{ row.peso or '' }}"></div>
         <div class="col-md-2"><label class="form-label">M³</label><input type="number" step="0.001" name="m3" class="form-control" value="{{ row.m3 or '' }}"></div>
@@ -1227,16 +1225,25 @@ EDIT_HTML = """
             </div>
         </div>
         
-        <div class="col-md-4"><label class="form-label">Serial Number</label><input type="text" name="serial_number" class="form-control" value="{{ row.serial_number or '' }}"></div>
-        <div class="col-md-4"><label class="form-label">Mezzi in Uscita</label><input type="text" name="mezzi_in_uscita" class="form-control" value="{{ row.mezzi_in_uscita or '' }}"></div>
+        <div class="col-md-2"><label class="form-label">Serial Number</label><input type="text" name="serial_number" class="form-control" value="{{ row.serial_number or '' }}"></div>
+        <div class="col-md-2"><label class="form-label">Lotto</label><input type="text" name="lotto" class="form-control" value="{{ row.lotto or '' }}"></div>
+        <div class="col-md-2"><label class="form-label">Ns. Rif</label><input type="text" name="ns_rif" class="form-control" value="{{ row.ns_rif or '' }}"></div>
+        <div class="col-md-2"><label class="form-label">Mezzi Uscita</label><input type="text" name="mezzi_in_uscita" class="form-control" value="{{ row.mezzi_in_uscita or '' }}"></div>
+        
         <div class="col-12"><label class="form-label">Note</label><textarea name="note" class="form-control" rows="3">{{ row.note or '' }}</textarea></div>
 
         {% if not row.id_articolo %}
         <div class="col-12 mt-3">
-            <div class="card bg-light border-dashed p-3">
-                 <label class="form-label fw-bold text-primary"><i class="bi bi-paperclip"></i> Carica Allegati (Subito)</label>
-                 <input type="file" name="new_files" class="form-control" multiple>
-                 <small class="text-muted">Seleziona i file da caricare insieme alla creazione dell'articolo.</small>
+            <div class="card bg-white border border-primary p-3 shadow-sm">
+                 <label class="form-label fw-bold text-primary fs-5"><i class="bi bi-cloud-upload"></i> Carica Documenti e Foto</label>
+                 
+                 <input type="file" name="new_files" class="form-control form-control-lg" multiple>
+                 
+                 <div class="alert alert-info mt-2 mb-0 py-2 small">
+                    <i class="bi bi-info-circle-fill"></i> 
+                    Puoi selezionare <strong>più file contemporaneamente</strong> (es. il PDF del documento e la FOTO del pacco).<br>
+                    Tieni premuto il tasto <b>CTRL</b> (o CMD su Mac) mentre clicchi sui file nella finestra di selezione.
+                 </div>
             </div>
         </div>
         {% endif %}
@@ -1248,39 +1255,51 @@ EDIT_HTML = """
 </form>
 
 {% if row and row.id_articolo %}
-<div class="card p-4 shadow-sm">
-    <div class="d-flex justify-content-between">
-        <h5><i class="bi bi-paperclip"></i> Allegati Salvati</h5>
-        <form action="{{ url_for('upload_file', id_articolo=row.id_articolo) }}" method="post" enctype="multipart/form-data" class="d-flex gap-2">
-            <input type="file" name="file" class="form-control form-control-sm" required>
-            <button type="submit" class="btn btn-success btn-sm">Carica</button>
+<div class="card p-4 shadow-sm mb-5 border-top border-4 border-primary">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="m-0"><i class="bi bi-paperclip"></i> Allegati Salvati</h5>
+        
+        <form action="{{ url_for('upload_file', id_articolo=row.id_articolo) }}" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+            <input type="file" name="file" class="form-control" multiple required>
+            <button type="submit" class="btn btn-success fw-bold"><i class="bi bi-cloud-upload"></i> Aggiungi File</button>
         </form>
     </div>
+    <div class="small text-muted mb-3">Puoi caricare foto e PDF aggiuntivi selezionandoli insieme (tieni premuto CTRL).</div>
     <hr>
     
     <div class="row g-3">
         {% for att in row.attachments %}
         <div class="col-md-2 col-6">
-            <div class="card h-100 text-center p-2 border bg-light">
-                <div class="mb-2" style="font-size:2em;">
-                    {% if att.kind == 'photo' %}📷{% else %}📄{% endif %}
+            <div class="card h-100 text-center p-2 border bg-light position-relative shadow-sm">
+                <div class="mb-2 text-primary" style="font-size:2.5em;">
+                    {% if att.kind == 'photo' %}
+                    <i class="bi bi-file-earmark-image"></i>
+                    {% else %}
+                    <i class="bi bi-file-earmark-pdf text-danger"></i>
+                    {% endif %}
                 </div>
-                <div class="text-truncate small fw-bold mb-2" title="{{ att.filename }}">{{ att.filename }}</div>
+                <div class="text-truncate small fw-bold mb-2 text-dark" title="{{ att.filename }}">
+                    {{ att.filename.split('_', 2)[-1] }} 
+                </div>
                 
                 <div class="btn-group btn-group-sm w-100">
                     <a href="{{ url_for('serve_uploaded_file', filename=att.filename) }}" target="_blank" class="btn btn-outline-primary">Apri</a>
-                    <a href="{{ url_for('delete_attachment', id_attachment=att.id) }}" class="btn btn-outline-danger" onclick="return confirm('Sicuro di eliminare questo file?')">X</a>
+                    <a href="{{ url_for('delete_attachment', id_attachment=att.id) }}" class="btn btn-outline-danger" onclick="return confirm('Sicuro di eliminare questo file?')">Elimina</a>
                 </div>
             </div>
         </div>
         {% else %}
-        <div class="col-12 text-muted fst-italic">Nessun allegato caricato.</div>
+        <div class="col-12 text-center text-muted py-4 border border-dashed rounded">
+            <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+            Nessun allegato presente per questo articolo.
+        </div>
         {% endfor %}
     </div>
 </div>
 {% endif %}
 {% endblock %}
 """
+
 BULK_EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
