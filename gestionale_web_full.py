@@ -4641,37 +4641,47 @@ def labels_form():
 # ==============================================================================
 #  GESTIONE ETICHETTE (PDF) - ROUTE E GENERAZIONE
 # ==============================================================================
-
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
 def labels_pdf():
-    # ... (tutta la parte di recupero IDs rimane uguale) ...
     ids = request.form.getlist('ids')
-    if not ids:
-        # Provo a vedere se sono passati come stringa unica (dal form nascosto)
-        ids_str = request.form.get('ids_hidden')
-        if ids_str:
-            ids = ids_str.split(',')
-            
-    if not ids:
-        return "Nessun articolo selezionato", 400
-        
+    
+    # Se non arrivano ID diretti, controlla se c'è un filtro CLIENTE dalla pagina dedicata
+    filtro_cliente = request.form.get('filtro_cliente')
+    
     db = SessionLocal()
-    articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-    db.close()
+    articoli = []
     
-    # CHIAMA LA FUNZIONE MODIFICATA SOPRA
-    pdf_file = _genera_pdf_etichetta(articoli)
-    
-    # RESTITUISCE IL FILE (Nome file con data per evitare cache)
-    filename = f"Etichette_{datetime.now().strftime('%H%M%S')}.pdf"
-    
-    return send_file(
-        pdf_file, 
-        as_attachment=True,       # True = Scarica, False = Apri nel browser
-        download_name=filename, 
-        mimetype='application/pdf'
-    )
+    try:
+        # CASO 1: ID specifici (dalla tabella giacenze)
+        if ids:
+            articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+            
+        # CASO 2: Filtro CLIENTE (dalla pagina dedicata /labels)
+        elif filtro_cliente:
+            articoli = db.query(Articolo).filter(Articolo.cliente == filtro_cliente).all()
+            
+        # CASO 3: Nessun filtro (Errore)
+        else:
+            return "Nessun articolo selezionato o filtro impostato.", 400
+            
+        if not articoli:
+            return "Nessun articolo trovato per i criteri selezionati.", 404
+
+        # Genera il PDF
+        pdf_file = _genera_pdf_etichetta(articoli)
+        
+        filename = f"Etichette_{datetime.now().strftime('%H%M%S')}.pdf"
+        
+        return send_file(
+            pdf_file, 
+            as_attachment=True, 
+            download_name=filename, 
+            mimetype='application/pdf'
+        )
+    finally:
+        db.close()
+
 # --- FUNZIONE GENERAZIONE PDF (REPORTLAB - Layout Grafico) ---
 def _genera_pdf_etichetta(articoli):
     import io
