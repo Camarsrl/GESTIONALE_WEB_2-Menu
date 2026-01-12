@@ -4628,17 +4628,15 @@ def labels_pdf():
 def _genera_pdf_etichetta(articoli):
     import io
     from pathlib import Path
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage, Frame, PageTemplate
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import mm
     from reportlab.lib.enums import TA_LEFT, TA_CENTER
 
     bio = io.BytesIO()
-    
-    # --- DIMENSIONI FISSE: 100mm (Larghezza) x 62mm (Altezza) ---
+    # 100mm x 62mm
     W, H = 100 * mm, 62 * mm
     
-    # Margini minimi per sfruttare tutto lo spazio
     doc = SimpleDocTemplate(bio, pagesize=(W, H),
                             leftMargin=2*mm, rightMargin=2*mm,
                             topMargin=2*mm, bottomMargin=2*mm)
@@ -4646,14 +4644,9 @@ def _genera_pdf_etichetta(articoli):
     story = []
     styles = getSampleStyleSheet()
     
-    # --- STILI PERSONALIZZATI COMPATTI ---
-    # Testo normale piccolo (8pt)
+    # Styles
     s_norm = ParagraphStyle('N', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=9, alignment=TA_LEFT)
-    # Etichette in grassetto (8pt)
-    s_bold = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=9, alignment=TA_LEFT)
-    # Numeri Grandi (Arrivo/Collo) - Molto grandi e centrati
-    s_big = ParagraphStyle('Big', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=18, leading=20, alignment=TA_CENTER)
-    # Titolo dei numeri grandi (es. "COLLO")
+    s_big = ParagraphStyle('Big', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=16, leading=18, alignment=TA_CENTER)
     s_lbl_big = ParagraphStyle('LblBig', parent=styles['Normal'], fontName='Helvetica', fontSize=7, leading=8, alignment=TA_CENTER)
 
     for art in articoli:
@@ -4661,33 +4654,25 @@ def _genera_pdf_etichetta(articoli):
         except: tot_colli = 1
         if tot_colli < 1: tot_colli = 1
 
-        # Ripeti per ogni collo (es. 1 di 5, 2 di 5...)
         for i in range(1, tot_colli + 1):
-            
-            # --- LAYOUT: Tabella Principale ---
-            # Riga 1: Logo (Sinistra) | Dati Cliente (Destra)
-            # Riga 2: Dati Tecnici (Commessa, Ordine, DDT)
-            # Riga 3: Numeri Giganti (Arrivo | Collo)
-            
-            # 1. LOGO
+            # Logo
             logo_img = []
-            logo_path = "static/logo camar.jpg"
+            logo_path = "static/logo camar.jpg" # Ensure this path is correct relative to app execution
             if Path(logo_path).exists():
                 try:
-                    # Logo ridimensionato per stare in alto a sinistra
                     img = RLImage(logo_path, width=30*mm, height=8*mm)
                     img.hAlign = 'LEFT'
                     logo_img.append(img)
                 except: pass
 
-            # 2. DATI CLIENTE / FORNITORE (Compatti)
+            # Top Info (Client/Provider)
             dati_txt = []
             if art.cliente: 
                 dati_txt.append(Paragraph(f"<b>CLI:</b> {art.cliente[:25]}", s_norm))
             if art.fornitore: 
                 dati_txt.append(Paragraph(f"<b>FORN:</b> {art.fornitore[:25]}", s_norm))
             
-            # Tabella Intestazione (Logo a sx, Dati a dx)
+            # Header Table
             head_data = [[logo_img, dati_txt]]
             t_head = Table(head_data, colWidths=[35*mm, 60*mm])
             t_head.setStyle(TableStyle([
@@ -4698,64 +4683,47 @@ def _genera_pdf_etichetta(articoli):
             story.append(t_head)
             story.append(Spacer(1, 2*mm))
 
-            # 3. DATI TECNICI (Griglia fitta)
-            # Creiamo una lista di righe dati
+            # Details (Order, Job, DDT, Date)
             dettagli = []
-            
-            # Riga A: Ordine - Commessa
             row_a = []
             if art.ordine: row_a.append(Paragraph(f"<b>ORD:</b> {art.ordine}", s_norm))
             if art.commessa: row_a.append(Paragraph(f"<b>COMM:</b> {art.commessa}", s_norm))
             if row_a: dettagli.append(row_a)
 
-            # Riga B: DDT - Data
             row_b = []
             if art.n_ddt_ingresso: row_b.append(Paragraph(f"<b>DDT:</b> {art.n_ddt_ingresso}", s_norm))
             if art.data_ingresso:
-                d_str = str(art.data_ingresso)
-                try: d_str = d_str[:10] # Prendi solo YYYY-MM-DD
-                except: pass
+                d_str = str(art.data_ingresso)[:10]
                 row_b.append(Paragraph(f"<b>DATA:</b> {d_str}", s_norm))
             if row_b: dettagli.append(row_b)
 
-            # Se ci sono dettagli, creiamo la tabella
             if dettagli:
-                # Calcola larghezza colonne dinamica (metà e metà)
                 t_det = Table(dettagli, colWidths=[48*mm, 48*mm])
-                t_det.setStyle(TableStyle([
-                    ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                    ('LEFTPADDING', (0,0), (-1,-1), 1),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 1),
-                ]))
+                t_det.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (-1,-1), 1)]))
                 story.append(t_det)
-                story.append(Spacer(1, 3*mm))
+                story.append(Spacer(1, 2*mm))
 
-            # 4. NUMERI GRANDI (Arrivo e Collo) - Parte bassa dell'etichetta
-            # Usiamo una tabella con bordi per evidenziare
+            # Big Numbers (Arrivo + N. Collo / Total Colli)
+            # Request: "ARRIVO: 01/24 N.1"
+            base_arrivo = str(art.n_arrivo or '-')
+            txt_arrivo = f"{base_arrivo} N.{i}" if tot_colli > 1 else base_arrivo
             
-            # Cella ARRIVO
-            cell_arr = [
-                Paragraph("N. ARRIVO", s_lbl_big),
-                Paragraph(str(art.n_arrivo or '-'), s_big)
-            ]
-            
-            # Cella COLLO
-            cell_collo = [
-                Paragraph("COLLO", s_lbl_big),
-                Paragraph(f"{i} / {tot_colli}", s_big)
-            ]
+            txt_colli = f"{i} / {tot_colli}"
+
+            cell_arr = [Paragraph("N. ARRIVO", s_lbl_big), Paragraph(txt_arrivo, s_big)]
+            cell_collo = [Paragraph("COLLO", s_lbl_big), Paragraph(txt_colli, s_big)]
             
             data_big = [[cell_arr, cell_collo]]
             t_big = Table(data_big, colWidths=[48*mm, 48*mm])
             t_big.setStyle(TableStyle([
-                ('GRID', (0,0), (-1,-1), 1, 'BLACK'),      # Bordi neri
+                ('GRID', (0,0), (-1,-1), 1, 'BLACK'),
                 ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
                 ('TOPPADDING', (0,0), (-1,-1), 3),
                 ('BOTTOMPADDING', (0,0), (-1,-1), 3),
             ]))
             story.append(t_big)
-
-            # Se c'è spazio, descrizione in fondo piccolina
+            
+            # Description
             if art.descrizione:
                 story.append(Spacer(1, 2*mm))
                 story.append(Paragraph(art.descrizione[:40], s_norm))
@@ -4765,6 +4733,7 @@ def _genera_pdf_etichetta(articoli):
     doc.build(story)
     bio.seek(0)
     return bio
+
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
 app.jinja_env.globals['getattr'] = getattr
