@@ -4628,111 +4628,130 @@ def labels_pdf():
 def _genera_pdf_etichetta(articoli):
     import io
     from pathlib import Path
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, PageBreak
+    from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
-    from reportlab.lib.enums import TA_LEFT, TA_CENTER
+    from reportlab.lib.enums import TA_LEFT
 
     bio = io.BytesIO()
-    # 100mm x 62mm
+
+    # ✅ Brother QL-800: 100mm x 62mm ORIZZONTALE
     W, H = 100 * mm, 62 * mm
-    
-    doc = SimpleDocTemplate(bio, pagesize=(W, H),
-                            leftMargin=2*mm, rightMargin=2*mm,
-                            topMargin=2*mm, bottomMargin=2*mm)
-    
+
+    doc = SimpleDocTemplate(
+        bio,
+        pagesize=(W, H),
+        leftMargin=2*mm, rightMargin=2*mm,
+        topMargin=2*mm, bottomMargin=2*mm
+    )
+
+    # Stili "come foto": molto grandi
+    s_big = ParagraphStyle(
+        "BIG",
+        fontName="Helvetica-Bold",
+        fontSize=26,     # grande (simile alla foto)
+        leading=28,
+        alignment=TA_LEFT,
+        spaceAfter=0
+    )
+    s_small = ParagraphStyle(
+        "SMALL",
+        fontName="Helvetica",
+        fontSize=8,
+        leading=9,
+        alignment=TA_LEFT
+    )
+
+    def safe(v, maxlen=40):
+        if v is None:
+            return "-"
+        v = str(v).strip()
+        if not v:
+            return "-"
+        return v[:maxlen]
+
+    def fmt_date(v):
+        if not v:
+            return "-"
+        s = str(v).strip()
+        # se arriva "YYYY-MM-DD ..." prendo i primi 10
+        return s[:10]
+
     story = []
-    styles = getSampleStyleSheet()
-    
-    # Styles
-    s_norm = ParagraphStyle('N', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=9, alignment=TA_LEFT)
-    s_big = ParagraphStyle('Big', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=16, leading=18, alignment=TA_CENTER)
-    s_lbl_big = ParagraphStyle('LblBig', parent=styles['Normal'], fontName='Helvetica', fontSize=7, leading=8, alignment=TA_CENTER)
+    logo_path = Path("static/logo camar.jpg")
+
+    total_pages = 0
+    # calcolo pagine totali per evitare PageBreak finale
+    for art in articoli:
+        try:
+            tot_colli = int(art.n_colli) if art.n_colli else 1
+        except Exception:
+            tot_colli = 1
+        tot_colli = max(1, tot_colli)
+        total_pages += tot_colli
+
+    page_counter = 0
 
     for art in articoli:
-        try: tot_colli = int(art.n_colli) if art.n_colli else 1
-        except: tot_colli = 1
-        if tot_colli < 1: tot_colli = 1
+        try:
+            tot_colli = int(art.n_colli) if art.n_colli else 1
+        except Exception:
+            tot_colli = 1
+        tot_colli = max(1, tot_colli)
 
         for i in range(1, tot_colli + 1):
-            # Logo
-            logo_img = []
-            logo_path = "static/logo camar.jpg" # Ensure this path is correct relative to app execution
-            if Path(logo_path).exists():
+            page_counter += 1
+
+            # --- LOGO (alto a sinistra)
+            if logo_path.exists():
                 try:
-                    img = RLImage(logo_path, width=30*mm, height=8*mm)
-                    img.hAlign = 'LEFT'
-                    logo_img.append(img)
-                except: pass
+                    img = RLImage(str(logo_path), width=42*mm, height=12*mm)
+                    img.hAlign = "LEFT"
+                    story.append(img)
+                    story.append(Spacer(1, 2*mm))
+                except Exception:
+                    pass
 
-            # Top Info (Client/Provider)
-            dati_txt = []
-            if art.cliente: 
-                dati_txt.append(Paragraph(f"<b>CLI:</b> {art.cliente[:25]}", s_norm))
-            if art.fornitore: 
-                dati_txt.append(Paragraph(f"<b>FORN:</b> {art.fornitore[:25]}", s_norm))
-            
-            # Header Table
-            head_data = [[logo_img, dati_txt]]
-            t_head = Table(head_data, colWidths=[35*mm, 60*mm])
-            t_head.setStyle(TableStyle([
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                ('LEFTPADDING', (0,0), (-1,-1), 0),
-                ('RIGHTPADDING', (0,0), (-1,-1), 0),
-            ]))
-            story.append(t_head)
-            story.append(Spacer(1, 2*mm))
+            # --- RIGHE GRANDI "come foto"
+            cliente = safe(getattr(art, "cliente", None), 30)
+            fornitore = safe(getattr(art, "fornitore", None), 30)
+            ordine = safe(getattr(art, "ordine", None), 20)
+            commessa = safe(getattr(art, "commessa", None), 20)
+            n_ddt = safe(getattr(art, "n_ddt_ingresso", None), 20)
+            data_ing = fmt_date(getattr(art, "data_ingresso", None))
+            n_arrivo_base = safe(getattr(art, "n_arrivo", None), 20)
 
-            # Details (Order, Job, DDT, Date)
-            dettagli = []
-            row_a = []
-            if art.ordine: row_a.append(Paragraph(f"<b>ORD:</b> {art.ordine}", s_norm))
-            if art.commessa: row_a.append(Paragraph(f"<b>COMM:</b> {art.commessa}", s_norm))
-            if row_a: dettagli.append(row_a)
+            # ✅ ARRIVO deve includere N.{collo}
+            # es: "ARRIVO: 01/24 N.1"
+            arrivo_full = f"{n_arrivo_base} N.{i}"
 
-            row_b = []
-            if art.n_ddt_ingresso: row_b.append(Paragraph(f"<b>DDT:</b> {art.n_ddt_ingresso}", s_norm))
-            if art.data_ingresso:
-                d_str = str(art.data_ingresso)[:10]
-                row_b.append(Paragraph(f"<b>DATA:</b> {d_str}", s_norm))
-            if row_b: dettagli.append(row_b)
+            # ✅ N. COLLO: 1/5
+            n_collo = f"{i}/{tot_colli}"
 
-            if dettagli:
-                t_det = Table(dettagli, colWidths=[48*mm, 48*mm])
-                t_det.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (-1,-1), 1)]))
-                story.append(t_det)
-                story.append(Spacer(1, 2*mm))
+            story.append(Paragraph(f"CLIENTE: {cliente}", s_big))
+            story.append(Paragraph(f"FORNITORE: {fornitore}", s_big))
+            story.append(Paragraph(f"ORDINE: {ordine}", s_big))
+            story.append(Paragraph(f"COMMESSA: {commessa}", s_big))
+            story.append(Paragraph(f"N. DDT: {n_ddt}", s_big))
+            story.append(Paragraph(f"DATA INGRESSO: {data_ing}", s_big))
+            story.append(Paragraph(f"ARRIVO: {arrivo_full}", s_big))
+            story.append(Paragraph(f"N. COLLO: {n_collo}", s_big))
+            story.append(Paragraph(f"COLLI: {tot_colli}", s_big))
 
-            # Big Numbers (Arrivo + N. Collo / Total Colli)
-            # Request: "ARRIVO: 01/24 N.1"
-            base_arrivo = str(art.n_arrivo or '-')
-            txt_arrivo = f"{base_arrivo} N.{i}" if tot_colli > 1 else base_arrivo
-            
-            txt_colli = f"{i} / {tot_colli}"
+            # (facoltativo) descrizione piccola in fondo
+            descr = getattr(art, "descrizione", None)
+            if descr:
+                story.append(Spacer(1, 1*mm))
+                story.append(Paragraph(safe(descr, 80), s_small))
 
-            cell_arr = [Paragraph("N. ARRIVO", s_lbl_big), Paragraph(txt_arrivo, s_big)]
-            cell_collo = [Paragraph("COLLO", s_lbl_big), Paragraph(txt_colli, s_big)]
-            
-            data_big = [[cell_arr, cell_collo]]
-            t_big = Table(data_big, colWidths=[48*mm, 48*mm])
-            t_big.setStyle(TableStyle([
-                ('GRID', (0,0), (-1,-1), 1, 'BLACK'),
-                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('TOPPADDING', (0,0), (-1,-1), 3),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-            ]))
-            story.append(t_big)
-            
-            # Description
-            if art.descrizione:
-                story.append(Spacer(1, 2*mm))
-                story.append(Paragraph(art.descrizione[:40], s_norm))
-
-            story.append(PageBreak())
+            # ✅ NO pagina vuota finale
+            if page_counter < total_pages:
+                story.append(PageBreak())
 
     doc.build(story)
     bio.seek(0)
     return bio
+
 
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
