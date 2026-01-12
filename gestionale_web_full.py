@@ -4981,57 +4981,88 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento):
             
     return risultati_finali
 
-@app.route('/calcola_costi', methods=['GET', 'POST'])
-@login_required
-def calcola_costi():
-    if session.get('role') != 'admin':
-        flash("Accesso negato.", "danger")
-        return redirect(url_for('giacenze'))
+def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento):
+    from collections import defaultdict
+    from datetime import timedelta, date, datetime
 
-    oggi = date.today()
-    # Default: dal primo giorno del mese corrente a oggi
-    data_da_val = (oggi.replace(day=1)).strftime("%Y-%m-%d")
-    data_a_val = oggi.strftime("%Y-%m-%d")
-    cliente_val = ""
-    raggruppamento = "mese"
-    risultati = []
+    m2_per_giorno = defaultdict(float)
 
-    if request.method == 'POST':
-        data_da_str = request.form.get('data_da')
-        data_a_str = request.form.get('data_a')
-        cliente_val = (request.form.get('cliente') or '').strip()
-        raggruppamento = request.form.get('raggruppamento', 'mese')
+    def to_date_obj(d):
+        if not d: return None
+        if isinstance(d, datetime): return d.date()
+        if isinstance(d, date): return d
+        try: return datetime.strptime(str(d)[:10], "%Y-%m-%d").date()
+        except: 
+            try: return datetime.strptime(str(d)[:10], "%d/%m/%Y").date()
+            except: return None
 
-        try:
-            # Recupera TUTTI gli articoli (non filtrare per data qui, lo fa la logica interna)
-            db = SessionLocal()
-            query = db.query(Articolo)
+    d_start = to_date_obj(data_da)
+    d_end = to_date_obj(data_a)
+    
+    if not d_start or not d_end: return []
+
+    for art in articoli:
+        try: m2 = float(str(art.m2).replace(',', '.')) if art.m2 else 0.0
+        except: m2 = 0.0
+        if m2 <= 0: continue
+
+        d_ingr = to_date_obj(art.data_ingresso)
+        if not d_ingr: continue
+
+        d_usc = to_date_obj(art.data_uscita)
+
+        inizio_attivo = max(d_ingr, d_start)
+        
+        if d_usc:
+            fine_attivo = min(d_usc - timedelta(days=1), d_end)
+        else:
+            fine_attivo = d_end
+
+        if fine_attivo < inizio_attivo: continue
+
+        curr = inizio_attivo
+        cliente_key = (art.cliente or "SCONOSCIUTO").upper()
+        
+        while curr <= fine_attivo:
+            m2_per_giorno[(cliente_key, curr)] += m2
+            curr += timedelta(days=1)
+
+    risultati_finali = []
+    
+    if raggruppamento == 'giorno':
+        sorted_keys = sorted(m2_per_giorno.keys(), key=lambda k: (k[0], k[1]))
+        for cliente, giorno in sorted_keys:
+            val_m2 = m2_per_giorno[(cliente, giorno)]
+            risultati_finali.append({
+                'periodo': giorno.strftime("%d/%m/%Y"),
+                'cliente': cliente,
+                'm2_tot': f"{val_m2:.3f}",
+                'm2_medio': f"{val_m2:.3f}", 
+                'giorni': 1
+            })
+    else:
+        agg_mese = defaultdict(lambda: {'m2_sum': 0.0, 'giorni_set': set()})
+        for (cliente, giorno), val_m2 in m2_per_giorno.items():
+            key_mese = (cliente, giorno.year, giorno.month)
+            agg_mese[key_mese]['m2_sum'] += val_m2
+            agg_mese[key_mese]['giorni_set'].add(giorno)
             
-            if cliente_val:
-                query = query.filter(Articolo.cliente.ilike(f"%{cliente_val}%"))
-                
-            articoli = query.all()
-            db.close()
-
-            # Chiama la logica
-            risultati = _calcola_logica_costi(articoli, data_da_str, data_a_str, raggruppamento)
+        sorted_keys = sorted(agg_mese.keys(), key=lambda k: (k[1], k[2], k[0]))
+        for (cliente, anno, mese) in sorted_keys:
+            dati = agg_mese[(cliente, anno, mese)]
+            num_giorni = len(dati['giorni_set'])
+            m2_tot = dati['m2_sum']
+            m2_medio = m2_tot / num_giorni if num_giorni > 0 else 0.0
             
-            # Aggiorna valori form
-            data_da_val = data_da_str
-            data_a_val = data_a_str
-
-            if not risultati:
-                flash("Nessun dato trovato per i criteri selezionati.", "warning")
-
-        except Exception as e:
-            flash(f"Errore: {e}", "danger")
-
-    return render_template('calcoli.html', 
-                           risultati=risultati, 
-                           data_da=data_da_val, 
-                           data_a=data_a_val, 
-                           cliente_filtro=cliente_val, 
-                           raggruppamento=raggruppamento)
+            risultati_finali.append({
+                'periodo': f"{mese:02d}/{anno}",
+                'cliente': cliente,
+                'm2_tot': f"{m2_tot:.3f}",
+                'm2_medio': f"{m2_medio:.3f}",
+                'giorni': num_giorni
+            })
+            
+    return risultati_finali
 
 
 # --- AVVIO FLASK APP ---
