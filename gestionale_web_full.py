@@ -4928,41 +4928,63 @@ def _parse_data_db_helper(val):
 
     return None
 
-
 def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento):
     """
     Core logic: Calcola M2 per ogni giorno di occupazione.
-    Materiale contato dal giorno ingresso fino al giorno PRIMA dell'uscita.
     """
+    from collections import defaultdict
+    from datetime import timedelta, date, datetime
+
     m2_per_giorno = defaultdict(float)
 
+    # Helper interno per gestire date miste (date, datetime, str)
+    def to_date_obj(d):
+        if not d: return None
+        if isinstance(d, datetime): return d.date()
+        if isinstance(d, date): return d
+        # Tenta parsing stringa
+        try: return datetime.strptime(str(d)[:10], "%Y-%m-%d").date()
+        except: 
+            try: return datetime.strptime(str(d)[:10], "%d/%m/%Y").date()
+            except: return None
+
+    # Normalizza date intervallo
+    d_start = to_date_obj(data_da)
+    d_end = to_date_obj(data_a)
+    
+    if not d_start or not d_end:
+        return []
+
     for art in articoli:
-        # Parsing sicuro dei dati
+        # Parsing M2 sicuro
         try:
             m2 = float(str(art.m2).replace(',', '.')) if art.m2 else 0.0
         except: m2 = 0.0
         
         if m2 <= 0: continue
 
-        d_ingr = _parse_data_db_helper(art.data_ingresso)
-        if not d_ingr: continue
+        # Parsing Date Articolo
+        d_ingr = to_date_obj(art.data_ingresso)
+        if not d_ingr: continue # Se non ha data ingresso, ignoralo
 
-        d_usc = _parse_data_db_helper(art.data_uscita)
+        d_usc = to_date_obj(art.data_uscita)
 
-        # Periodo attivo dell'articolo
-        inizio_attivo = max(d_ingr, data_da)
+        # Logica temporale
+        # L'articolo inizia a contare dal MAX(suo ingresso, inizio periodo)
+        inizio_attivo = max(d_ingr, d_start)
         
+        # L'articolo finisce di contare al MIN(sua uscita - 1 giorno, fine periodo)
+        # Se non è uscito, conta fino a fine periodo
         if d_usc:
-            # Conta fino al giorno prima dell'uscita
-            fine_attivo = min(d_usc - timedelta(days=1), data_a)
+            fine_attivo = min(d_usc - timedelta(days=1), d_end)
         else:
-            # Ancora dentro
-            fine_attivo = data_a
+            fine_attivo = d_end
 
+        # Se il periodo attivo è invalido (es. è uscito prima dell'inizio periodo), salta
         if fine_attivo < inizio_attivo:
             continue
 
-        # Ciclo giorni
+        # Accumula M2 per ogni giorno
         curr = inizio_attivo
         cliente_key = (art.cliente or "SCONOSCIUTO").upper()
         
@@ -4974,7 +4996,6 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento):
     risultati_finali = []
     
     if raggruppamento == 'giorno':
-        # Ordina per Cliente, Data
         sorted_keys = sorted(m2_per_giorno.keys(), key=lambda k: (k[0], k[1]))
         for cliente, giorno in sorted_keys:
             val_m2 = m2_per_giorno[(cliente, giorno)]
@@ -4982,7 +5003,7 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento):
                 'periodo': giorno.strftime("%d/%m/%Y"),
                 'cliente': cliente,
                 'm2_tot': f"{val_m2:.3f}",
-                'm2_medio': f"{val_m2:.3f}",
+                'm2_medio': f"{val_m2:.3f}", # Per giorno singolo, tot e medio sono uguali
                 'giorni': 1
             })
     else:
@@ -4994,13 +5015,13 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento):
             agg_mese[key_mese]['m2_sum'] += val_m2
             agg_mese[key_mese]['giorni_set'].add(giorno)
             
-        # Ordina per Anno, Mese, Cliente
         sorted_keys = sorted(agg_mese.keys(), key=lambda k: (k[1], k[2], k[0]))
         
         for (cliente, anno, mese) in sorted_keys:
             dati = agg_mese[(cliente, anno, mese)]
             num_giorni = len(dati['giorni_set'])
             m2_tot = dati['m2_sum']
+            # Media giornaliera nel mese = Somma M2 di tutti i giorni / Numero giorni contati
             m2_medio = m2_tot / num_giorni if num_giorni > 0 else 0.0
             
             risultati_finali.append({
@@ -5016,12 +5037,12 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento):
 @app.route('/calcola_costi', methods=['GET', 'POST'])
 @login_required
 def calcola_costi():
-    # --- PROTEZIONE ADMIN ---
     if session.get('role') != 'admin':
-        flash("Accesso negato: Funzione riservata agli amministratori.", "danger")
+        flash("Accesso negato.", "danger")
         return redirect(url_for('giacenze'))
 
     oggi = date.today()
+    # Default: dal primo giorno del mese corrente a oggi
     data_da_val = (oggi.replace(day=1)).strftime("%Y-%m-%d")
     data_a_val = oggi.strftime("%Y-%m-%d")
     cliente_val = ""
@@ -5029,31 +5050,26 @@ def calcola_costi():
     risultati = []
 
     if request.method == 'POST':
-        data_da_str = (request.form.get('data_da') or "").strip()
-        data_a_str = (request.form.get('data_a') or "").strip()
+        data_da_str = request.form.get('data_da')
+        data_a_str = request.form.get('data_a')
         cliente_val = (request.form.get('cliente') or '').strip()
-        raggruppamento = (request.form.get('raggruppamento') or 'mese').strip()
+        raggruppamento = request.form.get('raggruppamento', 'mese')
 
         try:
-            d_da = datetime.strptime(data_da_str, "%Y-%m-%d").date()
-            d_a = datetime.strptime(data_a_str, "%Y-%m-%d").date()
-
-            if d_a < d_da:
-                raise Exception("Intervallo date non valido: 'Data a' è precedente a 'Data da'.")
-
+            # Recupera TUTTI gli articoli (non filtrare per data qui, lo fa la logica interna)
             db = SessionLocal()
-            try:
-                query = db.query(Articolo)
+            query = db.query(Articolo)
+            
+            if cliente_val:
+                query = query.filter(Articolo.cliente.ilike(f"%{cliente_val}%"))
+                
+            articoli = query.all()
+            db.close()
 
-                if cliente_val:
-                    query = query.filter(Articolo.cliente.ilike(f"%{cliente_val}%"))
-
-                articoli = query.all()
-            finally:
-                db.close()
-
-            risultati = _calcola_logica_costi(articoli, d_da, d_a, raggruppamento)
-
+            # Chiama la logica
+            risultati = _calcola_logica_costi(articoli, data_da_str, data_a_str, raggruppamento)
+            
+            # Aggiorna valori form
             data_da_val = data_da_str
             data_a_val = data_a_str
 
@@ -5061,9 +5077,14 @@ def calcola_costi():
                 flash("Nessun dato trovato per i criteri selezionati.", "warning")
 
         except Exception as e:
-            flash(f"Errore nel calcolo: {e}", "danger")
+            flash(f"Errore: {e}", "danger")
 
-    return render_template('calcoli.html',risultati=risultati,data_da=data_da_val,data_a=data_a_val,cliente_filtro=cliente_val,raggruppamento=raggruppamento)
+    return render_template('calcoli.html', 
+                           risultati=risultati, 
+                           data_da=data_da_val, 
+                           data_a=data_a_val, 
+                           cliente_filtro=cliente_val, 
+                           raggruppamento=raggruppamento)
 
 
 # --- AVVIO FLASK APP ---
