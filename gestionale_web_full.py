@@ -3187,7 +3187,8 @@ def nuovo_articolo():
             db.commit() 
             
             # --- GESTIONE ALLEGATI (Duplicazione su tutte le righe) ---
-            files = request.files.getlist('new_files')
+            # getlist permette di prendere PIÙ file selezionati
+            files = request.files.getlist('new_files') 
             valid_files = [f for f in files if f and f.filename]
             
             if valid_files:
@@ -3205,7 +3206,8 @@ def nuovo_articolo():
                     first_final_name = f"{first_art.id_articolo}_{fname}"
                     src_path = folder / first_final_name
                     
-                    file.seek(0) # Assicura di leggere dall'inizio
+                    # Importante: seek(0) se il file è stato letto parzialmente
+                    file.seek(0) 
                     file.save(str(src_path))
                     
                     # Collega al primo articolo nel DB
@@ -3226,11 +3228,12 @@ def nuovo_articolo():
 
                 db.commit()
 
-            flash(f"Operazione completata: Creati {len(created_articles)} articoli distinti.", "success")
+            flash(f"Operazione completata: Creati {len(created_articles)} articoli distinti con allegati.", "success")
             
             # Se ne abbiamo creato uno solo, vai alla modifica, altrimenti torna alla lista
             if len(created_articles) == 1:
-                return redirect(url_for('edit_record', id_articolo=created_articles[0].id_articolo))
+                # Reindirizza alla funzione edit_articolo corretta
+                return redirect(url_for('edit_articolo', id=created_articles[0].id_articolo))
             else:
                 return redirect(url_for('giacenze'))
             
