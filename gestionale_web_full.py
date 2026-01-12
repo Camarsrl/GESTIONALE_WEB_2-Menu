@@ -2621,123 +2621,101 @@ def import_excel():
     if request.method == 'GET':
         return render_template('import_excel.html', profiles=profiles)
 
-    # POST
+    # POST logic
     profile_name = request.form.get('profile')
     if not profile_name or profile_name not in mappe:
         flash("Seleziona un profilo valido.", "warning")
         return redirect(request.url)
 
-    if 'excel_file' not in request.files:
-        flash('Nessun file selezionato', 'warning')
-        return redirect(request.url)
-
+    if 'excel_file' not in request.files: return redirect(request.url)
     file = request.files['excel_file']
-    if file.filename == '':
-        flash('Nessun file selezionato', 'warning')
-        return redirect(request.url)
-
-    if not file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
-        flash('Formato file non supportato.', 'warning')
-        return redirect(request.url)
+    if not file or file.filename == '': return redirect(request.url)
 
     db = SessionLocal()
     try:
         config = mappe[profile_name]
-        # Excel 1-based -> Pandas 0-based
         header_row_idx = int(config.get('header_row', 1)) - 1  
         column_map = config.get('column_map', {}) or {}
 
-        # Ispezione e Lettura Excel
+        import pandas as pd
         xls = pd.ExcelFile(file, engine="openpyxl")
-        
-        # Lettura con header indicato
         df = xls.parse(0, header=header_row_idx)
-
-        # Normalizzazione colonne (rimuove spazi e mette tutto in maiuscolo per il match)
         df_cols_upper = {str(c).strip().upper(): c for c in df.columns}
 
-        # Import
-        imported_count = 0
+        # HELPER DATA ROBUSTO
+        def to_date_db(val):
+            if pd.isna(val) or val == '': return None
+            # Se è già datetime/timestamp di pandas
+            if isinstance(val, (datetime, pd.Timestamp)):
+                return val.strftime("%Y-%m-%d")
+            # Se è stringa
+            s = str(val).strip()
+            # Tenta vari formati
+            for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y"):
+                try:
+                    return datetime.strptime(s[:10], fmt).strftime("%Y-%m-%d")
+                except: pass
+            return None
 
-        for row_idx, row in df.iterrows():
-            # salta righe completamente vuote
-            if row.isnull().all():
-                continue
+        imported_count = 0
+        for _, row in df.iterrows():
+            if row.isnull().all(): continue
 
             new_art = Articolo()
             has_data = False
 
             for excel_header, db_field in column_map.items():
-                # Match colonna in Excel (usando la chiave normalizzata)
                 key = str(excel_header).strip().upper()
-                col_name_in_df = df_cols_upper.get(key)
+                col_name = df_cols_upper.get(key)
+                if col_name is None: continue
 
-                if col_name_in_df is None:
-                    continue
-
-                val = row[col_name_in_df]
-                if pd.isna(val) or str(val).strip() == "":
-                    continue
+                val = row[col_name]
+                if pd.isna(val) or str(val).strip() == "": continue
 
                 # Conversioni
-                try:
-                    if db_field in ['larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3']:
-                        val = to_float_eu(val)
-                    elif db_field in ['n_colli', 'pezzo']:
-                        val = to_int_eu(val)
-                    elif db_field in ['data_ingresso', 'data_uscita']:
-                        # Usa to_date_db se presente per salvare oggetti data corretti nel DB
-                        # Se non hai to_date_db, usa fmt_date/parse_date_ui
-                        if 'to_date_db' in globals():
-                             val = to_date_db(val)
-                        else:
-                             val = fmt_date(val) if isinstance(val, (datetime, date)) else parse_date_ui(str(val))
-                    else:
-                        val = str(val).strip()
-                except Exception:
-                    continue
+                if db_field in ['larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3']:
+                    try: val = float(str(val).replace(',', '.'))
+                    except: val = 0.0
+                elif db_field in ['n_colli', 'pezzo']:
+                    try: val = int(float(str(val).replace(',', '.')))
+                    except: val = 1
+                elif db_field in ['data_ingresso', 'data_uscita']:
+                    val = to_date_db(val)
+                else:
+                    val = str(val).strip()
 
-                # Set attributo
-                try:
+                if val is not None:
                     setattr(new_art, db_field, val)
                     has_data = True
-                except Exception:
-                    pass
 
             if has_data:
-                # Calcolo automatico M2/M3 se non presenti
+                # Calcoli automatici se mancano
                 try:
-                    if not getattr(new_art, "m2", None) or getattr(new_art, "m2", 0) == 0:
-                        new_art.m2, new_art.m3 = calc_m2_m3(
-                            getattr(new_art, "lunghezza", None),
-                            getattr(new_art, "larghezza", None),
-                            getattr(new_art, "altezza", None),
-                            getattr(new_art, "n_colli", None)
-                        )
-                except Exception:
-                    pass
+                    if not new_art.m2 or new_art.m2 == 0:
+                        l = new_art.lunghezza or 0
+                        w = new_art.larghezza or 0
+                        h = new_art.altezza or 0
+                        c = new_art.n_colli or 1
+                        # Logica m2/m3
+                        if l>0 and w>0:
+                            # Se altezza è trascurabile o non usata per m2
+                            new_art.m2 = round(l * w * c, 3)
+                            new_art.m3 = round(l * w * (h if h>0 else 0) * c, 3)
+                except: pass
 
                 db.add(new_art)
                 imported_count += 1
 
         db.commit()
-
-        # Feedback utente
-        if imported_count == 0:
-            flash(f"0 articoli importati con la mappa '{profile_name}'. Controlla il file o la mappatura.", "warning")
-        else:
-            flash(f"{imported_count} articoli importati con successo con la mappa '{profile_name}'.", "success")
-
-        return redirect(url_for('giacenze', v=uuid.uuid4().hex[:6]))
+        flash(f"{imported_count} articoli importati con successo.", "success")
+        return redirect(url_for('giacenze'))
 
     except Exception as e:
         db.rollback()
-        flash(f"Errore durante l'importazione: {e}", 'danger')
+        flash(f"Errore import: {e}", "danger")
         return redirect(request.url)
-
     finally:
         db.close()
-
 def get_all_fields_map():
     return {
         'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi','lotto':'Lotto',
