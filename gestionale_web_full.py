@@ -1612,30 +1612,27 @@ function submitDdt(actionType) {
 LABELS_FORM_HTML = """
 {% extends 'base.html' %}
 {% block content %}
-<div class="container mt-5">
-    <div class="card shadow-sm p-4 mx-auto" style="max-width: 600px;">
-        <h3 class="mb-4 text-center"><i class="bi bi-tags"></i> Stampa Etichette Massiva</h3>
-        
-        <form action="{{ url_for('labels_pdf') }}" method="POST" target="_blank">
-            <div class="mb-3">
-                <label for="cliente" class="form-label fw-bold">Seleziona Cliente:</label>
-                <select name="filtro_cliente" id="cliente" class="form-select form-select-lg" required>
-                    <option value="" disabled selected>-- Scegli un cliente --</option>
-                    {% for c in clienti %}
-                    <option value="{{ c }}">{{ c }}</option>
-                    {% endfor %}
-                </select>
-                <div class="form-text">Verranno generate le etichette per <b>tutti</b> gli articoli presenti a magazzino di questo cliente.</div>
-            </div>
-            
-            <div class="d-grid gap-2">
-                <button type="submit" class="btn btn-primary btn-lg">
-                    <i class="bi bi-printer"></i> Genera PDF Etichette
-                </button>
-                <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary">Annulla</a>
-            </div>
-        </form>
-    </div>
+<div class="card p-4" style="max-width: 720px; margin: auto;">
+    <h3 class="mb-3"><i class="bi bi-tags"></i> Stampa Etichette Massiva</h3>
+
+    <form action="{{ url_for('labels_pdf') }}" method="post" target="_blank">
+        <div class="mb-3">
+            <label class="form-label fw-bold">Seleziona Cliente:</label>
+            <select class="form-select" name="filtro_cliente" required>
+                <option value="" disabled selected>-- Seleziona --</option>
+                {% for c in clienti %}
+                  <option value="{{ c }}">{{ c }}</option>
+                {% endfor %}
+            </select>
+            <small class="text-muted">Verranno generate le etichette per tutti gli articoli in magazzino di questo cliente.</small>
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100 py-2">
+            <i class="bi bi-printer"></i> Genera PDF Etichette
+        </button>
+
+        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary w-100 mt-2">Annulla</a>
+    </form>
 </div>
 {% endblock %}
 """
