@@ -2837,17 +2837,18 @@ def export_client():
 @app.route('/invia_email', methods=['GET', 'POST'])
 @login_required
 def invia_email():
-    # ------------------------
-    # GET: apre la pagina
-    # ------------------------
+    # Import necessari
+    from email.header import Header
+    from email.mime.image import MIMEImage
+    import mimetypes
+
+    # GET: Mostra il form
     if request.method == 'GET':
         selected_ids = request.args.getlist('ids')
         ids_str = ",".join(selected_ids)
         return render_template('invia_email.html', selected_ids=ids_str)
 
-    # ------------------------
-    # POST: invio email
-    # ------------------------
+    # POST: Elabora l'invio
     selected_ids = request.form.get('selected_ids', '')
     destinatario = request.form.get('destinatario')
     oggetto = request.form.get('oggetto')
@@ -2858,99 +2859,88 @@ def invia_email():
 
     ids_list = [int(i) for i in selected_ids.split(',') if i.isdigit()]
 
-    # --- Variabili Render/Env ---
+    # Configurazione SMTP
     SMTP_SERVER = os.environ.get("MAIL_SERVER") or os.environ.get("SMTP_SERVER", "smtp.gmail.com")
     SMTP_PORT = int(os.environ.get("MAIL_PORT") or os.environ.get("SMTP_PORT", 587))
     SMTP_USER = os.environ.get("MAIL_USERNAME") or os.environ.get("SMTP_USER", "")
     SMTP_PASS = os.environ.get("MAIL_PASSWORD") or os.environ.get("SMTP_PASS", "")
 
-    print(f"DEBUG EMAIL - Server: {SMTP_SERVER}, Port: {SMTP_PORT}, User: {SMTP_USER}")
-    if not SMTP_PASS:
-        print("DEBUG EMAIL - ERRORE: Password non trovata nelle variabili d'ambiente!")
-
     if not SMTP_USER or not SMTP_PASS:
-        flash(f"Configurazione email mancante (User: {SMTP_USER}). Controlla le variabili su Render.", "warning")
+        flash(f"Configurazione email mancante (User: {SMTP_USER}).", "warning")
         return redirect(url_for('giacenze'))
 
-    # --- helper per HTML ---
-    def _escape_html(s: str) -> str:
-        return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-    def _text_to_html_preserve_newlines(text: str) -> str:
-        return "<br>".join(_escape_html(text).splitlines())
-
     try:
-        # ✅ EMAIL multipart/related -> include immagini inline
+        # Creazione Messaggio
         msg_root = MIMEMultipart('related')
         msg_root['From'] = SMTP_USER
         msg_root['To'] = destinatario
-        msg_root['Subject'] = oggetto
+        msg_root['Subject'] = Header(oggetto, 'utf-8')
 
-        # alternative: plain + html
         msg_alt = MIMEMultipart('alternative')
         msg_root.attach(msg_alt)
 
-        # HTML con logo inline (CID)
+        # 1. Corpo Testo (UTF-8)
+        msg_alt.attach(MIMEText(messaggio, 'plain', 'utf-8'))
+
+        # 2. Corpo HTML (UTF-8) con LOGO INLINE
+        messaggio_html = messaggio.replace('\n', '<br>')
+        
+        # HTML Completo con Firma Integrata
         html_body = f"""
         <html>
-          <body style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color:#111;">
-            <div style="margin-bottom: 12px;">
-              <img src="cid:logo_camar" alt="Camar" style="height:60px; width:auto; display:block;">
+          <head><meta charset="utf-8"></head>
+          <body style="font-family: Arial, sans-serif; font-size: 14px; color:#333;">
+            <div style="margin-bottom: 20px;">
+              <img src="cid:logo_camar" alt="Camar S.r.l." style="height:60px; width:auto; display:block;">
             </div>
-            <div>
-              {_text_to_html_preserve_newlines(messaggio)}
+            
+            <div style="margin-bottom: 30px;">
+              {messaggio_html}
             </div>
           </body>
         </html>
         """
-
-        # fallback testo
-        msg_alt.attach(MIMEText(messaggio, 'plain', 'utf-8'))
         msg_alt.attach(MIMEText(html_body, 'html', 'utf-8'))
 
-        # ✅ Allego LOGO inline (CID)
-        # ATTENZIONE: il file si chiama con spazio -> "logo camar.jpg"
-        logo_path = os.path.join(app.root_path, "static", "logo camar.jpg")
-        if os.path.exists(logo_path):
-            with open(logo_path, "rb") as f:
-                img = MIMEImage(f.read())
-            img.add_header('Content-ID', '<logo_camar>')
-            img.add_header('Content-Disposition', 'inline', filename='logo_camar.jpg')
-            msg_root.attach(img)
-        else:
-            print("⚠️ Logo non trovato:", logo_path)
+        # 3. ALLEGARE IL LOGO (cid:logo_camar)
+        # Cerchiamo il logo in static (gestendo spazi nel nome file)
+        possible_logos = ["logo camar.jpg", "logo_camar.jpg", "logo.jpg"]
+        logo_found = False
+        
+        for logo_name in possible_logos:
+            logo_path = os.path.join(app.root_path, "static", logo_name)
+            if os.path.exists(logo_path):
+                with open(logo_path, "rb") as f:
+                    img_data = f.read()
+                
+                img = MIMEImage(img_data)
+                img.add_header('Content-ID', '<logo_camar>') # Deve corrispondere a src="cid:logo_camar"
+                img.add_header('Content-Disposition', 'inline', filename='logo_camar.jpg')
+                msg_root.attach(img)
+                logo_found = True
+                break
+        
+        if not logo_found:
+            print("⚠️ ATTENZIONE: Logo non trovato nella cartella static!")
 
-        # ------------------------
-        # 1) PDF Riepilogo (DDT)
-        # ------------------------
+        # 4. DDT PDF (Se richiesto)
         if genera_ddt and ids_list:
             db = SessionLocal()
             try:
                 rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
                 if rows:
                     pdf_bio = io.BytesIO()
-
                     _genera_pdf_ddt_file(
-                        {
-                            'n_ddt': 'RIEP',
-                            'data_uscita': date.today().strftime('%d/%m/%Y'),
-                            'destinatario': 'RIEPILOGO',
-                            'dest_indirizzo': '',
-                            'dest_citta': ''
-                        },
+                        {'n_ddt': 'RIEP', 'data_uscita': date.today().strftime('%d/%m/%Y'), 
+                         'destinatario': 'RIEPILOGO', 'dest_indirizzo': '', 'dest_citta': ''}, 
                         [{
-                            'id_articolo': r.id_articolo,
-                            'codice_articolo': r.codice_articolo,
-                            'descrizione': r.descrizione,
-                            'pezzo': r.pezzo,
-                            'n_colli': r.n_colli,
-                            'peso': r.peso,
-                            'n_arrivo': r.n_arrivo,
-                            'note': r.note
-                        } for r in rows],
+                            'id_articolo': r.id_articolo, 'codice_articolo': r.codice_articolo, 
+                            'descrizione': r.descrizione, 'pezzo': r.pezzo, 'n_colli': r.n_colli, 
+                            'peso': r.peso, 'n_arrivo': r.n_arrivo, 'note': r.note,
+                            'commessa': r.commessa, 'ordine': r.ordine, 'buono': r.buono_n, 'protocollo': r.protocollo
+                        } for r in rows], 
                         pdf_bio
                     )
-
                     pdf_bio.seek(0)
                     part = MIMEBase('application', "octet-stream")
                     part.set_payload(pdf_bio.read())
@@ -2960,9 +2950,7 @@ def invia_email():
             finally:
                 db.close()
 
-        # ------------------------
-        # 2) Allegati da DB
-        # ------------------------
+        # 5. ALLEGATI ESISTENTI (Se richiesto)
         if allega_file and ids_list:
             db = SessionLocal()
             try:
@@ -2970,11 +2958,11 @@ def invia_email():
                 for r in rows:
                     for att in r.attachments:
                         fname = att.filename
-                        path = (DOCS_DIR if att.kind == 'doc' else PHOTOS_DIR) / fname
+                        path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / fname
                         if not path.exists():
-                            from urllib.parse import unquote
-                            path = (DOCS_DIR if att.kind == 'doc' else PHOTOS_DIR) / unquote(fname)
-
+                             from urllib.parse import unquote
+                             path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / unquote(fname)
+                        
                         if path.exists():
                             with open(path, "rb") as f:
                                 part = MIMEBase('application', "octet-stream")
@@ -2985,9 +2973,7 @@ def invia_email():
             finally:
                 db.close()
 
-        # ------------------------
-        # 3) Allegati extra
-        # ------------------------
+        # 6. ALLEGATI EXTRA (Upload)
         for file in allegati_extra:
             if file and file.filename:
                 part = MIMEBase('application', "octet-stream")
@@ -2996,13 +2982,11 @@ def invia_email():
                 part.add_header('Content-Disposition', f'attachment; filename="{secure_filename(file.filename)}"')
                 msg_root.attach(part)
 
-        # ------------------------
-        # INVIO SMTP
-        # ------------------------
+        # INVIO
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
-        server.sendmail(SMTP_USER, [destinatario], msg_root.as_string())
+        server.send_message(msg_root)
         server.quit()
 
         flash(f"Email inviata correttamente a {destinatario}", "success")
@@ -3012,9 +2996,6 @@ def invia_email():
         flash(f"Errore invio: {e}", "danger")
 
     return redirect(url_for('giacenze'))
-
-
-
 # --- FUNZIONE UPLOAD FILE MULTIPLI (CORRETTA PER EDIT_RECORD) ---
 @app.route('/upload/<int:id_articolo>', methods=['POST'])
 @login_required
