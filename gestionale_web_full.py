@@ -387,12 +387,12 @@ def to_int_eu(val):
     except:
         return 0
 def parse_date_ui(d):
-    if not d: return None
-    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(str(d).split(" ")[0], fmt).strftime("%Y-%m-%d")
-        except Exception: pass
-    return d
+    if not d: return ""
+    try:
+        if isinstance(d, (datetime, date)):
+            return d.strftime("%d/%m/%Y")
+        return datetime.strptime(d, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception: return d
 
 def fmt_date(d):
     if not d: return ""
