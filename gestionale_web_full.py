@@ -386,13 +386,20 @@ def to_int_eu(val):
         return int(float(str(val).replace(',', '.')))
     except:
         return 0
-def parse_date_ui(d):
-    if not d: return ""
-    try:
-        if isinstance(d, (datetime, date)):
-            return d.strftime("%d/%m/%Y")
-        return datetime.strptime(d, "%Y-%m-%d").strftime("%d/%m/%Y")
-    except Exception: return d
+
+
+def parse_date_ui(s):
+    s = (s or "").strip()
+    if not s:
+        return None
+
+    # supporta sia YYYY-MM-DD (input date) sia DD/MM/YYYY
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            pass
+    return None
 
 def fmt_date(d):
     if not d: return ""
