@@ -2807,12 +2807,11 @@ def export_client():
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     return render_template('export_client.html', clienti=clienti)
-
-
+    
 @app.route('/invia_email', methods=['GET', 'POST'])
 @login_required
 def invia_email():
-    # Import necessari
+    # Import necessari per gestire correttamente la codifica e gli allegati
     from email.header import Header
     from email.mime.image import MIMEImage
     import mimetypes
@@ -2827,7 +2826,7 @@ def invia_email():
     selected_ids = request.form.get('selected_ids', '')
     destinatario = request.form.get('destinatario')
     oggetto = request.form.get('oggetto')
-    messaggio = request.form.get('messaggio') or ""
+    messaggio_utente = request.form.get('messaggio') or "" # Testo inserito dall'utente
     genera_ddt = 'genera_ddt' in request.form
     allega_file = 'allega_file' in request.form
     allegati_extra = request.files.getlist('allegati_extra')
@@ -2849,36 +2848,42 @@ def invia_email():
         msg_root = MIMEMultipart('related')
         msg_root['From'] = SMTP_USER
         msg_root['To'] = destinatario
+        # FIX ENCODING: Header con utf-8 risolve l'errore ASCII sull'oggetto
         msg_root['Subject'] = Header(oggetto, 'utf-8')
 
         msg_alt = MIMEMultipart('alternative')
         msg_root.attach(msg_alt)
 
-        # 1. Corpo Testo (UTF-8)
-        msg_alt.attach(MIMEText(messaggio, 'plain', 'utf-8'))
+        # 1. Corpo Testo Semplice (UTF-8)
+        # Nota: Qui mettiamo solo il testo base per i client che non supportano HTML
+        msg_alt.attach(MIMEText(messaggio_utente, 'plain', 'utf-8'))
 
-        # 2. Corpo HTML (UTF-8) con LOGO INLINE
-        messaggio_html = messaggio.replace('\n', '<br>')
+        # 2. Corpo HTML (UTF-8) con LOGO POSIZIONATO DOPO I SALUTI
+        # Convertiamo i "a capo" in <br>
+        messaggio_html = messaggio_utente.replace('\n', '<br>')
         
-        # HTML Completo con Firma Integrata
+        # HTML Strutturato
         html_body = f"""
         <html>
-          <head><meta charset="utf-8"></head>
+          <head>
+            <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+          </head>
           <body style="font-family: Arial, sans-serif; font-size: 14px; color:#333;">
+            
+            <div style="margin-bottom: 20px;">
+              {messaggio_html}
+            </div>
+
             <div style="margin-bottom: 20px;">
               <img src="cid:logo_camar" alt="Camar S.r.l." style="height:60px; width:auto; display:block;">
             </div>
             
-            <div style="margin-bottom: 30px;">
-              {messaggio_html}
-            </div>
-          </body>
+            </body>
         </html>
         """
         msg_alt.attach(MIMEText(html_body, 'html', 'utf-8'))
 
         # 3. ALLEGARE IL LOGO (cid:logo_camar)
-        # Cerchiamo il logo in static (gestendo spazi nel nome file)
         possible_logos = ["logo camar.jpg", "logo_camar.jpg", "logo.jpg"]
         logo_found = False
         
@@ -2889,7 +2894,7 @@ def invia_email():
                     img_data = f.read()
                 
                 img = MIMEImage(img_data)
-                img.add_header('Content-ID', '<logo_camar>') # Deve corrispondere a src="cid:logo_camar"
+                img.add_header('Content-ID', '<logo_camar>') 
                 img.add_header('Content-Disposition', 'inline', filename='logo_camar.jpg')
                 msg_root.attach(img)
                 logo_found = True
@@ -2925,7 +2930,7 @@ def invia_email():
             finally:
                 db.close()
 
-        # 5. ALLEGATI ESISTENTI (Se richiesto)
+        # 5. ALLEGATI ESISTENTI
         if allega_file and ids_list:
             db = SessionLocal()
             try:
@@ -2948,7 +2953,7 @@ def invia_email():
             finally:
                 db.close()
 
-        # 6. ALLEGATI EXTRA (Upload)
+        # 6. ALLEGATI EXTRA
         for file in allegati_extra:
             if file and file.filename:
                 part = MIMEBase('application', "octet-stream")
@@ -2961,6 +2966,7 @@ def invia_email():
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
+        # Usa send_message per gestire meglio la codifica
         server.send_message(msg_root)
         server.quit()
 
@@ -2968,9 +2974,14 @@ def invia_email():
 
     except Exception as e:
         print(f"DEBUG EMAIL EXCEPTION: {e}")
+        # Log dettagliato per capire quale carattere dà problemi
+        import traceback
+        traceback.print_exc()
         flash(f"Errore invio: {e}", "danger")
 
     return redirect(url_for('giacenze'))
+
+
 # --- FUNZIONE UPLOAD FILE MULTIPLI (CORRETTA PER EDIT_RECORD) ---
 @app.route('/upload/<int:id_articolo>', methods=['POST'])
 @login_required
