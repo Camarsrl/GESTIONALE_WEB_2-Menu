@@ -4582,40 +4582,45 @@ def labels_form():
 @login_required
 def labels_pdf():
     ids = request.form.getlist('ids')
-    
-    # Se non arrivano ID diretti, controlla se c'è un filtro CLIENTE dalla pagina dedicata
-    filtro_cliente = request.form.get('filtro_cliente')
-    
-    db = SessionLocal()
-    articoli = []
-    
-    try:
-        # CASO 1: ID specifici (dalla tabella giacenze)
-        if ids:
-            articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-            
-        # CASO 2: Filtro CLIENTE (dalla pagina dedicata /labels)
-        elif filtro_cliente:
-            articoli = db.query(Articolo).filter(Articolo.cliente == filtro_cliente).all()
-            
-        # CASO 3: Nessun filtro (Errore)
-        else:
-            return "Nessun articolo selezionato o filtro impostato.", 400
-            
-        if not articoli:
-            return "Nessun articolo trovato per i criteri selezionati.", 404
+    filtro_cliente = (request.form.get('filtro_cliente') or '').strip()
 
-        # Genera il PDF
+    db = SessionLocal()
+    try:
+        articoli = []
+
+        # ✅ CASO 1: ID specifici (dalla tabella giacenze)
+        if ids:
+            try:
+                ids_int = [int(x) for x in ids if str(x).strip().isdigit()]
+            except Exception:
+                ids_int = []
+            if ids_int:
+                articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_int)).all()
+
+        # ✅ CASO 2: filtro cliente (dalla pagina /labels)
+        elif filtro_cliente:
+            # solo articoli “in magazzino” (non usciti)
+            articoli = (
+                db.query(Articolo)
+                  .filter(Articolo.cliente == filtro_cliente)
+                  .filter((Articolo.data_uscita.is_(None)) | (Articolo.data_uscita == ''))
+                  .all()
+            )
+
+        else:
+            flash("Nessun articolo selezionato o filtro impostato.", "warning")
+            return redirect(url_for('giacenze'))
+
+        if not articoli:
+            flash("Nessun articolo trovato per i criteri selezionati.", "warning")
+            return redirect(url_for('giacenze'))
+
         pdf_file = _genera_pdf_etichetta(articoli)
-        
-        filename = f"Etichette_{datetime.now().strftime('%H%M%S')}.pdf"
-        
-        return send_file(
-            pdf_file, 
-            as_attachment=True, 
-            download_name=filename, 
-            mimetype='application/pdf'
-        )
+        pdf_file.seek(0)
+
+        filename = f"Etichette_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        return send_file(pdf_file, as_attachment=True, download_name=filename, mimetype='application/pdf')
+
     finally:
         db.close()
 
