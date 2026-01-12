@@ -2551,40 +2551,63 @@ def lavorazioni():
     return render_template('lavorazioni.html', lavorazioni=dati, today=date.today())
 
 # --- REPORT INVENTARIO PER CLIENTE/DATA ---
+# --- REPORT INVENTARIO ---
 @app.route('/report_inventario', methods=['POST'])
 @login_required
 def report_inventario():
-    data_rif = request.form.get('data_inventario') # Data scelta
+    data_rif_str = request.form.get('data_inventario')
+    cliente_rif = request.form.get('cliente_inventario', '').strip()
     
+    if not data_rif_str:
+        return "Data mancante", 400
+
     db = SessionLocal()
-    
-    # Logica Inventario Storico:
-    # Cerchiamo articoli che erano DENTRO in quella data (Ingresso <= Data)
-    # E che NON erano ancora usciti (Uscita IS NULL oppure Uscita > Data)
-    
-    # Nota: Poiché le date sono TEXT nel DB, usiamo il confronto stringhe ISO YYYY-MM-DD
-    # Assicurati che data_rif sia YYYY-MM-DD
-    
-    query = db.query(Articolo).filter(Articolo.data_ingresso <= data_rif)
-    
-    # Filtro uscita: O è NULL, O è successiva alla data rif
-    from sqlalchemy import or_
-    query = query.filter(or_(Articolo.data_uscita == None, Articolo.data_uscita == '', Articolo.data_uscita > data_rif))
-    
-    articoli = query.all()
-    
-    # Raggruppa per Cliente
-    inventario = {}
-    for art in articoli:
-        cli = art.cliente or "NESSUN CLIENTE"
-        if cli not in inventario: inventario[cli] = []
-        inventario[cli].append(art)
+    try:
+        # Recupera tutto e filtra in Python per sicurezza sulle date eterogenee
+        query = db.query(Articolo)
+        if cliente_rif:
+            query = query.filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
+            
+        all_arts = query.all()
         
-    db.close()
-    
-    return render_template('report_inventario_print.html', inventario=inventario, data_rif=data_rif)
+        # Data limite
+        d_limit = datetime.strptime(data_rif_str, "%Y-%m-%d").date()
+        
+        in_stock = []
+        for art in all_arts:
+            # 1. Deve essere entrato PRIMA o IL giorno stesso
+            if not art.data_ingresso: continue
+            
+            # Helper parse date
+            def parse_d(v):
+                if isinstance(v, date): return v
+                try: return datetime.strptime(str(v)[:10], "%Y-%m-%d").date()
+                except: return None
+            
+            d_ing = parse_d(art.data_ingresso)
+            if not d_ing or d_ing > d_limit: continue
+            
+            # 2. Deve NON essere uscito, o uscito DOPO la data limite
+            is_present = True
+            if art.data_uscita:
+                d_usc = parse_d(art.data_uscita)
+                if d_usc and d_usc <= d_limit:
+                    is_present = False # Uscito prima o il giorno stesso
+            
+            if is_present:
+                in_stock.append(art)
 
-
+        # Raggruppa
+        inventario = {}
+        for art in in_stock:
+            cli = art.cliente or "NESSUN CLIENTE"
+            if cli not in inventario: inventario[cli] = []
+            inventario[cli].append(art)
+            
+        return render_template('report_inventario_print.html', inventario=inventario, data_rif=data_rif_str)
+        
+    finally:
+        db.close()
 # =========================
 # IMPORT EXCEL (con log)
 # =========================
