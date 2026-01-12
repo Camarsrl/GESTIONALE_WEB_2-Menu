@@ -1039,7 +1039,7 @@ GIACENZE_HTML = """
                     <th>Kg</th>
                     <th>Posizione</th>
                     <th>N.Arr</th>
-                    <th>Buono</th>
+                    <th>N.Buono</th>
                     <th>Note</th>
                     <th>Lotto</th>
                     <th>Ns.Rif</th>
