@@ -27,7 +27,7 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from email.mime.application import MIMEApplication
 from pathlib import Path
-
+from urllib.parse import unquote
 
 
 # Importazioni Flask e Login
@@ -3006,13 +3006,8 @@ def invia_email():
 
     return redirect(url_for('giacenze'))
 
-# --- ROUTE ALLEGATI (MANCANTI - DA AGGIUNGERE) ---
-from urllib.parse import unquote # <--- Assicurati di importare questo in alto o dentro la funzione
 
-# --- AGGIUNGI QUESTO IMPORT IN ALTO NEL FILE SE NON C'È ---
-from urllib.parse import unquote 
 
-# --- FUNZIONE UPLOAD FILE SINGOLO (CORRETTA) ---
 # --- FUNZIONE UPLOAD FILE MULTIPLI (CORRETTA PER EDIT_RECORD) ---
 @app.route('/upload/<int:id_articolo>', methods=['POST'])
 @login_required
