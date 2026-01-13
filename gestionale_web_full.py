@@ -1604,28 +1604,103 @@ function submitDdt(actionType) {
 LABELS_FORM_HTML = """
 {% extends 'base.html' %}
 {% block content %}
-<div class="card p-4" style="max-width: 720px; margin: auto;">
-    <h3 class="mb-3"><i class="bi bi-tags"></i> Stampa Etichette Massiva</h3>
 
-    <form action="{{ url_for('labels_pdf') }}" method="post" target="_blank">
+<div class="card p-4" style="max-width: 820px; margin: auto;">
+  <h3 class="mb-3"><i class="bi bi-tags"></i> Stampa Etichette</h3>
+
+  <div class="alert alert-info py-2">
+    <i class="bi bi-info-circle"></i>
+    Formato PDF: <b>Brother QL-800</b> — <b>100mm x 62mm</b> orizzontale.  
+    Ogni collo genera una pagina: <b>ARRIVO: 01/24 N.1</b>, <b>ARRIVO: 01/24 N.2</b>...
+  </div>
+
+  <!-- ========================= -->
+  <!-- SEZIONE 1: ETICHETTE MASSIVE (CLIENTE) -->
+  <!-- ========================= -->
+  <div class="card mb-3 shadow-sm">
+    <div class="card-header bg-light fw-bold">
+      <i class="bi bi-people"></i> Etichette massiva per Cliente
+    </div>
+    <div class="card-body">
+      <form action="{{ url_for('labels_pdf') }}" method="post" target="_blank">
         <div class="mb-3">
-            <label class="form-label fw-bold">Seleziona Cliente:</label>
-            <select class="form-select" name="filtro_cliente" required>
-                <option value="" disabled selected>-- Seleziona --</option>
-                {% for c in clienti %}
-                  <option value="{{ c }}">{{ c }}</option>
-                {% endfor %}
-            </select>
-            <small class="text-muted">Verranno generate le etichette per tutti gli articoli in magazzino di questo cliente.</small>
+          <label class="form-label fw-bold">Seleziona Cliente:</label>
+          <select class="form-select" name="filtro_cliente" required>
+            <option value="" disabled selected>-- Seleziona --</option>
+            {% for c in clienti %}
+              <option value="{{ c }}">{{ c }}</option>
+            {% endfor %}
+          </select>
+          <small class="text-muted">
+            Verranno generate le etichette per tutti gli articoli <b>in magazzino</b> di questo cliente.
+          </small>
         </div>
 
         <button type="submit" class="btn btn-primary w-100 py-2">
-            <i class="bi bi-printer"></i> Genera PDF Etichette
+          <i class="bi bi-printer"></i> Genera PDF Etichette (Massiva)
         </button>
+      </form>
+    </div>
+  </div>
 
-        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary w-100 mt-2">Annulla</a>
-    </form>
+  <!-- ========================= -->
+  <!-- SEZIONE 2: ETICHETTE DA SELEZIONE (ID) -->
+  <!-- ========================= -->
+  <div class="card mb-3 shadow-sm">
+    <div class="card-header bg-light fw-bold">
+      <i class="bi bi-check2-square"></i> Etichette per articoli selezionati (ID)
+    </div>
+    <div class="card-body">
+      <form action="{{ url_for('labels_pdf') }}" method="post" target="_blank">
+        <label class="form-label fw-bold">Inserisci ID articoli (separati da virgola):</label>
+        <input type="text" class="form-control" name="ids_csv"
+               value="{{ request.args.get('ids','') }}"
+               placeholder="es. 12,15,22">
+
+        <small class="text-muted d-block mt-2">
+          Se arrivi da una selezione, puoi anche aprire questa pagina con <code>?ids=12,15,22</code>.
+        </small>
+
+        <!-- Converte ids_csv in tanti campi ids via JS -->
+        <div id="ids_container"></div>
+
+        <button type="submit" class="btn btn-success w-100 py-2 mt-3" onclick="return prepareIds();">
+          <i class="bi bi-printer"></i> Genera PDF Etichette (Selezionati)
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary w-100 mt-2">Torna alle Giacenze</a>
 </div>
+
+<script>
+function prepareIds(){
+  // prende ids_csv e crea input hidden multipli name="ids"
+  const input = document.querySelector('input[name="ids_csv"]');
+  const container = document.getElementById('ids_container');
+  container.innerHTML = "";
+
+  if(!input || !input.value) return true;
+
+  const parts = input.value.split(',').map(x => x.trim()).filter(x => x.length > 0);
+  if(parts.length === 0) return true;
+
+  // valida e crea hidden
+  parts.forEach(v => {
+    if(/^[0-9]+$/.test(v)){
+      const h = document.createElement('input');
+      h.type = 'hidden';
+      h.name = 'ids';
+      h.value = v;
+      container.appendChild(h);
+    }
+  });
+
+  return true;
+}
+</script>
+
 {% endblock %}
 """
 
