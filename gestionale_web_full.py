@@ -4612,10 +4612,9 @@ def ddt_finalize():
     finally:
         db.close()
 
-@app.get('/labels')
+@app.get('/labels_massiva')
 @login_required
 def labels_form():
-    # (facoltativo) protezione admin: togli se vuoi che anche user possa stampare etichette
     if session.get('role') != 'admin':
         flash("Accesso negato.", "danger")
         return redirect(url_for('giacenze'))
@@ -4633,6 +4632,7 @@ def labels_form():
         return render_template('labels_form.html', clienti=clienti)
     finally:
         db.close()
+
 
 # ==============================================================================
 #  GESTIONE ETICHETTE (PDF) - ROUTE E GENERAZIONE
