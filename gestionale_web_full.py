@@ -4618,7 +4618,7 @@ def ddt_finalize():
     finally:
         db.close()
 
-app.get('/labels')
+@app.get('/labels')
 @login_required
 def labels_form():
     # --- PROTEZIONE ADMIN ---
