@@ -4916,151 +4916,153 @@ def _parse_data_db_helper(val):
 
     return None
 
-@app.route('/calcola_costi', methods=['GET', 'POST'])
-@login_required
-def calcola_costi():
-    from datetime import date
-
-    # valori default
-    today = date.today()
-    data_da = request.form.get('data_da') or today.replace(day=1).isoformat()
-    data_a = request.form.get('data_a') or today.isoformat()
-    cliente_filtro = (request.form.get('cliente') or '').strip()
-    raggruppamento = request.form.get('raggruppamento') or 'mese'
-
-    risultati = []
-
-    db = SessionLocal()
-    try:
-        q = db.query(Articolo)
-
-        # filtro cliente (se inserito)
-        if cliente_filtro:
-            q = q.filter(Articolo.cliente.ilike(f"%{cliente_filtro}%"))
-
-        articoli = q.all()
-
-        # calcolo solo se POST (quando premi "Calcola")
-        if request.method == 'POST':
-            risultati = _calcola_logica_costi(articoli, data_da, data_a, raggruppamento)
-
-        return render_template(
-            'calcola_costi.html',
-            risultati=risultati,
-            data_da=data_da,
-            data_a=data_a,
-            cliente_filtro=cliente_filtro,
-            raggruppamento=raggruppamento,
-            today=today
-        )
-
-    finally:
-        db.close()
-
-
+# --- LOGICA CALCOLO COSTI (ROBUSTA) ---
 def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento):
-    """
-    Core logic: Calcola M2 per ogni giorno di occupazione.
-    Output: lista di dict con periodo/cliente/m2_tot/m2_medio/giorni
-    """
     from collections import defaultdict
     from datetime import timedelta, date, datetime
 
     m2_per_giorno = defaultdict(float)
 
+    # Helper interno per capire la data (o ignorarla se errata)
     def to_date_obj(d):
-        if not d:
+        if not d: return None
+        if isinstance(d, datetime): return d.date()
+        if isinstance(d, date): return d
+        
+        # Pulisce la stringa
+        s = str(d).strip().split(' ')[0] # Prende solo la prima parte (es. toglie ore)
+        
+        # Se la stringa non sembra una data (es. "DN0016073"), ritorna None
+        if len(s) < 8 or not s[0].isdigit(): 
             return None
-        if isinstance(d, datetime):
-            return d.date()
-        if isinstance(d, date):
-            return d
-        s = str(d)[:10].strip()
-        try:
-            return datetime.strptime(s, "%Y-%m-%d").date()
-        except Exception:
-            try:
-                return datetime.strptime(s, "%d/%m/%Y").date()
-            except Exception:
-                return None
+
+        # Tenta formati comuni
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+            try: return datetime.strptime(s, fmt).date()
+            except: pass
+        return None
 
     d_start = to_date_obj(data_da)
     d_end = to_date_obj(data_a)
-    if not d_start or not d_end:
-        return []
-
-    # se l'utente mette date invertite, le scambiamo
-    if d_end < d_start:
-        d_start, d_end = d_end, d_start
+    
+    if not d_start or not d_end: return []
 
     for art in articoli:
-        # M2 sicuro
-        try:
-            m2 = float(str(getattr(art, "m2", "")).replace(",", ".")) if getattr(art, "m2", None) else 0.0
-        except Exception:
-            m2 = 0.0
-        if m2 <= 0:
-            continue
+        # Parsing M2
+        try: 
+            val_m2 = str(art.m2).replace(',', '.')
+            m2 = float(val_m2) if art.m2 else 0.0
+        except: m2 = 0.0
+        
+        if m2 <= 0: continue
 
-        d_ingr = to_date_obj(getattr(art, "data_ingresso", None))
-        if not d_ingr:
-            continue
+        d_ingr = to_date_obj(art.data_ingresso)
+        # Se la data è un codice strano (es. DDT), d_ingr sarà None e saltiamo la riga
+        if not d_ingr: continue 
 
-        d_usc = to_date_obj(getattr(art, "data_uscita", None))
+        d_usc = to_date_obj(art.data_uscita)
 
-        inizio_attivo = max(d_ingr, d_start)
-
-        # se esce, non conteggiamo il giorno di uscita (uscita - 1)
+        # Logica temporale
+        inizio = max(d_ingr, d_start)
+        
         if d_usc:
-            fine_attivo = min(d_usc - timedelta(days=1), d_end)
+            fine = min(d_usc - timedelta(days=1), d_end)
         else:
-            fine_attivo = d_end
+            fine = d_end
 
-        if fine_attivo < inizio_attivo:
-            continue
+        if fine < inizio: continue
 
-        cliente_key = (getattr(art, "cliente", None) or "SCONOSCIUTO").upper()
-
-        curr = inizio_attivo
-        while curr <= fine_attivo:
+        curr = inizio
+        # Raggruppa i nomi clienti (es. "Fincantieri " -> "FINCANTIERI")
+        cliente_key = (art.cliente or "SCONOSCIUTO").strip().upper()
+        
+        while curr <= fine:
             m2_per_giorno[(cliente_key, curr)] += m2
             curr += timedelta(days=1)
 
     risultati_finali = []
-
-    if raggruppamento == "giorno":
-        for (cliente, giorno) in sorted(m2_per_giorno.keys(), key=lambda k: (k[0], k[1])):
-            val_m2 = m2_per_giorno[(cliente, giorno)]
+    
+    if raggruppamento == 'giorno':
+        sorted_keys = sorted(m2_per_giorno.keys(), key=lambda k: (k[0], k[1]))
+        for cliente, giorno in sorted_keys:
+            val = m2_per_giorno[(cliente, giorno)]
             risultati_finali.append({
-                "periodo": giorno.strftime("%d/%m/%Y"),
-                "cliente": cliente,
-                "m2_tot": f"{val_m2:.3f}",
-                "m2_medio": f"{val_m2:.3f}",
-                "giorni": 1
+                'periodo': giorno.strftime("%d/%m/%Y"),
+                'cliente': cliente,
+                'm2_tot': f"{val:.3f}",
+                'm2_medio': f"{val:.3f}",
+                'giorni': 1
             })
     else:
-        agg_mese = defaultdict(lambda: {"m2_sum": 0.0, "giorni_set": set()})
-        for (cliente, giorno), val_m2 in m2_per_giorno.items():
-            key = (cliente, giorno.year, giorno.month)
-            agg_mese[key]["m2_sum"] += val_m2
-            agg_mese[key]["giorni_set"].add(giorno)
-
-        for (cliente, anno, mese) in sorted(agg_mese.keys(), key=lambda k: (k[1], k[2], k[0])):
-            dati = agg_mese[(cliente, anno, mese)]
-            num_giorni = len(dati["giorni_set"])
-            m2_tot = dati["m2_sum"]
-            m2_medio = (m2_tot / num_giorni) if num_giorni else 0.0
-
+        # Raggruppa per Mese
+        agg = defaultdict(lambda: {'sum': 0.0, 'days': set()})
+        for (cli, day), val in m2_per_giorno.items():
+            k = (cli, day.year, day.month)
+            agg[k]['sum'] += val
+            agg[k]['days'].add(day)
+            
+        sorted_keys = sorted(agg.keys(), key=lambda k: (k[1], k[2], k[0]))
+        for (cli, y, m) in sorted_keys:
+            dati = agg[(cli, y, m)]
+            n_days = len(dati['days'])
+            tot = dati['sum']
+            avg = tot / n_days if n_days > 0 else 0
+            
             risultati_finali.append({
-                "periodo": f"{mese:02d}/{anno}",
-                "cliente": cliente,
-                "m2_tot": f"{m2_tot:.3f}",
-                "m2_medio": f"{m2_medio:.3f}",
-                "giorni": num_giorni
+                'periodo': f"{m:02d}/{y}",
+                'cliente': cli,
+                'm2_tot': f"{tot:.3f}",
+                'm2_medio': f"{avg:.3f}",
+                'giorni': n_days
             })
-
+            
     return risultati_finali
 
+@app.route('/calcola_costi', methods=['GET', 'POST'])
+@login_required
+def calcola_costi():
+    if session.get('role') != 'admin':
+        flash("Accesso negato.", "danger")
+        return redirect(url_for('giacenze'))
+
+    oggi = date.today()
+    data_da_val = (oggi.replace(day=1)).strftime("%Y-%m-%d")
+    data_a_val = oggi.strftime("%Y-%m-%d")
+    cliente_val = ""
+    raggruppamento = "mese"
+    risultati = []
+
+    if request.method == 'POST':
+        data_da_str = request.form.get('data_da')
+        data_a_str = request.form.get('data_a')
+        cliente_val = (request.form.get('cliente') or '').strip()
+        raggruppamento = request.form.get('raggruppamento', 'mese')
+
+        try:
+            db = SessionLocal()
+            query = db.query(Articolo)
+            if cliente_val:
+                query = query.filter(Articolo.cliente.ilike(f"%{cliente_val}%"))
+            articoli = query.all()
+            db.close()
+
+            risultati = _calcola_logica_costi(articoli, data_da_str, data_a_str, raggruppamento)
+            
+            data_da_val = data_da_str
+            data_a_val = data_a_str
+
+            if not risultati:
+                flash("Nessun dato valido trovato. Controlla che le date di ingresso siano corrette (non numeri DDT).", "warning")
+
+        except Exception as e:
+            flash(f"Errore: {e}", "danger")
+
+    return render_template('calcoli.html', 
+                           risultati=risultati, 
+                           data_da=data_da_val, 
+                           data_a=data_a_val, 
+                           cliente_filtro=cliente_val, 
+                           raggruppamento=raggruppamento)
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
