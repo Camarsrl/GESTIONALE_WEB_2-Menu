@@ -1895,6 +1895,7 @@ LAVORAZIONI_HTML = """
 CALCOLA_COSTI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
+
 <div class="container-fluid mt-4">
   <h2><i class="bi bi-calculator"></i> Report Costi Magazzino (M² per cliente)</h2>
 
@@ -1904,6 +1905,7 @@ CALCOLA_COSTI_HTML = """
         <label class="form-label fw-bold">Data da:</label>
         <input type="date" name="data_da" class="form-control" value="{{ data_da }}" required>
       </div>
+
       <div class="col-md-2">
         <label class="form-label fw-bold">Data a:</label>
         <input type="date" name="data_a" class="form-control" value="{{ data_a }}" required>
@@ -1917,11 +1919,14 @@ CALCOLA_COSTI_HTML = """
       <div class="col-md-3">
         <label class="form-label fw-bold d-block">Raggruppa:</label>
         <div class="form-check form-check-inline">
-          <input class="form-check-input" type="radio" name="raggruppamento" id="rg_mese" value="mese" {% if raggruppamento != 'giorno' %}checked{% endif %}>
+          <input class="form-check-input" type="radio" name="raggruppamento" id="rg_mese" value="mese"
+                 {% if raggruppamento != 'giorno' %}checked{% endif %}>
           <label class="form-check-label" for="rg_mese">Per mese</label>
         </div>
+
         <div class="form-check form-check-inline">
-          <input class="form-check-input" type="radio" name="raggruppamento" id="rg_giorno" value="giorno" {% if raggruppamento == 'giorno' %}checked{% endif %}>
+          <input class="form-check-input" type="radio" name="raggruppamento" id="rg_giorno" value="giorno"
+                 {% if raggruppamento == 'giorno' %}checked{% endif %}>
           <label class="form-check-label" for="rg_giorno">Per giorno</label>
         </div>
       </div>
@@ -1933,41 +1938,43 @@ CALCOLA_COSTI_HTML = """
   </div>
 
   {% if risultati %}
-  <div class="card shadow-sm">
-    <div class="table-responsive">
-      <table class="table table-striped table-hover mb-0 align-middle">
-        <thead style="background:#f0f0f0;">
-          <tr>
-            <th class="text-center">Periodo</th>
-            <th>Cliente</th>
-            <th class="text-end">M² Tot</th>
-            <th class="text-end">M² Medio</th>
-            <th class="text-center">Giorni</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in risultati %}
-          <tr>
-            <td class="text-center">{{ r.periodo }}</td>
-            <td>{{ r.cliente }}</td>
-            <td class="text-end">{{ r.m2_tot }}</td>
-            <td class="text-end">{{ r.m2_medio }}</td>
-            <td class="text-center">{{ r.giorni }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="card shadow-sm">
+      <div class="table-responsive">
+        <table class="table table-striped table-hover mb-0 align-middle">
+          <thead style="background:#f0f0f0;">
+            <tr>
+              <th class="text-center">Periodo</th>
+              <th>Cliente</th>
+              <th class="text-end">M² Tot</th>
+              <th class="text-end">M² Medio</th>
+              <th class="text-center">Giorni</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in risultati %}
+            <tr>
+              <td class="text-center">{{ r.periodo }}</td>
+              <td>{{ r.cliente }}</td>
+              <td class="text-end">{{ r.m2_tot }}</td>
+              <td class="text-end">{{ r.m2_medio }}</td>
+              <td class="text-center">{{ r.giorni }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
-  </div>
   {% else %}
-    <div class="alert alert-warning">Nessun dato trovato per i criteri selezionati.</div>
+    {% if calcolato %}
+      <div class="alert alert-warning">Nessun dato trovato per i criteri selezionati.</div>
+    {% endif %}
   {% endif %}
 
   <a href="{{ url_for('home') }}" class="btn btn-outline-secondary mt-3">Torna alla Home</a>
 </div>
+
 {% endblock %}
 """
-
 
 
 # --- TEMPLATE PAGINA TRASPORTI (Senza Emoji, usa Icone Bootstrap) ---
