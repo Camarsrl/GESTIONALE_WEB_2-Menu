@@ -1604,30 +1604,31 @@ function submitDdt(actionType) {
 LABELS_FORM_HTML = """
 {% extends 'base.html' %}
 {% block content %}
-<div class="card p-4" style="max-width: 800px; margin: auto;">
-    <h3><i class="bi bi-tags"></i> Crea Etichette (PDF)</h3>
-    
-    <form action="{{ url_for('labels_pdf') }}" method="post">
-        
+<div class="card p-4">
+    <h3><i class="bi bi-tag"></i> Nuova Etichetta</h3>
+    <hr>
+    <form method="post" action="{{ url_for('labels_pdf') }}" target="_blank">
         <div class="row g-3">
-            <div class="col-md-6">
+            <div class="col-md-4">
                 <label class="form-label">Cliente</label>
-                <input name="cliente" class="form-control" list="clist">
-                <datalist id="clist">{% for c in clienti %}<option value="{{ c }}">{% endfor %}</datalist>
+                <input class="form-control" list="clienti-datalist" name="cliente" placeholder="Digita o seleziona un cliente...">
+                <datalist id="clienti-datalist">
+                    {% for c in clienti %}
+                    <option value="{{ c }}">
+                    {% endfor %}
+                </datalist>
             </div>
-            <div class="col-md-6"><label class="form-label">Fornitore</label><input name="fornitore" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">Fornitore</label><input name="fornitore" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Ordine</label><input name="ordine" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Commessa</label><input name="commessa" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">DDT Ingresso</label><input name="ddt_ingresso" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">Data Ingresso</label><input name="data_ingresso" class="form-control" placeholder="gg/mm/aaaa"></div>
+            <div class="col-md-4"><label class="form-label">Arrivo (es. 01/25)</label><input name="arrivo" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">N. Colli</label><input name="n_colli" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Posizione</label><input name="posizione" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">DDT Ingresso</label><input name="n_ddt_ingresso" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Data Ingresso</label><input type="date" name="data_ingresso" class="form-control" value="{{ today }}"></div>
-            <div class="col-md-4"><label class="form-label">N. Arrivo</label><input name="n_arrivo" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label fw-bold">Numero Colli</label><input name="n_colli" type="number" class="form-control" value="1" required></div>
         </div>
-
-        <div class="mt-4">
-            <button type="submit" class="btn btn-warning btn-lg"><i class="bi bi-download"></i> Scarica PDF</button>
-            <a href="{{ url_for('giacenze') }}" class="btn btn-secondary btn-lg">Indietro</a>
+        <div class="mt-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-printer"></i> Genera PDF Etichetta</button>
         </div>
     </form>
 </div>
