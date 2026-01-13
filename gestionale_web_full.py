@@ -2256,10 +2256,42 @@ def logout():
     flash("Logout effettuato con successo", "success")
     return redirect(url_for('login'))
 
+
+@app.route('/')
 @app.route('/home')
 @login_required
 def home():
-    return render_template('home.html')
+    try:
+        # Recupera dati per la dashboard (con gestione errori se il DB è vuoto)
+        tot_articoli = 0
+        tot_m2 = 0.0
+        
+        try:
+            db = SessionLocal()
+            tot_articoli = db.query(Articolo).count()
+            # Calcolo somma M2 sicuro
+            result = db.query(func.sum(Articolo.m2)).scalar()
+            if result:
+                tot_m2 = float(result)
+            db.close()
+        except Exception as e_db:
+            print(f"Errore Dashboard DB: {e_db}")
+            # Non bloccare l'app, mostra 0
+            tot_articoli = 0
+            tot_m2 = 0
+
+        return render_template('home.html', 
+                               tot_articoli=tot_articoli, 
+                               tot_m2=round(tot_m2, 2),
+                               today=date.today())
+                               
+    except Exception as e:
+        # Se c'è un errore grave nel template o altro
+        print(f"CRITICAL ERROR HOME: {e}")
+        import traceback
+        traceback.print_exc()
+        # Fallback estremo: pagina bianca con errore leggibile
+        return f"<h1>Errore Caricamento Home</h1><p>{e}</p><a href='/logout'>Logout</a>"
 
 # ========================================================
 # GESTIONE MAPPE EXCEL (CORRETTA + LOG DEBUG)
