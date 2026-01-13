@@ -4643,59 +4643,31 @@ def labels_form():
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
 def labels_pdf():
-    # PROTEZIONE ADMIN
-    if session.get('role') != 'admin':
-        flash("Funzione riservata agli amministratori.", "danger")
-        return redirect(url_for('giacenze'))
-
-    db = SessionLocal()
+    # Se ci sono ID selezionati, prendi dal DB
     ids = request.form.getlist('ids')
-    articoli_da_stampare = []
-
-    try:
-        if ids:
-            # CASO A: Selezione Multipla dalla Tabella
-            records = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-            articoli_da_stampare = records
-        else:
-            # CASO B: Inserimento Manuale (Pagina "Crea Etichette")
-            a = Articolo()
-            a.cliente = request.form.get('cliente')
-            a.fornitore = request.form.get('fornitore')
-            a.ordine = request.form.get('ordine')
-            a.commessa = request.form.get('commessa')
-            a.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
-            
-            d_ing = request.form.get('data_ingresso')
-            a.data_ingresso = parse_date_ui(d_ing) if d_ing else date.today().strftime("%Y-%m-%d")
-            
-            a.n_arrivo = request.form.get('n_arrivo')
-            a.posizione = request.form.get('posizione')
-            # N. Colli manuale
-            a.n_colli = to_int_eu(request.form.get('n_colli')) or 1
-            
-            articoli_da_stampare = [a]
-        
-        if not articoli_da_stampare:
-            flash("Nessun dato per la stampa.", "warning")
-            return redirect(url_for('giacenze'))
-
-        # Genera il PDF (Passiamo '62x100' come richiesto)
-        pdf_file = _genera_pdf_etichetta(articoli_da_stampare, '62x100')
-        
-        # Scarica il file
-        return send_file(
-            pdf_file, 
-            as_attachment=True, 
-            download_name='Etichette_Camar.pdf', 
-            mimetype='application/pdf'
-        )
+    articoli = []
     
-    except Exception as e:
-        flash(f"Errore generazione PDF: {e}", "danger")
-        return redirect(url_for('giacenze'))
-    finally:
+    if ids:
+        db = SessionLocal()
+        articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
         db.close()
+    else:
+        # Etichetta Manuale: Crea oggetto al volo con i dati del form
+        a = Articolo()
+        a.cliente = request.form.get('cliente')
+        a.fornitore = request.form.get('fornitore')
+        a.ordine = request.form.get('ordine')
+        a.commessa = request.form.get('commessa')
+        a.n_ddt_ingresso = request.form.get('ddt_ingresso') # Attenzione al nome campo HTML
+        a.data_ingresso = request.form.get('data_ingresso')
+        a.n_arrivo = request.form.get('arrivo') # QUI ERA IL PROBLEMA! (arrivo vs n_arrivo)
+        a.n_colli = to_int_eu(request.form.get('n_colli'))
+        a.posizione = request.form.get('posizione')
+        articoli = [a]
+
+    # Genera il PDF
+    pdf_bio = _genera_pdf_etichetta(articoli, request.form.get('formato', '62x100'))
+    return send_file(pdf_bio, as_attachment=False, mimetype='application/pdf')
 
 # --- FUNZIONE ETICHETTE COMPATTA (100x62) ---
 def _genera_pdf_etichetta(articoli, formato='62x100', anteprima=False):
