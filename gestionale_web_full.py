@@ -4712,50 +4712,73 @@ def labels_form():
 # ==============================================================================
 #  GESTIONE ETICHETTE (PDF) - ROUTE E GENERAZIONE
 # ==============================================================================
-@app.route('/labels_pdf', methods=['GET', 'POST'])
+@app.route('/labels_pdf', methods=['POST'])
 @login_required
 def labels_pdf():
-    # ✅ ids possono arrivare sia da POST (form) che da GET (link)
-    ids = request.form.getlist('ids') if request.method == 'POST' else request.args.getlist('ids')
-    filtro_cliente = (request.form.get('filtro_cliente') or request.args.get('filtro_cliente') or '').strip()
+    # Recupera tutti i dati dal form
+    form_data = request.form
+    cliente = form_data.get('cliente')
+    formato = form_data.get('formato', '62x100')
+    anteprima = form_data.get('anteprima') == 'on'
 
-    db = SessionLocal()
+    # Verifica se è una stampa manuale (controlliamo se ci sono dati specifici)
+    # Se c'è almeno un campo compilato tra ordine, commessa o fornitore, è manuale.
+    is_manual = any(form_data.get(k) for k in ['ordine', 'commessa', 'fornitore', 'n_ddt_ingresso', 'n_arrivo'])
+
+    articoli = []
+    
+    if is_manual:
+        # --- STAMPA MANUALE: Crea un oggetto Articolo "volante" con i dati del form ---
+        # Non lo salviamo nel DB, serve solo per il PDF
+        art_temp = Articolo()
+        art_temp.cliente = cliente
+        art_temp.fornitore = form_data.get('fornitore')
+        art_temp.ordine = form_data.get('ordine')
+        art_temp.commessa = form_data.get('commessa')
+        art_temp.n_ddt_ingresso = form_data.get('n_ddt_ingresso') # O ddt_ingresso se il name html è diverso
+        art_temp.data_ingresso = form_data.get('data_ingresso')
+        art_temp.n_arrivo = form_data.get('n_arrivo') # O arrivo
+        art_temp.n_colli = form_data.get('n_colli')
+        art_temp.posizione = form_data.get('posizione')
+        
+        articoli = [art_temp]
+    
+    else:
+        # --- STAMPA MASSIVA: Prendi dal DB ---
+        db = SessionLocal()
+        try:
+            # Se ci sono ID selezionati (es. da check in giacenze)
+            ids = request.form.getlist('ids')
+            if ids:
+                articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+            elif cliente:
+                articoli = db.query(Articolo).filter(Articolo.cliente == cliente).all()
+        finally:
+            db.close()
+
+    if not articoli:
+        flash("Nessun dato trovato per la stampa.", "warning")
+        return redirect(request.referrer or url_for('home'))
+
     try:
-        articoli = []
+        # Genera il PDF usando la funzione helper
+        pdf_bio = _genera_pdf_etichetta(articoli, formato, anteprima)
 
-        # ✅ CASO 1: ID specifici (dalla tabella giacenze)
-        if ids:
-            try:
-                ids_int = [int(x) for x in ids if str(x).strip().isdigit()]
-            except Exception:
-                ids_int = []
-            if ids_int:
-                articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_int)).all()
+        filename = f"Etichetta_{cliente or 'Manuale'}.pdf"
+        
+        # Se è manuale o anteprima, mostralo nel browser (inline), altrimenti scarica
+        as_attachment = False if (anteprima or is_manual) else True
 
-        # ✅ CASO 2: filtro cliente (massiva)
-        elif filtro_cliente:
-            articoli = (
-                db.query(Articolo)
-                  .filter(Articolo.cliente == filtro_cliente)
-                  .filter((Articolo.data_uscita.is_(None)) | (Articolo.data_uscita == ''))
-                  .all()
-            )
-        else:
-            flash("Nessun articolo selezionato o filtro impostato.", "warning")
-            return redirect(url_for('giacenze'))
-
-        if not articoli:
-            flash("Nessun articolo trovato per i criteri selezionati.", "warning")
-            return redirect(url_for('giacenze'))
-
-        pdf_file = _genera_pdf_etichetta(articoli)
-        pdf_file.seek(0)
-
-        filename = f"Etichette_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        return send_file(pdf_file, as_attachment=True, download_name=filename, mimetype='application/pdf')
-
-    finally:
-        db.close()
+        return send_file(
+            pdf_bio, 
+            as_attachment=as_attachment, 
+            download_name=filename, 
+            mimetype='application/pdf'
+        )
+            
+    except Exception as e:
+        flash(f"Errore generazione etichette: {e}", "danger")
+        return redirect(request.referrer or url_for('home'))
 
 # --- FUNZIONE GENERAZIONE PDF (REPORTLAB - Layout Grafico) ---
 def _genera_pdf_etichetta(articoli):
