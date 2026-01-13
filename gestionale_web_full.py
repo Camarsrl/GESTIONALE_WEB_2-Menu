@@ -11,56 +11,52 @@ import uuid
 import json
 import logging
 import calendar
-import pandas as pd
 import smtplib
+import hashlib  # <--- QUESTO MANCAVA E CAUSA ERRORI
+import math
+import mimetypes
 from urllib.parse import unquote
 from pathlib import Path
 from datetime import datetime, date, timedelta
 from collections import defaultdict
 from functools import wraps
-from werkzeug.utils import secure_filename
+
+# Excel e PDF
+import pandas as pd
 import pdfplumber
-from collections import defaultdict
-from datetime import timedelta
+
+# Email
+from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
+from email.mime.base import MIMEBase
 from email.mime.application import MIMEApplication
-from pathlib import Path
-from urllib.parse import unquote
+from email import encoders
 
-
-# Importazioni Flask e Login
+# Flask
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, session, jsonify, render_template_string, abort
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_mail import Mail
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 
-# Importazioni Database (SQLAlchemy)
-from sqlalchemy import create_engine, Column, Integer, String, Text, Float, ForeignKey, or_, Identity, Boolean, text
+# Database (SQLAlchemy)
+from sqlalchemy import create_engine, Column, Integer, String, Text, Float, Date, ForeignKey, Boolean, or_, Identity, text
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session, selectinload
 from sqlalchemy.sql import func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import create_engine, Column, Integer, String, Text, Date, Float, Boolean, ForeignKey, text
 
-# --- IMPORTAZIONI PDF (ReportLab) ---
+# ReportLab (PDF)
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, PageBreak
 
-# --- IMPORTAZIONI EMAIL ---
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
-import os
-from flask_mail import Mail
-
-# Jinja loader
+# Jinja
 from jinja2 import DictLoader
-
 # ========================================================
 # 1. INIZIALIZZAZIONE APP E LOGIN MANAGER (ORDINE CORRETTO)
 # ========================================================
