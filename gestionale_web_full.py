@@ -4670,100 +4670,64 @@ def labels_pdf():
     return send_file(pdf_bio, as_attachment=False, mimetype='application/pdf')
 
 # --- FUNZIONE ETICHETTE COMPATTA (100x62) ---
-def _genera_pdf_etichetta(articoli, formato='62x100', anteprima=False):
-    import io
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import mm
-    from reportlab.lib import colors
-    from pathlib import Path
-
+def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     bio = io.BytesIO()
-    
-    # Formato Etichetta Orizzontale
-    pagesize = (100*mm, 62*mm) 
-    # Margini ridotti al minimo per sfruttare lo spazio
-    margin_top = 1*mm
-    margin_side = 2*mm
+    if formato == '62x100':
+        pagesize = (100*mm, 62*mm); margin = 2*mm
+    else:
+        pagesize = A4; margin = 10*mm
 
-    doc = SimpleDocTemplate(
-        bio, 
-        pagesize=pagesize, 
-        leftMargin=margin_side, 
-        rightMargin=margin_side, 
-        topMargin=margin_top, 
-        bottomMargin=margin_top
-    )
-    
+    doc = SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=margin, rightMargin=margin, topMargin=margin, bottomMargin=margin)
     story = []
+    
     styles = getSampleStyleSheet()
-    
-    # --- STILI PERSONALIZZATI PER RIDURRE SPAZIO ---
-    # leading = spazio tra le righe. Lo teniamo basso.
-    
-    # Etichetta (es. "CLIENTE:") - Font 9
-    s_lbl = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=9)
-    # Valore (es. "WINGECO") - Font 10
-    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=10)
-    
-    # Stile GRANDE per Arrivo e Collo - Font 14, Bold
-    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=16, alignment=1) # Centrato
+    # Font piccoli per far stare tutto
+    s_lbl = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=9)
+    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=9)
+    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
 
     for art in articoli:
-        tot = int(art.n_colli) if (art.n_colli and str(art.n_colli).isdigit()) else 1
+        tot = int(art.n_colli) if art.n_colli else 1
         if tot < 1: tot = 1
 
         for i in range(1, tot + 1):
-            # 1. LOGO
             if LOGO_PATH and Path(LOGO_PATH).exists():
-                story.append(Image(LOGO_PATH, width=35*mm, height=9*mm, hAlign='LEFT'))
-                # Pochissimo spazio dopo il logo
+                story.append(Image(LOGO_PATH, width=30*mm, height=8*mm, hAlign='LEFT'))
                 story.append(Spacer(1, 1*mm))
             
-            # 2. STRINGHE COMPOSTE
-            # Combina: ARRIVO: 01/24 N.1
+            # STRINGA ARRIVO: Es. "10/25 N.1"
             arr_base = art.n_arrivo or ''
-            txt_arrivo_combined = f"ARRIVO: {arr_base}  N.{i}"
-            
-            txt_collo = f"COLLO: {i} / {tot}"
+            arr_str = f"{arr_base} N.{i}"
+            collo_str = f"{i} / {tot}"
 
-            # 3. TABELLA DATI (Compatta)
             dati = [
-                [Paragraph("CLIENTE:", s_lbl), Paragraph(str(art.cliente or '')[:25], s_val)],
-                [Paragraph("FORNITORE:", s_lbl), Paragraph(str(art.fornitore or '')[:25], s_val)],
-                [Paragraph("ORDINE:", s_lbl), Paragraph(str(art.ordine or ''), s_val)],
-                [Paragraph("COMMESSA:", s_lbl), Paragraph(str(art.commessa or ''), s_val)],
-                [Paragraph("DDT ING.:", s_lbl), Paragraph(str(art.n_ddt_ingresso or ''), s_val)],
+                [Paragraph("CLIENTE:", s_lbl), Paragraph(art.cliente or '', s_val)],
+                [Paragraph("FORNITORE:", s_lbl), Paragraph(art.fornitore or '', s_val)],
+                [Paragraph("ORDINE:", s_lbl), Paragraph(art.ordine or '', s_val)],
+                [Paragraph("COMMESSA:", s_lbl), Paragraph(art.commessa or '', s_val)],
+                [Paragraph("DDT ING.:", s_lbl), Paragraph(art.n_ddt_ingresso or '', s_val)],
                 [Paragraph("DATA ING.:", s_lbl), Paragraph(fmt_date(art.data_ingresso), s_val)],
-                
-                # Riga separatoria invisibile (spazio minimo)
-                ['', ''],
-                
-                # Arrivo Combinato (es. ARRIVO: 01/24 N.1) su tutta la larghezza
-                [Paragraph(txt_arrivo_combined, s_big), ''], 
-                # Collo su tutta la larghezza
-                [Paragraph(txt_collo, s_big), '']
+                # Arrivo e Collo in evidenza
+                [Paragraph("ARRIVO:", s_lbl), Paragraph(arr_str, s_big)],
+                [Paragraph("COLLO:", s_lbl), Paragraph(collo_str, s_big)],
+                [Paragraph("POSIZIONE:", s_lbl), Paragraph(art.posizione or '', s_val)],
             ]
             
-            t = Table(dati, colWidths=[23*mm, 72*mm])
+            t = Table(dati, colWidths=[22*mm, 72*mm])
             t.setStyle(TableStyle([
                 ('VALIGN', (0,0), (-1,-1), 'TOP'),
                 ('LEFTPADDING', (0,0), (-1,-1), 0),
                 ('RIGHTPADDING', (0,0), (-1,-1), 0),
-                # Riduciamo il padding interno celle a zero per compattare
                 ('TOPPADDING', (0,0), (-1,-1), 0),
                 ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-                # Unisci le celle delle ultime due righe (Arrivo e Collo) per centrarle meglio
-                ('SPAN', (0,6), (1,6)), # Riga Arrivo
-                ('SPAN', (0,7), (1,7)), # Riga Collo
             ]))
             story.append(t)
-            
             story.append(PageBreak())
 
     doc.build(story)
     bio.seek(0)
     return bio
+        
 
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
