@@ -4671,63 +4671,104 @@ def labels_pdf():
 
 # --- FUNZIONE ETICHETTE COMPATTA (100x62) ---
 def _genera_pdf_etichetta(articoli, formato, anteprima=False):
-    bio = io.BytesIO()
-    if formato == '62x100':
-        pagesize = (100*mm, 62*mm); margin = 2*mm
-    else:
-        pagesize = A4; margin = 10*mm
+    import io
+    from pathlib import Path
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.lib.pagesizes import A4
 
-    doc = SimpleDocTemplate(bio, pagesize=pagesize, leftMargin=margin, rightMargin=margin, topMargin=margin, bottomMargin=margin)
-    story = []
-    
+    bio = io.BytesIO()
+
+    if formato == '62x100':
+        pagesize = (100 * mm, 62 * mm)  # Brother QL-800 orizzontale
+        margin = 2 * mm
+    else:
+        pagesize = A4
+        margin = 10 * mm
+
+    doc = SimpleDocTemplate(
+        bio,
+        pagesize=pagesize,
+        leftMargin=margin, rightMargin=margin,
+        topMargin=margin, bottomMargin=margin
+    )
+
     styles = getSampleStyleSheet()
-    # Font piccoli per far stare tutto
     s_lbl = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=9)
     s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=9)
     s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
 
-    for art in articoli:
-        tot = int(art.n_colli) if art.n_colli else 1
-        if tot < 1: tot = 1
+    # logo path robusto
+    if 'LOGO_PATH' in globals() and LOGO_PATH:
+        logo_path = Path(LOGO_PATH)
+    else:
+        logo_path = Path(app.root_path) / "static" / "logo camar.jpg"
 
+    story = []
+
+    # calcola pagine totali (per evitare pagebreak finale)
+    total_pages = 0
+    colli_per_art = []
+    for art in articoli:
+        try:
+            tot = int(art.n_colli) if art.n_colli else 1
+        except Exception:
+            tot = 1
+        tot = max(1, tot)
+        colli_per_art.append(tot)
+        total_pages += tot
+
+    page_counter = 0
+
+    for art, tot in zip(articoli, colli_per_art):
         for i in range(1, tot + 1):
-            if LOGO_PATH and Path(LOGO_PATH).exists():
-                story.append(Image(LOGO_PATH, width=30*mm, height=8*mm, hAlign='LEFT'))
-                story.append(Spacer(1, 1*mm))
-            
-            # STRINGA ARRIVO: Es. "10/25 N.1"
-            arr_base = art.n_arrivo or ''
-            arr_str = f"{arr_base} N.{i}"
-            collo_str = f"{i} / {tot}"
+            page_counter += 1
+
+            # LOGO
+            if logo_path.exists():
+                try:
+                    img = RLImage(str(logo_path), width=30 * mm, height=8 * mm)
+                    img.hAlign = "LEFT"
+                    story.append(img)
+                    story.append(Spacer(1, 1 * mm))
+                except Exception:
+                    pass
+
+            arr_base = getattr(art, "n_arrivo", "") or ""
+            arr_str = f"{arr_base} N.{i}"     # ARRIVO: 01/24 N.1
+            collo_str = f"{i}/{tot}"          # N. COLLO: 1/2
 
             dati = [
-                [Paragraph("CLIENTE:", s_lbl), Paragraph(art.cliente or '', s_val)],
-                [Paragraph("FORNITORE:", s_lbl), Paragraph(art.fornitore or '', s_val)],
-                [Paragraph("ORDINE:", s_lbl), Paragraph(art.ordine or '', s_val)],
-                [Paragraph("COMMESSA:", s_lbl), Paragraph(art.commessa or '', s_val)],
-                [Paragraph("DDT ING.:", s_lbl), Paragraph(art.n_ddt_ingresso or '', s_val)],
-                [Paragraph("DATA ING.:", s_lbl), Paragraph(fmt_date(art.data_ingresso), s_val)],
-                # Arrivo e Collo in evidenza
+                [Paragraph("CLIENTE:", s_lbl), Paragraph(getattr(art, "cliente", "") or "", s_val)],
+                [Paragraph("FORNITORE:", s_lbl), Paragraph(getattr(art, "fornitore", "") or "", s_val)],
+                [Paragraph("ORDINE:", s_lbl), Paragraph(getattr(art, "ordine", "") or "", s_val)],
+                [Paragraph("COMMESSA:", s_lbl), Paragraph(getattr(art, "commessa", "") or "", s_val)],
+                [Paragraph("DDT ING.:", s_lbl), Paragraph(getattr(art, "n_ddt_ingresso", "") or "", s_val)],
+                [Paragraph("DATA ING.:", s_lbl), Paragraph(fmt_date(getattr(art, "data_ingresso", "")), s_val)],
                 [Paragraph("ARRIVO:", s_lbl), Paragraph(arr_str, s_big)],
-                [Paragraph("COLLO:", s_lbl), Paragraph(collo_str, s_big)],
-                [Paragraph("POSIZIONE:", s_lbl), Paragraph(art.posizione or '', s_val)],
+                [Paragraph("N. COLLO:", s_lbl), Paragraph(collo_str, s_big)],
+                [Paragraph("COLLI:", s_lbl), Paragraph(str(tot), s_big)],
+                [Paragraph("POSIZIONE:", s_lbl), Paragraph(getattr(art, "posizione", "") or "", s_val)],
             ]
-            
-            t = Table(dati, colWidths=[22*mm, 72*mm])
+
+            t = Table(dati, colWidths=[22 * mm, 72 * mm])
             t.setStyle(TableStyle([
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                ('LEFTPADDING', (0,0), (-1,-1), 0),
-                ('RIGHTPADDING', (0,0), (-1,-1), 0),
-                ('TOPPADDING', (0,0), (-1,-1), 0),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                ('TOPPADDING', (0, 0), (-1, -1), 0),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
             ]))
             story.append(t)
-            story.append(PageBreak())
+
+            # NO pagina vuota finale
+            if page_counter < total_pages:
+                story.append(PageBreak())
 
     doc.build(story)
     bio.seek(0)
     return bio
-        
 
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
