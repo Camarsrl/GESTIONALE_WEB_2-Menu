@@ -4687,22 +4687,13 @@ def ddt_finalize():
     finally:
         db.close()
 
-@app.get('/labels_massiva')
+@app.get('/labels')
 @login_required
 def labels_form():
-    if session.get('role') != 'admin':
-        flash("Accesso negato.", "danger")
-        return redirect(url_for('giacenze'))
-
     db = SessionLocal()
     try:
-        clienti_query = (
-            db.query(Articolo.cliente)
-              .distinct()
-              .filter(Articolo.cliente.isnot(None), Articolo.cliente != '')
-              .order_by(Articolo.cliente)
-              .all()
-        )
+        # Ottieni la lista dei clienti per il menu a tendina
+        clienti_query = db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()
         clienti = [c[0] for c in clienti_query]
         return render_template('labels_form.html', clienti=clienti)
     finally:
