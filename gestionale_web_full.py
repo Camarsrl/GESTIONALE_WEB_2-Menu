@@ -4617,12 +4617,17 @@ def ddt_finalize():
     finally:
         db.close()
 
-@app.get('/labels')
+app.get('/labels')
 @login_required
 def labels_form():
+    # --- PROTEZIONE ADMIN ---
+    if session.get('role') != 'admin':
+        flash("Accesso negato.", "danger")
+        return redirect(url_for('giacenze'))
+    # ------------------------
+
     db = SessionLocal()
     try:
-        # Ottieni la lista dei clienti per il menu a tendina
         clienti_query = db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()
         clienti = [c[0] for c in clienti_query]
         return render_template('labels_form.html', clienti=clienti)
@@ -4633,194 +4638,160 @@ def labels_form():
 # ==============================================================================
 #  GESTIONE ETICHETTE (PDF) - ROUTE E GENERAZIONE
 # ==============================================================================
+
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
 def labels_pdf():
-    # Recupera tutti i dati dal form
-    form_data = request.form
-    cliente = form_data.get('cliente')
-    formato = form_data.get('formato', '62x100')
-    anteprima = form_data.get('anteprima') == 'on'
+    # PROTEZIONE ADMIN
+    if session.get('role') != 'admin':
+        flash("Funzione riservata agli amministratori.", "danger")
+        return redirect(url_for('giacenze'))
 
-    # Verifica se è una stampa manuale (controlliamo se ci sono dati specifici)
-    # Se c'è almeno un campo compilato tra ordine, commessa o fornitore, è manuale.
-    is_manual = any(form_data.get(k) for k in ['ordine', 'commessa', 'fornitore', 'n_ddt_ingresso', 'n_arrivo'])
-
-    articoli = []
-    
-    if is_manual:
-        # --- STAMPA MANUALE: Crea un oggetto Articolo "volante" con i dati del form ---
-        # Non lo salviamo nel DB, serve solo per il PDF
-        art_temp = Articolo()
-        art_temp.cliente = cliente
-        art_temp.fornitore = form_data.get('fornitore')
-        art_temp.ordine = form_data.get('ordine')
-        art_temp.commessa = form_data.get('commessa')
-        art_temp.n_ddt_ingresso = form_data.get('n_ddt_ingresso') # O ddt_ingresso se il name html è diverso
-        art_temp.data_ingresso = form_data.get('data_ingresso')
-        art_temp.n_arrivo = form_data.get('n_arrivo') # O arrivo
-        art_temp.n_colli = form_data.get('n_colli')
-        art_temp.posizione = form_data.get('posizione')
-        
-        articoli = [art_temp]
-    
-    else:
-        # --- STAMPA MASSIVA: Prendi dal DB ---
-        db = SessionLocal()
-        try:
-            # Se ci sono ID selezionati (es. da check in giacenze)
-            ids = request.form.getlist('ids')
-            if ids:
-                articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-            elif cliente:
-                articoli = db.query(Articolo).filter(Articolo.cliente == cliente).all()
-        finally:
-            db.close()
-
-    if not articoli:
-        flash("Nessun dato trovato per la stampa.", "warning")
-        return redirect(request.referrer or url_for('home'))
+    db = SessionLocal()
+    ids = request.form.getlist('ids')
+    articoli_da_stampare = []
 
     try:
-        # Genera il PDF usando la funzione helper
-        pdf_bio = _genera_pdf_etichetta(articoli, formato, anteprima)
-
-        filename = f"Etichetta_{cliente or 'Manuale'}.pdf"
+        if ids:
+            # CASO A: Selezione Multipla dalla Tabella
+            records = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+            articoli_da_stampare = records
+        else:
+            # CASO B: Inserimento Manuale (Pagina "Crea Etichette")
+            a = Articolo()
+            a.cliente = request.form.get('cliente')
+            a.fornitore = request.form.get('fornitore')
+            a.ordine = request.form.get('ordine')
+            a.commessa = request.form.get('commessa')
+            a.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
+            
+            d_ing = request.form.get('data_ingresso')
+            a.data_ingresso = parse_date_ui(d_ing) if d_ing else date.today().strftime("%Y-%m-%d")
+            
+            a.n_arrivo = request.form.get('n_arrivo')
+            a.posizione = request.form.get('posizione')
+            # N. Colli manuale
+            a.n_colli = to_int_eu(request.form.get('n_colli')) or 1
+            
+            articoli_da_stampare = [a]
         
-        # Se è manuale o anteprima, mostralo nel browser (inline), altrimenti scarica
-        as_attachment = False if (anteprima or is_manual) else True
+        if not articoli_da_stampare:
+            flash("Nessun dato per la stampa.", "warning")
+            return redirect(url_for('giacenze'))
 
+        # Genera il PDF (Passiamo '62x100' come richiesto)
+        pdf_file = _genera_pdf_etichetta(articoli_da_stampare, '62x100')
+        
+        # Scarica il file
         return send_file(
-            pdf_bio, 
-            as_attachment=as_attachment, 
-            download_name=filename, 
+            pdf_file, 
+            as_attachment=True, 
+            download_name='Etichette_Camar.pdf', 
             mimetype='application/pdf'
         )
-            
+    
     except Exception as e:
-        flash(f"Errore generazione etichette: {e}", "danger")
-        return redirect(request.referrer or url_for('home'))
+        flash(f"Errore generazione PDF: {e}", "danger")
+        return redirect(url_for('giacenze'))
+    finally:
+        db.close()
 
-# --- FUNZIONE GENERAZIONE PDF (REPORTLAB - Layout Grafico) ---
-def _genera_pdf_etichetta(articoli, formato, anteprima=False):
-    """
-    Genera etichette PDF ottimizzate per 100x62mm.
-    Ogni collo genera una pagina distinta nel PDF.
-    """
+# --- FUNZIONE ETICHETTE COMPATTA (100x62) ---
+def _genera_pdf_etichetta(articoli, formato='62x100', anteprima=False):
+    import io
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from pathlib import Path
+
     bio = io.BytesIO()
     
-    # --- IMPOSTAZIONI FORMATO ---
-    if formato == '62x100':
-        # Formato Etichetta Termica (10cm x 6.2cm)
-        # Invertiamo W e H perché reportlab gestisce width/height
-        W, H = 100*mm, 62*mm 
-        pagesize = (W, H)
-        # Margini minimi per sfruttare tutto lo spazio
-        top_margin = 1*mm
-        bottom_margin = 1*mm
-        left_margin = 2*mm
-        right_margin = 2*mm
-    else:
-        # Formato A4 (per test o stampanti normali)
-        pagesize = A4
-        top_margin = 10*mm
-        bottom_margin = 10*mm
-        left_margin = 10*mm
-        right_margin = 10*mm
+    # Formato Etichetta Orizzontale
+    pagesize = (100*mm, 62*mm) 
+    # Margini ridotti al minimo per sfruttare lo spazio
+    margin_top = 1*mm
+    margin_side = 2*mm
 
-    doc = SimpleDocTemplate(bio, pagesize=pagesize, 
-                            leftMargin=left_margin, rightMargin=right_margin, 
-                            topMargin=top_margin, bottomMargin=bottom_margin)
-    story = []
+    doc = SimpleDocTemplate(
+        bio, 
+        pagesize=pagesize, 
+        leftMargin=margin_side, 
+        rightMargin=margin_side, 
+        topMargin=margin_top, 
+        bottomMargin=margin_top
+    )
     
-    # --- STILI PERSONALIZZATI COMPATTI ---
+    story = []
     styles = getSampleStyleSheet()
     
-    # Stile per le Etichette (Chiave): Es. "CLIENTE:" - Font piccolo, grassetto
-    s_key = ParagraphStyle(name='LabelKey', parent=styles['Normal'], 
-                           fontName='Helvetica-Bold', fontSize=8, leading=9)
+    # --- STILI PERSONALIZZATI PER RIDURRE SPAZIO ---
+    # leading = spazio tra le righe. Lo teniamo basso.
     
-    # Stile per i Valori: Es. "FINCANTIERI" - Font leggermente più grande
-    s_val = ParagraphStyle(name='LabelVal', parent=styles['Normal'], 
-                           fontName='Helvetica', fontSize=9, leading=10)
+    # Etichetta (es. "CLIENTE:") - Font 9
+    s_lbl = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=9)
+    # Valore (es. "WINGECO") - Font 10
+    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=10)
     
-    # Stile per dati Critici (Arrivo, Collo): Grande e Grassetto
-    s_big = ParagraphStyle(name='LabelBig', parent=styles['Normal'], 
-                           fontName='Helvetica-Bold', fontSize=11, leading=12)
+    # Stile GRANDE per Arrivo e Collo - Font 14, Bold
+    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=16, alignment=1) # Centrato
 
     for art in articoli:
-        # Calcola numero colli (minimo 1)
-        try:
-            totale_colli = int(art.n_colli) if art.n_colli else 1
-        except:
-            totale_colli = 1
-        
-        if totale_colli < 1: totale_colli = 1
+        tot = int(art.n_colli) if (art.n_colli and str(art.n_colli).isdigit()) else 1
+        if tot < 1: tot = 1
 
-        # --- CICLO: Una pagina per ogni collo ---
-        for i in range(1, totale_colli + 1):
-            
-            # 1. LOGO (Opzionale, ridimensionato per non rubare spazio)
+        for i in range(1, tot + 1):
+            # 1. LOGO
             if LOGO_PATH and Path(LOGO_PATH).exists():
-                # Logo alto massimo 8mm per lasciare spazio ai dati
-                img = Image(LOGO_PATH, width=30*mm, height=8*mm, hAlign='LEFT')
-                story.append(img)
-                story.append(Spacer(1, 1*mm)) # Spazio minimo dopo il logo
+                story.append(Image(LOGO_PATH, width=35*mm, height=9*mm, hAlign='LEFT'))
+                # Pochissimo spazio dopo il logo
+                story.append(Spacer(1, 1*mm))
             
-            # 2. PREPARAZIONE DATI
-            # Formato Arrivo: "10/25 N.1"
-            arrivo_base = art.n_arrivo or ''
-            arrivo_str = f"{arrivo_base}  (N.{i})"
+            # 2. STRINGHE COMPOSTE
+            # Combina: ARRIVO: 01/24 N.1
+            arr_base = art.n_arrivo or ''
+            txt_arrivo_combined = f"ARRIVO: {arr_base}  N.{i}"
             
-            # Formato Collo: "1 / 5"
-            collo_str = f"{i} / {totale_colli}"
+            txt_collo = f"COLLO: {i} / {tot}"
 
-            # 3. COSTRUZIONE TABELLA DATI
-            # Usiamo Paragraph per gestire testi lunghi che vanno a capo
+            # 3. TABELLA DATI (Compatta)
             dati = [
-                [Paragraph("CLIENTE:", s_key), Paragraph(art.cliente or '', s_val)],
-                [Paragraph("FORNITORE:", s_key), Paragraph(art.fornitore or '', s_val)],
-                [Paragraph("ORDINE:", s_key), Paragraph(art.ordine or '', s_val)],
-                [Paragraph("COMMESSA:", s_key), Paragraph(art.commessa or '', s_val)],
-                [Paragraph("DDT ING.:", s_key), Paragraph(art.n_ddt_ingresso or '', s_val)],
-                [Paragraph("DATA ING.:", s_key), Paragraph(fmt_date(art.data_ingresso), s_val)],
+                [Paragraph("CLIENTE:", s_lbl), Paragraph(str(art.cliente or '')[:25], s_val)],
+                [Paragraph("FORNITORE:", s_lbl), Paragraph(str(art.fornitore or '')[:25], s_val)],
+                [Paragraph("ORDINE:", s_lbl), Paragraph(str(art.ordine or ''), s_val)],
+                [Paragraph("COMMESSA:", s_lbl), Paragraph(str(art.commessa or ''), s_val)],
+                [Paragraph("DDT ING.:", s_lbl), Paragraph(str(art.n_ddt_ingresso or ''), s_val)],
+                [Paragraph("DATA ING.:", s_lbl), Paragraph(fmt_date(art.data_ingresso), s_val)],
                 
-                # Righe evidenziate
-                [Paragraph("ARRIVO:", s_key), Paragraph(arrivo_str, s_big)],
-                [Paragraph("N. COLLO:", s_key), Paragraph(collo_str, s_big)],
+                # Riga separatoria invisibile (spazio minimo)
+                ['', ''],
                 
-                [Paragraph("POSIZIONE:", s_key), Paragraph(art.posizione or '', s_val)],
+                # Arrivo Combinato (es. ARRIVO: 01/24 N.1) su tutta la larghezza
+                [Paragraph(txt_arrivo_combined, s_big), ''], 
+                # Collo su tutta la larghezza
+                [Paragraph(txt_collo, s_big), '']
             ]
             
-            # Calcolo larghezza colonne: 
-            # Colonna 1 (Etichette): 22mm
-            # Colonna 2 (Valori): Resto della pagina (circa 70mm su 100mm totali)
-            col_widths = [22*mm, 72*mm]
-
-            t = Table(dati, colWidths=col_widths)
-            
-            # Stile Tabella: Rimuovi bordi e riduci padding a zero per compattare
+            t = Table(dati, colWidths=[23*mm, 72*mm])
             t.setStyle(TableStyle([
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),      # Allinea tutto in alto
-                ('LEFTPADDING', (0,0), (-1,-1), 0),     # Niente padding sx
-                ('RIGHTPADDING', (0,0), (-1,-1), 0),    # Niente padding dx
-                ('TOPPADDING', (0,0), (-1,-1), 0),      # Niente spazio sopra riga
-                ('BOTTOMPADDING', (0,0), (-1,-1), 1),   # 1mm sotto riga
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('LEFTPADDING', (0,0), (-1,-1), 0),
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                # Riduciamo il padding interno celle a zero per compattare
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+                # Unisci le celle delle ultime due righe (Arrivo e Collo) per centrarle meglio
+                ('SPAN', (0,6), (1,6)), # Riga Arrivo
+                ('SPAN', (0,7), (1,7)), # Riga Collo
             ]))
-            
             story.append(t)
             
-            # Salto pagina: fondamentale per stampare etichette separate
             story.append(PageBreak())
 
-    try:
-        doc.build(story)
-        bio.seek(0)
-        return bio
-    except Exception as e:
-        print(f"Errore generazione PDF: {e}")
-        # Ritorna un PDF vuoto o con errore in caso di crash layout
-        return io.BytesIO()
+    doc.build(story)
+    bio.seek(0)
+    return bio
+
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
 app.jinja_env.globals['getattr'] = getattr
