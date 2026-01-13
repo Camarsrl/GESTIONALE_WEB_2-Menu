@@ -73,11 +73,7 @@ login_manager.login_view = 'login'
 # Helpers debug mappe file
 # =========================
 
-# --- ASSICURATI DI AVERE QUESTI IMPORT IN ALTO ---
-from datetime import datetime, date, timedelta
-import pandas as pd
 
-# --- AGGIUNGI QUESTA FUNZIONE HELPER (fuori dalle rotte) ---
 def to_date_db(val):
     """
     Converte val in datetime.date (per DB).
