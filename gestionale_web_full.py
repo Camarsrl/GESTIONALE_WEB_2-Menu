@@ -4637,11 +4637,12 @@ def labels_form():
 # ==============================================================================
 #  GESTIONE ETICHETTE (PDF) - ROUTE E GENERAZIONE
 # ==============================================================================
-@app.route('/labels_pdf', methods=['POST'])
+@app.route('/labels_pdf', methods=['GET', 'POST'])
 @login_required
 def labels_pdf():
-    ids = request.form.getlist('ids')
-    filtro_cliente = (request.form.get('filtro_cliente') or '').strip()
+    # ✅ ids possono arrivare sia da POST (form) che da GET (link)
+    ids = request.form.getlist('ids') if request.method == 'POST' else request.args.getlist('ids')
+    filtro_cliente = (request.form.get('filtro_cliente') or request.args.get('filtro_cliente') or '').strip()
 
     db = SessionLocal()
     try:
@@ -4656,16 +4657,14 @@ def labels_pdf():
             if ids_int:
                 articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_int)).all()
 
-        # ✅ CASO 2: filtro cliente (dalla pagina /labels)
+        # ✅ CASO 2: filtro cliente (massiva)
         elif filtro_cliente:
-            # solo articoli “in magazzino” (non usciti)
             articoli = (
                 db.query(Articolo)
                   .filter(Articolo.cliente == filtro_cliente)
                   .filter((Articolo.data_uscita.is_(None)) | (Articolo.data_uscita == ''))
                   .all()
             )
-
         else:
             flash("Nessun articolo selezionato o filtro impostato.", "warning")
             return redirect(url_for('giacenze'))
