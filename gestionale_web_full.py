@@ -2803,10 +2803,12 @@ def export_client():
 
     return render_template('export_client.html', clienti=clienti)
     
+# ==============================================================================
+#  FUNZIONE INVIA EMAIL (CORRETTA CON FIRMA COMPLETA E LOGO)
+# ==============================================================================
 @app.route('/invia_email', methods=['GET', 'POST'])
 @login_required
 def invia_email():
-    # Import necessari per gestire correttamente la codifica e gli allegati
     from email.header import Header
     from email.mime.image import MIMEImage
     import mimetypes
@@ -2821,7 +2823,7 @@ def invia_email():
     selected_ids = request.form.get('selected_ids', '')
     destinatario = request.form.get('destinatario')
     oggetto = request.form.get('oggetto')
-    messaggio_utente = request.form.get('messaggio') or "" # Testo inserito dall'utente
+    messaggio_utente = request.form.get('messaggio') or ""
     genera_ddt = 'genera_ddt' in request.form
     allega_file = 'allega_file' in request.form
     allegati_extra = request.files.getlist('allegati_extra')
@@ -2839,25 +2841,20 @@ def invia_email():
         return redirect(url_for('giacenze'))
 
     try:
-        # Creazione Messaggio
         msg_root = MIMEMultipart('related')
         msg_root['From'] = SMTP_USER
         msg_root['To'] = destinatario
-        # FIX ENCODING: Header con utf-8 risolve l'errore ASCII sull'oggetto
         msg_root['Subject'] = Header(oggetto, 'utf-8')
 
         msg_alt = MIMEMultipart('alternative')
         msg_root.attach(msg_alt)
 
-        # 1. Corpo Testo Semplice (UTF-8)
-        # Nota: Qui mettiamo solo il testo base per i client che non supportano HTML
+        # 1. Corpo Testo Semplice (Fallback)
         msg_alt.attach(MIMEText(messaggio_utente, 'plain', 'utf-8'))
 
-        # 2. Corpo HTML (UTF-8) con LOGO POSIZIONATO DOPO I SALUTI
-        # Convertiamo i "a capo" in <br>
+        # 2. Corpo HTML (Logo DOPO i saluti + Firma Completa)
         messaggio_html = messaggio_utente.replace('\n', '<br>')
         
-        # HTML Strutturato
         html_body = f"""
         <html>
           <head>
@@ -2865,25 +2862,56 @@ def invia_email():
           </head>
           <body style="font-family: Arial, sans-serif; font-size: 14px; color:#333;">
             
-            <div style="margin-bottom: 20px;">
+            <div style="margin-bottom: 25px;">
               {messaggio_html}
             </div>
 
             <div style="margin-bottom: 20px;">
-              <img src="cid:logo_camar" alt="Camar S.r.l." style="height:60px; width:auto; display:block;">
+              <img src="cid:logo_camar" alt="Camar S.r.l." style="height:65px; width:auto; display:block;">
             </div>
             
-            </body>
+            <div style="font-size: 12px; color: #444; line-height: 1.4;">
+                <p>
+                    <strong>Numero Ufficio:</strong> 010 265995<br>
+                    <strong>Numero Fax:</strong> 010 4550943
+                </p>
+                
+                <p><strong>Mobili:</strong><br>
+                Sig. Tazio Marcellino +39 334 6892992<br>
+                Sig.ra Alessia Moncalvo +39 324 9255537<br>
+                Sig. Giorgio Cabella +39 338 7255224<br>
+                Sig. Hugo Esviza +39 327 4573767</p>
+                
+                <p><i>a simple but ingenious company ®</i></p>
+                
+                <p><strong>INDIRIZZO CONTABILITA':</strong> <a href="mailto:contabilita@camarsrl.net">contabilita@camarsrl.net</a></p>
+                <p>HEAD OFFICE: Via Balleydier 52r – 16149 GENOVA<br>
+                BRANCH OFFICE: La Spezia - Savona - Vado Ligure - Civitavecchia - Marina Di Carrara - Venezia</p>
+                
+                <hr style="border:0; border-top:1px solid #ccc; margin: 15px 0;">
+                
+                <p style="font-size: 10px; color: #777; text-align: justify;">
+                Tutte le parti accettano il presente documento e stabiliscono che per ogni eventuale e futura controversia derivante dal presente accordo, o connesse allo stesso, è competente il Tribunale di Roma.<br>
+                Si ritiene accettato con la conferma del trasporto o la conferma della vendita.<br><br>
+                
+                All the parts agree upon the present document and establish that for any possible future controversy related to the present agreement, or connected to it, the Tribunal of Rome is in charge.<br>
+                This is considered as accepted once the transport or the sale has been confirmed.<br><br>
+
+                AVVISO IMPORTANTE. Le informazioni contenute nella presente comunicazione e i relativi allegati possono essere riservate e sono, comunque, destinate esclusivamente alle persone o alla Società sopraindicati. La comunicazione, diffusione, distribuzione e/o copiatura del documento trasmesso nonché qualsiasi forma di trattamento dei dati ivi contenuti da parte di qualsiasi soggetto diverso dal destinatario è proibita, sia ai sensi dell’art. 616 c.p., che ai sensi del D. Lgs. n. 196/2003, ed in ogni caso espressamente inibita. Le informazioni e tutte le indicazioni, dati, contenuti in questo messaggio hanno una scadenza decennale. Se avete ricevuto questo messaggio per errore, vi preghiamo di distruggerlo e di informarci immediatamente per telefono allo 010 265995 o inviando un messaggio. L’operazione eseguita per vostro conto, segue l’accordo/le tariffe stabilite appositamente, fa parte di un appalto di servizi in esclusiva per le operazioni marittime della vostra azienda. La sopracitata operazione, che sarà effettuata con il massimo dell’attenzione e più velocemente possibile, viene eseguita tramite Autorizzazione Doganale, di Polizia, o di Capitaneria, ed è riconducibile e discrezionale solo da parte dell’Autorità Ministeriale/Statale, pertanto la nostra azienda si manleva da qualsiasi responsabilità relativa all’esito della stessa. Le disposizioni di cui sopra si ritengono accettate dalle controparti, dal momento dell’incarico e dello svolgimento del lavoro sopra menzionato nella email. Questo messaggio, con gli eventuali allegati e informazioni contiene documentazione, dati, notizie, nomi, riservate esclusivamente per fini lavorativi al destinatario inteso come azienda, e alla sua direzione. La nostra azienda non accetta nessun tipo di addebito per ritardi o errori, deficienze o negligenze, nella compilazione o nell’esecuzione, assistenza della documentazione richiesta o fornita. La scrivente agisce come intermediario tra IMPORTANTE. Mandato di trasporto e assicurativo: eseguiamo l’ordine di trasporto e assicuriamo la merce al valore dichiarato. La risposta a questa email è da considerare come mandato assicurativo (quello assicurativo se esplicitamente manifestato dal cliente) e di trasporto a tutti gli effetti. Vi preghiamo di avvisarci nel caso di imprevisti. Comunichiamo che il cambio della data di consegna da noi indicata, non deve essere soggetta a richieste danni o spese. Comunichiamo, inoltre, che dall’uscita dei varchi doganali sino a Vs destinazione, le spese e i costi derivanti da eventuali blocchi traffico, soste, verbali, sanzioni, incidenti non sono a noi imputabili. Se il valore della merce trasportata non è stato dichiarato, il cliente anche per conto dei propri mandatari rinuncia a far valere nei confronti della società e del vettore qualsiasi credito per danni o perdita delle merci in misura superiore al valore indicato dal decreto riportato. Si obbliga a tenere indenne e manlevare la società e il vettore a fronte di qualsiasi richiesta di risarcimento da parte di terzi a fronte di perdite delle merci in misura superiore al valore indicato dal decreto sotto riportato. Il trasporto oggetto della presente prenotazione è disciplinato dalle disposizioni del decreto legislativo 21.11.2005 n.286. Tali disposizioni, tra l’altro, prevedono a carico del committente, caricatore, e proprietario delle merci responsabilità e sanzioni in relazione a violazione delle disposizioni in materia di sicurezza della circolazione quali quelle relative alla massa limite e alla sistemazione del carico sui veicoli. Il cliente garantisce l’esattezza e la completezza delle informazioni fornite alla società in merito alle merci oggetto della prenotazione, nonché, laddove vi preveda l’accuratezza e l’idoneità della sistemazione del carico sui veicoli nel rispetto delle norme descritte si terrà indenne e manleverà la società e il vettore da quest’ultima incaricato per suo conto a fronte di qualsiasi sanzione e responsabilità che dovesse derivare dall’inesattezza incompletezza o inidoneità delle predette informazioni e sistemazioni. È a conoscenza e quindi manleva da qualsiasi danno o addebito la scrivente, nel caso che l’ordine di trasporto venga disdetto da quest’ultima per motivi logistici. La nostra azienda si occupa d’intermediazione nel campo della logistica e trasporti. Eseguiamo operazioni solo ed esclusivamente per Vs conto senza alcuna responsabilità civile, economica, legale. Le disposizioni di cui sopra si ritengono accettate dal momento dell’incarico.
+                </p>
+            </div>
+          </body>
         </html>
         """
         msg_alt.attach(MIMEText(html_body, 'html', 'utf-8'))
 
         # 3. ALLEGARE IL LOGO (cid:logo_camar)
+        # Cerchiamo il logo in vari modi per sicurezza
         possible_logos = ["logo camar.jpg", "logo_camar.jpg", "logo.jpg"]
         logo_found = False
         
-        for logo_name in possible_logos:
-            logo_path = os.path.join(app.root_path, "static", logo_name)
+        for name in possible_logos:
+            logo_path = os.path.join(app.root_path, "static", name)
             if os.path.exists(logo_path):
                 with open(logo_path, "rb") as f:
                     img_data = f.read()
@@ -2896,7 +2924,7 @@ def invia_email():
                 break
         
         if not logo_found:
-            print("⚠️ ATTENZIONE: Logo non trovato nella cartella static!")
+            print("⚠️ ATTENZIONE: Logo non trovato nella cartella static! (L'email partirà senza logo visibile)")
 
         # 4. DDT PDF (Se richiesto)
         if genera_ddt and ids_list:
@@ -2906,8 +2934,7 @@ def invia_email():
                 if rows:
                     pdf_bio = io.BytesIO()
                     _genera_pdf_ddt_file(
-                        {'n_ddt': 'RIEP', 'data_uscita': date.today().strftime('%d/%m/%Y'), 
-                         'destinatario': 'RIEPILOGO', 'dest_indirizzo': '', 'dest_citta': ''}, 
+                        {'n_ddt': 'RIEP', 'data_uscita': date.today().strftime('%d/%m/%Y'), 'destinatario': 'RIEPILOGO', 'dest_indirizzo': '', 'dest_citta': ''}, 
                         [{
                             'id_articolo': r.id_articolo, 'codice_articolo': r.codice_articolo, 
                             'descrizione': r.descrizione, 'pezzo': r.pezzo, 'n_colli': r.n_colli, 
@@ -2934,6 +2961,7 @@ def invia_email():
                     for att in r.attachments:
                         fname = att.filename
                         path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / fname
+                        # Fallback URL decode se il file non si trova
                         if not path.exists():
                              from urllib.parse import unquote
                              path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / unquote(fname)
@@ -2957,7 +2985,7 @@ def invia_email():
                 part.add_header('Content-Disposition', f'attachment; filename="{secure_filename(file.filename)}"')
                 msg_root.attach(part)
 
-        # INVIO
+        # INVIO SMTP
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
