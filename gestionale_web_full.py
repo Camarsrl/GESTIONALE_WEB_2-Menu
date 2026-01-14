@@ -4773,7 +4773,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     bio = io.BytesIO()
 
     if formato == '62x100':
-        pagesize = (100 * mm, 62 * mm)  # Brother QL-800 orizzontale
+        pagesize = (100 * mm, 62 * mm)  # Brother QL-800 ORIZZONTALE
         margin = 2 * mm
     else:
         pagesize = A4
@@ -4787,9 +4787,11 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     )
 
     styles = getSampleStyleSheet()
-    s_lbl = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=9)
-    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=9)
-    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=11)
+
+    # ✅ FONT PIÙ GRANDI (rispetto a prima)
+    s_lbl = ParagraphStyle('L', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=12, leading=13)
+    s_val = ParagraphStyle('V', parent=styles['Normal'], fontName='Helvetica', fontSize=12, leading=13)
+    s_big = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=16, leading=17)
 
     # logo path robusto
     if 'LOGO_PATH' in globals() and LOGO_PATH:
@@ -4817,13 +4819,13 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
         for i in range(1, tot + 1):
             page_counter += 1
 
-            # LOGO
+            # ✅ LOGO PIÙ GRANDE
             if logo_path.exists():
                 try:
-                    img = RLImage(str(logo_path), width=30 * mm, height=8 * mm)
+                    img = RLImage(str(logo_path), width=50 * mm, height=14 * mm)
                     img.hAlign = "LEFT"
                     story.append(img)
-                    story.append(Spacer(1, 1 * mm))
+                    story.append(Spacer(1, 1.5 * mm))
                 except Exception:
                     pass
 
@@ -4838,20 +4840,28 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 [Paragraph("COMMESSA:", s_lbl), Paragraph(getattr(art, "commessa", "") or "", s_val)],
                 [Paragraph("DDT ING.:", s_lbl), Paragraph(getattr(art, "n_ddt_ingresso", "") or "", s_val)],
                 [Paragraph("DATA ING.:", s_lbl), Paragraph(fmt_date(getattr(art, "data_ingresso", "")), s_val)],
+
+                # ✅ In evidenza
                 [Paragraph("ARRIVO:", s_lbl), Paragraph(arr_str, s_big)],
                 [Paragraph("N. COLLO:", s_lbl), Paragraph(collo_str, s_big)],
                 [Paragraph("COLLI:", s_lbl), Paragraph(str(tot), s_big)],
+
                 [Paragraph("POSIZIONE:", s_lbl), Paragraph(getattr(art, "posizione", "") or "", s_val)],
             ]
 
-            t = Table(dati, colWidths=[22 * mm, 72 * mm])
+            # ✅ larghezze colonne riviste per font grande
+            t = Table(dati, colWidths=[30 * mm, 66 * mm])
+
             t.setStyle(TableStyle([
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+
+                # spazi minimi per “effetto grande”
                 ('LEFTPADDING', (0, 0), (-1, -1), 0),
                 ('RIGHTPADDING', (0, 0), (-1, -1), 0),
                 ('TOPPADDING', (0, 0), (-1, -1), 0),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
             ]))
+
             story.append(t)
 
             # NO pagina vuota finale
@@ -4861,6 +4871,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     doc.build(story)
     bio.seek(0)
     return bio
+
 
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
