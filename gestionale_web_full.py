@@ -4708,7 +4708,13 @@ def labels_form():
 
     db = SessionLocal()
     try:
-        clienti_query = db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()
+        clienti_query = (
+            db.query(Articolo.cliente)
+              .distinct()
+              .filter(Articolo.cliente != None, Articolo.cliente != '')
+              .order_by(Articolo.cliente)
+              .all()
+        )
         clienti = [c[0] for c in clienti_query]
         return render_template('labels_form.html', clienti=clienti)
     finally:
