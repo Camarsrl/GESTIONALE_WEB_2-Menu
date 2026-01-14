@@ -4725,11 +4725,13 @@ def labels_pdf():
     # Se ci sono ID selezionati, prendi dal DB
     ids = request.form.getlist('ids')
     articoli = []
-    
+
     if ids:
         db = SessionLocal()
-        articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-        db.close()
+        try:
+            articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+        finally:
+            db.close()
     else:
         # Etichetta Manuale: Crea oggetto al volo con i dati del form
         a = Articolo()
@@ -4737,16 +4739,27 @@ def labels_pdf():
         a.fornitore = request.form.get('fornitore')
         a.ordine = request.form.get('ordine')
         a.commessa = request.form.get('commessa')
-        a.n_ddt_ingresso = request.form.get('ddt_ingresso') # Attenzione al nome campo HTML
+        a.n_ddt_ingresso = request.form.get('ddt_ingresso')  # nome campo HTML
         a.data_ingresso = request.form.get('data_ingresso')
-        a.n_arrivo = request.form.get('arrivo') # QUI ERA IL PROBLEMA! (arrivo vs n_arrivo)
+        a.n_arrivo = request.form.get('arrivo')  # arrivo (manuale) -> n_arrivo
         a.n_colli = to_int_eu(request.form.get('n_colli'))
         a.posizione = request.form.get('posizione')
         articoli = [a]
 
-    # Genera il PDF
-    pdf_bio = _genera_pdf_etichetta(articoli, request.form.get('formato', '62x100'))
-    return send_file(pdf_bio, as_attachment=False, mimetype='application/pdf')
+    # Genera PDF
+    formato = request.form.get('formato', '62x100')
+    pdf_bio = _genera_pdf_etichetta(articoli, formato)
+
+    # ✅ FORZA DOWNLOAD (così poi stampi dal file scaricato con formato corretto)
+    filename = f"Etichetta_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    pdf_bio.seek(0)
+    return send_file(
+        pdf_bio,
+        as_attachment=True,              # <-- IMPORTANTISSIMO
+        download_name=filename,
+        mimetype='application/pdf'
+    )
+
 
 # --- FUNZIONE ETICHETTE COMPATTA (100x62) ---
 def _genera_pdf_etichetta(articoli, formato, anteprima=False):
