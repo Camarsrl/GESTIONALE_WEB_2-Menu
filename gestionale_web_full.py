@@ -1607,7 +1607,13 @@ LABELS_FORM_HTML = """
 <div class="card p-4">
     <h3><i class="bi bi-tag"></i> Nuova Etichetta</h3>
     <hr>
-    <form method="post" action="{{ url_for('labels_pdf') }}" target="_blank">
+
+    <div class="alert alert-info py-2">
+        <i class="bi bi-info-circle"></i>
+        Il PDF verrà <b>scaricato</b> automaticamente: aprilo e stampa dal file scaricato per mantenere il formato <b>100x62mm</b>.
+    </div>
+
+    <form method="post" action="{{ url_for('labels_pdf') }}">
         <div class="row g-3">
             <div class="col-md-4">
                 <label class="form-label">Cliente</label>
@@ -1627,8 +1633,11 @@ LABELS_FORM_HTML = """
             <div class="col-md-4"><label class="form-label">N. Colli</label><input name="n_colli" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Posizione</label><input name="posizione" class="form-control"></div>
         </div>
+
         <div class="mt-4 d-flex gap-2">
-            <button type="submit" class="btn btn-primary"><i class="bi bi-printer"></i> Genera PDF Etichetta</button>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-printer"></i> Scarica PDF Etichetta
+            </button>
         </div>
     </form>
 </div>
