@@ -2608,39 +2608,102 @@ def import_excel():
         flash("Seleziona un profilo valido.", "warning")
         return redirect(request.url)
 
-    if 'excel_file' not in request.files: return redirect(request.url)
+    if 'excel_file' not in request.files:
+        return redirect(request.url)
+
     file = request.files['excel_file']
-    if not file or file.filename == '': return redirect(request.url)
+    if not file or file.filename == '':
+        return redirect(request.url)
 
     db = SessionLocal()
     try:
         config = mappe[profile_name]
-        header_row_idx = int(config.get('header_row', 1)) - 1  
+        header_row_idx = int(config.get('header_row', 1)) - 1
         column_map = config.get('column_map', {}) or {}
 
         import pandas as pd
+        import numpy as np
+        from datetime import datetime, date
+
         xls = pd.ExcelFile(file, engine="openpyxl")
         df = xls.parse(0, header=header_row_idx)
+
+        # Mappa colonne (case-insensitive)
         df_cols_upper = {str(c).strip().upper(): c for c in df.columns}
 
-        # HELPER DATA ROBUSTO
+        # ✅ HELPER DATA SUPER-ROBUSTO
         def to_date_db(val):
-            if pd.isna(val) or val == '': return None
-            # Se è già datetime/timestamp di pandas
+            """
+            Ritorna data in formato YYYY-MM-DD oppure None.
+            Gestisce:
+            - datetime / pd.Timestamp / date
+            - numpy.datetime64
+            - seriale Excel (int/float)
+            - stringhe (dd/mm/yyyy, dd/mm/yy, dd.mm.yyyy, ecc.)
+            """
+            if val is None:
+                return None
+
+            # NaN/NaT
+            try:
+                if pd.isna(val):
+                    return None
+            except Exception:
+                pass
+
+            # date/datetime/pandas timestamp
             if isinstance(val, (datetime, pd.Timestamp)):
                 return val.strftime("%Y-%m-%d")
-            # Se è stringa
+            if isinstance(val, date) and not isinstance(val, datetime):
+                return val.strftime("%Y-%m-%d")
+
+            # numpy datetime64
+            if isinstance(val, np.datetime64):
+                try:
+                    dt = pd.to_datetime(val, errors="coerce")
+                    if pd.isna(dt):
+                        return None
+                    return dt.strftime("%Y-%m-%d")
+                except Exception:
+                    return None
+
+            # Seriali Excel (giorni da 1899-12-30)
+            # Pandas a volte legge le date come float/int
+            if isinstance(val, (int, float)) and val > 0:
+                try:
+                    dt = pd.to_datetime(val, unit="D", origin="1899-12-30", errors="coerce")
+                    if pd.isna(dt):
+                        return None
+                    return dt.strftime("%Y-%m-%d")
+                except Exception:
+                    pass  # continua sotto a tentare come stringa
+
+            # Stringhe
             s = str(val).strip()
-            # Tenta vari formati
-            for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y"):
+            if not s:
+                return None
+
+            # prova formati comuni
+            for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y", "%Y/%m/%d", "%d-%m-%Y", "%d-%m-%y", "%d.%m.%Y", "%d.%m.%y"):
                 try:
                     return datetime.strptime(s[:10], fmt).strftime("%Y-%m-%d")
-                except: pass
-            return None
+                except Exception:
+                    pass
+
+            # fallback Pandas (dayfirst=True per Italia)
+            try:
+                dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
+                if pd.isna(dt):
+                    return None
+                return dt.strftime("%Y-%m-%d")
+            except Exception:
+                return None
 
         imported_count = 0
+
         for _, row in df.iterrows():
-            if row.isnull().all(): continue
+            if row.isnull().all():
+                continue
 
             new_art = Articolo()
             has_data = False
@@ -2648,41 +2711,55 @@ def import_excel():
             for excel_header, db_field in column_map.items():
                 key = str(excel_header).strip().upper()
                 col_name = df_cols_upper.get(key)
-                if col_name is None: continue
+                if col_name is None:
+                    continue
 
                 val = row[col_name]
-                if pd.isna(val) or str(val).strip() == "": continue
+
+                # se vuoto, skip
+                try:
+                    if pd.isna(val) or str(val).strip() == "":
+                        continue
+                except Exception:
+                    pass
 
                 # Conversioni
                 if db_field in ['larghezza', 'lunghezza', 'altezza', 'peso', 'm2', 'm3']:
-                    try: val = float(str(val).replace(',', '.'))
-                    except: val = 0.0
+                    try:
+                        val = float(str(val).replace(',', '.'))
+                    except Exception:
+                        val = 0.0
+
                 elif db_field in ['n_colli', 'pezzo']:
-                    try: val = int(float(str(val).replace(',', '.')))
-                    except: val = 1
+                    try:
+                        val = int(float(str(val).replace(',', '.')))
+                    except Exception:
+                        val = 1
+
                 elif db_field in ['data_ingresso', 'data_uscita']:
-                    val = to_date_db(val)
+                    val = to_date_db(val)  # ✅ QUI ORA PRENDE ANCHE SERIALI EXCEL
+
                 else:
                     val = str(val).strip()
 
-                if val is not None:
+                if val is not None and str(val).strip() != "":
                     setattr(new_art, db_field, val)
                     has_data = True
 
             if has_data:
                 # Calcoli automatici se mancano
                 try:
-                    if not new_art.m2 or new_art.m2 == 0:
-                        l = new_art.lunghezza or 0
-                        w = new_art.larghezza or 0
-                        h = new_art.altezza or 0
-                        c = new_art.n_colli or 1
-                        # Logica m2/m3
-                        if l>0 and w>0:
-                            # Se altezza è trascurabile o non usata per m2
+                    if not new_art.m2 or float(new_art.m2) == 0:
+                        l = float(new_art.lunghezza or 0)
+                        w = float(new_art.larghezza or 0)
+                        h = float(new_art.altezza or 0)
+                        c = int(new_art.n_colli or 1)
+
+                        if l > 0 and w > 0:
                             new_art.m2 = round(l * w * c, 3)
-                            new_art.m3 = round(l * w * (h if h>0 else 0) * c, 3)
-                except: pass
+                            new_art.m3 = round(l * w * (h if h > 0 else 0) * c, 3)
+                except Exception:
+                    pass
 
                 db.add(new_art)
                 imported_count += 1
@@ -2697,6 +2774,8 @@ def import_excel():
         return redirect(request.url)
     finally:
         db.close()
+
+
 def get_all_fields_map():
     return {
         'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi','lotto':'Lotto',
