@@ -2395,34 +2395,59 @@ def manage_mappe():
 @app.post('/upload_mappe_json')
 @login_required
 def upload_mappe_json():
+    import json
+    import hashlib
+
     if 'json_file' not in request.files:
         flash("Nessun file selezionato", "warning")
         return redirect(url_for('manage_mappe'))
 
     f = request.files['json_file']
-    if f.filename == '':
+    if not f or f.filename == '':
         flash("Nessun file selezionato", "warning")
         return redirect(url_for('manage_mappe'))
 
     target = APP_DIR / "mappe_excel.json"
+
+    def file_digest(path):
+        try:
+            h = hashlib.md5()
+            with open(path, "rb") as fp:
+                for chunk in iter(lambda: fp.read(8192), b""):
+                    h.update(chunk)
+            return h.hexdigest()
+        except Exception:
+            return "N/A"
 
     print("\n=== DEBUG upload_mappe_json() ===")
     print(f"DEBUG upload_mappe_json: filename={f.filename}")
     print(f"DEBUG upload_mappe_json: target={target}")
 
     try:
-        content = f.read().decode('utf-8')
-        json.loads(content)  # Validazione
+        raw = f.read()
 
-        target.write_text(content, encoding='utf-8')
-
+        # ✅ UTF-8 con BOM (capita spesso con file creati da Windows/Excel)
         try:
-            size = target.stat().st_size
+            content = raw.decode("utf-8-sig")
         except Exception:
-            size = "N/A"
-        print(f"DEBUG upload_mappe_json: scritto OK. md5={_file_digest(target)} size={size}")
+            content = raw.decode("utf-8")
+
+        # ✅ validazione JSON (se non è JSON valido -> eccezione)
+        json.loads(content)
+
+        # ✅ assicura cartella esista
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+
+        target.write_text(content, encoding="utf-8")
+
+        size = target.stat().st_size if target.exists() else "N/A"
+        print(f"DEBUG upload_mappe_json: scritto OK. md5={file_digest(target)} size={size}")
 
         flash("File mappe_excel.json caricato correttamente.", "success")
+
     except Exception as e:
         print(f"DEBUG upload_mappe_json: ERRORE: {e}")
         flash(f"Errore nel file caricato: {e}", "danger")
