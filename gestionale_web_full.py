@@ -570,44 +570,68 @@ BASE_HTML = """
 REPORT_INVENTARIO_HTML = """
 <!DOCTYPE html>
 <html>
-<head><title>Inventario al {{ data_rif }}</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<head>
+  <title>Inventario al {{ data_rif }}</title>
+  <meta charset="utf-8">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    @media print {
+      .pagebreak { page-break-after: always; }
+    }
+    table { font-size: 12px; }
+    h1 { font-size: 28px; margin-bottom: 10px; }
+    h3 { font-size: 18px; }
+  </style>
 </head>
+
 <body onload="window.print()">
-    <div class="container mt-4">
-        <h1 class="text-center">Inventario al {{ data_rif }}</h1>
-        <hr>
-        {% for cliente, articoli in inventario.items() %}
-            <h3 class="mt-4 bg-light p-2">{{ cliente }}</h3>
-            <table class="table table-sm table-bordered">
-                <thead>
-                    <tr>
-                        <th>Codice</th>
-                        <th>Descrizione</th>
-                        <th>Lotto</th>
-                        <th>Q.tà</th>
-                        <th>Posizione</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for art in articoli %}
-                    <tr>
-                        <td>{{ art.codice_articolo or '' }}</td>
-                        <td>{{ art.descrizione or '' }}</td>
-                        <!-- ✅ se lotto è vuoto/None resta vuoto -->
-                        <td>{{ art.lotto or '' }}</td>
-                        <td>{{ art.n_colli or '' }}</td>
-                        <td>{{ art.posizione or '' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            <div style="page-break-after: always;"></div>
-        {% endfor %}
-    </div>
+  <div class="container mt-4">
+    <h1 class="text-center">Inventario al {{ data_rif }}</h1>
+    <hr>
+
+    {% if not inventario or inventario|length == 0 %}
+      <div class="alert alert-warning">
+        Nessun articolo presente in giacenza per la data selezionata.
+      </div>
+    {% endif %}
+
+    {% for cliente, articoli in inventario.items() %}
+      <h3 class="mt-4 bg-light p-2">{{ cliente }}</h3>
+
+      <table class="table table-sm table-bordered">
+        <thead>
+          <tr>
+            <th>Codice</th>
+            <th>Descrizione</th>
+            <th>Lotto</th>
+            <th>Colli</th>
+            <th>Posizione</th>
+            <th>Data Ing.</th>
+            <th>N. Arrivo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for art in articoli %}
+          <tr>
+            <td>{{ art.codice_articolo or '' }}</td>
+            <td>{{ art.descrizione or '' }}</td>
+            <td>{{ art.lotto or '' }}</td>
+            <td>{{ art.n_colli or '' }}</td>
+            <td>{{ art.posizione or '' }}</td>
+            <td>{{ art.data_ingresso or '' }}</td>
+            <td>{{ art.n_arrivo or '' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div class="pagebreak"></div>
+    {% endfor %}
+  </div>
 </body>
 </html>
 """
+
 
 
 REPORT_TRASPORTI_HTML = """
