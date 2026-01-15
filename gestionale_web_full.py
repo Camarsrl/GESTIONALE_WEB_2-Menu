@@ -2601,137 +2601,137 @@ def lavorazioni():
     return render_template('lavorazioni.html', lavorazioni=dati, today=date.today())
 
 # --- REPORT INVENTARIO PER CLIENTE/DATA ---
+# --- REPORT INVENTARIO (PDF) ---
 @app.route('/report_inventario', methods=['POST'])
 @login_required
 def report_inventario():
-    from datetime import datetime, date
-    from io import BytesIO
-    import pandas as pd
-
-    data_rif_str = (request.form.get('data_inventario') or '').strip()
-    cliente_rif = (request.form.get('cliente_inventario') or '').strip()
-    out_format = (request.form.get('format') or 'print').strip().lower()  # print | excel
-
-    if not data_rif_str:
-        return "Data mancante", 400
-
-    # parsing data riferimento (input type=date => YYYY-MM-DD)
-    try:
-        d_limit = datetime.strptime(data_rif_str, "%Y-%m-%d").date()
-    except Exception:
-        return "Formato data inventario non valido", 400
-
-    def parse_d(v):
-        """Ritorna date oppure None, supporta date / 'YYYY-MM-DD' / 'DD/MM/YYYY' / 'DD-MM-YYYY'."""
-        if isinstance(v, date):
-            return v
-        if not v:
-            return None
-        s = str(v).strip()
-        if not s:
-            return None
-        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
-            try:
-                return datetime.strptime(s[:10], fmt).date()
-            except Exception:
-                pass
-        return None
+    data_rif_str = request.form.get('data_inventario')
+    cliente_rif = request.form.get('cliente_inventario', '').strip()
+    
+    if not data_rif_str: return "Data mancante", 400
 
     db = SessionLocal()
     try:
         query = db.query(Articolo)
-
-        # filtro cliente opzionale
         if cliente_rif:
             query = query.filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
-
+        
         all_arts = query.all()
-
-        # SOLO in giacenza alla data
+        
+        # Converte la data di riferimento
+        try:
+            d_limit = datetime.strptime(data_rif_str, "%Y-%m-%d").date()
+        except:
+            d_limit = date.today()
+        
         in_stock = []
         for art in all_arts:
+            # Helper interno date
+            def parse_d(v):
+                if not v: return None
+                if isinstance(v, date): return v
+                s = str(v).strip()[:10]
+                for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+                    try: return datetime.strptime(s, fmt).date()
+                    except: pass
+                return None
+            
             d_ing = parse_d(art.data_ingresso)
-            if not d_ing or d_ing > d_limit:
+            d_usc = parse_d(art.data_uscita)
+
+            # 1. Se è uscito PRIMA della data inventario -> ESCLUSO (non c'era più)
+            if d_usc and d_usc <= d_limit:
                 continue
 
-            present = True
-            if art.data_uscita:
-                d_usc = parse_d(art.data_uscita)
-                if d_usc and d_usc <= d_limit:
-                    present = False
+            # 2. Se è entrato DOPO la data inventario -> ESCLUSO (non c'era ancora)
+            # NOTA: Se d_ing è None (data sporca), lo includiamo per sicurezza (vecchio stock)
+            if d_ing and d_ing > d_limit:
+                continue
+                
+            in_stock.append(art)
 
-            if present:
-                in_stock.append(art)
+        # Raggruppa per cliente
+        inventario = defaultdict(list)
+        # Ordina prima per Cliente, poi per Data Ingresso
+        in_stock.sort(key=lambda x: (x.cliente or "", str(x.data_ingresso or "")))
 
-        # Raggruppo per cliente (serve sia per print, sia se vuoi excel per cliente)
-        inventario = {}
         for art in in_stock:
-            cli = art.cliente or "NESSUN CLIENTE"
-            inventario.setdefault(cli, []).append(art)
-
-        # --- STAMPA HTML ---
-        if out_format == "print":
-            return render_template(
-                'report_inventario_print.html',
-                inventario=inventario,
-                data_rif=data_rif_str,
-                cliente_rif=cliente_rif
-            )
-
-        # --- EXCEL ---
-        rows = []
-        for cli, articoli in inventario.items():
-            for art in articoli:
-                rows.append({
-                    "Cliente": cli,
-                    "Codice": art.codice_articolo or "",
-                    "Descrizione": art.descrizione or "",
-                    "Lotto": art.lotto or "",
-                    "Colli": art.n_colli or "",
-                    "Posizione": art.posizione or "",
-                    "Data Ingresso": art.data_ingresso or "",
-                    "N. Arrivo": art.n_arrivo or "",
-                    "DDT Ingresso": getattr(art, "n_ddt_ingresso", "") or "",
-                    "Ordine": art.ordine or "",
-                    "Fornitore": art.fornitore or "",
-                    "Magazzino": art.magazzino or "",
-                })
-
-        df = pd.DataFrame(rows)
-
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df.to_excel(writer, sheet_name="Inventario", index=False)
-
-            ws = writer.sheets["Inventario"]
-            ws.freeze_panes = "A2"
-            # intestazioni in grassetto
-            for cell in ws[1]:
-                cell.font = cell.font.copy(bold=True)
-
-            # larghezza colonne (semplice)
-            for col_idx, col_name in enumerate(df.columns, start=1):
-                # limito righe usate per calcolo larghezza
-                sample = df[col_name].astype(str).head(300).tolist()
-                max_len = max([len(str(col_name))] + [len(x) for x in sample])
-                width = min(max(10, max_len + 2), 45)
-                ws.column_dimensions[chr(64 + col_idx)].width = width
-
-        output.seek(0)
-
-        safe_cli = (cliente_rif.replace(" ", "_")[:30] if cliente_rif else "TUTTI")
-        filename = f"inventario_{safe_cli}_{data_rif_str}.xlsx"
-
-        return send_file(
-            output,
-            as_attachment=True,
-            download_name=filename,
-            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
+            cli = (art.cliente or "NESSUN CLIENTE").strip().upper()
+            inventario[cli].append(art)
+            
+        return render_template('report_inventario_print.html', inventario=inventario, data_rif=data_rif_str)
     finally:
         db.close()
 
+# --- NUOVO: EXPORT INVENTARIO EXCEL ---
+@app.route('/export_inventario', methods=['POST'])
+@login_required
+def export_inventario():
+    data_rif_str = request.form.get('data_inventario')
+    cliente_rif = request.form.get('cliente_inventario', '').strip()
+    
+    if not data_rif_str: return "Data mancante", 400
+
+    db = SessionLocal()
+    try:
+        query = db.query(Articolo)
+        if cliente_rif:
+            query = query.filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
+        
+        all_arts = query.all()
+        d_limit = datetime.strptime(data_rif_str, "%Y-%m-%d").date()
+        
+        data_rows = []
+        for art in all_arts:
+            def parse_d(v):
+                if not v: return None
+                if isinstance(v, date): return v
+                try: return datetime.strptime(str(v)[:10], "%Y-%m-%d").date()
+                except: return None
+            
+            d_ing = parse_d(art.data_ingresso)
+            d_usc = parse_d(art.data_uscita)
+
+            # Logica Giacenza Storica
+            if d_usc and d_usc <= d_limit: continue # Già uscito
+            if d_ing and d_ing > d_limit: continue  # Non ancora entrato
+            
+            # Aggiungi riga Excel
+            data_rows.append({
+                'Cliente': art.cliente,
+                'Fornitore': art.fornitore,
+                'Codice': art.codice_articolo,
+                'Descrizione': art.descrizione,
+                'Data Ingresso': art.data_ingresso,
+                'DDT Ingresso': art.n_ddt_ingresso,
+                'N. Colli': art.n_colli,
+                'Pezzi': art.pezzo,
+                'Posizione': art.posizione,
+                'Lotto': art.lotto,
+                'Commessa': art.commessa,
+                'Ordine': art.ordine
+            })
+
+        if not data_rows:
+            flash("Nessun dato da esportare per la data selezionata.", "warning")
+            return redirect(url_for('home'))
+
+        # Crea Excel
+        df = pd.DataFrame(data_rows)
+        # Ordina per Cliente
+        df.sort_values(by=['Cliente', 'Data Ingresso'], inplace=True)
+        
+        bio = io.BytesIO()
+        # Usa ExcelWriter per formattare meglio se necessario
+        with pd.ExcelWriter(bio, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Inventario')
+            
+        bio.seek(0)
+        filename = f"Inventario_{data_rif_str}.xlsx"
+        return send_file(bio, as_attachment=True, download_name=filename, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    finally:
+        db.close()
 
 # =========================
 # IMPORT EXCEL (con log)
