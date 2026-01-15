@@ -2581,48 +2581,92 @@ def lavorazioni():
 @app.route('/report_inventario', methods=['POST'])
 @login_required
 def report_inventario():
-    data_rif_str = request.form.get('data_inventario')
-    cliente_rif = request.form.get('cliente_inventario', '').strip()
-    
-    if not data_rif_str: return "Data mancante", 400
+    from datetime import datetime, date
+    from sqlalchemy import or_
+
+    data_rif_str = (request.form.get('data_inventario') or '').strip()
+    cliente_rif = (request.form.get('cliente_inventario') or '').strip()
+
+    if not data_rif_str:
+        return "Data mancante", 400
+
+    # parsing data riferimento (input type=date => YYYY-MM-DD)
+    try:
+        d_limit = datetime.strptime(data_rif_str, "%Y-%m-%d").date()
+    except Exception:
+        return "Formato data inventario non valido", 400
+
+    def parse_d(v):
+        """Ritorna date oppure None. Supporta: YYYY-MM-DD, DD/MM/YYYY, DD/MM/YY, YYYY/MM/DD, DD-MM-YYYY."""
+        if v is None:
+            return None
+        if isinstance(v, date):
+            return v
+        s = str(v).strip()
+        if not s or s.lower() == "none":
+            return None
+        s10 = s[:10]
+
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y", "%Y/%m/%d", "%d-%m-%Y", "%d-%m-%y"):
+            try:
+                return datetime.strptime(s10, fmt).date()
+            except Exception:
+                pass
+        return None
 
     db = SessionLocal()
     try:
         query = db.query(Articolo)
+
+        # filtro cliente (se richiesto)
         if cliente_rif:
             query = query.filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
-        
+
         all_arts = query.all()
-        d_limit = datetime.strptime(data_rif_str, "%Y-%m-%d").date()
-        
+
         in_stock = []
         for art in all_arts:
-            def parse_d(v):
-                if isinstance(v, date): return v
-                try: return datetime.strptime(str(v)[:10], "%Y-%m-%d").date()
-                except: return None
-            
-            d_ing = parse_d(art.data_ingresso)
-            if not d_ing or d_ing > d_limit: continue
-            
-            is_present = True
-            if art.data_uscita:
-                d_usc = parse_d(art.data_uscita)
-                if d_usc and d_usc <= d_limit:
-                    is_present = False
-            
-            if is_present:
-                in_stock.append(art)
+            d_ing = parse_d(getattr(art, "data_ingresso", None))
+            # deve essere entrato entro data inventario
+            if not d_ing or d_ing > d_limit:
+                continue
 
+            # presente se NON è uscito entro data inventario
+            d_usc = parse_d(getattr(art, "data_uscita", None))
+
+            # se non c'è data uscita => presente
+            if d_usc is None:
+                in_stock.append(art)
+                continue
+
+            # se è uscito DOPO la data inventario => presente
+            if d_usc > d_limit:
+                in_stock.append(art)
+                continue
+
+            # se è uscito entro la data inventario => NON presente
+            # (non aggiungere)
+
+        # raggruppo per cliente
         inventario = {}
         for art in in_stock:
-            cli = art.cliente or "NESSUN CLIENTE"
-            if cli not in inventario: inventario[cli] = []
-            inventario[cli].append(art)
-            
-        return render_template('report_inventario_print.html', inventario=inventario, data_rif=data_rif_str)
+            cli = (art.cliente or "NESSUN CLIENTE").strip() or "NESSUN CLIENTE"
+            inventario.setdefault(cli, []).append(art)
+
+        # opzionale: ordina per cliente e dentro per posizione/codice
+        inventario_sorted = dict(sorted(inventario.items(), key=lambda x: x[0].upper()))
+        for k in inventario_sorted:
+            inventario_sorted[k].sort(key=lambda a: (str(getattr(a, "posizione", "") or ""), str(getattr(a, "codice_articolo", "") or "")))
+
+        return render_template(
+            'report_inventario_print.html',
+            inventario=inventario_sorted,
+            data_rif=data_rif_str
+        )
+
     finally:
         db.close()
+
 # =========================
 # IMPORT EXCEL (con log)
 # =========================
