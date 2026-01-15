@@ -42,7 +42,7 @@
 			"M2":"m2",
             "M3":"m3",
             "ORDINE":"ordine",
-            "DATA NGRESSO":"data_ingresso",
+            "DATA INGRESSO":"data_ingresso",
             "DDT INGRESSO":"n_ddt_ingresso",
             "CLIENTE":"cliente",
             "PESO":"peso",
