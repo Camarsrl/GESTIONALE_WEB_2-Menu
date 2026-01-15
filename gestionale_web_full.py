@@ -4809,7 +4809,8 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     from datetime import datetime, date
 
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak,
+        Image as RLImage, KeepTogether
     )
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import mm
@@ -4820,7 +4821,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     # Formato Brother QL-800: 100mm x 62mm ORIZZONTALE
     if formato == '62x100':
         pagesize = (100 * mm, 62 * mm)
-        margin = 2 * mm
+        margin = 1.2 * mm   # ✅ margini più piccoli
     else:
         pagesize = A4
         margin = 10 * mm
@@ -4834,28 +4835,21 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
     styles = getSampleStyleSheet()
 
-    # ✅ FONT RIDOTTI (più equilibrati)
+    # ✅ FONT PIÙ PICCOLI per stare in 62mm senza spezzare
     s_lbl = ParagraphStyle(
-        'LBL',
-        parent=styles['Normal'],
+        'LBL', parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=12,     # prima era troppo piccolo o troppo grande: qui è medio
-        leading=13
+        fontSize=9, leading=10
     )
     s_val = ParagraphStyle(
-        'VAL',
-        parent=styles['Normal'],
+        'VAL', parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=12,
-        leading=13
+        fontSize=9, leading=10
     )
-    # Evidenzia solo alcune righe (ARRIVO / N. COLLO / COLLI)
     s_hi = ParagraphStyle(
-        'HI',
-        parent=styles['Normal'],
+        'HI', parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=14,     # evidenza ma non gigante
-        leading=15
+        fontSize=11, leading=12
     )
 
     # logo path robusto
@@ -4873,12 +4867,10 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             s = str(v).strip()
             if not s:
                 return ""
-            # prova YYYY-MM-DD
             try:
                 return datetime.strptime(s[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
             except Exception:
                 pass
-            # prova DD/MM/YYYY
             try:
                 return datetime.strptime(s[:10], "%d/%m/%Y").strftime("%d/%m/%Y")
             except Exception:
@@ -4906,13 +4898,15 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
         for i in range(1, tot + 1):
             page_counter += 1
 
-            # ✅ LOGO un po' più grande ma non enorme
+            blocco = []
+
+            # ✅ LOGO PIÙ PICCOLO
             if logo_path.exists():
                 try:
-                    img = RLImage(str(logo_path), width=50 * mm, height=14 * mm)
+                    img = RLImage(str(logo_path), width=35 * mm, height=9 * mm)
                     img.hAlign = "LEFT"
-                    story.append(img)
-                    story.append(Spacer(1, 2 * mm))
+                    blocco.append(img)
+                    blocco.append(Spacer(1, 1 * mm))  # ✅ meno spazio
                 except Exception:
                     pass
 
@@ -4927,16 +4921,14 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 [Paragraph("COMMESSA:", s_lbl),  Paragraph((getattr(art, "commessa", "") or ""), s_val)],
                 [Paragraph("DDT ING.:", s_lbl),  Paragraph((getattr(art, "n_ddt_ingresso", "") or ""), s_val)],
                 [Paragraph("DATA ING.:", s_lbl), Paragraph(fmt_date(getattr(art, "data_ingresso", "")), s_val)],
-
-                # evidenza (ma moderata)
                 [Paragraph("ARRIVO:", s_lbl),    Paragraph(arr_str, s_hi)],
                 [Paragraph("N. COLLO:", s_lbl),  Paragraph(collo_str, s_hi)],
                 [Paragraph("COLLI:", s_lbl),     Paragraph(str(tot), s_hi)],
-
                 [Paragraph("POSIZIONE:", s_lbl), Paragraph((getattr(art, "posizione", "") or ""), s_val)],
             ]
 
-            t = Table(dati, colWidths=[30 * mm, 66 * mm])
+            # ✅ colonne ottimizzate (totale area utile ≈ 100mm - margini)
+            t = Table(dati, colWidths=[26 * mm, 70 * mm])
             t.setStyle(TableStyle([
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('LEFTPADDING', (0, 0), (-1, -1), 0),
@@ -4944,7 +4936,10 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 ('TOPPADDING', (0, 0), (-1, -1), 0),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
             ]))
-            story.append(t)
+            blocco.append(t)
+
+            # ✅ evita spezzature interne (se ci sta, resta 1 pagina)
+            story.append(KeepTogether(blocco))
 
             if page_counter < total_pages:
                 story.append(PageBreak())
@@ -4952,7 +4947,6 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     doc.build(story)
     bio.seek(0)
     return bio
-
 
 
 # --- CONFIGURAZIONE FINALE E AVVIO ---
