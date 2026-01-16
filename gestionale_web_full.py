@@ -637,30 +637,57 @@ REPORT_INVENTARIO_HTML = """
 REPORT_TRASPORTI_HTML = """
 <!DOCTYPE html>
 <html>
-<head><title>Report Trasporti</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<head>
+    <title>Report Trasporti</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { font-size: 12px; }
+        h1 { font-size: 24px; }
+        .table th { background-color: #f0f0f0; }
+    </style>
 </head>
 <body onload="window.print()">
-    <div class="container mt-5">
-        <h1>Report Trasporti</h1>
-        <p>Periodo: {{ mese }} | Cliente: {{ cliente or 'Tutti' }}</p>
-        <table class="table table-bordered">
-            <thead><tr><th>Data</th><th>Mezzo</th><th>Cliente</th><th>Trasportatore</th><th>Costo</th></tr></thead>
+    <div class="container mt-4">
+        <h1 class="mb-3">Report Trasporti</h1>
+        <div class="mb-3 p-2 bg-light border">
+            <strong>Filtri applicati:</strong> 
+            Periodo: {{ mese }} | Cliente: {{ cliente }}
+        </div>
+        
+        <table class="table table-bordered table-sm">
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Mezzo</th>
+                    <th>Cliente</th>
+                    <th>Trasportatore</th>
+                    <th class="text-end">Costo</th>
+                </tr>
+            </thead>
             <tbody>
                 {% for t in dati %}
                 <tr>
-                    <td>{{ t.data }}</td><td>{{ t.tipo_mezzo }}</td>
-                    <td>{{ t.cliente }}</td><td>{{ t.trasportatore }}</td><td>€ {{ t.costo }}</td>
+                    <td>{{ t.data or '' }}</td>
+                    <td>{{ t.tipo_mezzo or '' }}</td>
+                    <td>{{ t.cliente or '' }}</td>
+                    <td>{{ t.trasportatore or '' }}</td>
+                    <td class="text-end">€ {{ '%.2f'|format(t.costo) if t.costo else '0.00' }}</td>
                 </tr>
+                {% else %}
+                <tr><td colspan="5" class="text-center">Nessun dato trovato per i criteri selezionati.</td></tr>
                 {% endfor %}
             </tbody>
             <tfoot>
-                <tr class="table-dark">
-                    <td colspan="4" class="text-end">TOTALE</td>
-                    <td>€ {{ totale }}</td>
+                <tr class="table-dark fw-bold">
+                    <td colspan="4" class="text-end">TOTALE COMPLESSIVO</td>
+                    <td class="text-end">€ {{ totale }}</td>
                 </tr>
             </tfoot>
         </table>
+        
+        <div class="text-muted small mt-4">
+            Generato il: <script>document.write(new Date().toLocaleDateString())</script>
+        </div>
     </div>
 </body>
 </html>
