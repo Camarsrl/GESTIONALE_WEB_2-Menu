@@ -4515,6 +4515,14 @@ def _copyright_para():
     return Paragraph("Camar S.r.l. - Gestionale Web - © Alessia Moncalvo", tiny_style)
 
 def _generate_buono_pdf(form_data, rows):
+    import io
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.lib.enums import TA_CENTER
+
     bio = io.BytesIO()
     doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
     story = []
@@ -4534,19 +4542,19 @@ def _generate_buono_pdf(form_data, rows):
     story.append(Paragraph("BUONO DI PRELIEVO", s_title))
     story.append(Spacer(1, 5*mm))
     
-    # 2. Tabella Dati Testata (Simile al tuo PDF)
+    # 2. Tabella Dati Testata
     meta_data = [
-        [Paragraph("<b>Data Emissione:</b>", s_bold), Paragraph(form_data.get('data_em',''), s_norm)],
-        [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(form_data.get('commessa',''), s_norm)],
-        [Paragraph("<b>Fornitore:</b>", s_bold), Paragraph(form_data.get('fornitore',''), s_norm)],
-        [Paragraph("<b>Protocollo:</b>", s_bold), Paragraph(form_data.get('protocollo',''), s_norm)],
-        [Paragraph("<b>N. Buono:</b>", s_bold), Paragraph(form_data.get('buono_n',''), s_norm)]
+        [Paragraph("<b>Data Emissione:</b>", s_bold), Paragraph(str(form_data.get('data_em','')), s_norm)],
+        [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(str(form_data.get('commessa','')), s_norm)],
+        [Paragraph("<b>Fornitore:</b>", s_bold), Paragraph(str(form_data.get('fornitore','')), s_norm)],
+        [Paragraph("<b>Protocollo:</b>", s_bold), Paragraph(str(form_data.get('protocollo','')), s_norm)],
+        [Paragraph("<b>N. Buono:</b>", s_bold), Paragraph(str(form_data.get('buono_n','')), s_norm)]
     ]
     
     t_meta = Table(meta_data, colWidths=[40*mm, 140*mm])
     t_meta.setStyle(TableStyle([
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-        ('BACKGROUND', (0,0), (0,-1), colors.whitesmoke), # Sfondo grigio colonna sx
+        ('BACKGROUND', (0,0), (0,-1), colors.whitesmoke),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('PADDING', (0,0), (-1,-1), 5),
     ]))
@@ -4554,11 +4562,11 @@ def _generate_buono_pdf(form_data, rows):
     story.append(Spacer(1, 8*mm))
     
     # Cliente
-    cliente = rows[0].cliente if rows else ""
+    cliente = rows[0].cliente if rows and rows[0].cliente else ""
     story.append(Paragraph(f"<b>Cliente:</b> {cliente}", ParagraphStyle('C', parent=s_norm, fontSize=11)))
     story.append(Spacer(1, 5*mm))
     
-    # 3. Tabella Articoli (COLONNE CORRETTE: Ordine, Codice, Descrizione, Qta, Arrivo)
+    # 3. Tabella Articoli
     header = [
         Paragraph('<b>Ordine</b>', s_bold),
         Paragraph('<b>Codice Articolo</b>', s_bold), 
@@ -4569,18 +4577,20 @@ def _generate_buono_pdf(form_data, rows):
     data = [header]
     
     for r in rows:
-        q = form_data.get(f"q_{r.id_articolo}") or r.n_colli
-        # Combina Descrizione e Note utente
-        desc = r.descrizione or ''
+        # Recupera qta e note dal form_data usando l'ID
+        q_val = form_data.get(f"q_{r.id_articolo}")
+        q = q_val if q_val else (r.n_colli or 1)
+        
+        desc = str(r.descrizione or '')
         note_user = form_data.get(f"note_{r.id_articolo}") or r.note
         if note_user: desc += f"<br/><i>Note: {note_user}</i>"
         
         data.append([
-            Paragraph(r.ordine or '', s_norm),
-            Paragraph(r.codice_articolo or '', s_norm), 
+            Paragraph(str(r.ordine or ''), s_norm),
+            Paragraph(str(r.codice_articolo or ''), s_norm), 
             Paragraph(desc, s_norm), 
             str(q), 
-            Paragraph(r.n_arrivo or '', s_norm)
+            Paragraph(str(r.n_arrivo or ''), s_norm)
         ])
         
     t = Table(data, colWidths=[30*mm, 35*mm, 85*mm, 15*mm, 25*mm], repeatRows=1)
