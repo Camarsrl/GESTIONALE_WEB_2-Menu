@@ -2717,12 +2717,11 @@ def stampa_picking_pdf():
 @app.post('/report_inventario_excel')
 @login_required
 def report_inventario_excel():
-    import io
-    from datetime import datetime, date
-
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.worksheet.table import Table, TableStyleInfo
+    import io
+    from datetime import datetime, date
 
     data_rif_str = (request.form.get('data_inventario') or '').strip()
     cliente_rif = (request.form.get('cliente_inventario') or '').strip()
@@ -2735,17 +2734,17 @@ def report_inventario_excel():
     try:
         d_limit = datetime.strptime(data_rif_str, "%Y-%m-%d").date()
     except Exception:
-        return "Formato data inventario non valido", 400
+        return "Formato data non valido", 400
 
     def parse_d(v):
         if not v:
             return None
-        if isinstance(v, date) and not isinstance(v, datetime):
-            return v
         if isinstance(v, datetime):
             return v.date()
+        if isinstance(v, date):
+            return v
         s = str(v).strip()[:10]
-        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
             try:
                 return datetime.strptime(s, fmt).date()
             except Exception:
@@ -2754,131 +2753,109 @@ def report_inventario_excel():
 
     db = SessionLocal()
     try:
-        # SOLO cliente scelto
-        query = db.query(Articolo).filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
-        all_arts = query.all()
+        articoli = (
+            db.query(Articolo)
+            .filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
+            .all()
+        )
 
-        # filtro giacenza alla data
-        in_stock = []
-        for art in all_arts:
-            d_ing = parse_d(getattr(art, "data_ingresso", None))
-            d_usc = parse_d(getattr(art, "data_uscita", None))
+        righe = []
+        for art in articoli:
+            d_ing = parse_d(art.data_ingresso)
+            d_usc = parse_d(art.data_uscita)
 
-            # se uscito entro la data inventario => non in giacenza
+            qta_entrata = 0
+            qta_uscita = 0
+
+            if d_ing and d_ing <= d_limit:
+                qta_entrata = int(art.n_colli or 0)
+
             if d_usc and d_usc <= d_limit:
+                qta_uscita = int(art.n_colli or 0)
+
+            rimanenza = qta_entrata - qta_uscita
+
+            if qta_entrata == 0 and qta_uscita == 0:
                 continue
-            # se entrato dopo la data inventario => non c'era ancora
-            if d_ing and d_ing > d_limit:
-                continue
 
-            in_stock.append(art)
+            righe.append({
+                "id": art.id_articolo,
+                "codice": art.codice_articolo,
+                "descrizione": art.descrizione,
+                "entrata": qta_entrata,
+                "uscita": qta_uscita,
+                "rimanenza": rimanenza
+            })
 
-        # ordina: data ingresso, codice
-        in_stock.sort(key=lambda x: (
-            str(getattr(x, "data_ingresso", "") or ""),
-            str(getattr(x, "codice_articolo", "") or "")
-        ))
-
-        # --- CREA EXCEL ---
         wb = Workbook()
         ws = wb.active
         ws.title = "INVENTARIO"
 
-        # Stili
         bold = Font(bold=True)
-        title_font = Font(bold=True, size=14)
-        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        left = Alignment(horizontal="left", vertical="center", wrap_text=True)
-
-        thin = Side(style="thin", color="D0D0D0")
-        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        center = Alignment(horizontal="center", vertical="center")
+        left = Alignment(horizontal="left", vertical="center")
         header_fill = PatternFill("solid", fgColor="D9E1F2")
+        thin = Side(style="thin")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-        # Titolo
         ws["A1"] = "ELENCO ARTICOLI"
         ws["A2"] = f"Cliente: {cliente_rif}"
         ws["A3"] = f"Inventario al: {data_rif_str}"
-
-        ws["A1"].font = title_font
+        ws["A1"].font = Font(bold=True, size=14)
         ws["A2"].font = bold
         ws["A3"].font = bold
 
-        # intestazioni tabella (riga 5)
         headers = [
             "ID",
             "CODICE ARTICOLO",
             "DESCRIZIONE",
             "Q.TA ENTRATA",
             "Q.TA USCITA",
-            "RIMANENZA",
+            "RIMANENZA"
         ]
 
         start_row = 5
-        for c, h in enumerate(headers, start=1):
+        for c, h in enumerate(headers, 1):
             cell = ws.cell(row=start_row, column=c, value=h)
             cell.font = bold
             cell.alignment = center
             cell.fill = header_fill
             cell.border = border
 
-        # righe dati
         r = start_row + 1
-        for art in in_stock:
-            n_colli = getattr(art, "n_colli", None) or 0
-            try:
-                n_colli = int(n_colli)
-            except Exception:
-                n_colli = 0
-
-            # “tipo il tuo file”: qui l'uscita è 0 (giacenza attuale)
-            qta_entrata = n_colli
-            qta_uscita = 0
-            rimanenza = n_colli
-
+        for row in righe:
             values = [
-                getattr(art, "id_articolo", "") or "",
-                getattr(art, "codice_articolo", "") or "",
-                getattr(art, "descrizione", "") or "",
-                qta_entrata,
-                qta_uscita,
-                rimanenza,
+                row["id"],
+                row["codice"],
+                row["descrizione"],
+                row["entrata"],
+                row["uscita"],
+                row["rimanenza"],
             ]
 
-            for c, v in enumerate(values, start=1):
+            for c, v in enumerate(values, 1):
                 cell = ws.cell(row=r, column=c, value=v)
-                cell.alignment = left if c in (2, 3) else center  # codice+descrizione a sinistra
+                cell.alignment = left if c in (2, 3) else center
                 cell.border = border
             r += 1
 
-        last_row = r - 1
+        ws.freeze_panes = "A6"
 
-        # larghezze colonne (6 colonne)
-        widths = [8, 28, 55, 14, 14, 14]
-        for i, w in enumerate(widths, start=1):
-            ws.column_dimensions[chr(64 + i)].width = w
+        tab = Table(
+            displayName="TabInventario",
+            ref=f"A{start_row}:F{r-1}"
+        )
+        tab.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium9",
+            showRowStripes=True
+        )
+        ws.add_table(tab)
 
-        # blocca intestazioni
-        ws.freeze_panes = ws["A6"]
-
-        # Tabella Excel con filtri (A..F)
-        if last_row >= start_row + 1:
-            table_ref = f"A{start_row}:F{last_row}"
-            tab = Table(displayName="TabInventario", ref=table_ref)
-            tab.tableStyleInfo = TableStyleInfo(
-                name="TableStyleMedium9",
-                showFirstColumn=False,
-                showLastColumn=False,
-                showRowStripes=True,
-                showColumnStripes=False,
-            )
-            ws.add_table(tab)
-
-        # output
         bio = io.BytesIO()
         wb.save(bio)
         bio.seek(0)
 
-        filename = f"Inventario_{cliente_rif.strip().replace(' ', '_')}_{data_rif_str}.xlsx"
+        filename = f"Inventario_{cliente_rif.replace(' ', '_')}_{data_rif_str}.xlsx"
         return send_file(
             bio,
             as_attachment=True,
@@ -2887,6 +2864,7 @@ def report_inventario_excel():
         )
     finally:
         db.close()
+
 
 # =========================
 # IMPORT EXCEL (con log)
