@@ -930,7 +930,6 @@ CALCOLI_HTML = """
 </div>
 {% endblock %}
 """
-
 GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -963,10 +962,12 @@ GIACENZE_HTML = """
        <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
 
        {% if session.get('role') == 'admin' %}
-       <form action="{{ url_for('report_inventario') }}" method="POST" target="_blank" class="d-inline-block">
+       <!-- ✅ INVENTARIO EXCEL (data + cliente) -->
+       <form action="{{ url_for('report_inventario_excel') }}" method="POST" class="d-inline-block">
             <div class="input-group input-group-sm">
                 <input type="date" name="data_inventario" class="form-control" required value="{{ today }}">
-                <button class="btn btn-warning" type="submit" title="Stampa Inventario">📋</button>
+                <input type="text" name="cliente_inventario" class="form-control" placeholder="Cliente (es. FINCANTIERI)" required style="max-width: 200px;">
+                <button class="btn btn-success" type="submit" title="Scarica Inventario Excel">📥 Excel</button>
             </div>
        </form>
        {% endif %}
@@ -1205,6 +1206,8 @@ document.addEventListener("DOMContentLoaded", function() {
 </script>
 {% endblock %}
 """
+
+
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
