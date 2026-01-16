@@ -2543,14 +2543,14 @@ def trasporti():
 
     finally:
         db.close()
+        
 @app.route('/report_trasporti', methods=['POST'])
 @login_required
 def report_trasporti():
-    if session.get('role') != 'admin':
-        return "Accesso Negato", 403
+    if session.get('role') != 'admin': return "No Access", 403
     
-    # Prendi i dati filtrati dal form
-    mese = request.form.get('mese') # Es. '2025-01' o vuoto
+    # Recupera i filtri dal form HTML
+    mese = request.form.get('mese') # Es. '2025-01'
     mezzo = request.form.get('tipo_mezzo')
     cliente = request.form.get('cliente')
     
@@ -2558,22 +2558,21 @@ def report_trasporti():
     try:
         query = db.query(Trasporto)
         
-        # Filtri dinamici (solo se valorizzati)
-        if mese:
-            # Filtra per la parte iniziale della data (YYYY-MM)
+        # Applica i filtri se presenti
+        if mese: 
             query = query.filter(Trasporto.data.like(f"{mese}%"))
-        if mezzo:
+        if mezzo: 
             query = query.filter(Trasporto.tipo_mezzo == mezzo)
-        if cliente:
+        if cliente: 
             query = query.filter(Trasporto.cliente == cliente)
         
-        # Ordina per data
+        # Ordina per data crescente per il report
         dati = query.order_by(Trasporto.data.asc()).all()
         
-        # Calcolo totali
+        # Calcola il totale costi
         totale_costo = sum((t.costo or 0.0) for t in dati)
         
-        # Renderizza il template passando "dati" (come si aspetta l'HTML)
+        # Passa 'dati' al template (così combacia con il ciclo for nell'HTML)
         return render_template(
             'report_trasporti_print.html', 
             dati=dati, 
@@ -2581,11 +2580,8 @@ def report_trasporti():
             mese=(mese if mese else "Tutto il periodo"), 
             cliente=(cliente if cliente else "Tutti")
         )
-    except Exception as e:
-        return f"Errore durante la generazione del report: {e}", 500
     finally:
         db.close()
-
 # --- GESTIONE LAVORAZIONI (ADMIN) ---
 @app.route('/lavorazioni', methods=['GET', 'POST'])
 @login_required
