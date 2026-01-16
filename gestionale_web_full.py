@@ -1848,71 +1848,50 @@ DESTINATARI_HTML = """
 
 # --- TEMPLATE PAGINA PICKING / LAVORAZIONI (Senza Emoji, usa Icone Bootstrap) ---
 
-LAVORAZIONI_HTML = """ 
+LAVORAZIONI_HTML = """
 {% extends "base.html" %}
 {% block content %}
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2><i class="bi bi-gear"></i> Gestione Picking / Lavorazioni</h2>
-        
-        <form action="{{ url_for('stampa_picking_pdf') }}" method="POST" target="_blank">
-            <button type="submit" class="btn btn-warning shadow-sm">
-                <i class="bi bi-printer"></i> Stampa Report PDF
-            </button>
-        </form>
+        <a href="{{ url_for('home') }}" class="btn btn-secondary shadow-sm"><i class="bi bi-box-arrow-left"></i> Esci</a>
     </div>
     
     <div class="card p-3 mb-4 bg-light border shadow-sm">
         <h5 class="mb-3">Inserisci Nuovo Picking</h5>
         <form method="POST" class="row g-2">
             <input type="hidden" name="add_lavorazione" value="1">
-
-            <div class="col-md-2">
-                <label class="small">Data</label>
-                <input type="date" name="data" class="form-control" required value="{{ today }}">
-            </div>
-            <div class="col-md-2">
-                <label class="small">Cliente</label>
-                <input type="text" name="cliente" class="form-control">
-            </div>
-            <div class="col-md-3">
-                <label class="small">Descrizione</label>
-                <input type="text" name="descrizione" class="form-control">
-            </div>
-            <div class="col-md-2">
-                <label class="small">Richiesta Di</label>
-                <input type="text" name="richiesta_di" class="form-control">
-            </div>
-            <div class="col-md-3">
-                <label class="small">Seriali</label>
-                <input type="text" name="seriali" class="form-control">
-            </div>
+            <div class="col-md-2"><label class="small fw-bold">Data</label><input type="date" name="data" class="form-control" required value="{{ today }}"></div>
+            <div class="col-md-2"><label class="small fw-bold">Cliente</label><input type="text" name="cliente" class="form-control"></div>
+            <div class="col-md-3"><label class="small fw-bold">Descrizione</label><input type="text" name="descrizione" class="form-control"></div>
+            <div class="col-md-2"><label class="small fw-bold">Richiesta Di</label><input type="text" name="richiesta_di" class="form-control"></div>
+            <div class="col-md-3"><label class="small fw-bold">Seriali</label><input type="text" name="seriali" class="form-control"></div>
             
-            <div class="col-md-1">
-                <label class="small">Colli</label>
-                <input type="number" name="colli" class="form-control">
-            </div>
-            <div class="col-md-1">
-                <label class="small">Pallet IN</label>
-                <input type="number" name="pallet_forniti" class="form-control">
-            </div>
-            <div class="col-md-1">
-                <label class="small">Pallet OUT</label>
-                <input type="number" name="pallet_uscita" class="form-control">
-            </div>
-            <div class="col-md-1">
-                <label class="small">Ore Blue</label>
-                <input type="number" step="0.5" name="ore_blue_collar" class="form-control">
-            </div>
-            <div class="col-md-1">
-                <label class="small">Ore White</label>
-                <input type="number" step="0.5" name="ore_white_collar" class="form-control">
-            </div>
+            <div class="col-md-1"><label class="small fw-bold">Colli</label><input type="number" name="colli" class="form-control"></div>
+            <div class="col-md-1"><label class="small fw-bold">P. IN</label><input type="number" name="pallet_forniti" class="form-control"></div>
+            <div class="col-md-1"><label class="small fw-bold">P. OUT</label><input type="number" name="pallet_uscita" class="form-control"></div>
+            <div class="col-md-1"><label class="small fw-bold">Ore Blue</label><input type="number" step="0.5" name="ore_blue_collar" class="form-control"></div>
+            <div class="col-md-1"><label class="small fw-bold">Ore White</label><input type="number" step="0.5" name="ore_white_collar" class="form-control"></div>
             
             <div class="col-md-12 text-end mt-2">
-                <button type="submit" class="btn btn-success">
-                    <i class="bi bi-plus-lg"></i> Aggiungi
-                </button>
+                <button type="submit" class="btn btn-success fw-bold"><i class="bi bi-plus-lg"></i> Aggiungi</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card p-3 mb-3 border-warning shadow-sm">
+        <h6 class="text-warning-emphasis fw-bold"><i class="bi bi-printer"></i> Stampa Report Picking</h6>
+        <form action="{{ url_for('stampa_picking_pdf') }}" method="POST" target="_blank" class="row g-2 align-items-end">
+            <div class="col-md-2">
+                <label class="small">Mese (es. 2025-01)</label>
+                <input type="month" name="mese" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-3">
+                <label class="small">Cliente</label>
+                <input type="text" name="cliente" class="form-control form-control-sm" placeholder="Tutti">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-warning btn-sm w-100 fw-bold">Genera PDF</button>
             </div>
         </form>
     </div>
@@ -1920,7 +1899,6 @@ LAVORAZIONI_HTML = """
     <div class="card shadow-sm">
         <div class="table-responsive">
             <table class="table table-bordered table-hover mb-0 align-middle">
-                <!-- ✅ intestazioni con testo nero -->
                 <thead class="table-light" style="color:#000;">
                     <tr>
                         <th>Data</th><th>Cliente</th><th>Descrizione</th>
@@ -1946,9 +1924,7 @@ LAVORAZIONI_HTML = """
                         <td>
                             <a href="{{ url_for('elimina_record', table='lavorazioni', id=l.id) }}"
                                class="btn btn-sm btn-danger"
-                               onclick="return confirm('Sei sicuro di voler eliminare?')">
-                               <i class="bi bi-trash"></i>
-                            </a>
+                               onclick="return confirm('Sei sicuro di voler eliminare?')"><i class="bi bi-trash"></i></a>
                         </td>
                     </tr>
                     {% else %}
