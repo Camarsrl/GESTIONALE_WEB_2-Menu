@@ -2024,28 +2024,13 @@ TRASPORTI_HTML = """
 
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="m-0"><i class="bi bi-truck"></i> Gestione Trasporti</h2>
-
-        <div class="d-flex gap-2">
-            <!-- ✅ STAMPA REPORT -->
-            <form method="POST" class="m-0">
-                <input type="hidden" name="stampa_report" value="1">
-                <button type="submit" class="btn btn-warning shadow-sm">
-                    <i class="bi bi-printer"></i> Stampa
-                </button>
-            </form>
-
-            <!-- ✅ ESCI (torna al menu principale) -->
-            <a href="{{ url_for('home') }}" class="btn btn-secondary shadow-sm">
-                <i class="bi bi-box-arrow-left"></i> Esci
-            </a>
-        </div>
+        <a href="{{ url_for('home') }}" class="btn btn-secondary shadow-sm"><i class="bi bi-box-arrow-left"></i> Esci</a>
     </div>
     
     <div class="card p-3 mb-4 bg-light border shadow-sm">
         <h5 class="mb-3">Inserisci Nuovo Trasporto</h5>
         <form method="POST" class="row g-2">
             <input type="hidden" name="add_trasporto" value="1">
-
             <div class="col-md-2"><label class="small">Data</label><input type="date" name="data" class="form-control" required value="{{ today }}"></div>
             <div class="col-md-2"><label class="small">Tipo Mezzo</label><input type="text" name="tipo_mezzo" class="form-control" placeholder="es. Bilico"></div>
             <div class="col-md-2"><label class="small">Cliente</label><input type="text" name="cliente" class="form-control"></div>
@@ -2054,17 +2039,29 @@ TRASPORTI_HTML = """
             <div class="col-md-1"><label class="small">Magazzino</label><input type="text" name="magazzino" class="form-control"></div>
             <div class="col-md-1"><label class="small">Consolidato</label><input type="text" name="consolidato" class="form-control"></div>
             <div class="col-md-1"><label class="small">Costo €</label><input type="text" name="costo" class="form-control" placeholder="0,00"></div>
+            <div class="col-md-12 text-end mt-2">
+                <button type="submit" class="btn btn-success"><i class="bi bi-save"></i> Salva</button>
+            </div>
+        </form>
+    </div>
 
-            <div class="col-md-12 text-end mt-2 d-flex justify-content-end gap-2">
-                <!-- ✅ SALVA (stesso submit dell’aggiunta) -->
-                <button type="submit" class="btn btn-success">
-                    <i class="bi bi-save"></i> Salva
-                </button>
-
-                <!-- ✅ ESCI -->
-                <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">
-                    <i class="bi bi-x-circle"></i> Esci
-                </a>
+    <div class="card p-3 mb-3 border-primary shadow-sm">
+        <form action="{{ url_for('report_trasporti') }}" method="POST" target="_blank" class="row g-2 align-items-end">
+            <div class="col-auto"><span class="fw-bold text-primary"><i class="bi bi-printer"></i> Stampa Report:</span></div>
+            <div class="col-md-2">
+                <label class="small">Mese (es. 2025-01)</label>
+                <input type="month" name="mese" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Cliente</label>
+                <input type="text" name="cliente" class="form-control form-control-sm" placeholder="Tutti">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Mezzo</label>
+                <input type="text" name="tipo_mezzo" class="form-control form-control-sm" placeholder="Tutti">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary btn-sm w-100">Genera PDF</button>
             </div>
         </form>
     </div>
@@ -2072,7 +2069,6 @@ TRASPORTI_HTML = """
     <div class="card shadow-sm">
         <div class="table-responsive">
             <table class="table table-striped table-hover mb-0 align-middle">
-                <!-- ✅ intestazioni con testo nero -->
                 <thead class="table-light" style="color:#000;">
                     <tr>
                         <th>Data</th><th>Mezzo</th><th>Cliente</th>
@@ -2095,9 +2091,7 @@ TRASPORTI_HTML = """
                         <td>
                             <a href="{{ url_for('elimina_record', table='trasporti', id=t.id) }}" 
                                class="btn btn-sm btn-danger" 
-                               onclick="return confirm('Sei sicuro di voler eliminare questo trasporto?')">
-                               <i class="bi bi-trash"></i>
-                            </a>
+                               onclick="return confirm('Eliminare?')"><i class="bi bi-trash"></i></a>
                         </td>
                     </tr>
                     {% else %}
