@@ -1437,17 +1437,17 @@ BULK_EDIT_HTML = """
 BUONO_PREVIEW_HTML = """
 {% extends 'base.html' %}
 {% block content %}
-<div class="card p-3">
+<div class="card p-3 shadow-sm">
     <div class="d-flex align-items-center gap-3 mb-3">
         {% if logo_url %}<img src="{{ logo_url }}" style="height:40px">{% endif %}
-        <h5 class="flex-grow-1 text-center m-0">BUONO DI PRELIEVO</h5>
+        <h5 class="flex-grow-1 text-center m-0 text-uppercase fw-bold">Buono di Prelievo</h5>
         
         <div class="btn-group">
             <button type="button" class="btn btn-outline-primary" onclick="submitBuono('preview')">
                 <i class="bi bi-eye"></i> Anteprima PDF
             </button>
-            <button type="button" class="btn btn-success" onclick="submitBuono('save')">
-                <i class="bi bi-file-earmark-check"></i> Genera e Salva
+            <button type="button" class="btn btn-success fw-bold" onclick="submitBuono('save')">
+                <i class="bi bi-file-earmark-arrow-down"></i> Genera e Salva
             </button>
             <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
         </div>
@@ -1457,35 +1457,35 @@ BUONO_PREVIEW_HTML = """
         <input type="hidden" name="ids" value="{{ ids }}">
         <input type="hidden" name="action" id="action_field" value="preview">
 
-        <div class="row g-3">
-            <div class="col-md-3"><label class="form-label">N. Buono</label><input name="buono_n" class="form-control" value="{{ meta.buono_n }}"></div>
-            <div class="col-md-3"><label class="form-label">Data Emissione</label><input name="data_em" class="form-control" value="{{ meta.data_em }}" readonly></div>
-            <div class="col-md-3"><label class="form-label">Commessa</label><input name="commessa" class="form-control" value="{{ meta.commessa }}"></div>
-            <div class="col-md-3"><label class="form-label">Fornitore</label><input name="fornitore" class="form-control" value="{{ meta.fornitore }}"></div>
-            <div class="col-md-3"><label class="form-label">Protocollo</label><input name="protocollo" class="form-control" value="{{ meta.protocollo }}"></div>
+        <div class="row g-3 bg-light p-3 rounded border mb-3">
+            <div class="col-md-2"><label class="form-label small fw-bold">N. Buono</label><input name="buono_n" class="form-control" value="{{ meta.buono_n }}"></div>
+            <div class="col-md-2"><label class="form-label small fw-bold">Data Emissione</label><input name="data_em" class="form-control" value="{{ meta.data_em }}" readonly></div>
+            <div class="col-md-3"><label class="form-label small fw-bold">Commessa</label><input name="commessa" class="form-control" value="{{ meta.commessa }}"></div>
+            <div class="col-md-3"><label class="form-label small fw-bold">Fornitore</label><input name="fornitore" class="form-control" value="{{ meta.fornitore }}"></div>
+            <div class="col-md-2"><label class="form-label small fw-bold">Protocollo</label><input name="protocollo" class="form-control" value="{{ meta.protocollo }}"></div>
         </div>
-        <hr>
+
         <div class="table-responsive">
-            <table class="table table-sm table-bordered align-middle">
-                <thead class="table-light">
+            <table class="table table-sm table-bordered align-middle table-hover">
+                <thead class="table-dark">
                     <tr>
-                        <th>Ordine</th>
-                        <th>Codice Articolo</th>
-                        <th>Descrizione</th>
-                        <th style="width: 250px;">Note (Editabili)</th>
-                        <th style="width: 80px;">Quantità</th>
-                        <th>N.Arrivo</th>
+                        <th style="width:10%">Ordine</th>
+                        <th style="width:15%">Codice Articolo</th>
+                        <th style="width:30%">Descrizione</th>
+                        <th style="width:30%">Note (Editabili per il PDF)</th>
+                        <th style="width:8%">Q.tà</th>
+                        <th style="width:7%">N.Arr</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for r in rows %}
                     <tr>
-                        <td>{{ r.ordine or '' }}</td>
-                        <td>{{ r.codice_articolo or '' }}</td>
-                        <td>{{ r.descrizione or '' }}</td>
-                        <td><textarea class="form-control form-control-sm" name="note_{{ r.id_articolo }}" rows="1">{{ r.note or '' }}</textarea></td>
-                        <td><input name="q_{{ r.id_articolo }}" class="form-control form-control-sm" value="{{ r.n_colli or 1 }}"></td>
-                        <td>{{ r.n_arrivo or '' }}</td>
+                        <td class="small">{{ r.ordine or '' }}</td>
+                        <td class="fw-bold">{{ r.codice_articolo or '' }}</td>
+                        <td class="small">{{ r.descrizione or '' }}</td>
+                        <td><textarea class="form-control form-control-sm" name="note_{{ r.id_articolo }}" rows="1" placeholder="Note...">{{ r.note or '' }}</textarea></td>
+                        <td><input name="q_{{ r.id_articolo }}" class="form-control form-control-sm text-center fw-bold" value="{{ r.n_colli or 1 }}"></td>
+                        <td class="small text-center">{{ r.n_arrivo or '' }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -1493,12 +1493,10 @@ BUONO_PREVIEW_HTML = """
         </div>
     </form>
 </div>
-{% endblock %}
-{% block extra_js %}
+
 <script>
 function submitBuono(actionType) {
     const form = document.getElementById('buono-form');
-    // Imposta il valore nel campo hidden
     document.getElementById('action_field').value = actionType;
 
     if (actionType === 'preview') {
@@ -1507,13 +1505,14 @@ function submitBuono(actionType) {
     } else {
         form.target = '_self';
         const formData = new FormData(form);
-        // FIX: Usa getAttribute per evitare il conflitto con l'input name="action"
-        const url = form.getAttribute('action'); 
+        
+        // URL forzato per evitare errori se c'è un input chiamato 'action'
+        const url = "{{ url_for('buono_finalize_and_get_pdf') }}"; 
         
         fetch(url, { method: 'POST', body: formData })
         .then(resp => {
             if (resp.ok) return resp.blob();
-            throw new Error('Errore salvataggio');
+            return resp.text().then(text => { throw new Error(text) });
         })
         .then(blob => {
             const urlBlob = window.URL.createObjectURL(blob);
@@ -1523,10 +1522,11 @@ function submitBuono(actionType) {
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(urlBlob);
-            // Redirect dopo 1 secondo
-            setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1000);
+            setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1500);
         })
-        .catch(err => alert("Errore: " + err));
+        .catch(err => {
+            alert("Errore durante il salvataggio:\\n" + err);
+        });
     }
 }
 </script>
