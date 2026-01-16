@@ -2821,72 +2821,177 @@ def report_inventario_excel():
         db.close()
 
 # --- NUOVO: EXPORT INVENTARIO EXCEL ---
-@app.route('/export_inventario', methods=['POST'])
+@app.post('/report_inventario_excel')
 @login_required
-def export_inventario():
-    data_rif_str = request.form.get('data_inventario')
-    cliente_rif = request.form.get('cliente_inventario', '').strip()
-    
-    if not data_rif_str: return "Data mancante", 400
+def report_inventario_excel():
+    import io
+    from datetime import datetime, date
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+
+    data_rif_str = (request.form.get('data_inventario') or '').strip()
+    cliente_rif = (request.form.get('cliente_inventario') or '').strip()
+
+    if not data_rif_str:
+        return "Data mancante", 400
+    if not cliente_rif:
+        return "Cliente mancante", 400
+
+    try:
+        d_limit = datetime.strptime(data_rif_str, "%Y-%m-%d").date()
+    except Exception:
+        return "Formato data inventario non valido", 400
+
+    def parse_d(v):
+        if not v:
+            return None
+        if isinstance(v, date) and not isinstance(v, datetime):
+            return v
+        if isinstance(v, datetime):
+            return v.date()
+        s = str(v).strip()[:10]
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except Exception:
+                pass
+        return None
 
     db = SessionLocal()
     try:
-        query = db.query(Articolo)
-        if cliente_rif:
-            query = query.filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
-        
+        # SOLO cliente scelto
+        query = db.query(Articolo).filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
         all_arts = query.all()
-        d_limit = datetime.strptime(data_rif_str, "%Y-%m-%d").date()
-        
-        data_rows = []
+
+        # filtro giacenza alla data
+        in_stock = []
         for art in all_arts:
-            def parse_d(v):
-                if not v: return None
-                if isinstance(v, date): return v
-                try: return datetime.strptime(str(v)[:10], "%Y-%m-%d").date()
-                except: return None
-            
-            d_ing = parse_d(art.data_ingresso)
-            d_usc = parse_d(art.data_uscita)
+            d_ing = parse_d(getattr(art, "data_ingresso", None))
+            d_usc = parse_d(getattr(art, "data_uscita", None))
 
-            # Logica Giacenza Storica
-            if d_usc and d_usc <= d_limit: continue # Già uscito
-            if d_ing and d_ing > d_limit: continue  # Non ancora entrato
-            
-            # Aggiungi riga Excel
-            data_rows.append({
-                'Cliente': art.cliente,
-                'Fornitore': art.fornitore,
-                'Codice': art.codice_articolo,
-                'Descrizione': art.descrizione,
-                'Data Ingresso': art.data_ingresso,
-                'DDT Ingresso': art.n_ddt_ingresso,
-                'N. Colli': art.n_colli,
-                'Pezzi': art.pezzo,
-                'Posizione': art.posizione,
-                'Lotto': art.lotto,
-                'Commessa': art.commessa,
-                'Ordine': art.ordine
-            })
+            # se uscito entro la data inventario => non in giacenza
+            if d_usc and d_usc <= d_limit:
+                continue
+            # se entrato dopo la data inventario => non c'era ancora
+            if d_ing and d_ing > d_limit:
+                continue
 
-        if not data_rows:
-            flash("Nessun dato da esportare per la data selezionata.", "warning")
-            return redirect(url_for('home'))
+            in_stock.append(art)
 
-        # Crea Excel
-        df = pd.DataFrame(data_rows)
-        # Ordina per Cliente
-        df.sort_values(by=['Cliente', 'Data Ingresso'], inplace=True)
-        
+        # ordina: data ingresso, codice
+        in_stock.sort(key=lambda x: (
+            str(getattr(x, "data_ingresso", "") or ""),
+            str(getattr(x, "codice_articolo", "") or "")
+        ))
+
+        # --- CREA EXCEL ---
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "INVENTARIO"
+
+        # Stili
+        bold = Font(bold=True)
+        title_font = Font(bold=True, size=14)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+        thin = Side(style="thin", color="D0D0D0")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        header_fill = PatternFill("solid", fgColor="D9E1F2")
+
+        # Titolo
+        ws["A1"] = "ELENCO ARTICOLI"
+        ws["A2"] = f"Cliente: {cliente_rif}"
+        ws["A3"] = f"Inventario al: {data_rif_str}"
+
+        ws["A1"].font = title_font
+        ws["A2"].font = bold
+        ws["A3"].font = bold
+
+        # intestazioni tabella (riga 5)
+        headers = [
+            "ID",
+            "CODICE ARTICOLO",
+            "DESCRIZIONE",
+            "Q.TA ENTRATA",
+            "Q.TA USCITA",
+            "RIMANENZA",
+        ]
+
+        start_row = 5
+        for c, h in enumerate(headers, start=1):
+            cell = ws.cell(row=start_row, column=c, value=h)
+            cell.font = bold
+            cell.alignment = center
+            cell.fill = header_fill
+            cell.border = border
+
+        # righe dati
+        r = start_row + 1
+        for art in in_stock:
+            n_colli = getattr(art, "n_colli", None) or 0
+            try:
+                n_colli = int(n_colli)
+            except Exception:
+                n_colli = 0
+
+            # “tipo il tuo file”: qui l'uscita è 0 (giacenza attuale)
+            qta_entrata = n_colli
+            qta_uscita = 0
+            rimanenza = n_colli
+
+            values = [
+                getattr(art, "id_articolo", "") or "",
+                getattr(art, "codice_articolo", "") or "",
+                getattr(art, "descrizione", "") or "",
+                qta_entrata,
+                qta_uscita,
+                rimanenza,
+            ]
+
+            for c, v in enumerate(values, start=1):
+                cell = ws.cell(row=r, column=c, value=v)
+                cell.alignment = left if c in (2, 3) else center  # codice+descrizione a sinistra
+                cell.border = border
+            r += 1
+
+        last_row = r - 1
+
+        # larghezze colonne (6 colonne)
+        widths = [8, 28, 55, 14, 14, 14]
+        for i, w in enumerate(widths, start=1):
+            ws.column_dimensions[chr(64 + i)].width = w
+
+        # blocca intestazioni
+        ws.freeze_panes = ws["A6"]
+
+        # Tabella Excel con filtri (A..F)
+        if last_row >= start_row + 1:
+            table_ref = f"A{start_row}:F{last_row}"
+            tab = Table(displayName="TabInventario", ref=table_ref)
+            tab.tableStyleInfo = TableStyleInfo(
+                name="TableStyleMedium9",
+                showFirstColumn=False,
+                showLastColumn=False,
+                showRowStripes=True,
+                showColumnStripes=False,
+            )
+            ws.add_table(tab)
+
+        # output
         bio = io.BytesIO()
-        # Usa ExcelWriter per formattare meglio se necessario
-        with pd.ExcelWriter(bio, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Inventario')
-            
+        wb.save(bio)
         bio.seek(0)
-        filename = f"Inventario_{data_rif_str}.xlsx"
-        return send_file(bio, as_attachment=True, download_name=filename, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
+        filename = f"Inventario_{cliente_rif.strip().replace(' ', '_')}_{data_rif_str}.xlsx"
+        return send_file(
+            bio,
+            as_attachment=True,
+            download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
     finally:
         db.close()
 
