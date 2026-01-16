@@ -2638,65 +2638,185 @@ def lavorazioni():
     return render_template('lavorazioni.html', lavorazioni=dati, today=date.today())
 
 # --- REPORT INVENTARIO PER CLIENTE/DATA ---
-# --- REPORT INVENTARIO (PDF) ---
-@app.route('/report_inventario', methods=['POST'])
+from flask import send_file
+from collections import defaultdict
+from datetime import datetime, date
+import io
+
+@app.post('/report_inventario_excel')
 @login_required
-def report_inventario():
-    data_rif_str = request.form.get('data_inventario')
-    cliente_rif = request.form.get('cliente_inventario', '').strip()
-    
-    if not data_rif_str: return "Data mancante", 400
+def report_inventario_excel():
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+
+    data_rif_str = (request.form.get('data_inventario') or '').strip()
+    cliente_rif = (request.form.get('cliente_inventario') or '').strip()
+
+    if not data_rif_str:
+        return "Data mancante", 400
+    if not cliente_rif:
+        return "Cliente mancante", 400
+
+    try:
+        d_limit = datetime.strptime(data_rif_str, "%Y-%m-%d").date()
+    except Exception:
+        return "Formato data inventario non valido", 400
+
+    def parse_d(v):
+        if not v:
+            return None
+        if isinstance(v, date) and not isinstance(v, datetime):
+            return v
+        if isinstance(v, datetime):
+            return v.date()
+        s = str(v).strip()[:10]
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except Exception:
+                pass
+        return None
 
     db = SessionLocal()
     try:
-        query = db.query(Articolo)
-        if cliente_rif:
-            query = query.filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
-        
+        # carico SOLO cliente scelto
+        query = db.query(Articolo).filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
         all_arts = query.all()
-        
-        # Converte la data di riferimento
-        try:
-            d_limit = datetime.strptime(data_rif_str, "%Y-%m-%d").date()
-        except:
-            d_limit = date.today()
-        
+
         in_stock = []
         for art in all_arts:
-            # Helper interno date
-            def parse_d(v):
-                if not v: return None
-                if isinstance(v, date): return v
-                s = str(v).strip()[:10]
-                for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
-                    try: return datetime.strptime(s, fmt).date()
-                    except: pass
-                return None
-            
-            d_ing = parse_d(art.data_ingresso)
-            d_usc = parse_d(art.data_uscita)
+            d_ing = parse_d(getattr(art, "data_ingresso", None))
+            d_usc = parse_d(getattr(art, "data_uscita", None))
 
-            # 1. Se è uscito PRIMA della data inventario -> ESCLUSO (non c'era più)
+            # se uscito prima/entro la data inventario => non in giacenza
             if d_usc and d_usc <= d_limit:
                 continue
-
-            # 2. Se è entrato DOPO la data inventario -> ESCLUSO (non c'era ancora)
-            # NOTA: Se d_ing è None (data sporca), lo includiamo per sicurezza (vecchio stock)
+            # se entrato dopo la data inventario => non c'era ancora
             if d_ing and d_ing > d_limit:
                 continue
-                
+
             in_stock.append(art)
 
-        # Raggruppa per cliente
-        inventario = defaultdict(list)
-        # Ordina prima per Cliente, poi per Data Ingresso
-        in_stock.sort(key=lambda x: (x.cliente or "", str(x.data_ingresso or "")))
+        # ordina: data ingresso, codice
+        in_stock.sort(key=lambda x: (str(getattr(x, "data_ingresso", "") or ""), str(getattr(x, "codice_articolo", "") or "")))
 
+        # --- CREA EXCEL ---
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "INVENTARIO"
+
+        # Stili base
+        bold = Font(bold=True)
+        title_font = Font(bold=True, size=14)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+        thin = Side(style="thin", color="D0D0D0")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        header_fill = PatternFill("solid", fgColor="D9E1F2")
+
+        # Titolo
+        ws["A1"] = "ELENCO ARTICOLI"
+        ws["A2"] = f"Cliente: {cliente_rif}"
+        ws["A3"] = f"Inventario al: {data_rif_str}"
+
+        ws["A1"].font = title_font
+        ws["A2"].font = bold
+        ws["A3"].font = bold
+
+        # intestazioni tabella (riga 5)
+        headers = [
+            "ID",
+            "CODICE ARTICOLO",
+            "DESCRIZIONE",
+            "LOTTO",
+            "Q.TA ENTRATA",
+            "Q.TA USCITA",
+            "RIMANENZA",
+            "POSIZIONE",
+            "DATA ING.",
+            "N. ARRIVO",
+        ]
+        start_row = 5
+        for c, h in enumerate(headers, start=1):
+            cell = ws.cell(row=start_row, column=c, value=h)
+            cell.font = bold
+            cell.alignment = center
+            cell.fill = header_fill
+            cell.border = border
+
+        # righe dati
+        r = start_row + 1
         for art in in_stock:
-            cli = (art.cliente or "NESSUN CLIENTE").strip().upper()
-            inventario[cli].append(art)
-            
-        return render_template('report_inventario_print.html', inventario=inventario, data_rif=data_rif_str)
+            n_colli = getattr(art, "n_colli", None) or 0
+            try:
+                n_colli = int(n_colli)
+            except Exception:
+                n_colli = 0
+
+            # valori “tipo il tuo file”
+            qta_entrata = n_colli
+            qta_uscita = 0
+            rimanenza = n_colli
+
+            values = [
+                getattr(art, "id_articolo", "") or "",
+                getattr(art, "codice_articolo", "") or "",
+                getattr(art, "descrizione", "") or "",
+                getattr(art, "lotto", "") or "",
+                qta_entrata,
+                qta_uscita,
+                rimanenza,
+                getattr(art, "posizione", "") or "",
+                getattr(art, "data_ingresso", "") or "",
+                getattr(art, "n_arrivo", "") or "",
+            ]
+
+            for c, v in enumerate(values, start=1):
+                cell = ws.cell(row=r, column=c, value=v)
+                cell.alignment = left if c in (2, 3, 4, 8, 10) else center
+                cell.border = border
+            r += 1
+
+        last_row = r - 1
+        last_col = len(headers)
+
+        # larghezze (simili al tuo esempio)
+        widths = [8, 22, 45, 18, 14, 14, 14, 14, 12, 14]
+        for i, w in enumerate(widths, start=1):
+            ws.column_dimensions[chr(64 + i)].width = w
+
+        # blocca intestazione e filtri
+        ws.freeze_panes = ws["A6"]
+
+        # Tabella Excel (con filtri)
+        if last_row >= start_row + 1:
+            table_ref = f"A{start_row}:J{last_row}"
+            tab = Table(displayName="TabInventario", ref=table_ref)
+            style = TableStyleInfo(
+                name="TableStyleMedium9",
+                showFirstColumn=False,
+                showLastColumn=False,
+                showRowStripes=True,
+                showColumnStripes=False,
+            )
+            tab.tableStyleInfo = style
+            ws.add_table(tab)
+
+        # output
+        bio = io.BytesIO()
+        wb.save(bio)
+        bio.seek(0)
+
+        filename = f"Inventario_{cliente_rif.strip().replace(' ', '_')}_{data_rif_str}.xlsx"
+        return send_file(
+            bio,
+            as_attachment=True,
+            download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
     finally:
         db.close()
 
