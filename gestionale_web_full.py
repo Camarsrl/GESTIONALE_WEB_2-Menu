@@ -2577,17 +2577,16 @@ def report_trasporti():
 def lavorazioni():
     db = SessionLocal()
 
-    # GESTIONE INSERIMENTO NUOVO DATO
-    if request.method == 'POST':
-        # --- QUI C'È IL CONTROLLO ADMIN ---
+    # GESTIONE INSERIMENTO
+    if request.method == 'POST' and request.form.get('add_lavorazione'):
         if session.get('role') != 'admin':
-            flash("ACCESSO NEGATO: Solo l'Amministratore può aggiungere dati.", "danger")
+            flash("ACCESSO NEGATO: Solo Admin.", "danger")
             return redirect(url_for('lavorazioni'))
-        # ----------------------------------
 
         try:
+            d_val = datetime.strptime(request.form.get('data'), '%Y-%m-%d').date()
             nuovo = Lavorazione(
-                data=datetime.strptime(request.form.get('data'), '%Y-%m-%d').date(),
+                data=d_val,
                 cliente=request.form.get('cliente'),
                 descrizione=request.form.get('descrizione'),
                 richiesta_di=request.form.get('richiesta_di'),
@@ -2600,21 +2599,117 @@ def lavorazioni():
             )
             db.add(nuovo)
             db.commit()
-            flash("Picking aggiunto con successo!", "success")
+            flash("Picking aggiunto!", "success")
         except Exception as e:
             db.rollback()
             flash(f"Errore inserimento: {e}", "danger")
         return redirect(url_for('lavorazioni'))
 
-    # VISUALIZZAZIONE (Eseguita da TUTTI)
-    query = db.query(Lavorazione)
-    if request.args.get('cliente'):
-        query = query.filter(Lavorazione.cliente.ilike(f"%{request.args.get('cliente')}%"))
-
-    dati = query.order_by(Lavorazione.data.desc()).all()
+    # VISUALIZZAZIONE
+    dati = db.query(Lavorazione).order_by(Lavorazione.data.desc()).all()
     db.close()
     
     return render_template('lavorazioni.html', lavorazioni=dati, today=date.today())
+
+
+@app.route('/stampa_picking_pdf', methods=['POST'])
+@login_required
+def stampa_picking_pdf():
+    import io
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+
+    # Filtri
+    mese = request.form.get('mese')
+    cliente = request.form.get('cliente')
+
+    db = SessionLocal()
+    try:
+        query = db.query(Lavorazione)
+        
+        if mese: query = query.filter(Lavorazione.data.like(f"{mese}%"))
+        if cliente: query = query.filter(Lavorazione.cliente.ilike(f"%{cliente}%"))
+        
+        rows = query.order_by(Lavorazione.data.asc()).all()
+        
+        bio = io.BytesIO()
+        doc = SimpleDocTemplate(bio, pagesize=landscape(A4), topMargin=10*mm, bottomMargin=10*mm)
+        elements = []
+        styles = getSampleStyleSheet()
+
+        # Titolo
+        title = f"REPORT PICKING - {mese if mese else 'Tutto'} - {cliente if cliente else 'Tutti'}"
+        elements.append(Paragraph(f"<b>{title}</b>", styles['Title']))
+        elements.append(Spacer(1, 5*mm))
+
+        # Intestazione Tabella
+        data = [['DATA', 'CLIENTE', 'DESCRIZIONE', 'RICHIESTA', 'COLLI', 'P.IN/OUT', 'BLUE', 'WHITE']]
+        
+        # Totali
+        t_colli = 0; t_pin = 0; t_pout = 0; t_blue = 0.0; t_white = 0.0
+
+        for r in rows:
+            # FIX DATA SICURO
+            d_str = ""
+            if r.data:
+                try: d_str = r.data.strftime('%d/%m/%Y') # Se è oggetto date
+                except: d_str = str(r.data)[:10]         # Se è stringa
+            
+            p_str = f"{r.pallet_forniti or 0} / {r.pallet_uscita or 0}"
+            
+            # Accumula totali
+            try: t_colli += int(r.colli or 0)
+            except: pass
+            try: t_pin += int(r.pallet_forniti or 0)
+            except: pass
+            try: t_pout += int(r.pallet_uscita or 0)
+            except: pass
+            try: t_blue += float(r.ore_blue_collar or 0)
+            except: pass
+            try: t_white += float(r.ore_white_collar or 0)
+            except: pass
+
+            data.append([
+                d_str,
+                str(r.cliente or '')[:20],
+                str(r.descrizione or '')[:30],
+                str(r.richiesta_di or '')[:15],
+                str(r.colli or ''),
+                p_str,
+                str(r.ore_blue_collar or ''),
+                str(r.ore_white_collar or '')
+            ])
+
+        # Riga Totali
+        data.append(['TOTALI', '', '', '', str(t_colli), f"{t_pin}/{t_pout}", str(t_blue), str(t_white)])
+
+        # Creazione Tabella
+        t = Table(data, colWidths=[25*mm, 45*mm, 80*mm, 40*mm, 15*mm, 25*mm, 15*mm, 15*mm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey), # Header grigio
+            ('fontName', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            # Riga Totali in grassetto
+            ('fontName', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, -1), (-1, -1), colors.whitesmoke),
+        ]))
+        
+        elements.append(t)
+        doc.build(elements)
+        
+        bio.seek(0)
+        return send_file(bio, as_attachment=True, download_name=f"report_picking.pdf", mimetype='application/pdf')
+
+    except Exception as e:
+        return f"Errore stampa PDF: {e}"
+    finally:
+        db.close()
 
 
 # --- NUOVO: EXPORT INVENTARIO EXCEL ---
