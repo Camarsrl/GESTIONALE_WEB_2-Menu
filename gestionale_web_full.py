@@ -2502,17 +2502,13 @@ def upload_mappe_json():
 
 
 # --- GESTIONE TRASPORTI (ADMIN) ---
+# --- GESTIONE TRASPORTI (ADMIN) ---
 @app.route('/trasporti', methods=['GET', 'POST'])
 @login_required
 def trasporti():
     db = SessionLocal()
     try:
-        # STAMPA REPORT
-        if request.method == 'POST' and request.form.get('stampa_report'):
-            dati = db.query(Trasporto).order_by(Trasporto.data.desc().nullslast(), Trasporto.id.desc()).all()
-            return render_template('report_trasporti_print.html', trasporti=dati, today=date.today())
-
-        # AGGIUNGI
+        # AGGIUNGI NUOVO TRASPORTO
         if request.method == 'POST' and request.form.get('add_trasporto'):
             try:
                 data_str = (request.form.get('data') or '').strip()
@@ -2541,13 +2537,12 @@ def trasporti():
 
             return redirect(url_for('trasporti'))
 
-        # LISTA
+        # VISUALIZZA LISTA (Carica tutto)
         dati = db.query(Trasporto).order_by(Trasporto.data.desc().nullslast(), Trasporto.id.desc()).all()
         return render_template('trasporti.html', trasporti=dati, today=date.today())
 
     finally:
         db.close()
-
 @app.route('/report_trasporti', methods=['POST'])
 @login_required
 def report_trasporti():
