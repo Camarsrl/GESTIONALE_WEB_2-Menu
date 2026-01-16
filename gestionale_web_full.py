@@ -2530,30 +2530,45 @@ def trasporti():
 @app.route('/report_trasporti', methods=['POST'])
 @login_required
 def report_trasporti():
-    if session.get('role') != 'admin': return "No Access", 403
+    if session.get('role') != 'admin':
+        return "Accesso Negato", 403
     
     # Prendi i dati filtrati dal form
-    mese = request.form.get('mese') # Es. '2025-01'
+    mese = request.form.get('mese') # Es. '2025-01' o vuoto
     mezzo = request.form.get('tipo_mezzo')
     cliente = request.form.get('cliente')
     
     db = SessionLocal()
-    query = db.query(Trasporto)
-    
-    if mese: query = query.filter(Trasporto.data.like(f"{mese}%")) # Filtra per YYYY-MM
-    if mezzo: query = query.filter(Trasporto.tipo_mezzo == mezzo)
-    if cliente: query = query.filter(Trasporto.cliente == cliente)
-    
-    dati = query.all()
-    
-    # Calcolo totali
-    totale_costo = sum(t.costo for t in dati if t.costo)
-    
-    db.close()
-    
-    # Renderizza un template pulito per la stampa
-    return render_template('report_trasporti_print.html', dati=dati, totale=totale_costo, mese=mese, cliente=cliente)
-
+    try:
+        query = db.query(Trasporto)
+        
+        # Filtri dinamici (solo se valorizzati)
+        if mese:
+            # Filtra per la parte iniziale della data (YYYY-MM)
+            query = query.filter(Trasporto.data.like(f"{mese}%"))
+        if mezzo:
+            query = query.filter(Trasporto.tipo_mezzo == mezzo)
+        if cliente:
+            query = query.filter(Trasporto.cliente == cliente)
+        
+        # Ordina per data
+        dati = query.order_by(Trasporto.data.asc()).all()
+        
+        # Calcolo totali
+        totale_costo = sum((t.costo or 0.0) for t in dati)
+        
+        # Renderizza il template passando "dati" (come si aspetta l'HTML)
+        return render_template(
+            'report_trasporti_print.html', 
+            dati=dati, 
+            totale=f"{totale_costo:.2f}", 
+            mese=(mese if mese else "Tutto il periodo"), 
+            cliente=(cliente if cliente else "Tutti")
+        )
+    except Exception as e:
+        return f"Errore durante la generazione del report: {e}", 500
+    finally:
+        db.close()
 
 # --- GESTIONE LAVORAZIONI (ADMIN) ---
 @app.route('/lavorazioni', methods=['GET', 'POST'])
