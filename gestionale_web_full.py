@@ -4531,10 +4531,11 @@ def _generate_buono_pdf(form_data, rows):
     s_norm = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=9, leading=11, textColor=colors.black)
     s_bold = ParagraphStyle('Bold', parent=s_norm, fontName='Helvetica-Bold')
     s_title = ParagraphStyle('Title', parent=styles['Heading1'], alignment=TA_CENTER, fontSize=16, spaceAfter=10, textColor=colors.black)
+    s_note = ParagraphStyle('Note', parent=s_norm, fontSize=9, textColor=colors.darkblue, leftIndent=5) # Stile per le note
 
     # 1. Logo
     if LOGO_PATH and Path(LOGO_PATH).exists():
-        story.append(Image(LOGO_PATH, width=50*mm, height=16*mm, hAlign='CENTER'))
+        story.append(Image(str(LOGO_PATH), width=50*mm, height=16*mm, hAlign='CENTER'))
     else:
         story.append(Paragraph("<b>Ca.mar. srl</b>", s_title))
     
@@ -4542,7 +4543,7 @@ def _generate_buono_pdf(form_data, rows):
     story.append(Paragraph("BUONO DI PRELIEVO", s_title))
     story.append(Spacer(1, 5*mm))
     
-    # 2. Tabella Dati Testata
+    # 2. Dati Testata
     meta_data = [
         [Paragraph("<b>Data Emissione:</b>", s_bold), Paragraph(str(form_data.get('data_em','')), s_norm)],
         [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(str(form_data.get('commessa','')), s_norm)],
@@ -4570,36 +4571,52 @@ def _generate_buono_pdf(form_data, rows):
     header = [
         Paragraph('<b>Ordine</b>', s_bold),
         Paragraph('<b>Codice Articolo</b>', s_bold), 
-        Paragraph('<b>Descrizione / Note</b>', s_bold), 
+        Paragraph('<b>Descrizione</b>', s_bold), 
         Paragraph('<b>Q.tà</b>', s_bold),
         Paragraph('<b>N.Arrivo</b>', s_bold)
     ]
-    data = [header]
     
-    for r in rows:
-        # Recupera qta e note dal form_data usando l'ID
-        q_val = form_data.get(f"q_{r.id_articolo}")
-        q = q_val if q_val else (r.n_colli or 1)
-        
+    # Usiamo una lista piatta di righe, inserendo le note come riga separata se presenti
+    table_data = [header]
+    row_styles = [] # Per gestire lo stile delle righe (es. note senza bordi sopra)
+
+    for i, r in enumerate(rows):
+        q = form_data.get(f"q_{r.id_articolo}") or r.n_colli
         desc = str(r.descrizione or '')
         note_user = form_data.get(f"note_{r.id_articolo}") or r.note
-        if note_user: desc += f"<br/><i>Note: {note_user}</i>"
         
-        data.append([
+        # Riga Articolo
+        row_art = [
             Paragraph(str(r.ordine or ''), s_norm),
             Paragraph(str(r.codice_articolo or ''), s_norm), 
             Paragraph(desc, s_norm), 
             str(q), 
             Paragraph(str(r.n_arrivo or ''), s_norm)
-        ])
+        ]
+        table_data.append(row_art)
         
-    t = Table(data, colWidths=[30*mm, 35*mm, 85*mm, 15*mm, 25*mm], repeatRows=1)
-    t.setStyle(TableStyle([
+        # Se ci sono note, aggiungi una riga sotto che occupa tutta la larghezza (o quasi)
+        if note_user:
+            row_note = [
+                '', '', # Celle vuote a sx
+                Paragraph(f"<i>Note: {note_user}</i>", s_note), # Note nella colonna descrizione
+                '', '' # Celle vuote a dx
+            ]
+            table_data.append(row_note)
+            # Aggiungiamo uno stile per unire le celle o togliere i bordi se volessimo, 
+            # ma per semplicità lasciamo che la nota appaia sotto la descrizione.
+
+    t = Table(table_data, colWidths=[30*mm, 35*mm, 85*mm, 15*mm, 25*mm], repeatRows=1)
+    
+    # Stili base
+    styles_cmds = [
         ('GRID', (0,0), (-1,-1), 0.5, colors.black),
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey), 
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('PADDING', (0,0), (-1,-1), 4)
-    ]))
+    ]
+    
+    t.setStyle(TableStyle(styles_cmds))
     story.append(t)
     
     # 4. Firme
@@ -4612,8 +4629,6 @@ def _generate_buono_pdf(form_data, rows):
     doc.build(story)
     bio.seek(0)
     return bio
-
-
 
 # --- GENERAZIONE PDF DDT (LAYOUT RICHIESTO) ---
 
