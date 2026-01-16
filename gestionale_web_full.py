@@ -1466,26 +1466,32 @@ BUONO_PREVIEW_HTML = """
         </div>
 
         <div class="table-responsive">
-            <table class="table table-sm table-bordered align-middle table-hover">
+            <table class="table table-sm table-bordered align-middle">
                 <thead class="table-dark">
                     <tr>
                         <th style="width:10%">Ordine</th>
-                        <th style="width:15%">Codice Articolo</th>
-                        <th style="width:30%">Descrizione</th>
-                        <th style="width:30%">Note (Editabili per il PDF)</th>
-                        <th style="width:8%">Q.tà</th>
-                        <th style="width:7%">N.Arr</th>
+                        <th style="width:15%">Codice</th>
+                        <th style="width:40%">Descrizione</th>
+                        <th style="width:10%">Q.tà</th>
+                        <th style="width:10%">N.Arr</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for r in rows %}
-                    <tr>
+                    <tr class="table-light">
                         <td class="small">{{ r.ordine or '' }}</td>
                         <td class="fw-bold">{{ r.codice_articolo or '' }}</td>
                         <td class="small">{{ r.descrizione or '' }}</td>
-                        <td><textarea class="form-control form-control-sm" name="note_{{ r.id_articolo }}" rows="1" placeholder="Note...">{{ r.note or '' }}</textarea></td>
-                        <td><input name="q_{{ r.id_articolo }}" class="form-control form-control-sm text-center fw-bold" value="{{ r.n_colli or 1 }}"></td>
+                        <td>
+                            <input name="q_{{ r.id_articolo }}" type="number" class="form-control form-control-sm text-center fw-bold" value="{{ r.n_colli or 1 }}">
+                        </td>
                         <td class="small text-center">{{ r.n_arrivo or '' }}</td>
+                    </tr>
+                    <tr>
+                        <td colspan="2" class="text-end small text-muted align-middle">Note:</td>
+                        <td colspan="3">
+                            <textarea class="form-control form-control-sm border-0 bg-white" name="note_{{ r.id_articolo }}" rows="1" placeholder="Inserisci note aggiuntive qui...">{{ r.note or '' }}</textarea>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -1505,8 +1511,6 @@ function submitBuono(actionType) {
     } else {
         form.target = '_self';
         const formData = new FormData(form);
-        
-        // URL forzato per evitare errori se c'è un input chiamato 'action'
         const url = "{{ url_for('buono_finalize_and_get_pdf') }}"; 
         
         fetch(url, { method: 'POST', body: formData })
@@ -1522,17 +1526,14 @@ function submitBuono(actionType) {
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(urlBlob);
-            setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1500);
+            setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1000);
         })
-        .catch(err => {
-            alert("Errore durante il salvataggio:\\n" + err);
-        });
+        .catch(err => alert("Errore durante il salvataggio:\\n" + err));
     }
 }
 </script>
 {% endblock %}
 """
-
 DDT_PREVIEW_HTML = """
 {% extends 'base.html' %}
 {% block content %}
