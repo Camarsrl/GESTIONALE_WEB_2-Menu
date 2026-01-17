@@ -986,6 +986,7 @@ GIACENZE_HTML = """
                     <div class="col-md-1"><input name="id" class="form-control form-control-sm" placeholder="ID" value="{{ request.args.get('id','') }}"></div>
                     <div class="col-md-2"><input name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
                     <div class="col-md-2"><input name="fornitore" class="form-control form-control-sm" placeholder="Fornitore" value="{{ request.args.get('fornitore','') }}"></div>
+                    <div class="col-md-2"><input name="commessa" class="form-control form-control-sm" placeholder="Commessa" value="{{ request.args.get('commessa','') }}"></div>
                     <div class="col-md-2"><input name="codice_articolo" class="form-control form-control-sm" placeholder="Codice Articolo" value="{{ request.args.get('codice_articolo','') }}"></div>
                     <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial Number" value="{{ request.args.get('serial_number','') }}"></div>
                     <div class="col-md-2"><input name="ordine" class="form-control form-control-sm" placeholder="Ordine" value="{{ request.args.get('ordine','') }}"></div>
