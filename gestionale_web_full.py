@@ -1150,8 +1150,10 @@ GIACENZE_HTML = """
 
 <form method="POST">
     <div class="btn-toolbar mb-2 gap-1 flex-wrap">
+        {% if session.get('role') == 'admin' %}
         <button type="submit" formaction="{{ url_for('buono_preview') }}" class="btn btn-outline-dark btn-sm">Buono</button>
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
+        {% endif %}
 
         <!-- ✅ INVIA EMAIL (GET verso /invia_email con ids selezionati) -->
         {% if session.get('role') == 'admin' %}
@@ -4181,7 +4183,8 @@ def giacenze():
         # - Se role=client: può vedere SOLO il proprio cliente (match esatto, case-insensitive)
         # - Se role=admin: può filtrare liberamente per cliente
         if session.get('role') == 'client':
-            qs = qs.filter(func.upper(Articolo.cliente) == (current_user.id or '').upper())
+            user_key = (current_user.id or '').strip().upper()
+            qs = qs.filter(func.upper(func.trim(Articolo.cliente)).like(f"%{user_key}%"))
         else:
             if args.get('cliente'):
                 qs = qs.filter(Articolo.cliente.ilike(f"%{args.get('cliente')}%"))
@@ -4590,6 +4593,10 @@ def _get_rows_from_ids(ids_list):
 @app.post('/buono/preview')
 @login_required
 def buono_preview():
+
+    if session.get('role') != 'admin':
+        flash('Accesso negato.', 'danger')
+        return redirect(url_for('giacenze'))
     # Recupera gli ID selezionati
     ids_str_list = request.form.getlist('ids')
     ids = [int(i) for i in ids_str_list if i.isdigit()]
@@ -4636,6 +4643,10 @@ def buono_preview():
 @app.post('/ddt/preview')
 @login_required
 def ddt_preview():
+
+    if session.get('role') != 'admin':
+        flash('Accesso negato.', 'danger')
+        return redirect(url_for('giacenze'))
     ids_str_list = request.form.getlist('ids')
     ids = [int(i) for i in ids_str_list if i.isdigit()]
     rows = _get_rows_from_ids(ids)
