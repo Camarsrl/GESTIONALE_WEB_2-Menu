@@ -3881,7 +3881,11 @@ def edit_articolo(id):
         # Sicurezza HARD: un client non puo' accedere/modificare articoli di altri clienti
         if session.get('role') == 'client':
             art_cliente = (art.cliente or '').strip().upper()
-            if art_cliente != current_user.id:
+            user_key = (current_user.id or '').strip().upper()
+            art_norm = re.sub(r'[^A-Z0-9]+', '', art_cliente)
+            user_norm = re.sub(r'[^A-Z0-9]+', '', user_key)
+            # Se non contiene l'identificativo cliente -> blocca
+            if user_norm not in art_norm:
                 abort(403)
 
         if request.method == 'POST':
@@ -4183,8 +4187,18 @@ def giacenze():
         # - Se role=client: può vedere SOLO il proprio cliente (match esatto, case-insensitive)
         # - Se role=admin: può filtrare liberamente per cliente
         if session.get('role') == 'client':
+            # Match robusto: confronta anche se nel DB il cliente ha spazi/punti/sigle diverse.
+            # Esempio: user="DE WAVE REFITTING" deve matchare "DEWAVE REFITTING SRL" o simili.
             user_key = (current_user.id or '').strip().upper()
-            qs = qs.filter(func.upper(func.trim(Articolo.cliente)).like(f"%{user_key}%"))
+            user_key_norm = re.sub(r'[^A-Z0-9]+', '', user_key)
+
+            cliente_db_norm = func.upper(func.trim(Articolo.cliente))
+            cliente_db_norm = func.replace(cliente_db_norm, ' ', '')
+            cliente_db_norm = func.replace(cliente_db_norm, '.', '')
+            cliente_db_norm = func.replace(cliente_db_norm, '-', '')
+            cliente_db_norm = func.replace(cliente_db_norm, '_', '')
+
+            qs = qs.filter(cliente_db_norm.like(f"%{user_key_norm}%"))
         else:
             if args.get('cliente'):
                 qs = qs.filter(Articolo.cliente.ilike(f"%{args.get('cliente')}%"))
