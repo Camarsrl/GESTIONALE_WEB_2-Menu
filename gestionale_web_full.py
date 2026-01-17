@@ -4398,16 +4398,48 @@ def _get_rows_from_ids(ids_list):
 @app.post('/buono/preview')
 @login_required
 def buono_preview():
+    # Recupera gli ID selezionati
     ids_str_list = request.form.getlist('ids')
     ids = [int(i) for i in ids_str_list if i.isdigit()]
-    rows = _get_rows_from_ids(ids)
-    first = rows[0] if rows else None
-    meta = {
-        "buono_n": first.buono_n if first else "", "data_em": datetime.today().strftime("%d/%m/%Y"),
-        "commessa": (first.commessa or "") if first else "", "fornitore": (first.fornitore or "") if first else "",
-        "protocollo": (first.protocollo or "") if first else "",
-    }
-    return render_template('buono_preview.html', rows=rows, meta=meta, ids=",".join(map(str, ids)))
+    
+    db = SessionLocal()
+    try:
+        rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+        
+        # --- LOGICA DI AUTO-COMPILAZIONE ---
+        
+        # 1. PROTOCOLLO
+        protocolli_trovati = set()
+        for r in rows:
+            if r.protocollo and str(r.protocollo).strip():
+                protocolli_trovati.add(str(r.protocollo).strip())
+        protocollo_auto = ", ".join(sorted(protocolli_trovati))
+
+        # 2. COMMESSA
+        commessa_auto = next((r.commessa for r in rows if r.commessa), "")
+        
+        # 3. FORNITORE
+        fornitore_auto = next((r.fornitore for r in rows if r.fornitore), "")
+
+        # 4. N. BUONO (ristampa)
+        buono_n_auto = next((r.buono_n for r in rows if r.buono_n), "")
+        
+        # 5. ORDINE (NUOVO!)
+        ordine_auto = next((r.ordine for r in rows if r.ordine), "")
+
+        meta = {
+            "buono_n": buono_n_auto, 
+            "data_em": datetime.today().strftime("%d/%m/%Y"),
+            "commessa": commessa_auto, 
+            "fornitore": fornitore_auto,
+            "protocollo": protocollo_auto,
+            "ordine": ordine_auto, # ✅ CAMPO AGGIUNTO
+        }
+        
+        return render_template('buono_preview.html', rows=rows, meta=meta, ids=",".join(map(str, ids)))
+        
+    finally:
+        db.close()
 
 @app.post('/ddt/preview')
 @login_required
