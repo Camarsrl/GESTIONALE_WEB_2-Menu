@@ -1458,20 +1458,39 @@ BUONO_PREVIEW_HTML = """
         <input type="hidden" name="action" id="action_field" value="preview">
 
         <div class="row g-3 bg-light p-3 rounded border mb-3">
-            <div class="col-md-2"><label class="form-label small fw-bold">N. Buono</label><input name="buono_n" class="form-control" value="{{ meta.buono_n }}"></div>
-            <div class="col-md-2"><label class="form-label small fw-bold">Data Emissione</label><input name="data_em" class="form-control" value="{{ meta.data_em }}" readonly></div>
-            <div class="col-md-3"><label class="form-label small fw-bold">Commessa</label><input name="commessa" class="form-control" value="{{ meta.commessa }}"></div>
-            <div class="col-md-3"><label class="form-label small fw-bold">Fornitore</label><input name="fornitore" class="form-control" value="{{ meta.fornitore }}"></div>
-            <div class="col-md-2"><label class="form-label small fw-bold">Protocollo</label><input name="protocollo" class="form-control" value="{{ meta.protocollo }}"></div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">N. Buono</label>
+                <input name="buono_n" class="form-control" value="{{ meta.buono_n }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Data Em.</label>
+                <input name="data_em" class="form-control" value="{{ meta.data_em }}" readonly>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Ordine</label>
+                <input name="ordine" class="form-control" value="{{ meta.ordine }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Commessa</label>
+                <input name="commessa" class="form-control" value="{{ meta.commessa }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Fornitore</label>
+                <input name="fornitore" class="form-control" value="{{ meta.fornitore }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Protocollo</label>
+                <input name="protocollo" class="form-control" value="{{ meta.protocollo }}">
+            </div>
         </div>
 
         <div class="table-responsive">
-            <table class="table table-sm table-bordered align-middle">
-                <thead class="table-dark">
+            <table class="table table-sm table-bordered align-middle table-hover">
+                <thead class="table-dark text-black" style="color:black !important;">
                     <tr>
-                        <th style="width:10%">Ordine</th>
+                        <th style="width:10%">Ordine Orig.</th>
                         <th style="width:15%">Codice</th>
-                        <th style="width:40%">Descrizione</th>
+                        <th style="width:35%">Descrizione</th>
                         <th style="width:10%">Q.tà</th>
                         <th style="width:10%">N.Arr</th>
                     </tr>
@@ -1488,9 +1507,9 @@ BUONO_PREVIEW_HTML = """
                         <td class="small text-center">{{ r.n_arrivo or '' }}</td>
                     </tr>
                     <tr>
-                        <td colspan="2" class="text-end small text-muted align-middle">Note:</td>
-                        <td colspan="3">
-                            <textarea class="form-control form-control-sm border-0 bg-white" name="note_{{ r.id_articolo }}" rows="1" placeholder="Inserisci note aggiuntive qui...">{{ r.note or '' }}</textarea>
+                        <td colspan="2" class="text-end small text-muted align-middle" style="border-top:none;">Note:</td>
+                        <td colspan="3" style="border-top:none;">
+                            <textarea class="form-control form-control-sm border-0 bg-white text-primary" name="note_{{ r.id_articolo }}" rows="1" placeholder="Inserisci note aggiuntive...">{{ r.note or '' }}</textarea>
                         </td>
                     </tr>
                     {% endfor %}
@@ -1526,7 +1545,7 @@ function submitBuono(actionType) {
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(urlBlob);
-            setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1000);
+            setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1500);
         })
         .catch(err => alert("Errore durante il salvataggio:\\n" + err));
     }
