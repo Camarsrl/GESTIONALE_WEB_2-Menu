@@ -1074,7 +1074,6 @@ GIACENZE_HTML = """
 
        <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
 
-       {% if session.get('role') == 'admin' %}
        <!-- ✅ INVENTARIO EXCEL (data + cliente) -->
        <form action="{{ url_for('report_inventario_excel') }}" method="POST" class="d-inline-block">
             <div class="input-group input-group-sm">
