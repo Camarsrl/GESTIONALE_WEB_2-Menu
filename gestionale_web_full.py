@@ -1357,6 +1357,7 @@ document.addEventListener("DOMContentLoaded", function() {
 {% endblock %}
 """
 
+
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -2893,7 +2894,12 @@ def report_inventario_excel():
     from datetime import datetime, date
 
     data_rif_str = (request.form.get('data_inventario') or '').strip()
-    cliente_rif = (request.form.get('cliente_inventario') or '').strip()
+
+    # Admin sceglie dal form; Client viene forzato al proprio utente
+    if session.get('role') == 'client':
+        cliente_rif = (current_user.id or '').strip()
+    else:
+        cliente_rif = (request.form.get('cliente_inventario') or '').strip()
 
     if not data_rif_str:
         return "Data mancante", 400
