@@ -4527,8 +4527,8 @@ def _copyright_para():
 
 def _generate_buono_pdf(form_data, rows):
     import io
-    from reportlab.lib.pagesizes import A4
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+    from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
     from reportlab.lib.units import mm
@@ -4542,7 +4542,7 @@ def _generate_buono_pdf(form_data, rows):
     s_norm = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=9, leading=11, textColor=colors.black)
     s_bold = ParagraphStyle('Bold', parent=s_norm, fontName='Helvetica-Bold')
     s_title = ParagraphStyle('Title', parent=styles['Heading1'], alignment=TA_CENTER, fontSize=16, spaceAfter=10, textColor=colors.black)
-    s_note = ParagraphStyle('Note', parent=s_norm, fontSize=9, textColor=colors.darkblue, leftIndent=5) # Stile per le note
+    s_note = ParagraphStyle('Note', parent=s_norm, fontSize=9, textColor=colors.darkblue)
 
     # 1. Logo
     if LOGO_PATH and Path(LOGO_PATH).exists():
@@ -4554,11 +4554,13 @@ def _generate_buono_pdf(form_data, rows):
     story.append(Paragraph("BUONO DI PRELIEVO", s_title))
     story.append(Spacer(1, 5*mm))
     
-    # 2. Dati Testata
+    # 2. Dati Testata (AGGIUNTO ORDINE)
     meta_data = [
         [Paragraph("<b>Data Emissione:</b>", s_bold), Paragraph(str(form_data.get('data_em','')), s_norm)],
-        [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(str(form_data.get('commessa','')), s_norm)],
+        [Paragraph("<b>Cliente:</b>", s_bold), Paragraph(str(rows[0].cliente if rows else ''), s_norm)],
         [Paragraph("<b>Fornitore:</b>", s_bold), Paragraph(str(form_data.get('fornitore','')), s_norm)],
+        [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(str(form_data.get('commessa','')), s_norm)],
+        [Paragraph("<b>Ordine:</b>", s_bold), Paragraph(str(form_data.get('ordine','')), s_norm)], # ✅ NUOVO CAMPO
         [Paragraph("<b>Protocollo:</b>", s_bold), Paragraph(str(form_data.get('protocollo','')), s_norm)],
         [Paragraph("<b>N. Buono:</b>", s_bold), Paragraph(str(form_data.get('buono_n','')), s_norm)]
     ]
@@ -4573,64 +4575,44 @@ def _generate_buono_pdf(form_data, rows):
     story.append(t_meta)
     story.append(Spacer(1, 8*mm))
     
-    # Cliente
-    cliente = rows[0].cliente if rows and rows[0].cliente else ""
-    story.append(Paragraph(f"<b>Cliente:</b> {cliente}", ParagraphStyle('C', parent=s_norm, fontSize=11)))
-    story.append(Spacer(1, 5*mm))
-    
-    # 3. Tabella Articoli
+    # 3. Articoli
     header = [
-        Paragraph('<b>Ordine</b>', s_bold),
-        Paragraph('<b>Codice Articolo</b>', s_bold), 
+        Paragraph('<b>Codice</b>', s_bold), 
         Paragraph('<b>Descrizione</b>', s_bold), 
         Paragraph('<b>Q.tà</b>', s_bold),
-        Paragraph('<b>N.Arrivo</b>', s_bold)
+        Paragraph('<b>N.Arr</b>', s_bold)
     ]
     
-    # Usiamo una lista piatta di righe, inserendo le note come riga separata se presenti
     table_data = [header]
-    row_styles = [] # Per gestire lo stile delle righe (es. note senza bordi sopra)
-
-    for i, r in enumerate(rows):
+    
+    for r in rows:
         q = form_data.get(f"q_{r.id_articolo}") or r.n_colli
         desc = str(r.descrizione or '')
         note_user = form_data.get(f"note_{r.id_articolo}") or r.note
         
-        # Riga Articolo
-        row_art = [
-            Paragraph(str(r.ordine or ''), s_norm),
+        table_data.append([
             Paragraph(str(r.codice_articolo or ''), s_norm), 
             Paragraph(desc, s_norm), 
             str(q), 
             Paragraph(str(r.n_arrivo or ''), s_norm)
-        ]
-        table_data.append(row_art)
+        ])
         
-        # Se ci sono note, aggiungi una riga sotto che occupa tutta la larghezza (o quasi)
         if note_user:
-            row_note = [
-                '', '', # Celle vuote a sx
-                Paragraph(f"<i>Note: {note_user}</i>", s_note), # Note nella colonna descrizione
-                '', '' # Celle vuote a dx
-            ]
-            table_data.append(row_note)
-            # Aggiungiamo uno stile per unire le celle o togliere i bordi se volessimo, 
-            # ma per semplicità lasciamo che la nota appaia sotto la descrizione.
+            table_data.append([
+                '', 
+                Paragraph(f"<i>Note: {note_user}</i>", s_note), 
+                '', ''
+            ])
 
-    t = Table(table_data, colWidths=[30*mm, 35*mm, 85*mm, 15*mm, 25*mm], repeatRows=1)
-    
-    # Stili base
-    styles_cmds = [
+    t = Table(table_data, colWidths=[40*mm, 100*mm, 15*mm, 25*mm], repeatRows=1)
+    t.setStyle(TableStyle([
         ('GRID', (0,0), (-1,-1), 0.5, colors.black),
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey), 
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('PADDING', (0,0), (-1,-1), 4)
-    ]
-    
-    t.setStyle(TableStyle(styles_cmds))
+    ]))
     story.append(t)
     
-    # 4. Firme
     story.append(Spacer(1, 20*mm))
     sig_data = [[Paragraph("Firma Magazzino:<br/><br/>__________________", s_norm),
                  Paragraph("Firma Cliente:<br/><br/>__________________", s_norm)]]
@@ -4640,7 +4622,6 @@ def _generate_buono_pdf(form_data, rows):
     doc.build(story)
     bio.seek(0)
     return bio
-
 # --- GENERAZIONE PDF DDT (LAYOUT RICHIESTO) ---
 
 def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
