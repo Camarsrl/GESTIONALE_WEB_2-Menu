@@ -5595,10 +5595,7 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento):
 @app.route('/calcola_costi', methods=['GET', 'POST'])
 @login_required
 def calcola_costi():
-    if session.get('role') != 'admin':
-        flash("Accesso negato.", "danger")
-        return redirect(url_for('giacenze'))
-
+    
     oggi = date.today()
     data_da_val = (oggi.replace(day=1)).strftime("%Y-%m-%d")
     data_a_val = oggi.strftime("%Y-%m-%d")
