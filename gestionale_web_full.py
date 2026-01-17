@@ -42,7 +42,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 # Database (SQLAlchemy)
-from sqlalchemy import create_engine, Column, Integer, String, Text, Float, Date, ForeignKey, Boolean, or_, Identity, text
+from sqlalchemy import create_engine, Column, Integer, String, Text, Float, Date, ForeignKey, Boolean, or_, Identity, text, Index, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session, selectinload
 from sqlalchemy.sql import func
 from sqlalchemy.exc import IntegrityError
@@ -240,6 +240,61 @@ class Attachment(Base):
 Base.metadata.create_all(engine)
 
 
+# ========================================================
+# 4b. INDICI DB (performance query) - SAFE (checkfirst)
+# ========================================================
+
+def ensure_db_indexes(engine):
+    # Crea indici importanti se mancano (checkfirst).
+    # Nota: su MySQL alcuni campi Text richiedono una lunghezza; la impostiamo solo su MySQL.
+    try:
+        dialect = engine.dialect.name
+        mysql_len = 191 if dialect == 'mysql' else None
+
+        idx_specs = []
+        # Campi molto usati nei filtri/ricerche
+        idx_specs.append(('ix_articoli_id_articolo', [Articolo.id_articolo], {}))
+        idx_specs.append(('ix_articoli_magazzino', [Articolo.magazzino], {}))
+        idx_specs.append(('ix_articoli_posizione', [Articolo.posizione], {}))
+        idx_specs.append(('ix_articoli_serial_number', [Articolo.serial_number], {}))
+        idx_specs.append(('ix_articoli_ns_rif', [Articolo.ns_rif], {}))
+
+        # Text: cliente/codice/protocollo/ordine spesso ricercati
+        if mysql_len:
+            idx_specs.append(('ix_articoli_cliente', [Articolo.cliente], {'mysql_length': mysql_len}))
+            idx_specs.append(('ix_articoli_codice_articolo', [Articolo.codice_articolo], {'mysql_length': mysql_len}))
+            idx_specs.append(('ix_articoli_protocollo', [Articolo.protocollo], {'mysql_length': mysql_len}))
+            idx_specs.append(('ix_articoli_ordine', [Articolo.ordine], {'mysql_length': mysql_len}))
+            idx_specs.append(('ix_articoli_buono_n', [Articolo.buono_n], {'mysql_length': mysql_len}))
+            idx_specs.append(('ix_articoli_n_arrivo', [Articolo.n_arrivo], {'mysql_length': mysql_len}))
+            idx_specs.append(('ix_articoli_ddt_ingresso', [Articolo.n_ddt_ingresso], {'mysql_length': mysql_len}))
+            idx_specs.append(('ix_articoli_ddt_uscita', [Articolo.n_ddt_uscita], {'mysql_length': mysql_len}))
+        else:
+            idx_specs.append(('ix_articoli_cliente', [Articolo.cliente], {}))
+            idx_specs.append(('ix_articoli_codice_articolo', [Articolo.codice_articolo], {}))
+            idx_specs.append(('ix_articoli_protocollo', [Articolo.protocollo], {}))
+            idx_specs.append(('ix_articoli_ordine', [Articolo.ordine], {}))
+            idx_specs.append(('ix_articoli_buono_n', [Articolo.buono_n], {}))
+            idx_specs.append(('ix_articoli_n_arrivo', [Articolo.n_arrivo], {}))
+            idx_specs.append(('ix_articoli_ddt_ingresso', [Articolo.n_ddt_ingresso], {}))
+            idx_specs.append(('ix_articoli_ddt_uscita', [Articolo.n_ddt_uscita], {}))
+
+        # Date come stringa: indice comunque utile per ordinamenti/filtri grezzi
+        idx_specs.append(('ix_articoli_data_ingresso', [Articolo.data_ingresso], {}))
+        idx_specs.append(('ix_articoli_data_uscita', [Articolo.data_uscita], {}))
+
+        for name, cols, kwargs in idx_specs:
+            try:
+                Index(name, *cols, **kwargs).create(bind=engine, checkfirst=True)
+            except Exception as e:
+                print(f"[WARN] indice non creato {name}: {e}")
+    except Exception as e:
+        print(f"[WARN] ensure_db_indexes fallita: {e}")
+
+# Crea indici (se possibile) all'avvio
+ensure_db_indexes(engine)
+
+
 # --- MODELLO TABELLA TRASPORTI (Separata da Articoli) ---
 class Trasporto(Base):
     __tablename__ = 'trasporti'
@@ -294,6 +349,30 @@ def get_users():
 
 # ORA possiamo chiamarla, perché è stata definita sopra
 USERS_DB = get_users()
+
+
+def _is_werkzeug_hash(s: str) -> bool:
+    if not isinstance(s, str):
+        return False
+    s = s.strip()
+    return s.startswith('pbkdf2:') or s.startswith('scrypt:') or s.startswith('argon2:')
+
+
+def verify_password(stored: str, provided: str) -> bool:
+    # Supporta sia password legacy in chiaro sia hash werkzeug.
+    if stored is None:
+        return False
+    stored = str(stored).strip()
+    provided = (provided or '').strip()
+    if not stored or not provided:
+        return False
+    if _is_werkzeug_hash(stored):
+        try:
+            return check_password_hash(stored, provided)
+        except Exception:
+            return False
+    return stored == provided
+
 
 class User(UserMixin):
     def __init__(self, id, role):
@@ -986,10 +1065,10 @@ GIACENZE_HTML = """
                     <div class="col-md-1"><input name="id" class="form-control form-control-sm" placeholder="ID" value="{{ request.args.get('id','') }}"></div>
                     <div class="col-md-2"><input name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
                     <div class="col-md-2"><input name="fornitore" class="form-control form-control-sm" placeholder="Fornitore" value="{{ request.args.get('fornitore','') }}"></div>
-                    <div class="col-md-2"><input name="commessa" class="form-control form-control-sm" placeholder="Commessa" value="{{ request.args.get('commessa','') }}"></div>
                     <div class="col-md-2"><input name="codice_articolo" class="form-control form-control-sm" placeholder="Codice Articolo" value="{{ request.args.get('codice_articolo','') }}"></div>
                     <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial Number" value="{{ request.args.get('serial_number','') }}"></div>
                     <div class="col-md-2"><input name="ordine" class="form-control form-control-sm" placeholder="Ordine" value="{{ request.args.get('ordine','') }}"></div>
+                    <div class="col-md-2"><input name="commessa" class="form-control form-control-sm" placeholder="Commessa" value="{{ request.args.get('commessa','') }}"></div>
                     <div class="col-md-1"><button type="submit" class="btn btn-primary btn-sm w-100">Cerca</button></div>
                 </div>
 
@@ -1076,9 +1155,9 @@ GIACENZE_HTML = """
 
                     <th>Descrizione</th>
                     <th>Protocollo</th>
+                    <th>Commessa</th>
                     <th>Ordine</th>
                     <th>Colli</th>
-                    <th>Commessa</th>
                     <th>Fornitore</th>
                     <th>Magazzino</th>
 
@@ -1127,9 +1206,9 @@ GIACENZE_HTML = """
 
                     <td title="{{ desc }}">{{ desc[:30] }}{% if desc|length > 30 %}...{% endif %}</td>
                     <td>{{ r.protocollo or '' }}</td>
+                    <td>{{ r.commessa or '' }}</td>
                     <td>{{ r.ordine or '' }}</td>
                     <td>{{ r.n_colli or '' }}</td>
-                    <td>{{ r.commessa or '' }}</td>
                     <td>{{ r.fornitore or '' }}</td>
                     <td>{{ r.magazzino or '' }}</td>
 
@@ -1167,12 +1246,12 @@ GIACENZE_HTML = """
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="33" class="text-center p-3 text-muted">Nessun articolo trovato con questi filtri.</td></tr>
+                <tr><td colspan="34" class="text-center p-3 text-muted">Nessun articolo trovato con questi filtri.</td></tr>
                 {% endfor %}
             </tbody>
 
             <tfoot class="sticky-bottom bg-white fw-bold">
-                <tr><td colspan="33">Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}</td></tr>
+                <tr><td colspan="34">Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}</td></tr>
             </tfoot>
         </table>
     </div>
@@ -2305,7 +2384,7 @@ def login():
         
         users_db = get_users()
         
-        if username in users_db and users_db[username] == password:
+        if username in users_db and verify_password(users_db[username], password):
             # 1. Crea l'oggetto utente
             role = 'admin' if username in ADMIN_USERS else 'client'
             user = User(username, role)
@@ -2315,6 +2394,7 @@ def login():
             
             # 3. Imposta variabili di sessione accessorie
             session['role'] = role
+            session['user'] = username
             session['user_name'] = username
             
             flash(f"Benvenuto {username}", "success")
@@ -3133,6 +3213,10 @@ def save_pdf_import():
         for i in range(len(codici)):
             if codici[i].strip() or descrizioni[i].strip():
                 art = Articolo()
+                # Cliente: per i client e' bloccato sul proprio utente
+            if session.get('role') == 'client':
+                art.cliente = current_user.id
+            else:
                 art.cliente = request.form.get('cliente')
                 art.commessa = request.form.get('commessa')
                 art.n_ddt_ingresso = request.form.get('n_ddt')
@@ -3542,6 +3626,10 @@ def nuovo_articolo():
                 # Popola i campi testuali
                 art.codice_articolo = request.form.get('codice_articolo')
                 art.descrizione = request.form.get('descrizione')
+                # Cliente: per i client e' bloccato sul proprio utente
+            if session.get('role') == 'client':
+                art.cliente = current_user.id
+            else:
                 art.cliente = request.form.get('cliente')
                 art.fornitore = request.form.get('fornitore')
                 art.commessa = request.form.get('commessa')
@@ -3671,6 +3759,10 @@ def delete_articolo(id):
 @app.route('/duplica_articolo/<int:id_articolo>')
 @login_required
 def duplica_articolo(id_articolo):
+    if session.get('role') != 'admin':
+        flash('Accesso negato: Solo Admin.', 'danger')
+        return redirect(url_for('giacenze'))
+
     db = SessionLocal()
     originale = db.query(Articolo).filter_by(id_articolo=id_articolo).first()
     
@@ -3726,6 +3818,12 @@ def edit_articolo(id):
             flash("Articolo non trovato", "danger")
             return redirect(url_for('giacenze'))
 
+        # Sicurezza HARD: un client non puo' accedere/modificare articoli di altri clienti
+        if session.get('role') == 'client':
+            art_cliente = (art.cliente or '').strip().upper()
+            if art_cliente != current_user.id:
+                abort(403)
+
         if request.method == 'POST':
             # 1. Recupera Colli (per eventuale split)
             colli_input = to_int_eu(request.form.get('n_colli'))
@@ -3734,7 +3832,11 @@ def edit_articolo(id):
             # 2. Aggiorna tutti i campi
             art.codice_articolo = request.form.get('codice_articolo')
             art.descrizione = request.form.get('descrizione')
-            art.cliente = request.form.get('cliente')
+            # Cliente: per i client e' bloccato sul proprio utente
+            if session.get('role') == 'client':
+                art.cliente = current_user.id
+            else:
+                art.cliente = request.form.get('cliente')
             art.fornitore = request.form.get('fornitore')
             art.commessa = request.form.get('commessa')
             art.ordine = request.form.get('ordine')
@@ -3840,7 +3942,11 @@ def edit_record(id_articolo):
             # Aggiornamento campi
             art.codice_articolo = request.form.get('codice_articolo')
             art.descrizione = request.form.get('descrizione')
-            art.cliente = request.form.get('cliente')
+            # Cliente: per i client e' bloccato sul proprio utente
+            if session.get('role') == 'client':
+                art.cliente = current_user.id
+            else:
+                art.cliente = request.form.get('cliente')
             art.fornitore = request.form.get('fornitore')
             art.commessa = request.form.get('commessa')
             art.ordine = request.form.get('ordine')
@@ -4013,11 +4119,14 @@ def giacenze():
         qs = db.query(Articolo).options(selectinload(Articolo.attachments)).order_by(Articolo.id_articolo.desc())
         args = request.args
 
-        # 2. Filtro Cliente (Sicurezza per utenti con ruolo 'client')
+        # 2. Filtro Cliente (Sicurezza HARD lato server)
+        # - Se role=client: può vedere SOLO il proprio cliente (match esatto, case-insensitive)
+        # - Se role=admin: può filtrare liberamente per cliente
         if session.get('role') == 'client':
-            qs = qs.filter(Articolo.cliente.ilike(f"%{current_user.id}%"))
-        elif args.get('cliente'):
-            qs = qs.filter(Articolo.cliente.ilike(f"%{args.get('cliente')}%"))
+            qs = qs.filter(func.upper(Articolo.cliente) == current_user.id)
+        else:
+            if args.get('cliente'):
+                qs = qs.filter(Articolo.cliente.ilike(f"%{args.get('cliente')}%"))
 
         # 3. Filtro ID univoco
         if args.get('id'):
@@ -5447,3 +5556,4 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     print(f"✅ Avvio Gestionale Camar Web Edition su http://127.0.0.1:{port}")
     app.run(host='0.0.0.0', port=port, debug=True)
+
