@@ -1077,6 +1077,7 @@ GIACENZE_HTML = """
                     <th>Protocollo</th>
                     <th>Ordine</th>
                     <th>Colli</th>
+                    <th>Commessa</th>
                     <th>Fornitore</th>
                     <th>Magazzino</th>
 
