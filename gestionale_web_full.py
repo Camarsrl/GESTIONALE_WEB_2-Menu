@@ -336,7 +336,7 @@ ADMIN_USERS = {'ADMIN', 'OPS', 'CUSTOMS', 'TAZIO', 'DIEGO'}
 
 
 def require_admin(view_func):
-    \"\"\"Decorator: allow only admin users.\"\"\"
+   """Decorator: allow only admin users."""
     @wraps(view_func)
     def _wrapped(*args, **kwargs):
         if session.get('role') != 'admin':
