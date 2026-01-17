@@ -334,6 +334,23 @@ DEFAULT_USERS = {
 }
 ADMIN_USERS = {'ADMIN', 'OPS', 'CUSTOMS', 'TAZIO', 'DIEGO'}
 
+
+def require_admin(view_func):
+    \"\"\"Decorator: allow only admin users.\"\"\"
+    @wraps(view_func)
+    def _wrapped(*args, **kwargs):
+        if session.get('role') != 'admin':
+            flash("Accesso negato.", "danger")
+            return redirect(url_for('giacenze'))
+        return view_func(*args, **kwargs)
+    return _wrapped
+
+def current_cliente():
+    \"\"\"Cliente associato all'utente corrente (per i client è bloccato).\"\"\"
+    if session.get('role') == 'client':
+        return (current_user.id or '').strip()
+    return None
+
 def get_users():
     """Legge utenti dal file txt o usa i default."""
     try:
@@ -593,7 +610,9 @@ BASE_HTML = """
             <ul class="navbar-nav ms-auto align-items-center gap-2">
                 
                 <li class="nav-item"><a class="nav-link" href="{{ url_for('giacenze') }}">📦 Magazzino</a></li>
+                {% if session.get('role') == 'admin' %}
                 <li class="nav-item"><a class="nav-link" href="{{ url_for('import_excel') }}">📥 Import Excel</a></li>
+                {% endif %}
 
                 {% if session.get('role') == 'admin' %}
                     <li class="nav-item border-start border-light ps-2 ms-2 d-none d-lg-block"></li> <li class="nav-item">
@@ -806,11 +825,19 @@ HOME_HTML = """
             <h6 class="mb-3">Menu Principale</h6>
             <div class="d-grid gap-2">
                 <a class="btn btn-primary" href="{{ url_for('giacenze') }}"><i class="bi bi-grid-3x3-gap-fill"></i> Visualizza Giacenze</a>
+                {% if session.get('role') == 'admin' %}
                 <a class="btn btn-success" href="{{ url_for('nuovo_articolo') }}"><i class="bi bi-plus-circle"></i> Nuovo Articolo</a>
+                {% endif %}
+                {% if session.get('role') == 'admin' %}
                 <a class="btn btn-outline-secondary" href="{{ url_for('labels_form') }}"><i class="bi bi-tag"></i> Stampa Etichette</a>
+                {% endif %}
                 <hr>
+                {% if session.get('role') == 'admin' %}
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('import_excel') }}"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</a>
+                {% endif %}
+                {% if session.get('role') == 'admin' %}
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel Totale</a>
+                {% endif %}
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_client') }}"><i class="bi bi-people"></i> Export per Cliente</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>
             </div>
@@ -1031,12 +1058,18 @@ GIACENZE_HTML = """
 <div class="d-flex justify-content-between align-items-center mb-2">
     <h4 class="mb-0"><i class="bi bi-box-seam"></i> Magazzino</h4>
     <div class="d-flex gap-2 flex-wrap">
+       {% if session.get('role') == 'admin' %}
        <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> Nuovo</a>
+       {% endif %}
+       {% if session.get('role') == 'admin' %}
        <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>
+       {% endif %}
 
+       {% if session.get('role') == 'admin' %}
        <form action="{{ url_for('labels_pdf') }}" method="POST" target="_blank" class="d-inline">
            <button class="btn btn-sm btn-info text-white"><i class="bi bi-tag"></i> Etichette</button>
        </form>
+       {% endif %}
 
        <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
 
@@ -1120,22 +1153,32 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
 
         <!-- ✅ INVIA EMAIL (GET verso /invia_email con ids selezionati) -->
-        <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm">
+        {% if session.get('role') == 'admin' %}
+       <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm">
             <i class="bi bi-envelope"></i> Invia E-mail
         </button>
+       {% endif %}
 
-        <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Mod. Multipla</button>
-        <button type="submit" formaction="{{ url_for('labels_pdf') }}" formtarget="_blank" class="btn btn-warning btn-sm">
+        {% if session.get('role') == 'admin' %}
+       <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Mod. Multipla</button>
+       {% endif %}
+        {% if session.get('role') == 'admin' %}
+       <button type="submit" formaction="{{ url_for('labels_pdf') }}" formtarget="_blank" class="btn btn-warning btn-sm">
             <i class="bi bi-download"></i> Scarica Etichette
         </button>
+       {% endif %}
 
-        <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare SELEZIONATI?')">
+        {% if session.get('role') == 'admin' %}
+       <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare SELEZIONATI?')">
             Elimina Selezionati
         </button>
+       {% endif %}
 
-        <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-primary btn-sm" onclick="return confirm('Duplicare gli articoli selezionati?')">
+        {% if session.get('role') == 'admin' %}
+       <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-primary btn-sm" onclick="return confirm('Duplicare gli articoli selezionati?')">
             Duplica Selezionati
         </button>
+       {% endif %}
     </div>
 
     <div class="table-responsive shadow-sm" style="max-height: 70vh;">
@@ -1241,8 +1284,10 @@ GIACENZE_HTML = """
                     </td>
 
                     <td class="text-center">
+                        {% if session.get('role') == 'admin' %}
                         <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" title="Modifica" class="text-decoration-none me-2">✏️</a>
                         <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" title="Elimina" class="text-decoration-none text-danger" onclick="return confirm('Eliminare articolo {{ r.id_articolo }}?');">🗑️</a>
+                        {% else %}-{% endif %}
                     </td>
                 </tr>
                 {% else %}
@@ -2974,6 +3019,7 @@ def report_inventario_excel():
 
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
+@require_admin
 def import_excel():
     mappe = load_mappe()
     profiles = list(mappe.keys()) if mappe else []
@@ -3173,6 +3219,7 @@ def get_all_fields_map():
 # --- ROUTE IMPORT PDF (PROTETTA ADMIN) ---
 @app.route('/import_pdf', methods=['GET', 'POST'])
 @login_required
+@require_admin
 def import_pdf():
     # PROTEZIONE ADMIN
     if session.get('role') != 'admin':
@@ -3198,6 +3245,7 @@ def import_pdf():
 
 @app.route('/save_pdf_import', methods=['POST'])
 @login_required
+@require_admin
 def save_pdf_import():
     # PROTEZIONE ADMIN
     if session.get('role') != 'admin':
@@ -3237,6 +3285,7 @@ def save_pdf_import():
 # --- EXPORTAZIONE EXCEL ---
 @app.get('/export_excel')
 @login_required
+@require_admin
 def export_excel():
     db = SessionLocal()
     df = pd.read_sql(db.query(Articolo).statement, db.bind)
@@ -3250,9 +3299,13 @@ def export_excel():
 def export_client():
     db = SessionLocal()
     clienti = [c[0] for c in db.query(Articolo.cliente).distinct().filter(Articolo.cliente != None, Articolo.cliente != '').order_by(Articolo.cliente).all()]
+    if session.get('role') == 'client':
+        clienti = [(current_user.id or '').strip()]
     
     if request.method == 'POST':
         cliente = request.form.get('cliente')
+        if session.get('role') == 'client':
+            cliente = (current_user.id or '').strip()
         if not cliente:
             flash("Seleziona un cliente.", "warning")
             return redirect(request.url)
@@ -3276,6 +3329,7 @@ def export_client():
 # ==============================================================================
 @app.route('/invia_email', methods=['GET', 'POST'])
 @login_required
+@require_admin
 def invia_email():
     from email.header import Header
     from email.mime.image import MIMEImage
@@ -3603,6 +3657,7 @@ def serve_uploaded_file(filename):
 
 @app.route('/new', methods=['GET', 'POST'])
 @login_required
+@require_admin
 def nuovo_articolo():
     # 1. Controllo permessi
     if session.get('role') != 'admin':
@@ -3734,6 +3789,7 @@ def nuovo_articolo():
 # 1. ELIMINA ARTICOLO (Per la pagina Magazzino)
 @app.route('/delete_articolo/<int:id>')
 @login_required
+@require_admin
 def delete_articolo(id):
     if session.get('role') != 'admin':
         flash("Accesso Negato: Solo Admin può eliminare.", "danger")
@@ -3810,6 +3866,7 @@ def duplica_articolo(id_articolo):
 # --- MODIFICA ARTICOLO SINGOLO (UNICA FUNZIONE CORRETTA) ---
 @app.route('/edit_articolo/<int:id>', methods=['GET', 'POST'])
 @login_required
+@require_admin
 def edit_articolo(id):
     db = SessionLocal()
     try:
@@ -4123,7 +4180,7 @@ def giacenze():
         # - Se role=client: può vedere SOLO il proprio cliente (match esatto, case-insensitive)
         # - Se role=admin: può filtrare liberamente per cliente
         if session.get('role') == 'client':
-            qs = qs.filter(func.upper(Articolo.cliente) == current_user.id)
+            qs = qs.filter(func.upper(Articolo.cliente) == (current_user.id or '').upper())
         else:
             if args.get('cliente'):
                 qs = qs.filter(Articolo.cliente.ilike(f"%{args.get('cliente')}%"))
@@ -4277,6 +4334,7 @@ def elimina_record(table, id):
 # --- MODIFICA MULTIPLA COMPLETA CON CALCOLI ---
 @app.route('/bulk_edit', methods=['GET', 'POST'])
 @login_required
+@require_admin
 def bulk_edit():
     db = SessionLocal()
     try:
@@ -4414,6 +4472,7 @@ def bulk_edit():
 
 @app.post('/delete_rows')
 @login_required
+@require_admin
 def delete_rows():
     # Controllo Permessi: Solo Admin può cancellare
     if session.get('role') != 'admin':
@@ -4467,6 +4526,7 @@ def bulk_delete():
 
 @app.post('/bulk/duplicate')
 @login_required
+@require_admin
 def bulk_duplicate():
     # Controllo Permessi
     if session.get('role') != 'admin':
@@ -5110,6 +5170,7 @@ def labels_form():
 
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
+@require_admin
 def labels_pdf():
     # Se ci sono ID selezionati, prendi dal DB
     ids = request.form.getlist('ids')
