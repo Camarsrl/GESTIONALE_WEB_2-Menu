@@ -1128,6 +1128,7 @@ GIACENZE_HTML = """
                     <td>{{ r.protocollo or '' }}</td>
                     <td>{{ r.ordine or '' }}</td>
                     <td>{{ r.n_colli or '' }}</td>
+                    <td>{{ r.commessa or '' }}</td>
                     <td>{{ r.fornitore or '' }}</td>
                     <td>{{ r.magazzino or '' }}</td>
 
