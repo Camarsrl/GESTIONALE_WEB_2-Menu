@@ -347,7 +347,7 @@ def require_admin(view_func):
 
 
 def current_cliente():
-    \"\"\"Cliente associato all'utente corrente (per i client è bloccato).\"\"\"
+    """Cliente associato all'utente corrente (per i client è bloccato)."""
     if session.get('role') == 'client':
         return (current_user.id or '').strip()
     return None
