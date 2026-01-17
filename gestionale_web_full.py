@@ -336,7 +336,7 @@ ADMIN_USERS = {'ADMIN', 'OPS', 'CUSTOMS', 'TAZIO', 'DIEGO'}
 
 
 def require_admin(view_func):
-   """Decorator: allow only admin users."""
+    """Decorator: allow only admin users."""
     @wraps(view_func)
     def _wrapped(*args, **kwargs):
         if session.get('role') != 'admin':
@@ -344,6 +344,7 @@ def require_admin(view_func):
             return redirect(url_for('giacenze'))
         return view_func(*args, **kwargs)
     return _wrapped
+
 
 def current_cliente():
     \"\"\"Cliente associato all'utente corrente (per i client è bloccato).\"\"\"
