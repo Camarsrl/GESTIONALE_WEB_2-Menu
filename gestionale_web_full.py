@@ -1090,6 +1090,9 @@ GIACENZE_HTML = """
                    placeholder="Cliente (es. FINCANTIERI)"
                    required
                    style="max-width: 200px;">
+        {% else %}
+            <!-- per i CLIENT: inviamo il cliente in hidden (e comunque lato server viene forzato) -->
+            <input type="hidden" name="cliente_inventario" value="{{ session.get('user') }}">
         {% endif %}
 
         <button class="btn btn-success"
@@ -1353,7 +1356,6 @@ document.addEventListener("DOMContentLoaded", function() {
 </script>
 {% endblock %}
 """
-
 
 EDIT_HTML = """
 {% extends 'base.html' %}
