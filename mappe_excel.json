@@ -168,7 +168,7 @@
             "PEZZI":"pezzo"
 			}
         },
-		"Giacenze De wave Refitting":{
+		"Giacenze RF-DE WAVE":{
         "header_row":3,
         "column_map":{
             "ID":"ID",
@@ -368,4 +368,5 @@
 	}	
 		
 		
+
 
