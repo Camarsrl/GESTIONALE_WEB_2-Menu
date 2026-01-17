@@ -1100,9 +1100,9 @@ GIACENZE_HTML = """
     </div>
 </form>
 
-       {% endif %}
     </div>
 </div>
+
 
 <div class="card mb-2 bg-light shadow-sm">
     <div class="card-header py-1" data-bs-toggle="collapse" data-bs-target="#filterBody" style="cursor:pointer">
