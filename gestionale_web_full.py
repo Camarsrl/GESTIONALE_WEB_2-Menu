@@ -4422,7 +4422,7 @@ def bulk_edit():
             ('N. DDT Ingresso', 'n_ddt_ingresso'), ('Data Ingresso', 'data_ingresso'),
             ('Data Uscita', 'data_uscita'), ('N. DDT Uscita', 'n_ddt_uscita'),
             ('Protocollo', 'protocollo'), ('N. Buono', 'buono_n'),
-            ('Magazzino', 'magazzino'), ('Commessa', 'commessa'),
+            ('Magazzino', 'magazzino'), ('Commessa', 'commessa'),('mezzi in uscita', 'mezzi in uscita'),
             ('Ordine', 'ordine'), ('Stato', 'stato'),
             ('Codice Articolo', 'codice_articolo'), ('Serial Number', 'serial_number'),
             ('Colli', 'n_colli'), ('Pezzi', 'pezzo'),
