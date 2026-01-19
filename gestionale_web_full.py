@@ -1091,7 +1091,6 @@ GIACENZE_HTML = """
                    required
                    style="max-width: 200px;">
         {% else %}
-            <!-- per i CLIENT: inviamo il cliente in hidden (e comunque lato server viene forzato) -->
             <input type="hidden" name="cliente_inventario" value="{{ session.get('user') }}">
         {% endif %}
 
@@ -1160,7 +1159,11 @@ GIACENZE_HTML = """
 
                 <div class="row g-1">
                     <div class="col-md-2 ms-auto">
-                        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm w-100" onclick="localStorage.removeItem('camar_selected_articles');">Reset</a>
+                        <a href="{{ url_for('giacenze') }}"
+                           class="btn btn-outline-secondary btn-sm w-100"
+                           onclick="localStorage.removeItem('camar_selected_articles');">
+                           Reset
+                        </a>
                     </div>
                 </div>
             </form>
@@ -1175,33 +1178,33 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
         {% endif %}
 
-        <!-- ✅ INVIA EMAIL (GET verso /invia_email con ids selezionati) -->
         {% if session.get('role') == 'admin' %}
-       <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm">
+        <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm">
             <i class="bi bi-envelope"></i> Invia E-mail
         </button>
-       {% endif %}
+        {% endif %}
 
         {% if session.get('role') == 'admin' %}
-       <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Mod. Multipla</button>
-       {% endif %}
+        <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Mod. Multipla</button>
+        {% endif %}
+
         {% if session.get('role') == 'admin' %}
-       <button type="submit" formaction="{{ url_for('labels_pdf') }}" formtarget="_blank" class="btn btn-warning btn-sm">
+        <button type="submit" formaction="{{ url_for('labels_pdf') }}" formtarget="_blank" class="btn btn-warning btn-sm">
             <i class="bi bi-download"></i> Scarica Etichette
         </button>
-       {% endif %}
+        {% endif %}
 
         {% if session.get('role') == 'admin' %}
-       <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare SELEZIONATI?')">
+        <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare SELEZIONATI?')">
             Elimina Selezionati
         </button>
-       {% endif %}
+        {% endif %}
 
         {% if session.get('role') == 'admin' %}
-       <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-primary btn-sm" onclick="return confirm('Duplicare gli articoli selezionati?')">
+        <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-primary btn-sm" onclick="return confirm('Duplicare gli articoli selezionati?')">
             Duplica Selezionati
         </button>
-       {% endif %}
+        {% endif %}
     </div>
 
     <div class="table-responsive shadow-sm" style="max-height: 70vh;">
@@ -1326,37 +1329,38 @@ GIACENZE_HTML = """
 </form>
 
 <script>
+const STORAGE_KEY = 'camar_selected_articles';
+
+function saveSelection() {
+    const checked = Array.from(document.querySelectorAll('input[name="ids"]:checked'))
+        .map(cb => cb.value);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(checked));
+}
+
 function toggleAll(source) {
-    document.getElementsByName('ids').forEach(c => {
-        c.checked = source.checked;
-        c.dispatchEvent(new Event('change'));
+    document.querySelectorAll('input[name="ids"]').forEach(cb => {
+        cb.checked = source.checked;
     });
+    saveSelection();
 }
 
 document.addEventListener("DOMContentLoaded", function() {
-    const STORAGE_KEY = 'camar_selected_articles';
+    // Ripristina selezione dopo ogni ricerca/refresh
+    const savedIds = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    document.querySelectorAll('input[name="ids"]').forEach(cb => {
+        cb.checked = savedIds.includes(cb.value);
+    });
 
-    let savedIds = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    const checkboxes = document.querySelectorAll('input[name="ids"]');
-
-    checkboxes.forEach(cb => {
-        if (savedIds.includes(cb.value)) cb.checked = true;
-
-        cb.addEventListener('change', function() {
-            let currentIds = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-            if (this.checked) {
-                if (!currentIds.includes(this.value)) currentIds.push(this.value);
-            } else {
-                currentIds = currentIds.filter(id => id !== this.value);
-            }
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(currentIds));
-        });
+    // Aggiorna salvataggio ogni volta che cambia un checkbox
+    document.addEventListener("change", function(e) {
+        if (e.target && e.target.matches('input[name="ids"]')) {
+            saveSelection();
+        }
     });
 });
 </script>
 {% endblock %}
 """
-
 
 EDIT_HTML = """
 {% extends 'base.html' %}
