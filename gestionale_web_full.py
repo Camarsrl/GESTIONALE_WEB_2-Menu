@@ -4199,7 +4199,9 @@ def delete_attachment(id_attachment):
 def giacenze():
     # Import interni per sicurezza e pulizia
     import logging
+    import re
     from sqlalchemy.orm import selectinload
+    from sqlalchemy import func
     from datetime import datetime, date
 
     db = SessionLocal()
@@ -4209,11 +4211,7 @@ def giacenze():
         args = request.args
 
         # 2. Filtro Cliente (Sicurezza HARD lato server)
-        # - Se role=client: può vedere SOLO il proprio cliente (match esatto, case-insensitive)
-        # - Se role=admin: può filtrare liberamente per cliente
         if session.get('role') == 'client':
-            # Match robusto: confronta anche se nel DB il cliente ha spazi/punti/sigle diverse.
-            # Esempio: user="DE WAVE REFITTING" deve matchare "DEWAVE REFITTING SRL" o simili.
             user_key = (current_user.id or '').strip().upper()
             user_key_norm = re.sub(r'[^A-Z0-9]+', '', user_key)
 
@@ -4230,10 +4228,12 @@ def giacenze():
 
         # 3. Filtro ID univoco
         if args.get('id'):
-            try: qs = qs.filter(Articolo.id_articolo == int(args.get('id')))
-            except ValueError: pass
+            try:
+                qs = qs.filter(Articolo.id_articolo == int(args.get('id')))
+            except ValueError:
+                pass
 
-        # 4. Filtri Testuali (Itera su tutti i campi di ricerca)
+        # 4. Filtri Testuali
         text_filters = [
             'commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo', 'lotto',
             'fornitore', 'ordine', 'magazzino', 'mezzi_in_uscita', 'stato',
@@ -4249,12 +4249,15 @@ def giacenze():
         rows_raw = qs.all()
         rows = []
 
-        # 5. Gestione Filtri DATE (Robustezza anti-crash)
+        # 5. Filtri DATE robusti
         def get_date_arg(k):
             v = args.get(k)
-            if not v: return None
-            try: return datetime.strptime(v, "%Y-%m-%d").date()
-            except: return None
+            if not v:
+                return None
+            try:
+                return datetime.strptime(v, "%Y-%m-%d").date()
+            except Exception:
+                return None
 
         d_ing_da = get_date_arg('data_ing_da')
         d_ing_a = get_date_arg('data_ing_a')
@@ -4263,40 +4266,50 @@ def giacenze():
 
         for r in rows_raw:
             keep = True
-            
+
             # --- FILTRO DATA INGRESSO ---
             if d_ing_da or d_ing_a:
                 r_dt = None
-                # Se è già un oggetto date
                 if isinstance(r.data_ingresso, date):
                     r_dt = r.data_ingresso
-                # Se è una stringa, controlliamo PRIMA che non sia None o vuota
                 elif r.data_ingresso and isinstance(r.data_ingresso, str):
-                    try: r_dt = datetime.strptime(r.data_ingresso[:10], "%Y-%m-%d").date()
-                    except: 
-                        try: r_dt = datetime.strptime(r.data_ingresso[:10], "%d/%m/%Y").date()
-                        except: pass
-                
-                if not r_dt: keep = False
+                    try:
+                        r_dt = datetime.strptime(r.data_ingresso[:10], "%Y-%m-%d").date()
+                    except Exception:
+                        try:
+                            r_dt = datetime.strptime(r.data_ingresso[:10], "%d/%m/%Y").date()
+                        except Exception:
+                            pass
+
+                if not r_dt:
+                    keep = False
                 else:
-                    if d_ing_da and r_dt < d_ing_da: keep = False
-                    if d_ing_a and r_dt > d_ing_a: keep = False
-            
+                    if d_ing_da and r_dt < d_ing_da:
+                        keep = False
+                    if d_ing_a and r_dt > d_ing_a:
+                        keep = False
+
             # --- FILTRO DATA USCITA ---
             if keep and (d_usc_da or d_usc_a):
                 r_dt = None
                 if isinstance(r.data_uscita, date):
                     r_dt = r.data_uscita
                 elif r.data_uscita and isinstance(r.data_uscita, str):
-                    try: r_dt = datetime.strptime(r.data_uscita[:10], "%Y-%m-%d").date()
-                    except:
-                        try: r_dt = datetime.strptime(r.data_uscita[:10], "%d/%m/%Y").date()
-                        except: pass
-                
-                if not r_dt: keep = False
+                    try:
+                        r_dt = datetime.strptime(r.data_uscita[:10], "%Y-%m-%d").date()
+                    except Exception:
+                        try:
+                            r_dt = datetime.strptime(r.data_uscita[:10], "%d/%m/%Y").date()
+                        except Exception:
+                            pass
+
+                if not r_dt:
+                    keep = False
                 else:
-                    if d_usc_da and r_dt < d_usc_da: keep = False
-                    if d_usc_a and r_dt > d_usc_a: keep = False
+                    if d_usc_da and r_dt < d_usc_da:
+                        keep = False
+                    if d_usc_a and r_dt > d_usc_a:
+                        keep = False
 
             if keep:
                 rows.append(r)
@@ -4307,19 +4320,25 @@ def giacenze():
         total_peso = 0.0
 
         for r in rows:
-            try: total_colli += int(r.n_colli) if r.n_colli else 0
-            except: pass
-            
-            try: total_m2 += float(r.m2) if r.m2 else 0
-            except: pass
-            
-            try: total_peso += float(r.peso) if r.peso else 0
-            except: pass
+            try:
+                total_colli += int(r.n_colli) if r.n_colli else 0
+            except Exception:
+                pass
+
+            try:
+                total_m2 += float(r.m2) if r.m2 else 0
+            except Exception:
+                pass
+
+            try:
+                total_peso += float(r.peso) if r.peso else 0
+            except Exception:
+                pass
 
         return render_template(
             'giacenze.html',
             rows=rows,
-            result=rows, # Per compatibilità
+            result=rows,  # compatibilità
             total_colli=total_colli,
             total_m2=f"{total_m2:.2f}",
             total_peso=f"{total_peso:.2f}",
@@ -4327,11 +4346,11 @@ def giacenze():
         )
 
     except Exception as e:
-        # Log dell'errore per il debug e messaggio utente
         logging.error(f"ERRORE GIACENZE: {e}")
         return f"<h1>Errore caricamento magazzino:</h1><p>{e}</p>"
     finally:
         db.close()
+
 # ==============================================================================
 #  3. FUNZIONE ELIMINA (Risolve l'errore 'endpoint elimina_record')
 # ==============================================================================
