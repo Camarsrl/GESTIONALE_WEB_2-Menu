@@ -1711,10 +1711,17 @@ DDT_PREVIEW_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="card p-3">
-    <div class="d-flex align-items-center gap-3 mb-3">
-        {% if logo_url %}<img src="{{ logo_url }}" style="height:40px">{% endif %}
-        <h5 class="flex-grow-1 text-center m-0">DOCUMENTO DI TRASPORTO</h5>
-        
+
+    <!-- ✅ HEADER con più spazio, logo più grande -->
+    <div class="d-flex align-items-center gap-3 mb-4" style="padding-bottom:10px;">
+        {% if logo_url %}
+            <img src="{{ logo_url }}" style="height:70px; margin-bottom:10px;">
+        {% endif %}
+
+        <h5 class="flex-grow-1 text-center m-0" style="padding-top:10px;">
+            DOCUMENTO DI TRASPORTO
+        </h5>
+
         <div class="btn-group">
             <button type="button" class="btn btn-outline-primary" onclick="submitDdt('preview')">
                 <i class="bi bi-printer"></i> Anteprima PDF
@@ -1732,7 +1739,7 @@ DDT_PREVIEW_HTML = """
     <form id="ddt-form" method="POST" action="{{ url_for('ddt_finalize') }}">
         <input type="hidden" name="ids" value="{{ ids }}">
         <input type="hidden" name="action" id="action_field" value="preview">
-        
+
         <div class="row g-3">
             <div class="col-md-4">
                 <label class="form-label">Destinatario</label>
@@ -1745,38 +1752,74 @@ DDT_PREVIEW_HTML = """
                     <a href="{{ url_for('manage_destinatari') }}" class="btn btn-outline-secondary" target="_blank"><i class="bi bi-pencil"></i></a>
                 </div>
             </div>
+
             <div class="col-md-3">
-                 <label class="form-label">N. DDT</label>
-                 <div class="input-group">
+                <label class="form-label">N. DDT</label>
+                <div class="input-group">
                     <input name="n_ddt" id="n_ddt_input" class="form-control" value="{{ n_ddt }}">
-                    <button class="btn btn-outline-secondary" type="button" id="get-next-ddt" title="Nuovo Numero"><i class="bi bi-arrow-clockwise"></i></button>
+                    <button class="btn btn-outline-secondary" type="button" id="get-next-ddt" title="Nuovo Numero">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
                 </div>
             </div>
-            <div class="col-md-2"><label class="form-label">Data DDT</label><input name="data_ddt" type="date" class="form-control" value="{{ oggi }}"></div>
-            <div class="col-md-3"><label class="form-label">Targa</label><input name="targa" class="form-control"></div>
-            
-            <div class="col-md-4"><label class="form-label">Causale</label><input name="causale" class="form-control" value="TRASFERIMENTO"></div>
-            <div class="col-md-4"><label class="form-label">Porto</label><input name="porto" class="form-control" value="FRANCO"></div>
-            <div class="col-md-4"><label class="form-label">Aspetto</label><input name="aspetto" class="form-control" value="A VISTA"></div>
+
+            <div class="col-md-2">
+                <label class="form-label">Data DDT</label>
+                <input name="data_ddt" type="date" class="form-control" value="{{ oggi }}">
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Targa</label>
+                <input name="targa" class="form-control">
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">Causale</label>
+                <input name="causale" class="form-control" value="TRASFERIMENTO">
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">Porto</label>
+                <input name="porto" class="form-control" value="FRANCO">
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">Aspetto</label>
+                <input name="aspetto" class="form-control" value="A VISTA">
+            </div>
         </div>
-        <hr>
-        <div class="table-responsive">
+
+        <hr style="margin-top:18px; margin-bottom:18px;">
+
+        <!-- ✅ TITOLO "Articoli nel DDT" + spazio prima della tabella -->
+        <div class="mt-3" style="margin-bottom:18px;">
+            <h5 class="mb-0" style="font-weight:600;">Articoli nel DDT</h5>
+        </div>
+
+        <div class="table-responsive" style="margin-top:8px;">
             <table class="table table-sm table-bordered align-middle">
                 <thead class="table-light">
                     <tr>
-                        <th>ID</th> <th>Cod.Art.</th> <th>Descrizione</th>
+                        <th>ID</th>
+                        <th>Cod.Art.</th>
+                        <th>Descrizione</th>
                         <th style="width: 250px;">Note (Editabili)</th>
-                        <th style="width: 70px;">Pezzi</th> <th style="width: 70px;">Colli</th> <th style="width: 80px;">Peso</th>
+                        <th style="width: 70px;">Pezzi</th>
+                        <th style="width: 70px;">Colli</th>
+                        <th style="width: 80px;">Peso</th>
                         <th>N.Arrivo</th>
                     </tr>
                 </thead>
+
                 <tbody>
                     {% for r in rows %}
                     <tr>
                         <td>{{ r.id_articolo }}</td>
                         <td>{{ r.codice_articolo or '' }}</td>
                         <td>{{ r.descrizione or '' }}</td>
-                        <td><textarea class="form-control form-control-sm" name="note_{{ r.id_articolo }}" rows="1">{{ r.note or '' }}</textarea></td>
+                        <td>
+                            <textarea class="form-control form-control-sm" name="note_{{ r.id_articolo }}" rows="1">{{ r.note or '' }}</textarea>
+                        </td>
                         <td><input class="form-control form-control-sm" name="pezzi_{{ r.id_articolo }}" value="{{ r.pezzo or 1 }}"></td>
                         <td><input class="form-control form-control-sm" name="colli_{{ r.id_articolo }}" value="{{ r.n_colli or 1 }}"></td>
                         <td><input class="form-control form-control-sm" name="peso_{{ r.id_articolo }}" value="{{ r.peso or '' }}"></td>
@@ -1789,10 +1832,13 @@ DDT_PREVIEW_HTML = """
     </form>
 </div>
 {% endblock %}
+
 {% block extra_js %}
 <script>
 document.getElementById('get-next-ddt').addEventListener('click', function() {
-    fetch('{{ url_for('get_next_ddt_number') }}').then(r => r.json()).then(d => { document.getElementById('n_ddt_input').value = d.next_ddt; });
+    fetch('{{ url_for('get_next_ddt_number') }}')
+      .then(r => r.json())
+      .then(d => { document.getElementById('n_ddt_input').value = d.next_ddt; });
 });
 
 function submitDdt(actionType) {
@@ -1805,8 +1851,8 @@ function submitDdt(actionType) {
     } else {
         form.target = '_self';
         const formData = new FormData(form);
-        const url = form.getAttribute('action'); // FIX JS
-        
+        const url = form.getAttribute('action');
+
         fetch(url, { method: 'POST', body: formData })
         .then(resp => {
             if (resp.ok) return resp.blob();
@@ -1828,6 +1874,7 @@ function submitDdt(actionType) {
 </script>
 {% endblock %}
 """
+
 
 LABELS_FORM_HTML = """
 {% extends 'base.html' %}
