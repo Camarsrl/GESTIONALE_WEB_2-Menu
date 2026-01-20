@@ -2361,20 +2361,18 @@ INVIA_EMAIL_HTML = """
                 <input type="hidden" name="selected_ids" value="{{ selected_ids }}">
                 
                 <div class="mb-3">
-    <label class="form-label">Destinatari</label>
-    <input
-        type="text"
-        name="destinatario"
-        class="form-control"
-        placeholder="email1@dominio.it; email2@dominio.it"
-        required
-    >
-    <div class="form-text">
-        Puoi inserire più destinatari separandoli con <b>;</b> oppure <b>,</b>
-    </div>
-</div>
-
-                
+                <label class="form-label">Destinatari</label>
+                <input
+                    type="text"
+                    name="destinatario"
+                    class="form-control"
+                    placeholder="email1@dominio.it; email2@dominio.it"
+                    required
+                >
+                <div class="form-text">
+                    Puoi inserire più destinatari separandoli con <b>;</b> oppure <b>,</b>
+                </div>
+               
                 <div class="mb-3">
                     <label class="form-label fw-bold">Oggetto</label>
                     <input type="text" name="oggetto" class="form-control" value="Documentazione Merce - Camar S.r.l." required>
