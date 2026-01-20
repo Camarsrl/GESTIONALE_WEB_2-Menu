@@ -4521,17 +4521,35 @@ def bulk_edit():
 
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
 
-        # Configurazione Campi Modificabili
+        # ✅ Configurazione Campi Modificabili (CORRETTA)
         editable_fields = [
-            ('Cliente', 'cliente'), ('Fornitore', 'fornitore'),
-            ('N. DDT Ingresso', 'n_ddt_ingresso'), ('Data Ingresso', 'data_ingresso'),
-            ('Data Uscita', 'data_uscita'), ('N. DDT Uscita', 'n_ddt_uscita'),
-            ('Protocollo', 'protocollo'), ('N. Buono', 'buono_n'),
-            ('Magazzino', 'magazzino'), ('Commessa', 'commessa'),('mezzi in uscita', 'mezzi in uscita'),
-            ('Ordine', 'ordine'), ('Stato', 'stato'),('Descrizione', 'Descrizione'), 
-            ('Codice Articolo', 'codice_articolo'), ('Serial Number', 'serial_number'),
-            ('Colli', 'n_colli'), ('Pezzi', 'pezzo'),
-            ('Lunghezza', 'lunghezza'), ('Larghezza', 'larghezza'), ('Altezza', 'altezza')
+            ('Cliente', 'cliente'),
+            ('Fornitore', 'fornitore'),
+            ('N. DDT Ingresso', 'n_ddt_ingresso'),
+            ('Data Ingresso', 'data_ingresso'),
+            ('Data Uscita', 'data_uscita'),
+            ('N. DDT Uscita', 'n_ddt_uscita'),
+            ('Protocollo', 'protocollo'),
+            ('N. Buono', 'buono_n'),
+            ('Magazzino', 'magazzino'),
+            ('Commessa', 'commessa'),
+
+            # ✅ CORRETTO: era "mezzi in uscita"
+            ('Mezzo Uscita', 'mezzi_in_uscita'),
+
+            ('Ordine', 'ordine'),
+            ('Stato', 'stato'),
+
+            # ✅ CORRETTO: era ('Descrizione','Descrizione')
+            ('Descrizione', 'descrizione'),
+
+            ('Codice Articolo', 'codice_articolo'),
+            ('Serial Number', 'serial_number'),
+            ('Colli', 'n_colli'),
+            ('Pezzi', 'pezzo'),
+            ('Lunghezza', 'lunghezza'),
+            ('Larghezza', 'larghezza'),
+            ('Altezza', 'altezza')
         ]
 
         if request.method == 'POST' and request.form.get('save_bulk') == 'true':
@@ -4544,6 +4562,8 @@ def bulk_edit():
                     continue
 
                 field_name = key.replace('chk_', '')
+
+                # accetta SOLO campi presenti nella lista editable_fields
                 if not any(f[1] == field_name for f in editable_fields):
                     continue
 
@@ -4555,6 +4575,9 @@ def bulk_edit():
                     val = to_float_eu(val)
                 elif 'data' in field_name:
                     val = parse_date_ui(val) if val else None
+                else:
+                    # ✅ per sicurezza: stringhe pulite (descrizione ecc.)
+                    val = (val or "").strip()
 
                 updates[field_name] = val
 
@@ -4576,7 +4599,6 @@ def bulk_edit():
                         art.m2, art.m3 = calc_m2_m3(L, W, H, C)
 
             # 2) UPLOAD MASSIVO MULTIPLO (più file)
-            # NB: in HTML usa name="bulk_files" multiple
             files = request.files.getlist('bulk_files')
             count_uploaded = 0
 
@@ -4603,7 +4625,6 @@ def bulk_edit():
                         kind = 'photo'
                         dest_dir = PHOTOS_DIR
                     else:
-                        # fallback: documenti
                         kind = 'doc'
                         dest_dir = DOCS_DIR
 
@@ -4640,6 +4661,7 @@ def bulk_edit():
         return redirect(url_for('giacenze'))
     finally:
         db.close()
+
 
 @app.post('/delete_rows')
 @login_required
