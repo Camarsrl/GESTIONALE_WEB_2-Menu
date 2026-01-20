@@ -2026,46 +2026,77 @@ EXPORT_CLIENT_HTML = """
 </div>
 {% endblock %}
 """
-
 DESTINATARI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-md-10 col-lg-8">
-        <div class="card p-4">
-            <h3><i class="bi bi-person-rolodex"></i> Gestione Destinatari</h3>
-            <hr>
-            <h5>Aggiungi Nuovo Destinatario</h5>
-            <form method="post" class="mb-4">
-                <div class="row g-3">
-                    <div class="col-md-6"><label class="form-label">Nome Chiave (es. Sede Cliente)</label><input name="key_name" class="form-control" required></div>
-                    <div class="col-md-6"><label class="form-label">Ragione Sociale</label><input name="ragione_sociale" class="form-control" required></div>
-                    <div class="col-md-6"><label class="form-label">Indirizzo Completo</label><input name="indirizzo" class="form-control"></div>
-                    <div class="col-md-6"><label class="form-label">Partita IVA</label><input name="piva" class="form-control"></div>
-                </div>
-                <button type="submit" class="btn btn-primary mt-3">Aggiungi</button>
-            </form>
-            <hr>
-            <h5>Destinatari Esistenti</h5>
-            <ul class="list-group">
-                {% for key, details in destinatari.items() %}
-                <li class="list-group-item d-flex justify-content-between align-items-center">
-                    <div>
-                        <strong>{{ key }}</strong><br>
-                        <small class="text-muted">{{ details.ragione_sociale }} - {{ details.indirizzo }}</small>
-                    </div>
-                    <a href="{{ url_for('delete_destinatario', key=key) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Sei sicuro di voler eliminare questo destinatario?')"><i class="bi bi-trash"></i></a>
-                </li>
-                {% else %}
-                <li class="list-group-item">Nessun destinatario salvato.</li>
-                {% endfor %}
-            </ul>
-             <a href="{{ request.referrer or url_for('home') }}" class="btn btn-secondary mt-4">Indietro</a>
+  <div class="col-md-10 col-lg-8">
+    <div class="card p-4">
+      <h3><i class="bi bi-person-rolodex"></i> Gestione Destinatari</h3>
+      <hr>
+
+      <h5>Aggiungi Nuovo Destinatario</h5>
+      <form method="post" class="mb-4">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Nome Chiave (es. FINCANTIERI)</label>
+            <input name="key_name" class="form-control" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Ragione Sociale</label>
+            <input name="ragione_sociale" class="form-control" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Indirizzo Completo</label>
+            <input name="indirizzo" class="form-control">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Partita IVA</label>
+            <input name="piva" class="form-control">
+          </div>
         </div>
+
+        <button type="submit" class="btn btn-primary mt-3">
+          <i class="bi bi-plus-lg"></i> Aggiungi
+        </button>
+      </form>
+
+      <hr>
+      <h5>Destinatari Esistenti</h5>
+
+      <ul class="list-group">
+        {% for key, details in destinatari.items() %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <div>
+            <strong>{{ key }}</strong><br>
+            <small class="text-muted">
+              {{ details.ragione_sociale or '' }}{% if details.indirizzo %} - {{ details.indirizzo }}{% endif %}
+            </small>
+          </div>
+
+          <!-- ✅ ELIMINAZIONE CORRETTA: POST alla stessa pagina -->
+          <form method="post" class="m-0">
+            <input type="hidden" name="delete_key" value="{{ key }}">
+            <button type="submit"
+                    class="btn btn-sm btn-outline-danger"
+                    onclick="return confirm('Sei sicuro di voler eliminare questo destinatario?')">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+        </li>
+        {% else %}
+        <li class="list-group-item">Nessun destinatario salvato.</li>
+        {% endfor %}
+      </ul>
+
+      <a href="{{ request.referrer or url_for('home') }}" class="btn btn-secondary mt-4">Indietro</a>
     </div>
+  </div>
 </div>
 {% endblock %}
 """
+
+
 
 # --- TEMPLATE PAGINA PICKING / LAVORAZIONI (Senza Emoji, usa Icone Bootstrap) ---
 
