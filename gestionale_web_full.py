@@ -4829,45 +4829,66 @@ def get_next_ddt_number():
 @app.route('/manage_destinatari', methods=['GET', 'POST'])
 @login_required
 def manage_destinatari():
+    import json
+
     dest_file = APP_DIR / "destinatari_saved.json"
     destinatari = load_destinatari()
-    
+
     if request.method == 'POST':
-        # Se stiamo eliminando
+
+        # =========================
+        # ELIMINAZIONE DESTINATARIO
+        # =========================
         if 'delete_key' in request.form:
-            key_to_delete = request.form.get('delete_key')
-            if key_to_delete in destinatari:
+            key_to_delete = (request.form.get('delete_key') or '').strip()
+
+            if key_to_delete and key_to_delete in destinatari:
                 del destinatari[key_to_delete]
                 try:
-                    dest_file.write_text(json.dumps(destinatari, ensure_ascii=False, indent=4), encoding="utf-8")
+                    dest_file.write_text(
+                        json.dumps(destinatari, ensure_ascii=False, indent=4),
+                        encoding="utf-8"
+                    )
                     flash(f"Destinatario '{key_to_delete}' eliminato.", "success")
                 except Exception as e:
                     flash(f"Errore salvataggio file: {e}", "danger")
-        
-        # Se stiamo aggiungendo
+            else:
+                flash("Destinatario non trovato.", "warning")
+
+        # =========================
+        # AGGIUNTA / MODIFICA
+        # =========================
         else:
-            key_name = request.form.get('key_name')
+            key_name = (request.form.get('key_name') or '').strip()
+
             if not key_name:
                 flash("Il Nome Chiave è obbligatorio.", "warning")
             else:
                 destinatari[key_name] = {
-                    "ragione_sociale": request.form.get('ragione_sociale', ''),
-                    "indirizzo": request.form.get('indirizzo', ''),
-                    "piva": request.form.get('piva', '')
+                    "ragione_sociale": (request.form.get('ragione_sociale') or '').strip(),
+                    "indirizzo": (request.form.get('indirizzo') or '').strip(),
+                    "piva": (request.form.get('piva') or '').strip()
                 }
+
                 try:
-                    dest_file.write_text(json.dumps(destinatari, ensure_ascii=False, indent=4), encoding="utf-8")
+                    dest_file.write_text(
+                        json.dumps(destinatari, ensure_ascii=False, indent=4),
+                        encoding="utf-8"
+                    )
                     flash(f"Destinatario '{key_name}' salvato.", "success")
                 except Exception as e:
                     flash(f"Errore salvataggio file: {e}", "danger")
 
         return redirect(url_for('manage_destinatari'))
-        
-    return render_template('destinatari.html', destinatari=destinatari)
 
-# --- PDF E FINALIZZAZIONE DDT ---
-_styles = getSampleStyleSheet()
-PRIMARY_COLOR = colors.HexColor("#3498db")
+    # =========================
+    # GET
+    # =========================
+    return render_template(
+        'destinatari.html',
+        destinatari=destinatari
+    )
+
 
 def _pdf_table(data, col_widths=None, header=True, hAlign='LEFT', style=None):
     t = Table(data, colWidths=col_widths, hAlign=hAlign)
