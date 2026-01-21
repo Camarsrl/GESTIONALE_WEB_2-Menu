@@ -4453,7 +4453,7 @@ def bulk_edit():
 
             # ✅ FIX: era ('Peso','Peso')
             ('Peso', 'peso'),
-
+            ('Lotto', 'lotto'),
             ('Ordine', 'ordine'),
             ('Stato', 'stato'),
             ('Descrizione', 'descrizione'),
