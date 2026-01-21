@@ -4536,7 +4536,7 @@ def bulk_edit():
 
             # ✅ CORRETTO: era "mezzi in uscita"
             ('Mezzo Uscita', 'mezzi_in_uscita'),
-
+            ('Peso', 'Peso'),
             ('Ordine', 'ordine'),
             ('Stato', 'stato'),
 
