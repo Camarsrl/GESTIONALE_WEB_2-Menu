@@ -4503,6 +4503,7 @@ def elimina_record(table, id):
         db.close()
 
 # --- MODIFICA MULTIPLA COMPLETA CON CALCOLI ---
+
 @app.route('/bulk_edit', methods=['GET', 'POST'])
 @login_required
 @require_admin
@@ -4533,23 +4534,21 @@ def bulk_edit():
             ('N. Buono', 'buono_n'),
             ('Magazzino', 'magazzino'),
             ('Commessa', 'commessa'),
-
-            # ✅ CORRETTO: era "mezzi in uscita"
             ('Mezzo Uscita', 'mezzi_in_uscita'),
-            ('Peso', 'Peso'),
+
+            # ✅ FIX: era ('Peso','Peso')
+            ('Peso', 'peso'),
+
             ('Ordine', 'ordine'),
             ('Stato', 'stato'),
-
-            # ✅ CORRETTO: era ('Descrizione','Descrizione')
             ('Descrizione', 'descrizione'),
-
             ('Codice Articolo', 'codice_articolo'),
             ('Serial Number', 'serial_number'),
             ('Colli', 'n_colli'),
             ('Pezzi', 'pezzo'),
             ('Lunghezza', 'lunghezza'),
             ('Larghezza', 'larghezza'),
-            ('Altezza', 'altezza')
+            ('Altezza', 'altezza'),
         ]
 
         if request.method == 'POST' and request.form.get('save_bulk') == 'true':
@@ -4561,7 +4560,7 @@ def bulk_edit():
                 if not key.startswith('chk_'):
                     continue
 
-                field_name = key.replace('chk_', '')
+                field_name = key.replace('chk_', '').strip()
 
                 # accetta SOLO campi presenti nella lista editable_fields
                 if not any(f[1] == field_name for f in editable_fields):
@@ -4571,12 +4570,13 @@ def bulk_edit():
 
                 if field_name in ['n_colli', 'pezzo']:
                     val = to_int_eu(val)
-                elif field_name in ['lunghezza', 'larghezza', 'altezza']:
+                elif field_name in ['lunghezza', 'larghezza', 'altezza', 'peso']:
+                    # ✅ peso è numerico
                     val = to_float_eu(val)
                 elif 'data' in field_name:
                     val = parse_date_ui(val) if val else None
                 else:
-                    # ✅ per sicurezza: stringhe pulite (descrizione ecc.)
+                    # stringhe pulite (descrizione ecc.)
                     val = (val or "").strip()
 
                 updates[field_name] = val
@@ -4661,6 +4661,7 @@ def bulk_edit():
         return redirect(url_for('giacenze'))
     finally:
         db.close()
+
 
 
 @app.post('/delete_rows')
