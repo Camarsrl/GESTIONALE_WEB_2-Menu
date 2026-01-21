@@ -4228,7 +4228,6 @@ def delete_attachment(id_attachment):
 @app.route('/giacenze', methods=['GET', 'POST'])
 @login_required
 def giacenze():
-    # Import interni
     import logging
     import re
     import math
@@ -4246,91 +4245,68 @@ def giacenze():
         qs = db.query(Articolo).options(selectinload(Articolo.attachments)).order_by(Articolo.id_articolo.desc())
         args = request.args
 
-        # 2. Filtro Cliente (Sicurezza)
+        # 2. Filtri Base
         if session.get('role') == 'client':
             user_key = (current_user.id or '').strip().upper()
             user_key_norm = re.sub(r'[^A-Z0-9]+', '', user_key)
-            
-            # Normalizzazione SQL
             cliente_db_norm = func.upper(func.trim(Articolo.cliente))
             for char in [' ', '.', '-', '_']:
                 cliente_db_norm = func.replace(cliente_db_norm, char, '')
-            
             qs = qs.filter(cliente_db_norm.like(f"%{user_key_norm}%"))
         else:
             if args.get('cliente'):
                 qs = qs.filter(Articolo.cliente.ilike(f"%{args.get('cliente')}%"))
 
-        # 3. Filtro ID
         if args.get('id'):
             try: qs = qs.filter(Articolo.id_articolo == int(args.get('id')))
             except: pass
 
-        # 4. Filtri Testuali
-        text_filters = [
-            'commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo', 'lotto',
-            'fornitore', 'ordine', 'magazzino', 'mezzi_in_uscita', 'stato',
-            'n_ddt_ingresso', 'n_ddt_uscita', 'codice_articolo', 'serial_number',
-            'n_arrivo'
-        ]
+        text_filters = ['commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo', 'lotto',
+                        'fornitore', 'ordine', 'magazzino', 'mezzi_in_uscita', 'stato',
+                        'n_ddt_ingresso', 'n_ddt_uscita', 'codice_articolo', 'serial_number', 'n_arrivo']
         for field in text_filters:
             val = args.get(field)
             if val and val.strip():
                 qs = qs.filter(getattr(Articolo, field).ilike(f"%{val.strip()}%"))
 
-        # Recupera TUTTI i dati per filtrare le date in Python (più sicuro sui formati misti)
+        # Recupera tutto per filtrare date in Python (più sicuro)
         all_rows = qs.all()
         filtered_rows = []
 
-        # 5. Filtri DATE (Python side)
+        # 3. Filtri Date
         def get_date_arg(k):
             v = args.get(k)
             try: return datetime.strptime(v, "%Y-%m-%d").date() if v else None
             except: return None
 
-        d_ing_da = get_date_arg('data_ing_da')
-        d_ing_a = get_date_arg('data_ing_a')
-        d_usc_da = get_date_arg('data_usc_da')
-        d_usc_a = get_date_arg('data_usc_a')
+        d_ing_da, d_ing_a = get_date_arg('data_ing_da'), get_date_arg('data_ing_a')
+        d_usc_da, d_usc_a = get_date_arg('data_usc_da'), get_date_arg('data_usc_a')
 
         if any([d_ing_da, d_ing_a, d_usc_da, d_usc_a]):
             for r in all_rows:
                 keep = True
-                
-                # Helper per parsare la data dal DB
-                def parse_db_date(val):
+                def parse_d(val):
                     if isinstance(val, date): return val
                     if not val or not isinstance(val, str): return None
                     try: return datetime.strptime(val[:10], "%Y-%m-%d").date()
-                    except:
-                        try: return datetime.strptime(val[:10], "%d/%m/%Y").date()
-                        except: return None
-
+                    except: return None
+                
                 # Ingresso
                 if d_ing_da or d_ing_a:
-                    r_dt = parse_db_date(r.data_ingresso)
-                    if not r_dt: keep = False
-                    else:
-                        if d_ing_da and r_dt < d_ing_da: keep = False
-                        if d_ing_a and r_dt > d_ing_a: keep = False
+                    rd = parse_d(r.data_ingresso)
+                    if not rd or (d_ing_da and rd < d_ing_da) or (d_ing_a and rd > d_ing_a): keep = False
                 
                 # Uscita
                 if keep and (d_usc_da or d_usc_a):
-                    r_dt = parse_db_date(r.data_uscita)
-                    if not r_dt: keep = False
-                    else:
-                        if d_usc_da and r_dt < d_usc_da: keep = False
-                        if d_usc_a and r_dt > d_usc_a: keep = False
+                    rd = parse_d(r.data_uscita)
+                    if not rd or (d_usc_da and rd < d_usc_da) or (d_usc_a and rd > d_usc_a): keep = False
                 
                 if keep: filtered_rows.append(r)
         else:
             filtered_rows = all_rows
 
-        # 6. Calcolo TOTALI (Su tutto il set filtrato)
-        total_colli = 0
-        total_m2 = 0.0
-        total_peso = 0.0
-        
+        # 4. Totali
+        total_colli = 0; total_m2 = 0.0; total_peso = 0.0
         for r in filtered_rows:
             try: total_colli += int(r.n_colli or 0)
             except: pass
@@ -4339,39 +4315,33 @@ def giacenze():
             try: total_peso += float(r.peso) if r.peso else 0
             except: pass
 
-        # 7. PAGINAZIONE (Il segreto della velocità)
+        # 5. Paginazione
         total_items = len(filtered_rows)
         total_pages = math.ceil(total_items / PER_PAGE)
-        
         if page < 1: page = 1
         if page > total_pages and total_pages > 0: page = total_pages
-
+        
         start = (page - 1) * PER_PAGE
         end = start + PER_PAGE
-        
-        # Slice dei dati per la pagina corrente
         current_page_rows = filtered_rows[start:end]
+
+        # ✅ FIX FONDAMENTALE: Puliamo i parametri per evitare l'errore "multiple values for page"
+        search_params = request.args.copy()
+        if 'page' in search_params:
+            del search_params['page']
 
         return render_template(
             'giacenze.html',
             rows=current_page_rows,
             result=current_page_rows,
-            
-            # Info Paginazione
-            page=page,
-            total_pages=total_pages,
-            total_items=total_items,
-            
-            # Totali
-            total_colli=total_colli,
-            total_m2=f"{total_m2:.2f}",
-            total_peso=f"{total_peso:.2f}",
-            today=date.today()
+            page=page, total_pages=total_pages, total_items=total_items,
+            total_colli=total_colli, total_m2=f"{total_m2:.2f}", total_peso=f"{total_peso:.2f}",
+            today=date.today(),
+            search_params=search_params # Passiamo i parametri puliti al template
         )
-
     except Exception as e:
         logging.error(f"ERRORE GIACENZE: {e}")
-        return f"<h1>Errore caricamento magazzino:</h1><p>{e}</p>"
+        return f"<h1>Errore: {e}</h1>"
     finally:
         db.close()
 
