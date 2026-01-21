@@ -1047,6 +1047,7 @@ GIACENZE_HTML = """
     .fw-buono { font-weight: bold; color: #000; }
     .att-link { text-decoration: none; font-size: 1.3em; cursor: pointer; margin: 0 3px; }
     .att-link:hover { transform: scale(1.2); display:inline-block; }
+    /* Paginazione */
     .pagination { margin-bottom: 0; }
     .page-link { color: #333; text-decoration: none; padding: 0.3rem 0.6rem; }
     .page-item.active .page-link { background-color: #0d6efd; border-color: #0d6efd; color: white; }
@@ -1065,11 +1066,11 @@ GIACENZE_HTML = """
         {% endif %}
         <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
 
-        <form action="{{ url_for('export_inventario') }}" method="POST" class="d-inline-block">
+        <form action="{{ url_for('report_inventario_excel') }}" method="POST" class="d-inline-block">
             <div class="input-group input-group-sm">
                 <input type="date" name="data_inventario" class="form-control" required value="{{ today }}">
                 {% if session.get('role') == 'admin' %}
-                    <input type="text" name="cliente_inventario" class="form-control" placeholder="Cliente" style="max-width: 150px;">
+                    <input type="text" name="cliente_inventario" class="form-control" placeholder="Cliente (es. FINCANTIERI)" style="max-width: 200px;">
                 {% else %}
                     <input type="hidden" name="cliente_inventario" value="{{ session.get('user') }}">
                 {% endif %}
@@ -1215,6 +1216,7 @@ GIACENZE_HTML = """
                     <i class="bi bi-chevron-left"></i> Precedente
                 </a>
             </li>
+            
             <li class="page-item {% if page == total_pages %}disabled{% endif %}">
                 <a class="page-link" href="{{ url_for('giacenze', page=page+1, **search_params) }}">
                     Successivo <i class="bi bi-chevron-right"></i>
@@ -1225,7 +1227,7 @@ GIACENZE_HTML = """
     {% endif %}
 
     <div class="text-end mt-2 text-muted small bg-light p-2 border-top fw-bold">
-        Totali Completi: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}
+        Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}
     </div>
 </form>
 
@@ -1258,6 +1260,7 @@ GIACENZE_HTML = """
 </script>
 {% endblock %}
 """
+
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
