@@ -1037,6 +1037,7 @@ CALCOLI_HTML = """
 </div>
 {% endblock %}
 """
+
 GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -1050,21 +1051,15 @@ GIACENZE_HTML = """
         text-overflow: ellipsis;
         max-width: 160px;
     }
-    .table-compact th { 
-        background-color: #f0f0f0; 
-        font-weight: 700; 
-        text-align: center;
-        position: sticky;
-        top: 0;
-        z-index: 10; /* Intestazione fissa */
-    }
+    .table-compact th { background-color: #f0f0f0; font-weight: 700; text-align: center; position: sticky; top: 0; z-index: 10; }
     .fw-buono { font-weight: bold; color: #000; }
     .att-link { text-decoration: none; font-size: 1.3em; cursor: pointer; margin: 0 3px; }
     .att-link:hover { transform: scale(1.2); display:inline-block; }
     /* Stile Paginazione */
     .pagination { margin-bottom: 0; }
-    .page-link { color: #333; }
+    .page-link { color: #333; text-decoration: none; padding: 0.3rem 0.6rem; }
     .page-item.active .page-link { background-color: #0d6efd; border-color: #0d6efd; color: white; }
+    .page-item.disabled .page-link { color: #ccc; pointer-events: none; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-2">
@@ -1080,15 +1075,15 @@ GIACENZE_HTML = """
 
         <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
 
-        <form action="{{ url_for('export_inventario') }}" method="POST" class="d-inline-block">
+        <form action="{{ url_for('report_inventario_excel') }}" method="POST" class="d-inline-block">
             <div class="input-group input-group-sm">
                 <input type="date" name="data_inventario" class="form-control" required value="{{ today }}">
                 {% if session.get('role') == 'admin' %}
-                    <input type="text" name="cliente_inventario" class="form-control" placeholder="Cliente (es. FINCANTIERI)" style="max-width: 200px;">
+                    <input type="text" name="cliente_inventario" class="form-control" placeholder="Cliente" style="max-width: 150px;">
                 {% else %}
                     <input type="hidden" name="cliente_inventario" value="{{ session.get('user') }}">
                 {% endif %}
-                <button class="btn btn-success" type="submit" title="Scarica Inventario Excel">📥 Excel</button>
+                <button class="btn btn-success" type="submit" title="Scarica Excel">📥 Excel</button>
             </div>
         </form>
     </div>
@@ -1098,7 +1093,6 @@ GIACENZE_HTML = """
     <div class="card-header py-1" data-bs-toggle="collapse" data-bs-target="#filterBody" style="cursor:pointer">
         <small><i class="bi bi-funnel"></i> <b>Filtri Avanzati</b></small>
     </div>
-
     <div id="filterBody" class="collapse {% if request.args %}show{% endif %}">
         <div class="card-body py-2">
             <form method="get">
@@ -1106,13 +1100,12 @@ GIACENZE_HTML = """
                     <div class="col-md-1"><input name="id" class="form-control form-control-sm" placeholder="ID" value="{{ request.args.get('id','') }}"></div>
                     <div class="col-md-2"><input name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
                     <div class="col-md-2"><input name="fornitore" class="form-control form-control-sm" placeholder="Fornitore" value="{{ request.args.get('fornitore','') }}"></div>
-                    <div class="col-md-2"><input name="codice_articolo" class="form-control form-control-sm" placeholder="Codice Articolo" value="{{ request.args.get('codice_articolo','') }}"></div>
-                    <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial Number" value="{{ request.args.get('serial_number','') }}"></div>
+                    <div class="col-md-2"><input name="codice_articolo" class="form-control form-control-sm" placeholder="Codice" value="{{ request.args.get('codice_articolo','') }}"></div>
+                    <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial" value="{{ request.args.get('serial_number','') }}"></div>
                     <div class="col-md-2"><input name="ordine" class="form-control form-control-sm" placeholder="Ordine" value="{{ request.args.get('ordine','') }}"></div>
                     <div class="col-md-2"><input name="commessa" class="form-control form-control-sm" placeholder="Commessa" value="{{ request.args.get('commessa','') }}"></div>
                     <div class="col-md-1"><button type="submit" class="btn btn-primary btn-sm w-100">Cerca</button></div>
                 </div>
-
                 <div class="row g-1 mb-1">
                     <div class="col-md-2"><input name="protocollo" class="form-control form-control-sm" placeholder="Protocollo" value="{{ request.args.get('protocollo','') }}"></div>
                     <div class="col-md-2"><input name="descrizione" class="form-control form-control-sm" placeholder="Descrizione" value="{{ request.args.get('descrizione','') }}"></div>
@@ -1121,33 +1114,25 @@ GIACENZE_HTML = """
                     <div class="col-md-2"><input name="mezzi_in_uscita" class="form-control form-control-sm" placeholder="Mezzo Uscita" value="{{ request.args.get('mezzi_in_uscita','') }}"></div>
                     <div class="col-md-2"><input name="stato" class="form-control form-control-sm" placeholder="Stato" value="{{ request.args.get('stato','') }}"></div>
                 </div>
-
-                <div class="row g-1 mb-1">
-                    <div class="col-md-2"><input name="n_ddt_ingresso" class="form-control form-control-sm" placeholder="N. DDT Ingresso" value="{{ request.args.get('n_ddt_ingresso','') }}"></div>
-                    <div class="col-md-2"><input name="n_ddt_uscita" class="form-control form-control-sm" placeholder="N. DDT Uscita" value="{{ request.args.get('n_ddt_uscita','') }}"></div>
-
+                <div class="row g-1">
+                    <div class="col-md-2"><input name="n_ddt_ingresso" class="form-control form-control-sm" placeholder="DDT Ing." value="{{ request.args.get('n_ddt_ingresso','') }}"></div>
+                    <div class="col-md-2"><input name="n_ddt_uscita" class="form-control form-control-sm" placeholder="DDT Usc." value="{{ request.args.get('n_ddt_uscita','') }}"></div>
                     <div class="col-md-4">
                         <div class="input-group input-group-sm">
-                            <span class="input-group-text">Ingr.</span>
+                            <span class="input-group-text">Ingr</span>
                             <input name="data_ing_da" type="date" class="form-control" value="{{ request.args.get('data_ing_da','') }}">
                             <span class="input-group-text">-</span>
                             <input name="data_ing_a" type="date" class="form-control" value="{{ request.args.get('data_ing_a','') }}">
                         </div>
                     </div>
-
-                    <div class="col-md-4">
+                    <div class="col-md-4 d-flex gap-1">
                         <div class="input-group input-group-sm">
-                            <span class="input-group-text">Usc.</span>
+                            <span class="input-group-text">Usc</span>
                             <input name="data_usc_da" type="date" class="form-control" value="{{ request.args.get('data_usc_da','') }}">
                             <span class="input-group-text">-</span>
                             <input name="data_usc_a" type="date" class="form-control" value="{{ request.args.get('data_usc_a','') }}">
                         </div>
-                    </div>
-                </div>
-
-                <div class="row g-1">
-                    <div class="col-md-2 ms-auto">
-                        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm w-100" onclick="localStorage.removeItem('camar_selected_articles');">Reset</a>
+                        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm" onclick="localStorage.removeItem('camar_selected_articles');">Reset</a>
                     </div>
                 </div>
             </form>
@@ -1160,8 +1145,8 @@ GIACENZE_HTML = """
         {% if session.get('role') == 'admin' %}
         <button type="submit" formaction="{{ url_for('buono_preview') }}" class="btn btn-outline-dark btn-sm">Buono</button>
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
-        <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm"><i class="bi bi-envelope"></i> Invia E-mail</button>
-        <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Mod. Multipla</button>
+        <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm"><i class="bi bi-envelope"></i> Email</button>
+        <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Modifica</button>
         <button type="submit" formaction="{{ url_for('labels_pdf') }}" formtarget="_blank" class="btn btn-warning btn-sm"><i class="bi bi-download"></i> Etichette</button>
         <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare SELEZIONATI?')">Elimina</button>
         <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-primary btn-sm" onclick="return confirm('Duplicare?')">Duplica</button>
@@ -1170,20 +1155,19 @@ GIACENZE_HTML = """
 
     <div class="table-responsive shadow-sm" style="max-height: 65vh;">
         <table class="table table-striped table-bordered table-hover table-compact mb-0">
-            <thead>
+            <thead class="sticky-top" style="top:0; z-index:5;">
                 <tr>
                     <th><input type="checkbox" onclick="toggleAll(this)"></th>
                     <th>ID</th> <th>Codice</th> <th>Pz</th> <th>Larg</th> <th>Lung</th> <th>Alt</th> <th>M2</th> <th>M3</th>
                     <th>Descrizione</th> <th>Protocollo</th> <th>Commessa</th> <th>Ordine</th> <th>Colli</th> <th>Fornitore</th> <th>Magazzino</th>
                     <th>Data Ing</th> <th>DDT Ing</th> <th>DDT Usc</th> <th>Data Usc</th> <th>Mezzo Usc</th>
-                    <th>Cliente</th> <th>Kg</th> <th>Posizione</th> <th>N.Arr</th> <th>N.Buono</th> <th>Note</th> 
+                    <th>Cliente</th> <th>Kg</th> <th>Posiz</th> <th>N.Arr</th> <th>N.Buono</th> <th>Note</th> 
                     <th>Lotto</th> <th>Ns.Rif</th> <th>Serial</th> <th>Stato</th>
                     <th>Doc</th> <th>Foto</th> <th>Act</th>
                 </tr>
             </thead>
             <tbody>
                 {% for r in rows %}
-                {% set desc = (r.descrizione or '') %}
                 <tr>
                     <td class="text-center"><input type="checkbox" name="ids" value="{{ r.id_articolo }}" class="row-checkbox"></td>
                     <td>{{ r.id_articolo }}</td>
@@ -1194,7 +1178,7 @@ GIACENZE_HTML = """
                     <td>{{ r.altezza|float|round(2) if r.altezza else '' }}</td>
                     <td>{{ r.m2|float|round(3) if r.m2 else '' }}</td>
                     <td>{{ r.m3|float|round(3) if r.m3 else '' }}</td>
-                    <td title="{{ desc }}">{{ desc[:30] }}{% if desc|length > 30 %}...{% endif %}</td>
+                    <td title="{{ r.descrizione }}">{{ (r.descrizione or '')[:25] }}...</td>
                     <td>{{ r.protocollo or '' }}</td> <td>{{ r.commessa or '' }}</td> <td>{{ r.ordine or '' }}</td>
                     <td>{{ r.n_colli or '' }}</td> <td>{{ r.fornitore or '' }}</td> <td>{{ r.magazzino or '' }}</td>
                     
@@ -1216,23 +1200,22 @@ GIACENZE_HTML = """
                     
                     <td>{{ r.mezzi_in_uscita or '' }}</td> <td>{{ r.cliente or '' }}</td> <td>{{ r.peso or '' }}</td>
                     <td>{{ r.posizione or '' }}</td> <td>{{ r.n_arrivo or '' }}</td> <td class="fw-buono">{{ r.buono_n or '' }}</td>
-                    <td title="{{ r.note }}">{{ (r.note or '')[:20] }}...</td>
+                    <td title="{{ r.note }}">{{ (r.note or '')[:15] }}...</td>
                     <td>{{ r.lotto or '' }}</td> <td>{{ r.ns_rif or '' }}</td> <td>{{ r.serial_number or '' }}</td>
                     <td>{{ r.stato or '' }}</td>
-                    
                     <td class="text-center">
                         {% for a in r.attachments if a.kind=='doc' %}
-                        <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link" title="{{ a.filename }}">📄</a>
+                        <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link">📄</a>
                         {% endfor %}
                     </td>
                     <td class="text-center">
                         {% for a in r.attachments if a.kind=='photo' %}
-                        <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link" title="{{ a.filename }}">📷</a>
+                        <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link">📷</a>
                         {% endfor %}
                     </td>
                     <td class="text-center">
                         {% if session.get('role') == 'admin' %}
-                        <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" class="text-decoration-none me-2">✏️</a>
+                        <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" class="text-decoration-none">✏️</a>
                         <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" class="text-decoration-none text-danger" onclick="return confirm('Eliminare?')">🗑️</a>
                         {% else %}-{% endif %}
                     </td>
@@ -1245,80 +1228,62 @@ GIACENZE_HTML = """
     </div>
 
     {% if total_pages > 1 %}
-    <nav class="mt-2 bg-white p-2 border-top d-flex justify-content-between align-items-center">
+    <nav class="mt-2 bg-white p-2 border-top d-flex justify-content-between align-items-center shadow-sm">
         <div>
-            <span class="text-muted small">Pagina {{ page }} di {{ total_pages }} (Totale: {{ total_items }})</span>
+            <span class="fw-bold">Pagina {{ page }} di {{ total_pages }}</span> 
+            <small class="text-muted">({{ total_items }} articoli totali)</small>
         </div>
         <ul class="pagination pagination-sm m-0">
             <li class="page-item {% if page == 1 %}disabled{% endif %}">
-                <a class="page-link" href="{{ url_for('giacenze', page=page-1, **request.args) }}">Precedente</a>
+                <a class="page-link" href="{{ url_for('giacenze', page=page-1, **request.args) }}">
+                    <i class="bi bi-chevron-left"></i> Precedente
+                </a>
             </li>
             
-            {% for p in range(1, total_pages + 1) %}
-                {% if p == page %}
-                <li class="page-item active"><span class="page-link">{{ p }}</span></li>
-                {% elif p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1) %}
-                <li class="page-item"><a class="page-link" href="{{ url_for('giacenze', page=p, **request.args) }}">{{ p }}</a></li>
-                {% elif p == 4 or p == total_pages - 3 %}
-                <li class="page-item disabled"><span class="page-link">...</span></li>
-                {% endif %}
-            {% endfor %}
-            
             <li class="page-item {% if page == total_pages %}disabled{% endif %}">
-                <a class="page-link" href="{{ url_for('giacenze', page=page+1, **request.args) }}">Successivo</a>
+                <a class="page-link" href="{{ url_for('giacenze', page=page+1, **request.args) }}">
+                    Successivo <i class="bi bi-chevron-right"></i>
+                </a>
             </li>
         </ul>
     </nav>
     {% endif %}
 
-    <div class="text-end mt-1 text-muted small bg-light p-2 border-top fw-bold">
+    <div class="text-end mt-2 text-muted small bg-light p-2 border-top fw-bold">
         Totali Ricerca Completa: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}
     </div>
 </form>
 
 <script>
-const STORAGE_KEY = 'camar_selected_articles';
+    const STORAGE_KEY = 'camar_selected_articles';
+    
+    function saveSelection() {
+        const checked = Array.from(document.querySelectorAll('input[name="ids"]:checked')).map(cb => cb.value);
+        let saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        checked.forEach(id => { if(!saved.includes(id)) saved.push(id); });
+        const unchecked = Array.from(document.querySelectorAll('input[name="ids"]:not(:checked)')).map(cb => cb.value);
+        saved = saved.filter(id => !unchecked.includes(id));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    }
 
-function saveSelection() {
-    const checked = Array.from(document.querySelectorAll('input[name="ids"]:checked'))
-        .map(cb => cb.value);
-    
-    // Recupera già salvati per non sovrascrivere se cambio pagina
-    let saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    
-    // Aggiungi nuovi
-    checked.forEach(id => { if(!saved.includes(id)) saved.push(id); });
-    
-    // Rimuovi deselezionati (solo dalla pagina corrente)
-    const unchecked = Array.from(document.querySelectorAll('input[name="ids"]:not(:checked)'))
-        .map(cb => cb.value);
-    saved = saved.filter(id => !unchecked.includes(id));
-    
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
-}
+    function toggleAll(source) {
+        document.querySelectorAll('input[name="ids"]').forEach(c => c.checked = source.checked);
+        saveSelection();
+    }
 
-function toggleAll(source) {
-    document.querySelectorAll('input[name="ids"]').forEach(cb => {
-        cb.checked = source.checked;
+    document.addEventListener("DOMContentLoaded", function() {
+        const savedIds = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        document.querySelectorAll('input[name="ids"]').forEach(cb => {
+            if (savedIds.includes(cb.value)) cb.checked = true;
+        });
+        document.addEventListener("change", function(e) {
+            if (e.target && e.target.matches('input[name="ids"]')) saveSelection();
+        });
     });
-    saveSelection();
-}
-
-document.addEventListener("DOMContentLoaded", function() {
-    const savedIds = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    document.querySelectorAll('input[name="ids"]').forEach(cb => {
-        if (savedIds.includes(cb.value)) cb.checked = true;
-    });
-
-    document.addEventListener("change", function(e) {
-        if (e.target && e.target.matches('input[name="ids"]')) {
-            saveSelection();
-        }
-    });
-});
 </script>
 {% endblock %}
 """
+
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
