@@ -1042,20 +1042,11 @@ GIACENZE_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <style>
-    .table-compact td, .table-compact th {
-        font-size: 0.78rem;
-        padding: 4px 6px;
-        vertical-align: middle;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 160px;
-    }
+    .table-compact td, .table-compact th { font-size: 0.78rem; padding: 4px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; vertical-align: middle; }
     .table-compact th { background-color: #f0f0f0; font-weight: 700; text-align: center; position: sticky; top: 0; z-index: 10; }
     .fw-buono { font-weight: bold; color: #000; }
     .att-link { text-decoration: none; font-size: 1.3em; cursor: pointer; margin: 0 3px; }
     .att-link:hover { transform: scale(1.2); display:inline-block; }
-    /* Stile Paginazione */
     .pagination { margin-bottom: 0; }
     .page-link { color: #333; text-decoration: none; padding: 0.3rem 0.6rem; }
     .page-item.active .page-link { background-color: #0d6efd; border-color: #0d6efd; color: white; }
@@ -1072,10 +1063,9 @@ GIACENZE_HTML = """
             <button class="btn btn-sm btn-info text-white"><i class="bi bi-tag"></i> Etichette</button>
         </form>
         {% endif %}
-
         <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
 
-        <form action="{{ url_for('report_inventario_excel') }}" method="POST" class="d-inline-block">
+        <form action="{{ url_for('export_inventario') }}" method="POST" class="d-inline-block">
             <div class="input-group input-group-sm">
                 <input type="date" name="data_inventario" class="form-control" required value="{{ today }}">
                 {% if session.get('role') == 'admin' %}
@@ -1181,23 +1171,9 @@ GIACENZE_HTML = """
                     <td title="{{ r.descrizione }}">{{ (r.descrizione or '')[:25] }}...</td>
                     <td>{{ r.protocollo or '' }}</td> <td>{{ r.commessa or '' }}</td> <td>{{ r.ordine or '' }}</td>
                     <td>{{ r.n_colli or '' }}</td> <td>{{ r.fornitore or '' }}</td> <td>{{ r.magazzino or '' }}</td>
-                    
-                    <td>
-                        {% if r.data_ingresso %}
-                            {% if r.data_ingresso is string %}{{ r.data_ingresso[:10] }}
-                            {% else %}{{ r.data_ingresso.strftime('%Y-%m-%d') }}{% endif %}
-                        {% endif %}
-                    </td>
-                    
+                    <td>{{ r.data_ingresso or '' }}</td>
                     <td>{{ r.n_ddt_ingresso or '' }}</td> <td>{{ r.n_ddt_uscita or '' }}</td>
-                    
-                    <td>
-                        {% if r.data_uscita %}
-                            {% if r.data_uscita is string %}{{ r.data_uscita[:10] }}
-                            {% else %}{{ r.data_uscita.strftime('%Y-%m-%d') }}{% endif %}
-                        {% endif %}
-                    </td>
-                    
+                    <td>{{ r.data_uscita or '' }}</td>
                     <td>{{ r.mezzi_in_uscita or '' }}</td> <td>{{ r.cliente or '' }}</td> <td>{{ r.peso or '' }}</td>
                     <td>{{ r.posizione or '' }}</td> <td>{{ r.n_arrivo or '' }}</td> <td class="fw-buono">{{ r.buono_n or '' }}</td>
                     <td title="{{ r.note }}">{{ (r.note or '')[:15] }}...</td>
@@ -1235,13 +1211,12 @@ GIACENZE_HTML = """
         </div>
         <ul class="pagination pagination-sm m-0">
             <li class="page-item {% if page == 1 %}disabled{% endif %}">
-                <a class="page-link" href="{{ url_for('giacenze', page=page-1, **request.args) }}">
+                <a class="page-link" href="{{ url_for('giacenze', page=page-1, **search_params) }}">
                     <i class="bi bi-chevron-left"></i> Precedente
                 </a>
             </li>
-            
             <li class="page-item {% if page == total_pages %}disabled{% endif %}">
-                <a class="page-link" href="{{ url_for('giacenze', page=page+1, **request.args) }}">
+                <a class="page-link" href="{{ url_for('giacenze', page=page+1, **search_params) }}">
                     Successivo <i class="bi bi-chevron-right"></i>
                 </a>
             </li>
@@ -1250,7 +1225,7 @@ GIACENZE_HTML = """
     {% endif %}
 
     <div class="text-end mt-2 text-muted small bg-light p-2 border-top fw-bold">
-        Totali Ricerca Completa: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}
+        Totali Completi: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}
     </div>
 </form>
 
@@ -1283,7 +1258,6 @@ GIACENZE_HTML = """
 </script>
 {% endblock %}
 """
-
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
