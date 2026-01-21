@@ -1050,61 +1050,49 @@ GIACENZE_HTML = """
         text-overflow: ellipsis;
         max-width: 160px;
     }
-    .table-compact th { background-color: #f0f0f0; font-weight: 700; text-align: center; }
+    .table-compact th { 
+        background-color: #f0f0f0; 
+        font-weight: 700; 
+        text-align: center;
+        position: sticky;
+        top: 0;
+        z-index: 10; /* Intestazione fissa */
+    }
     .fw-buono { font-weight: bold; color: #000; }
     .att-link { text-decoration: none; font-size: 1.3em; cursor: pointer; margin: 0 3px; }
     .att-link:hover { transform: scale(1.2); display:inline-block; }
+    /* Stile Paginazione */
+    .pagination { margin-bottom: 0; }
+    .page-link { color: #333; }
+    .page-item.active .page-link { background-color: #0d6efd; border-color: #0d6efd; color: white; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-2">
-    <h4 class="mb-0"><i class="bi bi-box-seam"></i> Magazzino</h4>
+    <h4 class="mb-0"><i class="bi bi-box-seam"></i> Magazzino <small class="text-muted fs-6">({{ total_items }} articoli)</small></h4>
     <div class="d-flex gap-2 flex-wrap">
-       {% if session.get('role') == 'admin' %}
-       <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> Nuovo</a>
-       {% endif %}
-       {% if session.get('role') == 'admin' %}
-       <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>
-       {% endif %}
-
-       {% if session.get('role') == 'admin' %}
-       <form action="{{ url_for('labels_pdf') }}" method="POST" target="_blank" class="d-inline">
-           <button class="btn btn-sm btn-info text-white"><i class="bi bi-tag"></i> Etichette</button>
-       </form>
-       {% endif %}
-
-       <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
-
-<!-- 📦 INVENTARIO EXCEL -->
-<form action="{{ url_for('report_inventario_excel') }}" method="POST" class="d-inline-block">
-    <div class="input-group input-group-sm">
-        <input type="date"
-               name="data_inventario"
-               class="form-control"
-               required
-               value="{{ today }}">
-
         {% if session.get('role') == 'admin' %}
-            <input type="text"
-                   name="cliente_inventario"
-                   class="form-control"
-                   placeholder="Cliente (es. FINCANTIERI)"
-                   required
-                   style="max-width: 200px;">
-        {% else %}
-            <input type="hidden" name="cliente_inventario" value="{{ session.get('user') }}">
+        <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> Nuovo</a>
+        <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>
+        <form action="{{ url_for('labels_pdf') }}" method="POST" target="_blank" class="d-inline">
+            <button class="btn btn-sm btn-info text-white"><i class="bi bi-tag"></i> Etichette</button>
+        </form>
         {% endif %}
 
-        <button class="btn btn-success"
-                type="submit"
-                title="Scarica Inventario Excel">
-            📥 Excel
-        </button>
-    </div>
-</form>
+        <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
 
+        <form action="{{ url_for('export_inventario') }}" method="POST" class="d-inline-block">
+            <div class="input-group input-group-sm">
+                <input type="date" name="data_inventario" class="form-control" required value="{{ today }}">
+                {% if session.get('role') == 'admin' %}
+                    <input type="text" name="cliente_inventario" class="form-control" placeholder="Cliente (es. FINCANTIERI)" style="max-width: 200px;">
+                {% else %}
+                    <input type="hidden" name="cliente_inventario" value="{{ session.get('user') }}">
+                {% endif %}
+                <button class="btn btn-success" type="submit" title="Scarica Inventario Excel">📥 Excel</button>
+            </div>
+        </form>
     </div>
 </div>
-
 
 <div class="card mb-2 bg-light shadow-sm">
     <div class="card-header py-1" data-bs-toggle="collapse" data-bs-target="#filterBody" style="cursor:pointer">
@@ -1140,7 +1128,7 @@ GIACENZE_HTML = """
 
                     <div class="col-md-4">
                         <div class="input-group input-group-sm">
-                            <span class="input-group-text">Ingresso</span>
+                            <span class="input-group-text">Ingr.</span>
                             <input name="data_ing_da" type="date" class="form-control" value="{{ request.args.get('data_ing_da','') }}">
                             <span class="input-group-text">-</span>
                             <input name="data_ing_a" type="date" class="form-control" value="{{ request.args.get('data_ing_a','') }}">
@@ -1149,7 +1137,7 @@ GIACENZE_HTML = """
 
                     <div class="col-md-4">
                         <div class="input-group input-group-sm">
-                            <span class="input-group-text">Uscita</span>
+                            <span class="input-group-text">Usc.</span>
                             <input name="data_usc_da" type="date" class="form-control" value="{{ request.args.get('data_usc_da','') }}">
                             <span class="input-group-text">-</span>
                             <input name="data_usc_a" type="date" class="form-control" value="{{ request.args.get('data_usc_a','') }}">
@@ -1159,11 +1147,7 @@ GIACENZE_HTML = """
 
                 <div class="row g-1">
                     <div class="col-md-2 ms-auto">
-                        <a href="{{ url_for('giacenze') }}"
-                           class="btn btn-outline-secondary btn-sm w-100"
-                           onclick="localStorage.removeItem('camar_selected_articles');">
-                           Reset
-                        </a>
+                        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm w-100" onclick="localStorage.removeItem('camar_selected_articles');">Reset</a>
                     </div>
                 </div>
             </form>
@@ -1176,155 +1160,119 @@ GIACENZE_HTML = """
         {% if session.get('role') == 'admin' %}
         <button type="submit" formaction="{{ url_for('buono_preview') }}" class="btn btn-outline-dark btn-sm">Buono</button>
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
-        {% endif %}
-
-        {% if session.get('role') == 'admin' %}
-        <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm">
-            <i class="bi bi-envelope"></i> Invia E-mail
-        </button>
-        {% endif %}
-
-        {% if session.get('role') == 'admin' %}
+        <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm"><i class="bi bi-envelope"></i> Invia E-mail</button>
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Mod. Multipla</button>
-        {% endif %}
-
-        {% if session.get('role') == 'admin' %}
-        <button type="submit" formaction="{{ url_for('labels_pdf') }}" formtarget="_blank" class="btn btn-warning btn-sm">
-            <i class="bi bi-download"></i> Scarica Etichette
-        </button>
-        {% endif %}
-
-        {% if session.get('role') == 'admin' %}
-        <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare SELEZIONATI?')">
-            Elimina Selezionati
-        </button>
-        {% endif %}
-
-        {% if session.get('role') == 'admin' %}
-        <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-primary btn-sm" onclick="return confirm('Duplicare gli articoli selezionati?')">
-            Duplica Selezionati
-        </button>
+        <button type="submit" formaction="{{ url_for('labels_pdf') }}" formtarget="_blank" class="btn btn-warning btn-sm"><i class="bi bi-download"></i> Etichette</button>
+        <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare SELEZIONATI?')">Elimina</button>
+        <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-primary btn-sm" onclick="return confirm('Duplicare?')">Duplica</button>
         {% endif %}
     </div>
 
-    <div class="table-responsive shadow-sm" style="max-height: 70vh;">
+    <div class="table-responsive shadow-sm" style="max-height: 65vh;">
         <table class="table table-striped table-bordered table-hover table-compact mb-0">
-            <thead class="sticky-top" style="top:0; z-index:5;">
+            <thead>
                 <tr>
                     <th><input type="checkbox" onclick="toggleAll(this)"></th>
-
-                    <th>ID</th>
-                    <th>Codice</th>
-                    <th>Pz</th>
-                    <th>Larg</th>
-                    <th>Lung</th>
-                    <th>Alt</th>
-                    <th>M2</th>
-                    <th>M3</th>
-
-                    <th>Descrizione</th>
-                    <th>Protocollo</th>
-                    <th>Commessa</th>
-                    <th>Ordine</th>
-                    <th>Colli</th>
-                    <th>Fornitore</th>
-                    <th>Magazzino</th>
-
-                    <th>Data Ing</th>
-                    <th>DDT Ing</th>
-                    <th>DDT Usc</th>
-                    <th>Data Usc</th>
-                    <th>Mezzo Usc</th>
-
-                    <th>Cliente</th>
-                    <th>Kg</th>
-                    <th>Posizione</th>
-                    <th>N.Arr</th>
-                    <th>N.Buono</th>
-                    <th>Note</th>
-                    <th>Lotto</th>
-                    <th>Ns.Rif</th>
-                    <th>Serial</th>
-                    <th>Stato</th>
-
-                    <th>Doc Arrivo</th>
-                    <th>Foto Arrivo</th>
-
-                    <th style="min-width: 70px;">Act</th>
+                    <th>ID</th> <th>Codice</th> <th>Pz</th> <th>Larg</th> <th>Lung</th> <th>Alt</th> <th>M2</th> <th>M3</th>
+                    <th>Descrizione</th> <th>Protocollo</th> <th>Commessa</th> <th>Ordine</th> <th>Colli</th> <th>Fornitore</th> <th>Magazzino</th>
+                    <th>Data Ing</th> <th>DDT Ing</th> <th>DDT Usc</th> <th>Data Usc</th> <th>Mezzo Usc</th>
+                    <th>Cliente</th> <th>Kg</th> <th>Posizione</th> <th>N.Arr</th> <th>N.Buono</th> <th>Note</th> 
+                    <th>Lotto</th> <th>Ns.Rif</th> <th>Serial</th> <th>Stato</th>
+                    <th>Doc</th> <th>Foto</th> <th>Act</th>
                 </tr>
             </thead>
-
             <tbody>
                 {% for r in rows %}
                 {% set desc = (r.descrizione or '') %}
                 <tr>
-                    <td class="text-center">
-                        <input type="checkbox" name="ids" value="{{ r.id_articolo }}" class="row-checkbox">
-                    </td>
-
+                    <td class="text-center"><input type="checkbox" name="ids" value="{{ r.id_articolo }}" class="row-checkbox"></td>
                     <td>{{ r.id_articolo }}</td>
                     <td title="{{ r.codice_articolo }}">{{ r.codice_articolo or '' }}</td>
                     <td>{{ r.pezzo or '' }}</td>
-
-                    <td>{{ r.larghezza|float|round(2) if r.larghezza is not none else '' }}</td>
-                    <td>{{ r.lunghezza|float|round(2) if r.lunghezza is not none else '' }}</td>
-                    <td>{{ r.altezza|float|round(2) if r.altezza is not none else '' }}</td>
-
+                    <td>{{ r.larghezza|float|round(2) if r.larghezza else '' }}</td>
+                    <td>{{ r.lunghezza|float|round(2) if r.lunghezza else '' }}</td>
+                    <td>{{ r.altezza|float|round(2) if r.altezza else '' }}</td>
                     <td>{{ r.m2|float|round(3) if r.m2 else '' }}</td>
                     <td>{{ r.m3|float|round(3) if r.m3 else '' }}</td>
-
                     <td title="{{ desc }}">{{ desc[:30] }}{% if desc|length > 30 %}...{% endif %}</td>
-                    <td>{{ r.protocollo or '' }}</td>
-                    <td>{{ r.commessa or '' }}</td>
-                    <td>{{ r.ordine or '' }}</td>
-                    <td>{{ r.n_colli or '' }}</td>
-                    <td>{{ r.fornitore or '' }}</td>
-                    <td>{{ r.magazzino or '' }}</td>
-
-                    <td>{{ r.data_ingresso or '' }}</td>
-                    <td>{{ r.n_ddt_ingresso or '' }}</td>
-                    <td>{{ r.n_ddt_uscita or '' }}</td>
-                    <td>{{ r.data_uscita or '' }}</td>
-                    <td>{{ r.mezzi_in_uscita or '' }}</td>
-
-                    <td>{{ r.cliente or '' }}</td>
-                    <td>{{ r.peso or '' }}</td>
-                    <td>{{ r.posizione or '' }}</td>
-                    <td>{{ r.n_arrivo or '' }}</td>
-                    <td class="fw-buono">{{ r.buono_n or '' }}</td>
-                    <td title="{{ r.note or '' }}">{{ (r.note or '')[:20] }}{% if (r.note or '')|length > 20 %}...{% endif %}</td>
-                    <td>{{ r.lotto or '' }}</td>
-                    <td>{{ r.ns_rif or '' }}</td>
-                    <td>{{ r.serial_number or '' }}</td>
+                    <td>{{ r.protocollo or '' }}</td> <td>{{ r.commessa or '' }}</td> <td>{{ r.ordine or '' }}</td>
+                    <td>{{ r.n_colli or '' }}</td> <td>{{ r.fornitore or '' }}</td> <td>{{ r.magazzino or '' }}</td>
+                    
+                    <td>
+                        {% if r.data_ingresso %}
+                            {% if r.data_ingresso is string %}{{ r.data_ingresso[:10] }}
+                            {% else %}{{ r.data_ingresso.strftime('%Y-%m-%d') }}{% endif %}
+                        {% endif %}
+                    </td>
+                    
+                    <td>{{ r.n_ddt_ingresso or '' }}</td> <td>{{ r.n_ddt_uscita or '' }}</td>
+                    
+                    <td>
+                        {% if r.data_uscita %}
+                            {% if r.data_uscita is string %}{{ r.data_uscita[:10] }}
+                            {% else %}{{ r.data_uscita.strftime('%Y-%m-%d') }}{% endif %}
+                        {% endif %}
+                    </td>
+                    
+                    <td>{{ r.mezzi_in_uscita or '' }}</td> <td>{{ r.cliente or '' }}</td> <td>{{ r.peso or '' }}</td>
+                    <td>{{ r.posizione or '' }}</td> <td>{{ r.n_arrivo or '' }}</td> <td class="fw-buono">{{ r.buono_n or '' }}</td>
+                    <td title="{{ r.note }}">{{ (r.note or '')[:20] }}...</td>
+                    <td>{{ r.lotto or '' }}</td> <td>{{ r.ns_rif or '' }}</td> <td>{{ r.serial_number or '' }}</td>
                     <td>{{ r.stato or '' }}</td>
-
+                    
                     <td class="text-center">
                         {% for a in r.attachments if a.kind=='doc' %}
-                            <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link" title="{{ a.filename }}">📄</a>
+                        <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link" title="{{ a.filename }}">📄</a>
                         {% endfor %}
                     </td>
                     <td class="text-center">
                         {% for a in r.attachments if a.kind=='photo' %}
-                            <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link" title="{{ a.filename }}">📷</a>
+                        <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link" title="{{ a.filename }}">📷</a>
                         {% endfor %}
                     </td>
-
                     <td class="text-center">
                         {% if session.get('role') == 'admin' %}
-                        <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" title="Modifica" class="text-decoration-none me-2">✏️</a>
-                        <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" title="Elimina" class="text-decoration-none text-danger" onclick="return confirm('Eliminare articolo {{ r.id_articolo }}?');">🗑️</a>
+                        <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" class="text-decoration-none me-2">✏️</a>
+                        <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" class="text-decoration-none text-danger" onclick="return confirm('Eliminare?')">🗑️</a>
                         {% else %}-{% endif %}
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="34" class="text-center p-3 text-muted">Nessun articolo trovato con questi filtri.</td></tr>
+                <tr><td colspan="34" class="text-center p-3 text-muted">Nessun articolo trovato.</td></tr>
                 {% endfor %}
             </tbody>
-
-            <tfoot class="sticky-bottom bg-white fw-bold">
-                <tr><td colspan="34">Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}</td></tr>
-            </tfoot>
         </table>
+    </div>
+
+    {% if total_pages > 1 %}
+    <nav class="mt-2 bg-white p-2 border-top d-flex justify-content-between align-items-center">
+        <div>
+            <span class="text-muted small">Pagina {{ page }} di {{ total_pages }} (Totale: {{ total_items }})</span>
+        </div>
+        <ul class="pagination pagination-sm m-0">
+            <li class="page-item {% if page == 1 %}disabled{% endif %}">
+                <a class="page-link" href="{{ url_for('giacenze', page=page-1, **request.args) }}">Precedente</a>
+            </li>
+            
+            {% for p in range(1, total_pages + 1) %}
+                {% if p == page %}
+                <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+                {% elif p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1) %}
+                <li class="page-item"><a class="page-link" href="{{ url_for('giacenze', page=p, **request.args) }}">{{ p }}</a></li>
+                {% elif p == 4 or p == total_pages - 3 %}
+                <li class="page-item disabled"><span class="page-link">...</span></li>
+                {% endif %}
+            {% endfor %}
+            
+            <li class="page-item {% if page == total_pages %}disabled{% endif %}">
+                <a class="page-link" href="{{ url_for('giacenze', page=page+1, **request.args) }}">Successivo</a>
+            </li>
+        </ul>
+    </nav>
+    {% endif %}
+
+    <div class="text-end mt-1 text-muted small bg-light p-2 border-top fw-bold">
+        Totali Ricerca Completa: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}
     </div>
 </form>
 
@@ -1334,7 +1282,19 @@ const STORAGE_KEY = 'camar_selected_articles';
 function saveSelection() {
     const checked = Array.from(document.querySelectorAll('input[name="ids"]:checked'))
         .map(cb => cb.value);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(checked));
+    
+    // Recupera già salvati per non sovrascrivere se cambio pagina
+    let saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    
+    // Aggiungi nuovi
+    checked.forEach(id => { if(!saved.includes(id)) saved.push(id); });
+    
+    // Rimuovi deselezionati (solo dalla pagina corrente)
+    const unchecked = Array.from(document.querySelectorAll('input[name="ids"]:not(:checked)'))
+        .map(cb => cb.value);
+    saved = saved.filter(id => !unchecked.includes(id));
+    
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
 }
 
 function toggleAll(source) {
@@ -1345,13 +1305,11 @@ function toggleAll(source) {
 }
 
 document.addEventListener("DOMContentLoaded", function() {
-    // Ripristina selezione dopo ogni ricerca/refresh
     const savedIds = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
     document.querySelectorAll('input[name="ids"]').forEach(cb => {
-        cb.checked = savedIds.includes(cb.value);
+        if (savedIds.includes(cb.value)) cb.checked = true;
     });
 
-    // Aggiorna salvataggio ogni volta che cambia un checkbox
     document.addEventListener("change", function(e) {
         if (e.target && e.target.matches('input[name="ids"]')) {
             saveSelection();
@@ -1361,7 +1319,6 @@ document.addEventListener("DOMContentLoaded", function() {
 </script>
 {% endblock %}
 """
-
 EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
