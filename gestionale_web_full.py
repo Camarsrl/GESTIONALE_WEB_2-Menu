@@ -3351,81 +3351,6 @@ def export_client():
 # ==============================================================================
 
 
-def build_riepilogo_schema_html(rows):
-    import html
-
-    def esc(x):
-        return html.escape("" if x is None else str(x))
-
-    def fnum(x, nd=2):
-        try:
-            return f"{float(x):.{nd}f}"
-        except:
-            return ""
-
-    # Totali
-    total_colli = 0
-    total_peso = 0.0
-    for r in rows:
-        try:
-            total_colli += int(r.n_colli or 0)
-        except:
-            pass
-        try:
-            total_peso += float(r.peso or 0)
-        except:
-            pass
-
-    trs = []
-    for r in rows:
-        misure = f"{fnum(r.larghezza,2)} × {fnum(r.lunghezza,2)} × {fnum(r.altezza,2)}"
-        trs.append(f"""
-        <tr>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(r.commessa)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(misure)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(r.cliente)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(r.fornitore)}</td>
-          <td style="border:1px solid #ddd;padding:6px;text-align:right;">{esc(fnum(r.peso,2))}</td>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(r.descrizione)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(r.codice_articolo)}</td>
-          <td style="border:1px solid #ddd;padding:6px;text-align:right;">{esc(r.n_colli)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(r.n_arrivo)}</td>
-        </tr>
-        """)
-
-    return f"""
-    <div style="margin:10px 0 18px 0; font-family: Arial, sans-serif;">
-      <div style="margin:0 0 8px 0; font-size:13px; color:#333;">
-        <b>Riepilogo merce selezionata</b>
-      </div>
-
-      <table style="border-collapse:collapse; width:100%; font-size:12px;">
-        <thead>
-          <tr style="background:#f2f2f2;">
-            <th style="border:1px solid #ddd;padding:6px;text-align:left;">Commessa</th>
-            <th style="border:1px solid #ddd;padding:6px;text-align:left;">Misure pallet (L×P×H)</th>
-            <th style="border:1px solid #ddd;padding:6px;text-align:left;">Cliente</th>
-            <th style="border:1px solid #ddd;padding:6px;text-align:left;">Fornitore</th>
-            <th style="border:1px solid #ddd;padding:6px;text-align:right;">Peso (kg)</th>
-            <th style="border:1px solid #ddd;padding:6px;text-align:left;">Descrizione</th>
-            <th style="border:1px solid #ddd;padding:6px;text-align:left;">Codice Articolo</th>
-            <th style="border:1px solid #ddd;padding:6px;text-align:right;">Colli</th>
-            <th style="border:1px solid #ddd;padding:6px;text-align:left;">N. Arrivo</th>
-          </tr>
-        </thead>
-        <tbody>
-          {''.join(trs)}
-        </tbody>
-      </table>
-
-      <div style="margin-top:8px; font-size:12px; color:#333;">
-        <b>Totali:</b> Colli = {total_colli} &nbsp;|&nbsp; Peso = {total_peso:.2f} kg
-      </div>
-    </div>
-    """
-
-
-
 @app.route('/invia_email', methods=['GET', 'POST'])
 @login_required
 @require_admin
@@ -3433,6 +3358,79 @@ def invia_email():
     from email.header import Header
     from email.mime.image import MIMEImage
     import mimetypes
+    import html
+
+    # Helper: riepilogo merci in HTML (schema)
+    def _build_riepilogo_schema_html(rows):
+        def esc(x):
+            return html.escape("" if x is None else str(x))
+
+        def fnum(x, nd=2):
+            try:
+                return f"{float(x):.{nd}f}"
+            except:
+                return ""
+
+        total_colli = 0
+        total_peso = 0.0
+        for r in rows:
+            try:
+                total_colli += int(r.n_colli or 0)
+            except:
+                pass
+            try:
+                total_peso += float(r.peso or 0)
+            except:
+                pass
+
+        trs = []
+        for r in rows:
+            # Misure pallet: Larghezza × Lunghezza × Altezza
+            misure = f"{fnum(r.larghezza,2)} × {fnum(r.lunghezza,2)} × {fnum(r.altezza,2)}"
+            trs.append(f"""
+            <tr>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(r.commessa)}</td>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(misure)}</td>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(r.cliente)}</td>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(r.fornitore)}</td>
+              <td style="border:1px solid #ddd;padding:6px;text-align:right;">{esc(fnum(r.peso,2))}</td>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(r.descrizione)}</td>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(r.codice_articolo)}</td>
+              <td style="border:1px solid #ddd;padding:6px;text-align:right;">{esc(r.n_colli)}</td>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(r.n_arrivo)}</td>
+            </tr>
+            """)
+
+        return f"""
+        <div style="margin:10px 0 18px 0; font-family: Arial, sans-serif;">
+          <div style="margin:0 0 8px 0; font-size:13px; color:#333;">
+            <b>Riepilogo merce selezionata</b>
+          </div>
+
+          <table style="border-collapse:collapse; width:100%; font-size:12px;">
+            <thead>
+              <tr style="background:#f2f2f2;">
+                <th style="border:1px solid #ddd;padding:6px;text-align:left;">Commessa</th>
+                <th style="border:1px solid #ddd;padding:6px;text-align:left;">Misure pallet (L×P×H)</th>
+                <th style="border:1px solid #ddd;padding:6px;text-align:left;">Cliente</th>
+                <th style="border:1px solid #ddd;padding:6px;text-align:left;">Fornitore</th>
+                <th style="border:1px solid #ddd;padding:6px;text-align:right;">Peso (kg)</th>
+                <th style="border:1px solid #ddd;padding:6px;text-align:left;">Descrizione</th>
+                <th style="border:1px solid #ddd;padding:6px;text-align:left;">Codice Articolo</th>
+                <th style="border:1px solid #ddd;padding:6px;text-align:right;">Colli</th>
+                <th style="border:1px solid #ddd;padding:6px;text-align:left;">N. Arrivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {''.join(trs)}
+            </tbody>
+          </table>
+
+          <div style="margin-top:8px; font-size:12px; color:#333;">
+            <b>Totali:</b> Colli = {total_colli} &nbsp;|&nbsp; Peso = {total_peso:.2f} kg
+          </div>
+        </div>
+        """
 
     # GET: Mostra il form
     if request.method == 'GET':
@@ -3445,7 +3443,7 @@ def invia_email():
     destinatario_raw = (request.form.get('destinatario') or '').strip()  # <-- ora raw (può contenere ; ,)
     oggetto = request.form.get('oggetto')
     messaggio_utente = request.form.get('messaggio') or ""
-    genera_ddt = 'genera_ddt' in request.form
+    genera_ddt = 'genera_ddt' in request.form  # ora significa: "inserisci riepilogo in email"
     allega_file = 'allega_file' in request.form
     allegati_extra = request.files.getlist('allegati_extra')
 
@@ -3479,6 +3477,17 @@ def invia_email():
         return redirect(url_for('giacenze'))
 
     try:
+        # 0) Prepara riepilogo HTML (prima di costruire html_body)
+        riepilogo_html = ""
+        if genera_ddt and ids_list:
+            db = SessionLocal()
+            try:
+                rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
+                if rows:
+                    riepilogo_html = _build_riepilogo_schema_html(rows)
+            finally:
+                db.close()
+
         msg_root = MIMEMultipart('related')
         msg_root['From'] = SMTP_USER
 
@@ -3493,7 +3502,7 @@ def invia_email():
         # 1. Corpo Testo Semplice (Fallback)
         msg_alt.attach(MIMEText(messaggio_utente, 'plain', 'utf-8'))
 
-        # 2. Corpo HTML (Logo DOPO i saluti + Firma Completa)
+        # 2. Corpo HTML (con riepilogo dentro l'email)
         messaggio_html = messaggio_utente.replace('\n', '<br>')
 
         html_body = f"""
@@ -3503,9 +3512,11 @@ def invia_email():
           </head>
           <body style="font-family: Arial, sans-serif; font-size: 14px; color:#333;">
 
-            <div style="margin-bottom: 25px;">
+            <div style="margin-bottom: 18px;">
               {messaggio_html}
             </div>
+
+            {riepilogo_html}
 
             <div style="margin-bottom: 20px;">
               <img src="cid:logo_camar" alt="Camar S.r.l." style="height:65px; width:auto; display:block;">
@@ -3566,31 +3577,8 @@ def invia_email():
         if not logo_found:
             print("⚠️ ATTENZIONE: Logo non trovato nella cartella static! (L'email partirà senza logo visibile)")
 
-        # 4. DDT PDF (Se richiesto)
-        if genera_ddt and ids_list:
-            db = SessionLocal()
-            try:
-                rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
-                if rows:
-                    pdf_bio = io.BytesIO()
-                    _genera_pdf_ddt_file(
-                        {'n_ddt': 'RIEP', 'data_uscita': date.today().strftime('%d/%m/%Y'), 'destinatario': 'RIEPILOGO', 'dest_indirizzo': '', 'dest_citta': ''},
-                        [{
-                            'id_articolo': r.id_articolo, 'codice_articolo': r.codice_articolo,
-                            'descrizione': r.descrizione, 'pezzo': r.pezzo, 'n_colli': r.n_colli,
-                            'peso': r.peso, 'n_arrivo': r.n_arrivo, 'note': r.note,
-                            'commessa': r.commessa, 'ordine': r.ordine, 'buono': r.buono_n, 'protocollo': r.protocollo
-                        } for r in rows],
-                        pdf_bio
-                    )
-                    pdf_bio.seek(0)
-                    part = MIMEBase('application', "octet-stream")
-                    part.set_payload(pdf_bio.read())
-                    encoders.encode_base64(part)
-                    part.add_header('Content-Disposition', 'attachment; filename="Riepilogo_Merce.pdf"')
-                    msg_root.attach(part)
-            finally:
-                db.close()
+        # 4. (RIMOSSO) PDF Riepilogo/DDT: NON viene più allegato
+        #    Il riepilogo viene inserito dentro l'email (riepilogo_html)
 
         # 5. ALLEGATI ESISTENTI
         if allega_file and ids_list:
@@ -3629,9 +3617,7 @@ def invia_email():
         server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
 
-        # send_message usa l'header "To" ma per sicurezza passiamo anche la lista
         server.send_message(msg_root, from_addr=SMTP_USER, to_addrs=destinatari_list)
-
         server.quit()
 
         flash(f"Email inviata correttamente a: {', '.join(destinatari_list)}", "success")
