@@ -3411,6 +3411,7 @@ def invia_email():
             <thead>
               <tr style="background:#f2f2f2;">
                 <th style="border:1px solid #ddd;padding:6px;text-align:left;">Commessa</th>
+                <th style="border:1px solid #ddd;padding:6px;text-align:left;">Ordine</th>
                 <th style="border:1px solid #ddd;padding:6px;text-align:left;">Misure pallet (L×P×H)</th>
                 <th style="border:1px solid #ddd;padding:6px;text-align:left;">Cliente</th>
                 <th style="border:1px solid #ddd;padding:6px;text-align:left;">Fornitore</th>
