@@ -3349,7 +3349,16 @@ def export_client():
 # ==============================================================================
 #  FUNZIONE INVIA EMAIL (CORRETTA CON FIRMA COMPLETA E LOGO)
 # ==============================================================================
+@app.route('/invia_email', methods=['GET', 'POST'])
+@login_required
+@require_admin
+def invia_email():
+    from email.header import Header
+    from email.mime.image import MIMEImage
+    import mimetypes
+    import html
 
+    # Helper: riepilogo merci in HTML (schema)
 
 def _build_riepilogo_schema_html(rows):
     def esc(x):
