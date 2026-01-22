@@ -3349,306 +3349,169 @@ def export_client():
 # ==============================================================================
 #  FUNZIONE INVIA EMAIL (CORRETTA CON FIRMA COMPLETA E LOGO)
 # ==============================================================================
+
 @app.route('/invia_email', methods=['GET', 'POST'])
 @login_required
 @require_admin
 def invia_email():
     from email.header import Header
     from email.mime.image import MIMEImage
-    import mimetypes
     import html
 
-    # Helper: riepilogo merci in HTML (schema)
+    # =========================
+    # Helper: Riepilogo Merci
+    # =========================
+    def _build_riepilogo_schema_html(rows):
+        def esc(x):
+            return html.escape("" if x is None else str(x))
 
-def _build_riepilogo_schema_html(rows):
-    def esc(x):
-        return html.escape("" if x is None else str(x))
+        def fnum(x, nd=2):
+            try:
+                return f"{float(x):.{nd}f}"
+            except:
+                return ""
 
-    def fnum(x, nd=2):
-        try:
-            return f"{float(x):.{nd}f}"
-        except:
-            return ""
+        total_colli = 0
+        total_peso = 0.0
+        trs = []
 
-    total_colli = 0
-    total_peso = 0.0
-    for r in rows:
-        total_colli += int(r.n_colli or 0)
-        total_peso += float(r.peso or 0)
+        for r in rows:
+            total_colli += int(r.n_colli or 0)
+            total_peso += float(r.peso or 0)
 
-    trs = []
-    for r in rows:
-        misure = f"{fnum(r.larghezza,2)} × {fnum(r.lunghezza,2)} × {fnum(r.altezza,2)}"
+            misure = f"{fnum(r.larghezza)} × {fnum(r.lunghezza)} × {fnum(r.altezza)}"
 
-        trs.append(f"""
-        <tr>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(r.commessa)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(r.ordine)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(misure)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(r.cliente)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(r.fornitore)}</td>
-          <td style="border:1px solid #ddd;padding:6px;text-align:right;">{fnum(r.peso,2)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(r.descrizione)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(r.codice_articolo)}</td>
-          <td style="border:1px solid #ddd;padding:6px;text-align:right;">{esc(r.n_colli)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">{esc(r.n_arrivo)}</td>
-        </tr>
-        """)
+            trs.append(f"""
+            <tr>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(r.commessa)}</td>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(r.ordine)}</td>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(misure)}</td>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(r.cliente)}</td>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(r.fornitore)}</td>
+              <td style="border:1px solid #ddd;padding:6px;text-align:right;">{fnum(r.peso)}</td>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(r.descrizione)}</td>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(r.codice_articolo)}</td>
+              <td style="border:1px solid #ddd;padding:6px;text-align:right;">{esc(r.n_colli)}</td>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(r.n_arrivo)}</td>
+            </tr>
+            """)
 
-    return f"""
-    <div style="margin:12px 0 20px 0; font-family: Arial, sans-serif;">
-      <b>Riepilogo merce selezionata</b>
+        return f"""
+        <div style="margin:15px 0;font-family:Arial,sans-serif;">
+          <b>Riepilogo merce selezionata</b>
 
-      <table style="border-collapse:collapse;width:100%;font-size:12px;margin-top:6px;">
-        <thead>
-          <tr style="background:#f2f2f2;">
-            <th style="border:1px solid #ddd;padding:6px;">Commessa</th>
-            <th style="border:1px solid #ddd;padding:6px;">Ordine</th>
-            <th style="border:1px solid #ddd;padding:6px;">Misure pallet (L×P×H)</th>
-            <th style="border:1px solid #ddd;padding:6px;">Cliente</th>
-            <th style="border:1px solid #ddd;padding:6px;">Fornitore</th>
-            <th style="border:1px solid #ddd;padding:6px;text-align:right;">Peso (kg)</th>
-            <th style="border:1px solid #ddd;padding:6px;">Descrizione</th>
-            <th style="border:1px solid #ddd;padding:6px;">Codice Articolo</th>
-            <th style="border:1px solid #ddd;padding:6px;text-align:right;">Colli</th>
-            <th style="border:1px solid #ddd;padding:6px;">N. Arrivo</th>
-          </tr>
-        </thead>
-        <tbody>
-          {''.join(trs)}
-        </tbody>
-      </table>
+          <table style="border-collapse:collapse;width:100%;font-size:12px;margin-top:6px;">
+            <thead>
+              <tr style="background:#f2f2f2;">
+                <th style="border:1px solid #ddd;padding:6px;">Commessa</th>
+                <th style="border:1px solid #ddd;padding:6px;">Ordine</th>
+                <th style="border:1px solid #ddd;padding:6px;">Misure pallet</th>
+                <th style="border:1px solid #ddd;padding:6px;">Cliente</th>
+                <th style="border:1px solid #ddd;padding:6px;">Fornitore</th>
+                <th style="border:1px solid #ddd;padding:6px;">Peso</th>
+                <th style="border:1px solid #ddd;padding:6px;">Descrizione</th>
+                <th style="border:1px solid #ddd;padding:6px;">Codice</th>
+                <th style="border:1px solid #ddd;padding:6px;">Colli</th>
+                <th style="border:1px solid #ddd;padding:6px;">N.Arrivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {''.join(trs)}
+            </tbody>
+          </table>
 
-      <div style="margin-top:8px;font-size:12px;">
-        <b>Totali:</b> Colli = {total_colli} | Peso = {total_peso:.2f} kg
-      </div>
-    </div>
+          <div style="margin-top:8px;font-size:12px;">
+            <b>Totali:</b> Colli {total_colli} | Peso {total_peso:.2f} kg
+          </div>
+        </div>
+        """
+
+    # =========================
+    # AVVISO IMPORTANTE (COMPLETO)
+    # =========================
+    avviso_importante_html = """
+    <p style="font-size:10px;color:#777;text-align:justify;margin-top:10px;">
+    <b>AVVISO IMPORTANTE.</b> Le informazioni contenute nella presente comunicazione e i relativi allegati possono essere riservate
+    e sono destinate esclusivamente alle persone o alla Società sopraindicati.
+    La comunicazione, diffusione, distribuzione e/o copiatura del documento trasmesso nonché qualsiasi forma di trattamento dei dati
+    ivi contenuti da parte di qualsiasi soggetto diverso dal destinatario è proibita ai sensi dell’art. 616 c.p. e del D.Lgs. 196/2003.
+    Le informazioni hanno validità decennale. Se avete ricevuto questo messaggio per errore, vi preghiamo di distruggerlo e informarci
+    immediatamente al numero 010 265995. L’operazione segue gli accordi e le tariffe stabilite. Mandato di trasporto e assicurativo:
+    la risposta a questa email è da considerarsi mandato di trasporto e assicurativo. La società si manleva da responsabilità
+    derivanti da autorità competenti, ritardi, blocchi o eventi non imputabili. Le disposizioni di cui sopra si intendono accettate
+    dal momento dell’incarico.
+    </p>
     """
 
-
-    # GET: Mostra il form
+    # =========================
+    # GET
+    # =========================
     if request.method == 'GET':
         selected_ids = request.args.getlist('ids')
-        ids_str = ",".join(selected_ids)
-        return render_template('invia_email.html', selected_ids=ids_str)
+        return render_template('invia_email.html', selected_ids=",".join(selected_ids))
 
-    # POST: Elabora l'invio
+    # =========================
+    # POST
+    # =========================
     selected_ids = request.form.get('selected_ids', '')
-    destinatario_raw = (request.form.get('destinatario') or '').strip()  # <-- ora raw (può contenere ; ,)
-    oggetto = request.form.get('oggetto')
-    messaggio_utente = request.form.get('messaggio') or ""
-    genera_ddt = 'genera_ddt' in request.form  # ora significa: "inserisci riepilogo in email"
-    allega_file = 'allega_file' in request.form
-    allegati_extra = request.files.getlist('allegati_extra')
-
     ids_list = [int(i) for i in selected_ids.split(',') if i.isdigit()]
 
-    # ✅ PARSE MULTI DESTINATARI: separati da ; o ,
-    destinatari_list = [
-        e.strip()
-        for e in destinatario_raw.replace(";", ",").split(",")
-        if e.strip()
+    destinatari = [
+        e.strip() for e in request.form.get('destinatario', '').replace(";", ",").split(",") if e.strip()
     ]
 
-    if not destinatari_list:
-        flash("Inserire almeno un destinatario (puoi separarli con ; oppure ,).", "danger")
+    if not destinatari:
+        flash("Inserire almeno un destinatario valido", "danger")
         return redirect(url_for('giacenze'))
 
-    # (opzionale ma utile) controllo base formato email
-    for e in destinatari_list:
-        if "@" not in e:
-            flash(f"Email non valida: {e}", "danger")
-            return redirect(url_for('giacenze'))
+    oggetto = request.form.get('oggetto')
+    messaggio = request.form.get('messaggio') or ""
+    genera_ddt = 'genera_ddt' in request.form
 
-    # Configurazione SMTP
-    SMTP_SERVER = os.environ.get("MAIL_SERVER") or os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-    SMTP_PORT = int(os.environ.get("MAIL_PORT") or os.environ.get("SMTP_PORT", 587))
-    SMTP_USER = os.environ.get("MAIL_USERNAME") or os.environ.get("SMTP_USER", "")
-    SMTP_PASS = os.environ.get("MAIL_PASSWORD") or os.environ.get("SMTP_PASS", "")
-
-    if not SMTP_USER or not SMTP_PASS:
-        flash(f"Configurazione email mancante (User: {SMTP_USER}).", "warning")
-        return redirect(url_for('giacenze'))
+    SMTP_USER = os.environ.get("MAIL_USERNAME")
+    SMTP_PASS = os.environ.get("MAIL_PASSWORD")
 
     try:
-        # 0) Prepara riepilogo HTML (prima di costruire html_body)
         riepilogo_html = ""
         if genera_ddt and ids_list:
             db = SessionLocal()
-            try:
-                rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
-                if rows:
-                    riepilogo_html = _build_riepilogo_schema_html(rows)
-            finally:
-                db.close()
+            rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
+            riepilogo_html = _build_riepilogo_schema_html(rows)
+            db.close()
 
         msg_root = MIMEMultipart('related')
         msg_root['From'] = SMTP_USER
-
-        # ✅ Header "To" leggibile (stringa)
-        msg_root['To'] = ", ".join(destinatari_list)
-
+        msg_root['To'] = ", ".join(destinatari)
         msg_root['Subject'] = Header(oggetto, 'utf-8')
 
         msg_alt = MIMEMultipart('alternative')
         msg_root.attach(msg_alt)
 
-        # 1. Corpo Testo Semplice (Fallback)
-        msg_alt.attach(MIMEText(messaggio_utente, 'plain', 'utf-8'))
-
-        # 2. Corpo HTML (con riepilogo dentro l'email)
-        messaggio_html = messaggio_utente.replace('\n', '<br>')
+        msg_alt.attach(MIMEText(messaggio, 'plain', 'utf-8'))
 
         html_body = f"""
-        <html>
-          <head>
-            <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-          </head>
-          <body style="font-family: Arial, sans-serif; font-size: 14px; color:#333;">
-
-            <div style="margin-bottom: 18px;">
-              {messaggio_html}
-            </div>
-
-            {riepilogo_html}
-
-            <div style="margin-bottom: 20px;">
-              <img src="cid:logo_camar" alt="Camar S.r.l." style="height:65px; width:auto; display:block;">
-            </div>
-
-            <div style="font-size: 12px; color: #444; line-height: 1.4;">
-                <p>
-                    <strong>Numero Ufficio:</strong> 010 265995<br>
-                    <strong>Numero Fax:</strong> 010 4550943
-                </p>
-
-                <p><strong>Mobili:</strong><br>
-                Sig. Tazio Marcellino +39 334 6892992<br>
-                Sig.ra Alessia Moncalvo +39 324 9255537<br>
-                Sig. Giorgio Cabella +39 338 7255224<br>
-                Sig. Hugo Esviza +39 327 4573767</p>
-
-                <p><i>a simple but ingenious company ®</i></p>
-
-                <p><strong>INDIRIZZO CONTABILITA':</strong> <a href="mailto:contabilita@camarsrl.net">contabilita@camarsrl.net</a></p>
-                <p>HEAD OFFICE: Via Balleydier 52r – 16149 GENOVA<br>
-                BRANCH OFFICE: La Spezia - Savona - Vado Ligure - Civitavecchia - Marina Di Carrara - Venezia</p>
-
-                <hr style="border:0; border-top:1px solid #ccc; margin: 15px 0;">
-
-                <p style="font-size: 10px; color: #777; text-align: justify;">
-                Tutte le parti accettano il presente documento e stabiliscono che per ogni eventuale e futura controversia derivante dal presente accordo, o connesse allo stesso, è competente il Tribunale di Roma.<br>
-                Si ritiene accettato con la conferma del trasporto o la conferma della vendita.<br><br>
-
-                All the parts agree upon the present document and establish that for any possible future controversy related to the present agreement, or connected to it, the Tribunal of Rome is in charge.<br>
-                This is considered as accepted once the transport or the sale has been confirmed.<br><br>
-
-                avviso_importante_html = """
-                <p style="font-size: 10px; color: #777; text-align: justify; margin-top:10px;">
-                <b>AVVISO IMPORTANTE.</b> Le informazioni contenute nella presente comunicazione e i relativi allegati possono essere riservate e sono, comunque, destinate esclusivamente alle persone o alla Società sopraindicati.
-                La comunicazione, diffusione, distribuzione e/o copiatura del documento trasmesso nonché qualsiasi forma di trattamento dei dati ivi contenuti da parte di qualsiasi soggetto diverso dal destinatario è proibita, sia ai sensi dell’art. 616 c.p., che ai sensi del D. Lgs. n. 196/2003, ed in ogni caso espressamente inibita.
-                Le informazioni e tutte le indicazioni, dati, contenuti in questo messaggio hanno una scadenza decennale.
-                Se avete ricevuto questo messaggio per errore, vi preghiamo di distruggerlo e di informarci immediatamente per telefono allo 010 265995 o inviando un messaggio.
-                L’operazione eseguita per vostro conto, segue l’accordo/le tariffe stabilite appositamente, fa parte di un appalto di servizi in esclusiva per le operazioni marittime della vostra azienda.
-                La sopracitata operazione, che sarà effettuata con il massimo dell’attenzione e più velocemente possibile, viene eseguita tramite Autorizzazione Doganale, di Polizia ,o di Capitaneria, ed è riconducibile e discrezionale solo da parte dell’Autorità Ministeriale/Statale, pertanto la nostra azienda si manleva da qualsiasi responsabilità relativa all’esito della stessa.
-                Le disposizioni di cui sopra si ritengono accettate dalle controparti, dal momento dell’incarico e dello svolgimento del lavoro sopra menzionato nella email.
-                Questo messaggio, con gli eventuali allegati e informazioni contiene documentazione, dati, notizie, nomi, riservate esclusivamente per fini lavorativi al destinatario inteso come azienda, e alla sua direzione.
-                La nostra azienda non accetta nessun tipo di addebito per ritardi o errori, deficienze o negligenze, nella compilazione o nell’esecuzione, assistenza della documentazione richiesta o fornita.
-                La scrivente agisce come intermediario tra IMPORTANTE.
-                Mandato di trasporto e assicurativo: eseguiamo l’ordine di trasporto e assicuriamo la merce al valore dichiarato.
-                La risposta a questa email è da considerare come mandato assicurativo (quello assicurativo se esplicitamente manifestato dal cliente) e di trasporto a tutti gli effetti.
-                Vi preghiamo di avvisarci nel caso di imprevisti.
-                Comunichiamo che il cambio della data di consegna da noi indicata, non deve essere soggetta a richieste danni o spese.
-                Comunichiamo, inoltre, che dall’uscita dei varchi doganali sino a Vs destinazione, le spese e i costi derivanti da eventuali blocchi traffico, soste, verbali, sanzioni, incidenti non sono a noi imputabili.
-                Se il valore della merce trasportata non è stato dichiarato, il cliente anche per conto dei propri mandatari rinuncia a far valere nei confronti della società e del vettore qualsiasi credito per danni o perdita delle merci in misura superiore al valore indicato dal decreto riportato.
-                Si obbliga a tenere indenne e manlevare la società e il vettore a fronte di qualsiasi richiesta di risarcimento da parte di terzi a fronte di perdite delle merci in misura superiore al valore indicato dal decreto sotto riportato.
-                Il trasporto oggetto della presente prenotazione è disciplinato dalle disposizioni del decreto legislativo 21.11.2005 n.286.
-                Tali disposizioni, tra l’altro, prevedono a carico del committente, caricatore, e proprietario delle merci responsabilità e sanzioni in relazione a violazione delle disposizioni in materia di sicurezza della circolazione quali quelle relative alla massa limite e alla sistemazione del carico sui veicoli.
-                Il cliente garantisce l’esattezza e la completezza delle informazioni fornite alla società in merito alle merci oggetto della prenotazione, nonché, laddove vi preveda l’accuratezza e l’idoneità della sistemazione del carico sui veicoli nel rispetto delle norme descritte si terrà indenne e manleverà la società e il vettore da quest’ultima incaricato per suo conto a fronte di qualsiasi sanzione e responsabilità che dovesse derivare dall’inesattezza incompletezza o inidoneità delle predette informazioni e sistemazioni.
-                È a conoscenza e quindi manleva da qualsiasi danno o addebito la scrivente, nel caso che l’ordine di trasporto venga disdetto da quest’ultima per motivi logistici.
-                La nostra azienda si occupa d’intermediazione nel campo della logistica e trasporti.
-                Eseguiamo operazioni solo ed esclusivamente per Vs conto senza alcuna responsabilità civile, economica, legale.
-                Le disposizioni di cui sopra si ritengono accettate dal momento dell’incarico.
-                </p>
-                """
+        <html><body style="font-family:Arial;font-size:14px;">
+        <div>{messaggio.replace(chr(10), '<br>')}</div>
+        {riepilogo_html}
+        <img src="cid:logo_camar" style="height:60px;">
+        {avviso_importante_html}
+        </body></html>
+        """
 
         msg_alt.attach(MIMEText(html_body, 'html', 'utf-8'))
 
-        # 3. ALLEGARE IL LOGO (cid:logo_camar)
-        possible_logos = ["logo camar.jpg", "logo_camar.jpg", "logo.jpg"]
-        logo_found = False
-
-        for name in possible_logos:
-            logo_path = os.path.join(app.root_path, "static", name)
-            if os.path.exists(logo_path):
-                with open(logo_path, "rb") as f:
-                    img_data = f.read()
-
-                img = MIMEImage(img_data)
-                img.add_header('Content-ID', '<logo_camar>')
-                img.add_header('Content-Disposition', 'inline', filename='logo_camar.jpg')
-                msg_root.attach(img)
-                logo_found = True
-                break
-
-        if not logo_found:
-            print("⚠️ ATTENZIONE: Logo non trovato nella cartella static! (L'email partirà senza logo visibile)")
-
-        # 4. (RIMOSSO) PDF Riepilogo/DDT: NON viene più allegato
-        #    Il riepilogo viene inserito dentro l'email (riepilogo_html)
-
-        # 5. ALLEGATI ESISTENTI
-        if allega_file and ids_list:
-            db = SessionLocal()
-            try:
-                rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
-                for r in rows:
-                    for att in r.attachments:
-                        fname = att.filename
-                        path = (DOCS_DIR if att.kind == 'doc' else PHOTOS_DIR) / fname
-                        if not path.exists():
-                            from urllib.parse import unquote
-                            path = (DOCS_DIR if att.kind == 'doc' else PHOTOS_DIR) / unquote(fname)
-
-                        if path.exists():
-                            with open(path, "rb") as f:
-                                part = MIMEBase('application', "octet-stream")
-                                part.set_payload(f.read())
-                            encoders.encode_base64(part)
-                            part.add_header('Content-Disposition', f'attachment; filename="{fname}"')
-                            msg_root.attach(part)
-            finally:
-                db.close()
-
-        # 6. ALLEGATI EXTRA
-        for file in allegati_extra:
-            if file and file.filename:
-                part = MIMEBase('application', "octet-stream")
-                part.set_payload(file.read())
-                encoders.encode_base64(part)
-                part.add_header('Content-Disposition', f'attachment; filename="{secure_filename(file.filename)}"')
-                msg_root.attach(part)
-
-        # ✅ INVIO SMTP (IMPORTANTISSIMO: passa la lista reale dei destinatari)
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server = smtplib.SMTP("smtp.gmail.com", 587)
         server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
-
-        server.send_message(msg_root, from_addr=SMTP_USER, to_addrs=destinatari_list)
+        server.send_message(msg_root, to_addrs=destinatari)
         server.quit()
 
-        flash(f"Email inviata correttamente a: {', '.join(destinatari_list)}", "success")
+        flash("Email inviata correttamente", "success")
 
     except Exception as e:
-        print(f"DEBUG EMAIL EXCEPTION: {e}")
-        import traceback
-        traceback.print_exc()
-        flash(f"Errore invio: {e}", "danger")
+        flash(str(e), "danger")
 
     return redirect(url_for('giacenze'))
-
-
-
 
 
 # --- FUNZIONE UPLOAD FILE MULTIPLI (CORRETTA PER EDIT_RECORD) ---
