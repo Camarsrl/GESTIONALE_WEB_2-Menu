@@ -3361,70 +3361,70 @@ def invia_email():
     # =========================
     # Helper: Riepilogo Merci
     # =========================
-    def _build_riepilogo_schema_html(rows):
-        def esc(x):
-            return html.escape("" if x is None else str(x))
+def _build_riepilogo_schema_html(rows):
+    def esc(x):
+        return html.escape("" if x is None else str(x))
 
-        def fnum(x, nd=2):
-            try:
-                return f"{float(x):.{nd}f}"
-            except:
-                return ""
+    def fnum(x, nd=2):
+        try:
+            return f"{float(x):.{nd}f}"
+        except:
+            return ""
 
-        total_colli = 0
-        total_peso = 0.0
-        trs = []
+    total_colli = 0
+    total_peso = 0.0
+    for r in rows:
+        total_colli += int(r.n_colli or 0)
+        total_peso += float(r.peso or 0)
 
-        for r in rows:
-            total_colli += int(r.n_colli or 0)
-            total_peso += float(r.peso or 0)
+    trs = []
+    for r in rows:
+        misure = f"{fnum(r.larghezza,2)} × {fnum(r.lunghezza,2)} × {fnum(r.altezza,2)}"
 
-            misure = f"{fnum(r.larghezza)} × {fnum(r.lunghezza)} × {fnum(r.altezza)}"
+        trs.append(f"""
+        <tr>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(r.commessa)}</td>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(r.ordine)}</td>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(misure)}</td>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(r.cliente)}</td>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(r.fornitore)}</td>
+          <td style="border:1px solid #ddd;padding:6px;text-align:right;">{fnum(r.peso,2)}</td>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(r.descrizione)}</td>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(r.codice_articolo)}</td>
+          <td style="border:1px solid #ddd;padding:6px;text-align:right;">{esc(r.n_colli)}</td>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(r.n_arrivo)}</td>
+        </tr>
+        """)
 
-            trs.append(f"""
-            <tr>
-              <td style="border:1px solid #ddd;padding:6px;">{esc(r.commessa)}</td>
-              <td style="border:1px solid #ddd;padding:6px;">{esc(r.ordine)}</td>
-              <td style="border:1px solid #ddd;padding:6px;">{esc(misure)}</td>
-              <td style="border:1px solid #ddd;padding:6px;">{esc(r.cliente)}</td>
-              <td style="border:1px solid #ddd;padding:6px;">{esc(r.fornitore)}</td>
-              <td style="border:1px solid #ddd;padding:6px;text-align:right;">{fnum(r.peso)}</td>
-              <td style="border:1px solid #ddd;padding:6px;">{esc(r.descrizione)}</td>
-              <td style="border:1px solid #ddd;padding:6px;">{esc(r.codice_articolo)}</td>
-              <td style="border:1px solid #ddd;padding:6px;text-align:right;">{esc(r.n_colli)}</td>
-              <td style="border:1px solid #ddd;padding:6px;">{esc(r.n_arrivo)}</td>
-            </tr>
-            """)
+    return f"""
+    <div style="margin:12px 0 20px 0; font-family: Arial, sans-serif;">
+      <b>Riepilogo merce selezionata</b>
 
-        return f"""
-        <div style="margin:15px 0;font-family:Arial,sans-serif;">
-          <b>Riepilogo merce selezionata</b>
+      <table style="border-collapse:collapse;width:100%;font-size:12px;margin-top:6px;">
+        <thead>
+          <tr style="background:#f2f2f2;">
+            <th style="border:1px solid #ddd;padding:6px;">Commessa</th>
+            <th style="border:1px solid #ddd;padding:6px;">Ordine</th>
+            <th style="border:1px solid #ddd;padding:6px;">Misure pallet (L×P×H)</th>
+            <th style="border:1px solid #ddd;padding:6px;">Cliente</th>
+            <th style="border:1px solid #ddd;padding:6px;">Fornitore</th>
+            <th style="border:1px solid #ddd;padding:6px;text-align:right;">Peso (kg)</th>
+            <th style="border:1px solid #ddd;padding:6px;">Descrizione</th>
+            <th style="border:1px solid #ddd;padding:6px;">Codice Articolo</th>
+            <th style="border:1px solid #ddd;padding:6px;text-align:right;">Colli</th>
+            <th style="border:1px solid #ddd;padding:6px;">N. Arrivo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {''.join(trs)}
+        </tbody>
+      </table>
 
-          <table style="border-collapse:collapse;width:100%;font-size:12px;margin-top:6px;">
-            <thead>
-              <tr style="background:#f2f2f2;">
-                <th style="border:1px solid #ddd;padding:6px;">Commessa</th>
-                <th style="border:1px solid #ddd;padding:6px;">Ordine</th>
-                <th style="border:1px solid #ddd;padding:6px;">Misure pallet</th>
-                <th style="border:1px solid #ddd;padding:6px;">Cliente</th>
-                <th style="border:1px solid #ddd;padding:6px;">Fornitore</th>
-                <th style="border:1px solid #ddd;padding:6px;">Peso</th>
-                <th style="border:1px solid #ddd;padding:6px;">Descrizione</th>
-                <th style="border:1px solid #ddd;padding:6px;">Codice</th>
-                <th style="border:1px solid #ddd;padding:6px;">Colli</th>
-                <th style="border:1px solid #ddd;padding:6px;">N.Arrivo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {''.join(trs)}
-            </tbody>
-          </table>
-
-          <div style="margin-top:8px;font-size:12px;">
-            <b>Totali:</b> Colli {total_colli} | Peso {total_peso:.2f} kg
-          </div>
-        </div>
-        """
+      <div style="margin-top:8px;font-size:12px;">
+        <b>Totali:</b> Colli = {total_colli} | Peso = {total_peso:.2f} kg
+      </div>
+    </div>
+    """
 
     # =========================
     # AVVISO IMPORTANTE (COMPLETO)
