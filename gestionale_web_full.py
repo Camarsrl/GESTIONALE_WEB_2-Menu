@@ -4397,7 +4397,7 @@ def bulk_edit():
             ('Magazzino', 'magazzino'),
             ('Commessa', 'commessa'),
             ('Mezzo Uscita', 'mezzi_in_uscita'),
-            ('N.Arrivo', 'n.arrivo'),
+            ('N. Arrivo', 'n_arrivo'),
             
             # ✅ FIX: era ('Peso','Peso')
             ('Peso', 'peso'),
