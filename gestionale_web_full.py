@@ -2280,40 +2280,41 @@ INVIA_EMAIL_HTML = """
 <div class="row justify-content-center">
     <div class="col-md-9">
         <div class="card p-4 shadow">
-            <h4 class="mb-3"><i class="bi bi-envelope"></i> Invia Email con Allegati</h4>
-            
+            <h4 class="mb-3"><i class="bi bi-envelope"></i> Invia Email</h4>
+
             {% if selected_ids %}
             <div class="alert alert-info py-2">
-                <i class="bi bi-info-circle"></i> Hai selezionato <strong>{{ selected_ids.split(',')|length }}</strong> articoli. 
+                <i class="bi bi-info-circle"></i> Hai selezionato <strong>{{ selected_ids.split(',')|length }}</strong> articoli.
             </div>
             {% endif %}
 
             <form method="post" enctype="multipart/form-data">
                 <input type="hidden" name="selected_ids" value="{{ selected_ids }}">
-                
+
                 <div class="mb-3">
-                <label class="form-label">Destinatari</label>
-                <input
-                    type="text"
-                    name="destinatario"
-                    class="form-control"
-                    placeholder="email1@dominio.it; email2@dominio.it"
-                    required
-                >
-                <div class="form-text">
-                    Puoi inserire più destinatari separandoli con <b>;</b> oppure <b>,</b>
+                    <label class="form-label">Destinatari</label>
+                    <input
+                        type="text"
+                        name="destinatario"
+                        class="form-control"
+                        placeholder="email1@dominio.it; email2@dominio.it"
+                        required
+                    >
+                    <div class="form-text">
+                        Puoi inserire più destinatari separandoli con <b>;</b> oppure <b>,</b>
+                    </div>
                 </div>
-               
+
                 <div class="mb-3">
                     <label class="form-label fw-bold">Oggetto</label>
                     <input type="text" name="oggetto" class="form-control" value="Documentazione Merce - Camar S.r.l." required>
                 </div>
-                
+
                 <div class="mb-3">
                     <label class="form-label fw-bold">Messaggio</label>
                     <textarea name="messaggio" rows="6" class="form-control" style="font-family: Arial, sans-serif;">Buongiorno,
 
-In allegato inviamo la documentazione relativa alla merce in oggetto.
+Di seguito inviamo il riepilogo della merce in oggetto.
 
 Cordiali saluti,</textarea>
                     <div class="form-text text-muted">
@@ -2339,16 +2340,18 @@ Cordiali saluti,</textarea>
 
                 <div class="card bg-light mb-3">
                     <div class="card-body">
-                        <h6 class="card-title">Opzioni Allegati</h6>
+                        <h6 class="card-title">Opzioni</h6>
+
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" name="genera_ddt" id="genera_ddt" checked>
-                            <label class="form-check-label" for="genera_ddt">Genera e allega Riepilogo/DDT PDF</label>
+                            <label class="form-check-label" for="genera_ddt">Inserisci Riepilogo Merci in email (tabella)</label>
                         </div>
+
                         <div class="form-check mb-2">
                             <input class="form-check-input" type="checkbox" name="allega_file" id="allega_file" checked>
                             <label class="form-check-label" for="allega_file">Includi allegati esistenti (Foto/PDF degli articoli)</label>
                         </div>
-                        
+
                         <label class="form-label mt-2"><strong>Aggiungi altro allegato (dal PC):</strong></label>
                         <input type="file" name="allegati_extra" class="form-control" multiple>
                     </div>
@@ -2364,6 +2367,7 @@ Cordiali saluti,</textarea>
 </div>
 {% endblock %}
 """
+
 
 templates = {
         'base.html': BASE_HTML,
