@@ -3564,6 +3564,80 @@ def invia_email():
     return redirect(url_for('giacenze'))
 
 
+def build_riepilogo_schema_html(rows):
+    import html
+
+    def esc(x):
+        return html.escape("" if x is None else str(x))
+
+    def fnum(x, nd=2):
+        try:
+            return f"{float(x):.{nd}f}"
+        except:
+            return ""
+
+    # Totali
+    total_colli = 0
+    total_peso = 0.0
+    for r in rows:
+        try:
+            total_colli += int(r.n_colli or 0)
+        except:
+            pass
+        try:
+            total_peso += float(r.peso or 0)
+        except:
+            pass
+
+    trs = []
+    for r in rows:
+        misure = f"{fnum(r.larghezza,2)} × {fnum(r.lunghezza,2)} × {fnum(r.altezza,2)}"
+        trs.append(f"""
+        <tr>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(r.commessa)}</td>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(misure)}</td>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(r.cliente)}</td>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(r.fornitore)}</td>
+          <td style="border:1px solid #ddd;padding:6px;text-align:right;">{esc(fnum(r.peso,2))}</td>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(r.descrizione)}</td>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(r.codice_articolo)}</td>
+          <td style="border:1px solid #ddd;padding:6px;text-align:right;">{esc(r.n_colli)}</td>
+          <td style="border:1px solid #ddd;padding:6px;">{esc(r.n_arrivo)}</td>
+        </tr>
+        """)
+
+    return f"""
+    <div style="margin:10px 0 18px 0; font-family: Arial, sans-serif;">
+      <div style="margin:0 0 8px 0; font-size:13px; color:#333;">
+        <b>Riepilogo merce selezionata</b>
+      </div>
+
+      <table style="border-collapse:collapse; width:100%; font-size:12px;">
+        <thead>
+          <tr style="background:#f2f2f2;">
+            <th style="border:1px solid #ddd;padding:6px;text-align:left;">Commessa</th>
+            <th style="border:1px solid #ddd;padding:6px;text-align:left;">Misure pallet (L×P×H)</th>
+            <th style="border:1px solid #ddd;padding:6px;text-align:left;">Cliente</th>
+            <th style="border:1px solid #ddd;padding:6px;text-align:left;">Fornitore</th>
+            <th style="border:1px solid #ddd;padding:6px;text-align:right;">Peso (kg)</th>
+            <th style="border:1px solid #ddd;padding:6px;text-align:left;">Descrizione</th>
+            <th style="border:1px solid #ddd;padding:6px;text-align:left;">Codice Articolo</th>
+            <th style="border:1px solid #ddd;padding:6px;text-align:right;">Colli</th>
+            <th style="border:1px solid #ddd;padding:6px;text-align:left;">N. Arrivo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {''.join(trs)}
+        </tbody>
+      </table>
+
+      <div style="margin-top:8px; font-size:12px; color:#333;">
+        <b>Totali:</b> Colli = {total_colli} &nbsp;|&nbsp; Peso = {total_peso:.2f} kg
+      </div>
+    </div>
+    """
+
+
 # --- FUNZIONE UPLOAD FILE MULTIPLI (CORRETTA PER EDIT_RECORD) ---
 @app.route('/upload/<int:id_articolo>', methods=['POST'])
 @login_required
