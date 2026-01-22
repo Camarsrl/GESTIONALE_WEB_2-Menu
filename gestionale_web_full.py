@@ -3390,6 +3390,7 @@ def invia_email():
             trs.append(f"""
             <tr>
               <td style="border:1px solid #ddd;padding:6px;">{esc(r.commessa)}</td>
+              <td style="border:1px solid #ddd;padding:6px;">{esc(r.ordine)}</td>
               <td style="border:1px solid #ddd;padding:6px;">{esc(misure)}</td>
               <td style="border:1px solid #ddd;padding:6px;">{esc(r.cliente)}</td>
               <td style="border:1px solid #ddd;padding:6px;">{esc(r.fornitore)}</td>
