@@ -1094,6 +1094,7 @@ GIACENZE_HTML = """
                     <div class="col-md-2"><input name="codice_articolo" class="form-control form-control-sm" placeholder="Codice" value="{{ request.args.get('codice_articolo','') }}"></div>
                     <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial" value="{{ request.args.get('serial_number','') }}"></div>
                     <div class="col-md-2"><input name="ordine" class="form-control form-control-sm" placeholder="Ordine" value="{{ request.args.get('ordine','') }}"></div>
+                    <div class="col-md-2"><input name="lotto" class="form-control form-control-sm" placeholder="Lotto" value="{{ request.args.get('lotto','') }}"></div>
                     <div class="col-md-2"><input name="commessa" class="form-control form-control-sm" placeholder="Commessa" value="{{ request.args.get('commessa','') }}"></div>
                     <div class="col-md-1"><button type="submit" class="btn btn-primary btn-sm w-100">Cerca</button></div>
                 </div>
