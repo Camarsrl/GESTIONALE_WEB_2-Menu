@@ -731,8 +731,6 @@ REPORT_INVENTARIO_HTML = """
 </html>
 """
 
-
-
 REPORT_TRASPORTI_HTML = """
 <!DOCTYPE html>
 <html>
@@ -748,11 +746,15 @@ REPORT_TRASPORTI_HTML = """
 <body onload="window.print()">
     <div class="container mt-4">
         <h1 class="mb-3">Report Trasporti</h1>
+
         <div class="mb-3 p-2 bg-light border">
-            <strong>Filtri applicati:</strong> 
-            Periodo: {{ mese }} | Cliente: {{ cliente }}
+            <strong>Filtri applicati:</strong>
+            Periodo: {{ mese }} |
+            Cliente: {{ cliente }} |
+            DDT: {{ ddt_uscita }} |
+            Consolidato: {{ consolidato }}
         </div>
-        
+
         <table class="table table-bordered table-sm">
             <thead>
                 <tr>
@@ -760,6 +762,8 @@ REPORT_TRASPORTI_HTML = """
                     <th>Mezzo</th>
                     <th>Cliente</th>
                     <th>Trasportatore</th>
+                    <th>DDT</th>
+                    <th>Consolidato</th>
                     <th class="text-end">Costo</th>
                 </tr>
             </thead>
@@ -770,20 +774,26 @@ REPORT_TRASPORTI_HTML = """
                     <td>{{ t.tipo_mezzo or '' }}</td>
                     <td>{{ t.cliente or '' }}</td>
                     <td>{{ t.trasportatore or '' }}</td>
+                    <td>{{ t.ddt_uscita or '' }}</td>
+                    <td>{{ t.consolidato or '' }}</td>
                     <td class="text-end">€ {{ '%.2f'|format(t.costo) if t.costo else '0.00' }}</td>
                 </tr>
                 {% else %}
-                <tr><td colspan="5" class="text-center">Nessun dato trovato per i criteri selezionati.</td></tr>
+                <tr>
+                    <td colspan="7" class="text-center">
+                        Nessun dato trovato per i criteri selezionati.
+                    </td>
+                </tr>
                 {% endfor %}
             </tbody>
             <tfoot>
                 <tr class="table-dark fw-bold">
-                    <td colspan="4" class="text-end">TOTALE COMPLESSIVO</td>
+                    <td colspan="6" class="text-end">TOTALE COMPLESSIVO</td>
                     <td class="text-end">€ {{ totale }}</td>
                 </tr>
             </tfoot>
         </table>
-        
+
         <div class="text-muted small mt-4">
             Generato il: <script>document.write(new Date().toLocaleDateString())</script>
         </div>
@@ -791,6 +801,8 @@ REPORT_TRASPORTI_HTML = """
 </body>
 </html>
 """
+
+
 
 LOGIN_HTML = """
 {% extends 'base.html' %}
