@@ -2656,7 +2656,7 @@ def upload_mappe_json():
 
 
 # --- GESTIONE TRASPORTI (ADMIN) ---
-# --- GESTIONE TRASPORTI (ADMIN) ---
+
 @app.route('/trasporti', methods=['GET', 'POST'])
 @login_required
 def trasporti():
@@ -2676,9 +2676,9 @@ def trasporti():
                     tipo_mezzo=(request.form.get('tipo_mezzo') or '').strip() or None,
                     cliente=(request.form.get('cliente') or '').strip() or None,
                     trasportatore=(request.form.get('trasportatore') or '').strip() or None,
-                    ddt_uscita=(request.form.get('ddt_uscita') or '').strip() or None,
+                    ddt_uscita=(request.form.get('ddt_uscita') or '').strip() or None,   # ✅ DDT
                     magazzino=(request.form.get('magazzino') or '').strip() or None,
-                    consolidato=(request.form.get('consolidato') or '').strip() or None,
+                    consolidato=(request.form.get('consolidato') or '').strip() or None, # ✅ Consolidato
                     costo=costo_val
                 )
 
@@ -2692,52 +2692,83 @@ def trasporti():
             return redirect(url_for('trasporti'))
 
         # VISUALIZZA LISTA (Carica tutto)
-        dati = db.query(Trasporto).order_by(Trasporto.data.desc().nullslast(), Trasporto.id.desc()).all()
+        dati = db.query(Trasporto).order_by(
+            Trasporto.data.desc().nullslast(),
+            Trasporto.id.desc()
+        ).all()
+
         return render_template('trasporti.html', trasporti=dati, today=date.today())
 
     finally:
         db.close()
-        
+
+
 @app.route('/report_trasporti', methods=['POST'])
 @login_required
 def report_trasporti():
-    if session.get('role') != 'admin': return "No Access", 403
-    
+    if session.get('role') != 'admin':
+        return "No Access", 403
+
     # Recupera i filtri dal form HTML
-    mese = request.form.get('mese') # Es. '2025-01'
-    mezzo = request.form.get('tipo_mezzo')
-    cliente = request.form.get('cliente')
-    ddt_uscita = request.form.get('ddt_uscita')
-    consolidato = request.form.get('consolidato')
+    mese = (request.form.get('mese') or '').strip()              # Es. '2025-01'
+    mezzo = (request.form.get('tipo_mezzo') or '').strip()
+    cliente = (request.form.get('cliente') or '').strip()
+    ddt_uscita = (request.form.get('ddt_uscita') or '').strip()  # ✅
+    consolidato = (request.form.get('consolidato') or '').strip()# ✅
 
     db = SessionLocal()
     try:
         query = db.query(Trasporto)
-        
+
         # Applica i filtri se presenti
-        if mese: 
-            query = query.filter(Trasporto.data.like(f"{mese}%"))
-        if mezzo: 
+        if mese:
+            # se Trasporto.data è Date/DateTime, usa questa logica (robusta)
+            try:
+                year, month = mese.split("-")
+                y = int(year)
+                m = int(month)
+                start = date(y, m, 1)
+                end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+                query = query.filter(Trasporto.data >= start, Trasporto.data < end)
+            except:
+                # fallback (se data è stringa)
+                query = query.filter(Trasporto.data.like(f"{mese}%"))
+
+        if mezzo:
             query = query.filter(Trasporto.tipo_mezzo == mezzo)
-        if cliente: 
+
+        if cliente:
             query = query.filter(Trasporto.cliente == cliente)
-        
+
+        # ✅ FILTRI AGGIUNTI
+        if ddt_uscita:
+            # match parziale (così puoi scrivere anche solo una parte)
+            query = query.filter(Trasporto.ddt_uscita.ilike(f"%{ddt_uscita}%"))
+
+        if consolidato:
+            # match parziale
+            query = query.filter(Trasporto.consolidato.ilike(f"%{consolidato}%"))
+
         # Ordina per data crescente per il report
-        dati = query.order_by(Trasporto.data.asc()).all()
-        
+        dati = query.order_by(Trasporto.data.asc().nullslast(), Trasporto.id.asc()).all()
+
         # Calcola il totale costi
         totale_costo = sum((t.costo or 0.0) for t in dati)
-        
-        # Passa 'dati' al template (così combacia con il ciclo for nell'HTML)
+
         return render_template(
-            'report_trasporti_print.html', 
-            dati=dati, 
-            totale=f"{totale_costo:.2f}", 
-            mese=(mese if mese else "Tutto il periodo"), 
-            cliente=(cliente if cliente else "Tutti")
+            'report_trasporti_print.html',
+            dati=dati,
+            totale=f"{totale_costo:.2f}",
+            mese=(mese if mese else "Tutto il periodo"),
+            cliente=(cliente if cliente else "Tutti"),
+            ddt_uscita=(ddt_uscita if ddt_uscita else "Tutti"),
+            consolidato=(consolidato if consolidato else "Tutti")
         )
+
     finally:
         db.close()
+
+
 # --- GESTIONE LAVORAZIONI (ADMIN) ---
 @app.route('/lavorazioni', methods=['GET', 'POST'])
 @login_required
