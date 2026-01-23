@@ -2707,7 +2707,9 @@ def report_trasporti():
     mese = request.form.get('mese') # Es. '2025-01'
     mezzo = request.form.get('tipo_mezzo')
     cliente = request.form.get('cliente')
-    
+    ddt_uscita = request.form.get('ddt_uscita')
+    consolidato = request.form.get('consolidato')
+
     db = SessionLocal()
     try:
         query = db.query(Trasporto)
