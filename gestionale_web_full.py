@@ -2900,7 +2900,40 @@ def report_trasporti():
 def lavorazioni():
     db = SessionLocal()
 
-    # GESTIONE INSERIMENTO
+    # --- MODIFICA LAVORAZIONE ---
+    if request.method == 'POST' and request.form.get('edit_lavorazione'):
+        if session.get('role') != 'admin':
+            flash("ACCESSO NEGATO: Solo Admin.", "danger")
+            return redirect(url_for('lavorazioni'))
+
+        try:
+            lid = int(request.form.get('id') or 0)
+            rec = db.query(Lavorazione).filter(Lavorazione.id == lid).first()
+            if not rec:
+                flash("Record non trovato.", "danger")
+                return redirect(url_for('lavorazioni'))
+
+            d_val = datetime.strptime(request.form.get('data'), '%Y-%m-%d').date()
+            rec.data = d_val
+            rec.cliente = request.form.get('cliente')
+            rec.descrizione = request.form.get('descrizione')
+            rec.richiesta_di = request.form.get('richiesta_di')
+            rec.seriali = request.form.get('seriali')
+            rec.colli = int(request.form.get('colli') or 0)
+            rec.pallet_forniti = int(request.form.get('pallet_forniti') or 0)
+            rec.pallet_uscita = int(request.form.get('pallet_uscita') or 0)
+            rec.ore_blue_collar = float(request.form.get('ore_blue_collar') or 0)
+            rec.ore_white_collar = float(request.form.get('ore_white_collar') or 0)
+
+            db.commit()
+            flash("Picking modificato!", "success")
+        except Exception as e:
+            db.rollback()
+            flash(f"Errore modifica: {e}", "danger")
+
+        return redirect(url_for('lavorazioni'))
+
+    # --- INSERIMENTO ---
     if request.method == 'POST' and request.form.get('add_lavorazione'):
         if session.get('role') != 'admin':
             flash("ACCESSO NEGATO: Solo Admin.", "danger")
@@ -2928,11 +2961,21 @@ def lavorazioni():
             flash(f"Errore inserimento: {e}", "danger")
         return redirect(url_for('lavorazioni'))
 
-    # VISUALIZZAZIONE
+    # --- EDIT MODE (GET ?edit_id=) ---
+    edit_id = request.args.get('edit_id')
+    edit_row = None
+    if edit_id and session.get('role') == 'admin':
+        try:
+            edit_row = db.query(Lavorazione).filter(Lavorazione.id == int(edit_id)).first()
+        except:
+            edit_row = None
+
+    # --- VISUALIZZAZIONE ---
     dati = db.query(Lavorazione).order_by(Lavorazione.data.desc()).all()
     db.close()
-    
-    return render_template('lavorazioni.html', lavorazioni=dati, today=date.today())
+
+    return render_template('lavorazioni.html', lavorazioni=dati, today=date.today(), edit_row=edit_row)
+
 
 
 @app.route('/stampa_picking_pdf', methods=['POST'])
