@@ -359,6 +359,7 @@
             "PESO":"peso",
             "COLLI":"n_colli",
 			"N.ARRIVO":"n_arrivo",
+			"N.BUONO":"n_buono",
             "DDT USCITA":"n_ddt_uscita",
 			"POSIZIONE":"posizione",
 			"STATO":"stato",
