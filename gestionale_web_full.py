@@ -2198,25 +2198,76 @@ TRASPORTI_HTML = """
             <i class="bi bi-box-arrow-left"></i> Esci
         </a>
     </div>
-    
-    <div class="card p-3 mb-4 bg-light border shadow-sm">
-        <h5 class="mb-3 text-success"><i class="bi bi-plus-circle"></i> Inserisci Nuovo Trasporto</h5>
-        <form method="POST" class="row g-2">
-            <input type="hidden" name="add_trasporto" value="1">
 
-            <div class="col-md-2"><label class="small fw-bold">Data</label><input type="date" name="data" class="form-control" required value="{{ today }}"></div>
-            <div class="col-md-2"><label class="small fw-bold">Tipo Mezzo</label><input type="text" name="tipo_mezzo" class="form-control" placeholder="es. Bilico"></div>
-            <div class="col-md-2"><label class="small fw-bold">Cliente</label><input type="text" name="cliente" class="form-control"></div>
-            <div class="col-md-2"><label class="small fw-bold">Trasportatore</label><input type="text" name="trasportatore" class="form-control"></div>
-            <div class="col-md-1"><label class="small fw-bold">N. DDT</label><input type="text" name="ddt_uscita" class="form-control"></div>
-            <div class="col-md-1"><label class="small fw-bold">Magazzino</label><input type="text" name="magazzino" class="form-control"></div>
-            <div class="col-md-1"><label class="small fw-bold">Consolidato</label><input type="text" name="consolidato" class="form-control"></div>
-            <div class="col-md-1"><label class="small fw-bold">Costo €</label><input type="text" name="costo" class="form-control" placeholder="0,00"></div>
+    <div class="card p-3 mb-4 bg-light border shadow-sm">
+        {% if edit_row %}
+            <h5 class="mb-3 text-primary"><i class="bi bi-pencil-square"></i> Modifica Trasporto ID {{ edit_row.id }}</h5>
+        {% else %}
+            <h5 class="mb-3 text-success"><i class="bi bi-plus-circle"></i> Inserisci Nuovo Trasporto</h5>
+        {% endif %}
+
+        <form method="POST" class="row g-2">
+            {% if edit_row %}
+                <input type="hidden" name="edit_trasporto" value="1">
+                <input type="hidden" name="id" value="{{ edit_row.id }}">
+            {% else %}
+                <input type="hidden" name="add_trasporto" value="1">
+            {% endif %}
+
+            <div class="col-md-2">
+                <label class="small fw-bold">Data</label>
+                <input type="date" name="data" class="form-control" required
+                       value="{% if edit_row and edit_row.data %}{{ edit_row.data }}{% else %}{{ today }}{% endif %}">
+            </div>
+
+            <div class="col-md-2"><label class="small fw-bold">Tipo Mezzo</label>
+                <input type="text" name="tipo_mezzo" class="form-control"
+                       value="{{ edit_row.tipo_mezzo if edit_row else '' }}" placeholder="es. Bilico">
+            </div>
+
+            <div class="col-md-2"><label class="small fw-bold">Cliente</label>
+                <input type="text" name="cliente" class="form-control"
+                       value="{{ edit_row.cliente if edit_row else '' }}">
+            </div>
+
+            <div class="col-md-2"><label class="small fw-bold">Trasportatore</label>
+                <input type="text" name="trasportatore" class="form-control"
+                       value="{{ edit_row.trasportatore if edit_row else '' }}">
+            </div>
+
+            <div class="col-md-1"><label class="small fw-bold">N. DDT</label>
+                <input type="text" name="ddt_uscita" class="form-control"
+                       value="{{ edit_row.ddt_uscita if edit_row else '' }}">
+            </div>
+
+            <div class="col-md-1"><label class="small fw-bold">Magazzino</label>
+                <input type="text" name="magazzino" class="form-control"
+                       value="{{ edit_row.magazzino if edit_row else '' }}">
+            </div>
+
+            <div class="col-md-1"><label class="small fw-bold">Consolidato</label>
+                <input type="text" name="consolidato" class="form-control"
+                       value="{{ edit_row.consolidato if edit_row else '' }}">
+            </div>
+
+            <div class="col-md-1"><label class="small fw-bold">Costo €</label>
+                <input type="text" name="costo" class="form-control" placeholder="0,00"
+                       value="{% if edit_row and edit_row.costo is not none %}{{ '%.2f'|format(edit_row.costo) }}{% endif %}">
+            </div>
 
             <div class="col-md-12 text-end mt-2">
-                <button type="submit" class="btn btn-success fw-bold px-4">
-                    <i class="bi bi-save"></i> Salva
-                </button>
+                {% if edit_row %}
+                    <a href="{{ url_for('trasporti') }}" class="btn btn-secondary fw-bold">
+                        Annulla
+                    </a>
+                    <button type="submit" class="btn btn-primary fw-bold px-4">
+                        <i class="bi bi-save"></i> Salva Modifica
+                    </button>
+                {% else %}
+                    <button type="submit" class="btn btn-success fw-bold px-4">
+                        <i class="bi bi-save"></i> Salva
+                    </button>
+                {% endif %}
             </div>
         </form>
     </div>
@@ -2266,12 +2317,22 @@ TRASPORTI_HTML = """
                         <td>{{ t.magazzino or '' }}</td>
                         <td>{{ t.consolidato or '' }}</td>
                         <td>€ {{ '%.2f'|format(t.costo) if t.costo is not none else '' }}</td>
-                        <td>
-                            <a href="{{ url_for('elimina_record', table='trasporti', id=t.id) }}" 
-                               class="btn btn-sm btn-danger" 
-                               onclick="return confirm('Sei sicuro di voler eliminare questo trasporto?')">
+                        <td class="d-flex gap-1">
+                            {% if session.get('role') == 'admin' %}
+                            <a href="{{ url_for('trasporti', edit_id=t.id) }}"
+                               class="btn btn-sm btn-primary"
+                               title="Modifica">
+                               <i class="bi bi-pencil"></i>
+                            </a>
+                            <a href="{{ url_for('elimina_record', table='trasporti', id=t.id) }}"
+                               class="btn btn-sm btn-danger"
+                               onclick="return confirm('Sei sicuro di voler eliminare questo trasporto?')"
+                               title="Elimina">
                                <i class="bi bi-trash"></i>
                             </a>
+                            {% else %}
+                                -
+                            {% endif %}
                         </td>
                     </tr>
                     {% else %}
