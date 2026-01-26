@@ -2020,25 +2020,84 @@ LAVORAZIONI_HTML = """
         <h2><i class="bi bi-gear"></i> Gestione Picking / Lavorazioni</h2>
         <a href="{{ url_for('home') }}" class="btn btn-secondary shadow-sm"><i class="bi bi-box-arrow-left"></i> Esci</a>
     </div>
-    
+
     <div class="card p-3 mb-4 bg-light border shadow-sm">
-        <h5 class="mb-3">Inserisci Nuovo Picking</h5>
+        {% if edit_row %}
+            <h5 class="mb-3 text-primary"><i class="bi bi-pencil-square"></i> Modifica Picking ID {{ edit_row.id }}</h5>
+        {% else %}
+            <h5 class="mb-3">Inserisci Nuovo Picking</h5>
+        {% endif %}
+
         <form method="POST" class="row g-2">
-            <input type="hidden" name="add_lavorazione" value="1">
-            <div class="col-md-2"><label class="small fw-bold">Data</label><input type="date" name="data" class="form-control" required value="{{ today }}"></div>
-            <div class="col-md-2"><label class="small fw-bold">Cliente</label><input type="text" name="cliente" class="form-control"></div>
-            <div class="col-md-3"><label class="small fw-bold">Descrizione</label><input type="text" name="descrizione" class="form-control"></div>
-            <div class="col-md-2"><label class="small fw-bold">Richiesta Di</label><input type="text" name="richiesta_di" class="form-control"></div>
-            <div class="col-md-3"><label class="small fw-bold">Seriali</label><input type="text" name="seriali" class="form-control"></div>
-            
-            <div class="col-md-1"><label class="small fw-bold">Colli</label><input type="number" name="colli" class="form-control"></div>
-            <div class="col-md-1"><label class="small fw-bold">P. IN</label><input type="number" name="pallet_forniti" class="form-control"></div>
-            <div class="col-md-1"><label class="small fw-bold">P. OUT</label><input type="number" name="pallet_uscita" class="form-control"></div>
-            <div class="col-md-1"><label class="small fw-bold">Ore Blue</label><input type="number" step="0.5" name="ore_blue_collar" class="form-control"></div>
-            <div class="col-md-1"><label class="small fw-bold">Ore White</label><input type="number" step="0.5" name="ore_white_collar" class="form-control"></div>
-            
+            {% if edit_row %}
+                <input type="hidden" name="edit_lavorazione" value="1">
+                <input type="hidden" name="id" value="{{ edit_row.id }}">
+            {% else %}
+                <input type="hidden" name="add_lavorazione" value="1">
+            {% endif %}
+
+            <div class="col-md-2">
+                <label class="small fw-bold">Data</label>
+                <input type="date" name="data" class="form-control" required
+                       value="{% if edit_row and edit_row.data %}{{ edit_row.data }}{% else %}{{ today }}{% endif %}">
+            </div>
+
+            <div class="col-md-2"><label class="small fw-bold">Cliente</label>
+                <input type="text" name="cliente" class="form-control"
+                       value="{{ edit_row.cliente if edit_row else '' }}">
+            </div>
+
+            <div class="col-md-3"><label class="small fw-bold">Descrizione</label>
+                <input type="text" name="descrizione" class="form-control"
+                       value="{{ edit_row.descrizione if edit_row else '' }}">
+            </div>
+
+            <div class="col-md-2"><label class="small fw-bold">Richiesta Di</label>
+                <input type="text" name="richiesta_di" class="form-control"
+                       value="{{ edit_row.richiesta_di if edit_row else '' }}">
+            </div>
+
+            <div class="col-md-3"><label class="small fw-bold">Seriali</label>
+                <input type="text" name="seriali" class="form-control"
+                       value="{{ edit_row.seriali if edit_row else '' }}">
+            </div>
+
+            <div class="col-md-1"><label class="small fw-bold">Colli</label>
+                <input type="number" name="colli" class="form-control"
+                       value="{{ edit_row.colli if edit_row else '' }}">
+            </div>
+
+            <div class="col-md-1"><label class="small fw-bold">Pallet Entrati</label>
+                <input type="number" name="pallet_forniti" class="form-control"
+                       value="{{ edit_row.pallet_forniti if edit_row else '' }}">
+            </div>
+
+            <div class="col-md-1"><label class="small fw-bold">Pallet Usciti</label>
+                <input type="number" name="pallet_uscita" class="form-control"
+                       value="{{ edit_row.pallet_uscita if edit_row else '' }}">
+            </div>
+
+            <div class="col-md-1"><label class="small fw-bold">Ore Blue</label>
+                <input type="number" step="0.5" name="ore_blue_collar" class="form-control"
+                       value="{{ edit_row.ore_blue_collar if edit_row else '' }}">
+            </div>
+
+            <div class="col-md-1"><label class="small fw-bold">Ore White</label>
+                <input type="number" step="0.5" name="ore_white_collar" class="form-control"
+                       value="{{ edit_row.ore_white_collar if edit_row else '' }}">
+            </div>
+
             <div class="col-md-12 text-end mt-2">
-                <button type="submit" class="btn btn-success fw-bold"><i class="bi bi-plus-lg"></i> Aggiungi</button>
+                {% if edit_row %}
+                    <a href="{{ url_for('lavorazioni') }}" class="btn btn-secondary fw-bold">Annulla</a>
+                    <button type="submit" class="btn btn-primary fw-bold">
+                        <i class="bi bi-save"></i> Salva Modifica
+                    </button>
+                {% else %}
+                    <button type="submit" class="btn btn-success fw-bold">
+                        <i class="bi bi-plus-lg"></i> Aggiungi
+                    </button>
+                {% endif %}
             </div>
         </form>
     </div>
@@ -2067,7 +2126,7 @@ LAVORAZIONI_HTML = """
                     <tr>
                         <th>Data</th><th>Cliente</th><th>Descrizione</th>
                         <th>Richiesta</th><th>Seriali</th><th>Colli</th>
-                        <th>P. IN</th><th>P. OUT</th>
+                        <th>Pallet Entrati</th><th>Pallet Usciti</th>
                         <th>Blue</th><th>White</th>
                         <th>Azioni</th>
                     </tr>
@@ -2085,10 +2144,20 @@ LAVORAZIONI_HTML = """
                         <td>{{ l.pallet_uscita or '' }}</td>
                         <td>{{ l.ore_blue_collar or '' }}</td>
                         <td>{{ l.ore_white_collar or '' }}</td>
-                        <td>
+                        <td class="d-flex gap-1">
+                            {% if session.get('role') == 'admin' %}
+                            <a href="{{ url_for('lavorazioni', edit_id=l.id) }}"
+                               class="btn btn-sm btn-primary"
+                               title="Modifica">
+                               <i class="bi bi-pencil"></i>
+                            </a>
                             <a href="{{ url_for('elimina_record', table='lavorazioni', id=l.id) }}"
                                class="btn btn-sm btn-danger"
-                               onclick="return confirm('Sei sicuro di voler eliminare?')"><i class="bi bi-trash"></i></a>
+                               onclick="return confirm('Sei sicuro di voler eliminare?')"
+                               title="Elimina"><i class="bi bi-trash"></i></a>
+                            {% else %}
+                                -
+                            {% endif %}
                         </td>
                     </tr>
                     {% else %}
@@ -2101,6 +2170,8 @@ LAVORAZIONI_HTML = """
 </div>
 {% endblock %}
 """
+
+
 CALCOLA_COSTI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
