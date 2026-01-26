@@ -3012,7 +3012,7 @@ def stampa_picking_pdf():
         elements.append(Spacer(1, 5*mm))
 
         # Intestazione Tabella
-        data = [['DATA', 'CLIENTE', 'DESCRIZIONE', 'RICHIESTA', 'COLLI', 'P.IN/OUT', 'BLUE', 'WHITE']]
+        data = [['DATA', 'CLIENTE', 'DESCRIZIONE', 'RICHIESTA', 'COLLI', 'PALLET ENTRATI / PALLET USCITI', 'BLUE', 'WHITE']]
         
         # Totali
         t_colli = 0; t_pin = 0; t_pout = 0; t_blue = 0.0; t_white = 0.0
