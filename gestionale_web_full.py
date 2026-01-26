@@ -2674,8 +2674,46 @@ def upload_mappe_json():
 def trasporti():
     db = SessionLocal()
     try:
-        # AGGIUNGI NUOVO TRASPORTO
+        # --- MODIFICA TRASPORTO ---
+        if request.method == 'POST' and request.form.get('edit_trasporto'):
+            if session.get('role') != 'admin':
+                flash("ACCESSO NEGATO: Solo Admin.", "danger")
+                return redirect(url_for('trasporti'))
+
+            try:
+                tid = int(request.form.get('id') or 0)
+                rec = db.query(Trasporto).filter(Trasporto.id == tid).first()
+                if not rec:
+                    flash("Trasporto non trovato.", "danger")
+                    return redirect(url_for('trasporti'))
+
+                data_str = (request.form.get('data') or '').strip()
+                rec.data = datetime.strptime(data_str, '%Y-%m-%d').date() if data_str else None
+
+                costo_str = (request.form.get('costo') or '').strip()
+                rec.costo = float(costo_str.replace(',', '.')) if costo_str != '' else None
+
+                rec.tipo_mezzo = (request.form.get('tipo_mezzo') or '').strip() or None
+                rec.cliente = (request.form.get('cliente') or '').strip() or None
+                rec.trasportatore = (request.form.get('trasportatore') or '').strip() or None
+                rec.ddt_uscita = (request.form.get('ddt_uscita') or '').strip() or None
+                rec.magazzino = (request.form.get('magazzino') or '').strip() or None
+                rec.consolidato = (request.form.get('consolidato') or '').strip() or None
+
+                db.commit()
+                flash("Trasporto modificato!", "success")
+            except Exception as e:
+                db.rollback()
+                flash(f"Errore modifica trasporto: {e}", "danger")
+
+            return redirect(url_for('trasporti'))
+
+        # --- AGGIUNGI NUOVO TRASPORTO ---
         if request.method == 'POST' and request.form.get('add_trasporto'):
+            if session.get('role') != 'admin':
+                flash("ACCESSO NEGATO: Solo Admin.", "danger")
+                return redirect(url_for('trasporti'))
+
             try:
                 data_str = (request.form.get('data') or '').strip()
                 data_val = datetime.strptime(data_str, '%Y-%m-%d').date() if data_str else None
@@ -2688,9 +2726,9 @@ def trasporti():
                     tipo_mezzo=(request.form.get('tipo_mezzo') or '').strip() or None,
                     cliente=(request.form.get('cliente') or '').strip() or None,
                     trasportatore=(request.form.get('trasportatore') or '').strip() or None,
-                    ddt_uscita=(request.form.get('ddt_uscita') or '').strip() or None,   # ✅ DDT
+                    ddt_uscita=(request.form.get('ddt_uscita') or '').strip() or None,
                     magazzino=(request.form.get('magazzino') or '').strip() or None,
-                    consolidato=(request.form.get('consolidato') or '').strip() or None, # ✅ Consolidato
+                    consolidato=(request.form.get('consolidato') or '').strip() or None,
                     costo=costo_val
                 )
 
@@ -2703,13 +2741,27 @@ def trasporti():
 
             return redirect(url_for('trasporti'))
 
-        # VISUALIZZA LISTA (Carica tutto)
+        # --- EDIT MODE (GET ?edit_id=) ---
+        edit_id = request.args.get('edit_id')
+        edit_row = None
+        if edit_id and session.get('role') == 'admin':
+            try:
+                edit_row = db.query(Trasporto).filter(Trasporto.id == int(edit_id)).first()
+            except:
+                edit_row = None
+
+        # --- VISUALIZZA LISTA ---
         dati = db.query(Trasporto).order_by(
             Trasporto.data.desc().nullslast(),
             Trasporto.id.desc()
         ).all()
 
-        return render_template('trasporti.html', trasporti=dati, today=date.today())
+        return render_template(
+            'trasporti.html',
+            trasporti=dati,
+            today=date.today(),
+            edit_row=edit_row
+        )
 
     finally:
         db.close()
