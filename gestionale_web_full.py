@@ -1619,7 +1619,7 @@ function submitBuono(actionType) {
 </script>
 {% endblock %}
 """
-DDT_PREVIEW_HTML = """
+DDT_PREVIEW_HTML = """ 
 {% extends 'base.html' %}
 {% block content %}
 <div class="card p-3">
@@ -1699,6 +1699,18 @@ DDT_PREVIEW_HTML = """
                 <label class="form-label">Aspetto</label>
                 <input name="aspetto" class="form-control" value="A VISTA">
             </div>
+
+            <!-- ✅ NUOVO: MEZZO IN USCITA (obbligatorio SOLO in Finalizza) -->
+            <div class="col-md-4">
+                <label class="form-label">Mezzo in uscita *</label>
+                <select name="mezzo_uscita" id="mezzo_uscita" class="form-select">
+                    <option value="" selected>-- Seleziona --</option>
+                    <option value="Motrice">Motrice</option>
+                    <option value="Bilico">Bilico</option>
+                    <option value="Furgone">Furgone</option>
+                </select>
+                <div class="form-text">Obbligatorio quando fai “Finalizza”.</div>
+            </div>
         </div>
 
         <hr style="margin-top:18px; margin-bottom:18px;">
@@ -1757,6 +1769,16 @@ function submitDdt(actionType) {
     const form = document.getElementById('ddt-form');
     document.getElementById('action_field').value = actionType;
 
+    // ✅ obbligatorio SOLO in finalize
+    if (actionType === 'finalize') {
+        const mezzo = (document.getElementById('mezzo_uscita').value || '').trim();
+        if (!mezzo) {
+            alert("Seleziona il Mezzo in uscita (Motrice / Bilico / Furgone) prima di finalizzare.");
+            document.getElementById('mezzo_uscita').focus();
+            return;
+        }
+    }
+
     if (actionType === 'preview') {
         form.target = '_blank';
         form.submit();
@@ -1768,7 +1790,7 @@ function submitDdt(actionType) {
         fetch(url, { method: 'POST', body: formData })
         .then(resp => {
             if (resp.ok) return resp.blob();
-            throw new Error('Errore finalizzazione');
+            return resp.text().then(t => { throw new Error(t || 'Errore finalizzazione'); });
         })
         .then(blob => {
             const urlBlob = window.URL.createObjectURL(blob);
@@ -1780,12 +1802,13 @@ function submitDdt(actionType) {
             window.URL.revokeObjectURL(urlBlob);
             setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1500);
         })
-        .catch(err => alert("Errore: " + err));
+        .catch(err => alert("Errore: " + err.message));
     }
 }
 </script>
 {% endblock %}
 """
+
 DDT_MEZZO_USCITA_HTML = """
 {% extends "base.html" %}
 {% block content %}
