@@ -5202,6 +5202,7 @@ def _copyright_para():
 
 def _generate_buono_pdf(form_data, rows):
     import io
+    from pathlib import Path
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -5210,9 +5211,16 @@ def _generate_buono_pdf(form_data, rows):
     from reportlab.lib.enums import TA_CENTER
 
     bio = io.BytesIO()
-    doc = SimpleDocTemplate(bio, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
+    doc = SimpleDocTemplate(
+        bio,
+        pagesize=A4,
+        leftMargin=10*mm,
+        rightMargin=10*mm,
+        topMargin=10*mm,
+        bottomMargin=10*mm
+    )
     story = []
-    
+
     styles = getSampleStyleSheet()
     s_norm = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=9, leading=11, textColor=colors.black)
     s_bold = ParagraphStyle('Bold', parent=s_norm, fontName='Helvetica-Bold')
@@ -5224,22 +5232,22 @@ def _generate_buono_pdf(form_data, rows):
         story.append(Image(str(LOGO_PATH), width=50*mm, height=16*mm, hAlign='CENTER'))
     else:
         story.append(Paragraph("<b>Ca.mar. srl</b>", s_title))
-    
+
     story.append(Spacer(1, 5*mm))
     story.append(Paragraph("BUONO DI PRELIEVO", s_title))
     story.append(Spacer(1, 5*mm))
-    
+
     # 2. Dati Testata (AGGIUNTO ORDINE)
     meta_data = [
         [Paragraph("<b>Data Emissione:</b>", s_bold), Paragraph(str(form_data.get('data_em','')), s_norm)],
         [Paragraph("<b>Cliente:</b>", s_bold), Paragraph(str(rows[0].cliente if rows else ''), s_norm)],
         [Paragraph("<b>Fornitore:</b>", s_bold), Paragraph(str(form_data.get('fornitore','')), s_norm)],
         [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(str(form_data.get('commessa','')), s_norm)],
-        [Paragraph("<b>Ordine:</b>", s_bold), Paragraph(str(form_data.get('ordine','')), s_norm)], # ✅ NUOVO CAMPO
+        [Paragraph("<b>Ordine:</b>", s_bold), Paragraph(str(form_data.get('ordine','')), s_norm)],
         [Paragraph("<b>Protocollo:</b>", s_bold), Paragraph(str(form_data.get('protocollo','')), s_norm)],
         [Paragraph("<b>N. Buono:</b>", s_bold), Paragraph(str(form_data.get('buono_n','')), s_norm)]
     ]
-    
+
     t_meta = Table(meta_data, colWidths=[40*mm, 140*mm])
     t_meta.setStyle(TableStyle([
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
@@ -5249,54 +5257,64 @@ def _generate_buono_pdf(form_data, rows):
     ]))
     story.append(t_meta)
     story.append(Spacer(1, 8*mm))
-    
+
     # 3. Articoli
     header = [
-        Paragraph('<b>Codice</b>', s_bold), 
-        Paragraph('<b>Descrizione</b>', s_bold), 
+        Paragraph('<b>Codice</b>', s_bold),
+        Paragraph('<b>Descrizione</b>', s_bold),
         Paragraph('<b>Q.tà</b>', s_bold),
         Paragraph('<b>N.Arr</b>', s_bold)
     ]
-    
+
     table_data = [header]
-    
+
     for r in rows:
-        q = form_data.get(f"q_{r.id_articolo}") or r.n_colli
+        # ✅ Q.tà: prima prende eventuale modifica dal form, altrimenti usa PEZZI (r.pezzo)
+        q_raw = form_data.get(f"q_{r.id_articolo}")
+        if q_raw is not None and str(q_raw).strip() != "":
+            q = q_raw
+        else:
+            q = r.pezzo if (r.pezzo is not None and str(r.pezzo).strip() != "") else 0
+
         desc = str(r.descrizione or '')
         note_user = form_data.get(f"note_{r.id_articolo}") or r.note
-        
+
         table_data.append([
-            Paragraph(str(r.codice_articolo or ''), s_norm), 
-            Paragraph(desc, s_norm), 
-            str(q), 
+            Paragraph(str(r.codice_articolo or ''), s_norm),
+            Paragraph(desc, s_norm),
+            str(q),
             Paragraph(str(r.n_arrivo or ''), s_norm)
         ])
-        
+
         if note_user:
             table_data.append([
-                '', 
-                Paragraph(f"<i>Note: {note_user}</i>", s_note), 
+                '',
+                Paragraph(f"<i>Note: {note_user}</i>", s_note),
                 '', ''
             ])
 
     t = Table(table_data, colWidths=[40*mm, 100*mm, 15*mm, 25*mm], repeatRows=1)
     t.setStyle(TableStyle([
         ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey), 
+        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('PADDING', (0,0), (-1,-1), 4)
     ]))
     story.append(t)
-    
+
     story.append(Spacer(1, 20*mm))
-    sig_data = [[Paragraph("Firma Magazzino:<br/><br/>__________________", s_norm),
-                 Paragraph("Firma Cliente:<br/><br/>__________________", s_norm)]]
+    sig_data = [[
+        Paragraph("Firma Magazzino:<br/><br/>__________________", s_norm),
+        Paragraph("Firma Cliente:<br/><br/>__________________", s_norm)
+    ]]
     t_sig = Table(sig_data, colWidths=[90*mm, 90*mm])
     story.append(t_sig)
-    
+
     doc.build(story)
     bio.seek(0)
     return bio
+
+
 # --- GENERAZIONE PDF DDT (LAYOUT RICHIESTO) ---
 
 def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
