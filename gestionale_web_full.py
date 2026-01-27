@@ -5519,7 +5519,7 @@ def ddt_finalize():
         action = request.form.get('action', 'preview')
 
         # ✅ MEZZO IN USCITA (colonna DB: mezzi_uscita) - NON tocca PDF
-        mezzo_uscita = (request.form.get('mezzo_uscita') or '').strip()
+        mezzo_uscita = (request.form.get('mezzo_usc') or '').strip()
         if action == 'finalize':
             allowed = {"Motrice", "Bilico", "Furgone"}
             if mezzo_uscita not in allowed:
