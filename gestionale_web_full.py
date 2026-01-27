@@ -5584,6 +5584,63 @@ def ddt_finalize():
     finally:
         db.close()
 
+
+
+@app.route('/ddt/mezzo_uscita', methods=['GET', 'POST'])
+@login_required
+@require_admin
+def ddt_mezzo_uscita():
+    """
+    Popup dopo finalizzazione DDT:
+    salva la colonna mezzi_in_uscita (Motrice/Bilico/Furgone) sugli articoli selezionati.
+    """
+    if request.method == 'GET':
+        ids_str = (request.args.get('ids') or '').strip()
+        n_ddt = (request.args.get('n_ddt') or '').strip()
+        return render_template('ddt_mezzo_uscita.html', ids=ids_str, n_ddt=n_ddt)
+
+    # POST
+    ids_str = (request.form.get('ids') or '').strip()
+    n_ddt = (request.form.get('n_ddt') or '').strip()
+    mezzo = (request.form.get('mezzo') or '').strip()
+
+    ids = [int(i) for i in ids_str.split(',') if i.strip().isdigit()]
+    if not ids:
+        return "ERRORE: nessun articolo selezionato.", 400
+
+    # ✅ obbligatorio e solo valori ammessi
+    allowed = {"Motrice", "Bilico", "Furgone"}
+    if mezzo not in allowed:
+        flash("Seleziona un Mezzo valido (Motrice / Bilico / Furgone).", "danger")
+        return redirect(url_for('ddt_mezzo_uscita', ids=ids_str, n_ddt=n_ddt))
+
+    db = SessionLocal()
+    try:
+        q = db.query(Articolo).filter(Articolo.id_articolo.in_(ids))
+
+        # (consigliato) aggiorna solo righe che hanno quel DDT di uscita
+        if n_ddt:
+            q = q.filter(Articolo.n_ddt_uscita == n_ddt)
+
+        rows = q.all()
+
+        for art in rows:
+            if hasattr(art, "mezzi_in_uscita"):
+                art.mezzi_in_uscita = mezzo
+            else:
+                raise Exception("Nel modello Articolo manca la colonna 'mezzi_in_uscita'.")
+
+        db.commit()
+
+        return render_template('ddt_mezzo_uscita_ok.html', mezzo=mezzo, count=len(rows), n_ddt=n_ddt)
+
+    except Exception as e:
+        db.rollback()
+        return f"Errore salvataggio mezzo in uscita: {e}", 500
+    finally:
+        db.close()
+
+
 @app.get('/labels')
 @login_required
 def labels_form():
