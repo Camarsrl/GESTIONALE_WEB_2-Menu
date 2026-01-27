@@ -5216,25 +5216,35 @@ def _generate_buono_pdf(form_data, rows):
     from reportlab.lib.units import mm
     from reportlab.lib.enums import TA_CENTER
 
+    def _to_int_safe(v, default=0):
+        try:
+            if v is None:
+                return default
+            s = str(v).strip()
+            if s == "":
+                return default
+            s = s.replace(",", ".")
+            return int(float(s))
+        except Exception:
+            return default
+
     bio = io.BytesIO()
     doc = SimpleDocTemplate(
         bio,
         pagesize=A4,
-        leftMargin=10*mm,
-        rightMargin=10*mm,
-        topMargin=10*mm,
-        bottomMargin=10*mm
+        leftMargin=10*mm, rightMargin=10*mm,
+        topMargin=10*mm, bottomMargin=10*mm
     )
     story = []
 
     styles = getSampleStyleSheet()
-    s_norm = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=9, leading=11, textColor=colors.black)
-    s_bold = ParagraphStyle('Bold', parent=s_norm, fontName='Helvetica-Bold')
+    s_norm  = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=9, leading=11, textColor=colors.black)
+    s_bold  = ParagraphStyle('Bold', parent=s_norm, fontName='Helvetica-Bold')
     s_title = ParagraphStyle('Title', parent=styles['Heading1'], alignment=TA_CENTER, fontSize=16, spaceAfter=10, textColor=colors.black)
-    s_note = ParagraphStyle('Note', parent=s_norm, fontSize=9, textColor=colors.darkblue)
+    s_note  = ParagraphStyle('Note', parent=s_norm, fontSize=9, textColor=colors.darkblue)
 
-    # 1. Logo
-    if LOGO_PATH and Path(LOGO_PATH).exists():
+    # 1) Logo
+    if 'LOGO_PATH' in globals() and LOGO_PATH and Path(LOGO_PATH).exists():
         story.append(Image(str(LOGO_PATH), width=50*mm, height=16*mm, hAlign='CENTER'))
     else:
         story.append(Paragraph("<b>Ca.mar. srl</b>", s_title))
@@ -5243,7 +5253,7 @@ def _generate_buono_pdf(form_data, rows):
     story.append(Paragraph("BUONO DI PRELIEVO", s_title))
     story.append(Spacer(1, 5*mm))
 
-    # 2. Dati Testata (AGGIUNTO ORDINE)
+    # 2) Dati Testata
     meta_data = [
         [Paragraph("<b>Data Emissione:</b>", s_bold), Paragraph(str(form_data.get('data_em','')), s_norm)],
         [Paragraph("<b>Cliente:</b>", s_bold), Paragraph(str(rows[0].cliente if rows else ''), s_norm)],
@@ -5251,7 +5261,7 @@ def _generate_buono_pdf(form_data, rows):
         [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(str(form_data.get('commessa','')), s_norm)],
         [Paragraph("<b>Ordine:</b>", s_bold), Paragraph(str(form_data.get('ordine','')), s_norm)],
         [Paragraph("<b>Protocollo:</b>", s_bold), Paragraph(str(form_data.get('protocollo','')), s_norm)],
-        [Paragraph("<b>N. Buono:</b>", s_bold), Paragraph(str(form_data.get('buono_n','')), s_norm)]
+        [Paragraph("<b>N. Buono:</b>", s_bold), Paragraph(str(form_data.get('buono_n','')), s_norm)],
     ]
 
     t_meta = Table(meta_data, colWidths=[40*mm, 140*mm])
@@ -5264,26 +5274,27 @@ def _generate_buono_pdf(form_data, rows):
     story.append(t_meta)
     story.append(Spacer(1, 8*mm))
 
-    # 3. Articoli
+    # 3) Articoli
     header = [
         Paragraph('<b>Codice</b>', s_bold),
         Paragraph('<b>Descrizione</b>', s_bold),
         Paragraph('<b>Q.tà</b>', s_bold),
         Paragraph('<b>N.Arr</b>', s_bold)
     ]
-
     table_data = [header]
 
     for r in rows:
-        # ✅ Q.tà: prima prende eventuale modifica dal form, altrimenti usa PEZZI (r.pezzo)
-        q_raw = form_data.get(f"q_{r.id_articolo}")
-        if q_raw is not None and str(q_raw).strip() != "":
-            q = q_raw
+        # ✅ Q.tà: prende il valore inserito nel form (q_ID), altrimenti usa PEZZI (r.pezzo)
+        q_form = form_data.get(f"q_{r.id_articolo}")
+        if q_form is not None and str(q_form).strip() != "":
+            q = _to_int_safe(q_form, default=0)
         else:
-            q = r.pezzo if (r.pezzo is not None and str(r.pezzo).strip() != "") else 0
+            q = _to_int_safe(getattr(r, "pezzo", None), default=0)
 
         desc = str(r.descrizione or '')
-        note_user = form_data.get(f"note_{r.id_articolo}") or r.note
+        note_user = form_data.get(f"note_{r.id_articolo}")
+        if note_user is None:
+            note_user = r.note
 
         table_data.append([
             Paragraph(str(r.codice_articolo or ''), s_norm),
@@ -5319,6 +5330,7 @@ def _generate_buono_pdf(form_data, rows):
     doc.build(story)
     bio.seek(0)
     return bio
+
 
 
 # --- GENERAZIONE PDF DDT (LAYOUT RICHIESTO) ---
