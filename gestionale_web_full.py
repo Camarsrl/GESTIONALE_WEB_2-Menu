@@ -1568,14 +1568,19 @@ BUONO_PREVIEW_HTML = """
                         <td class="fw-bold">{{ r.codice_articolo or '' }}</td>
                         <td class="small">{{ r.descrizione or '' }}</td>
                         <td>
-                            <input name="q_{{ r.id_articolo }}" type="number" class="form-control form-control-sm text-center fw-bold" value="{{ r.n_colli or 1 }}">
+                            <!-- ✅ Q.tà prende PEZZI -->
+                            <input name="q_{{ r.id_articolo }}" type="number"
+                                   class="form-control form-control-sm text-center fw-bold"
+                                   value="{{ r.pezzo or 1 }}">
                         </td>
                         <td class="small text-center">{{ r.n_arrivo or '' }}</td>
                     </tr>
                     <tr>
                         <td colspan="2" class="text-end small text-muted align-middle" style="border-top:none;">Note:</td>
                         <td colspan="3" style="border-top:none;">
-                            <textarea class="form-control form-control-sm border-0 bg-white text-primary" name="note_{{ r.id_articolo }}" rows="1" placeholder="Inserisci note aggiuntive...">{{ r.note or '' }}</textarea>
+                            <textarea class="form-control form-control-sm border-0 bg-white text-primary"
+                                      name="note_{{ r.id_articolo }}" rows="1"
+                                      placeholder="Inserisci note aggiuntive...">{{ r.note or '' }}</textarea>
                         </td>
                     </tr>
                     {% endfor %}
@@ -1619,6 +1624,7 @@ function submitBuono(actionType) {
 </script>
 {% endblock %}
 """
+
 DDT_PREVIEW_HTML = """ 
 {% extends 'base.html' %}
 {% block content %}
