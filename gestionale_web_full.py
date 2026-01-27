@@ -5536,12 +5536,13 @@ def ddt_finalize():
         ids = [int(i) for i in ids_str.split(',') if i.strip().isdigit()]
         action = request.form.get('action', 'preview')
 
-        # ✅ MEZZO IN USCITA (colonna DB: mezzi_uscita) - NON tocca PDF
-        mezzo_uscita = (request.form.get('mezzo_usc') or '').strip()
-        if action == 'finalize':
-            allowed = {"Motrice", "Bilico", "Furgone"}
-            if mezzo_uscita not in allowed:
-                return "ERRORE: Mezzo in uscita obbligatorio (Motrice / Bilico / Furgone).", 400
+        # ✅ MEZZO IN USCITA (colonna: Mezzo Usc / campo DB: mezzi_in_uscita)
+        mezzo_uscita = (request.form.get('mezzi_in_uscita') or '').strip()
+
+        # ✅ obbligatorio SOLO quando finalizzi
+        if action == 'finalize' and not mezzo_uscita:
+            flash("Seleziona il Mezzo in uscita (Motrice / Bilico / Furgone) prima di finalizzare.", "danger")
+            return redirect(url_for('giacenze'))
 
         # 2. Dati Testata
         n_ddt = request.form.get('n_ddt', '').strip()
@@ -5587,19 +5588,15 @@ def ddt_finalize():
             nuovi_colli = to_int_eu(raw_colli) if raw_colli is not None else art.n_colli
             nuovo_peso = to_float_eu(raw_peso) if raw_peso is not None else art.peso
 
-            # Se Finalizza -> Salva su DB
+            # ✅ Se Finalizza -> Salva su DB
             if action == 'finalize':
                 art.data_uscita = data_ddt_obj
                 art.n_ddt_uscita = n_ddt
-
-                # ✅ salva mezzo uscita su DB (colonna mezzi_uscita)
-                if hasattr(art, "mezzi_uscita"):
-                    art.mezzi_uscita = mezzo_uscita
-
-                if nuove_note is not None and str(nuove_note).strip() != "":
+                art.mezzi_in_uscita = mezzo_uscita  # ✅ QUI COMPILIAMO "MEZZO USC"
+                if nuove_note is not None:
                     art.note = nuove_note
 
-            # Prepara riga PDF (INVARIATO)
+            # Prepara righe PDF (PDF NON CAMBIA)
             righe_per_pdf.append({
                 'codice_articolo': art.codice_articolo or '',
                 'descrizione': art.descrizione or '',
@@ -5617,9 +5614,9 @@ def ddt_finalize():
         # 6. Salvataggio DB
         if action == 'finalize':
             db.commit()
-            flash(f"DDT N.{n_ddt} del {data_formatted} salvato con successo.", "success")
+            flash(f"DDT N.{n_ddt} del {data_formatted} salvato con successo. Mezzo uscita: {mezzo_uscita}", "success")
 
-        # 7. Dati Generali PDF (INVARIATO)
+        # 7. Dati Generali PDF
         ddt_data = {
             'n_ddt': n_ddt,
             'data_uscita': data_formatted,
@@ -5653,6 +5650,7 @@ def ddt_finalize():
         return f"Errore durante la creazione del DDT: {e}", 500
     finally:
         db.close()
+
 
 
 @app.route('/ddt/mezzo_uscita', methods=['GET', 'POST'])
