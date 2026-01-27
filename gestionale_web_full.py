@@ -4168,6 +4168,8 @@ def delete_articolo(id):
     return redirect(url_for('giacenze'))
 
 # --- DUPLICAZIONE SINGOLA (Quella che mancava e dava errore) ---
+
+# --- DUPLICAZIONE SINGOLA (COMPLETA: copia TUTTI i campi tranne ID) ---
 @app.route('/duplica_articolo/<int:id_articolo>')
 @login_required
 def duplica_articolo(id_articolo):
@@ -4176,45 +4178,40 @@ def duplica_articolo(id_articolo):
         return redirect(url_for('giacenze'))
 
     db = SessionLocal()
-    originale = db.query(Articolo).filter_by(id_articolo=id_articolo).first()
-    
-    if not originale:
-        flash("Articolo non trovato", "danger")
-        return redirect(url_for('giacenze'))
-
-    # Crea copia esatta (tranne ID)
-    nuovo = Articolo(
-        codice_articolo=originale.codice_articolo,
-        descrizione=originale.descrizione,
-        cliente=originale.cliente,
-        fornitore=originale.fornitore,
-        magazzino=originale.magazzino,
-        posizione=originale.posizione,
-        stato=originale.stato,
-        n_colli=originale.n_colli,
-        peso=originale.peso,
-        larghezza=originale.larghezza,
-        lunghezza=originale.lunghezza,
-        altezza=originale.altezza,
-        m2=originale.m2,
-        m3=originale.m3,
-        # Copiamo anche i campi nuovi se servono
-        lotto=originale.lotto,
-        note=f"Copia di ID {originale.id_articolo}",
-        data_ingresso=date.today() # La data diventa oggi
-    )
-    
     try:
+        originale = db.query(Articolo).filter(Articolo.id_articolo == id_articolo).first()
+
+        if not originale:
+            flash("Articolo non trovato", "danger")
+            return redirect(url_for('giacenze'))
+
+        # ✅ Copia tutti i campi della tabella Articolo eccetto la PK
+        data_copy = {}
+        for col in Articolo.__table__.columns:
+            if col.name == 'id_articolo':
+                continue
+            data_copy[col.name] = getattr(originale, col.name)
+
+        nuovo = Articolo(**data_copy)
+
+        # ✅ Modifiche volute sulla copia
+        nuovo.note = f"Copia di ID {originale.id_articolo}"
+        nuovo.data_ingresso = date.today()
+
         db.add(nuovo)
         db.commit()
+
         flash("Articolo duplicato con successo!", "success")
+
     except Exception as e:
         db.rollback()
         flash(f"Errore duplicazione: {e}", "danger")
+
     finally:
         db.close()
-    
+
     return redirect(url_for('giacenze'))
+
 
 # ==============================================================================
 #  1. MODIFICA ARTICOLO (Solo per TABELLA GIACENZE)
