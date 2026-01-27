@@ -5493,12 +5493,19 @@ def ddt_finalize():
         # 1. Recupera ID e Azione
         ids_str = request.form.get('ids', '')
         ids = [int(i) for i in ids_str.split(',') if i.strip().isdigit()]
-        action = request.form.get('action', 'preview') 
-        
+        action = request.form.get('action', 'preview')
+
+        # ✅ MEZZO IN USCITA (colonna DB: mezzi_uscita) - NON tocca PDF
+        mezzo_uscita = (request.form.get('mezzo_uscita') or '').strip()
+        if action == 'finalize':
+            allowed = {"Motrice", "Bilico", "Furgone"}
+            if mezzo_uscita not in allowed:
+                return "ERRORE: Mezzo in uscita obbligatorio (Motrice / Bilico / Furgone).", 400
+
         # 2. Dati Testata
         n_ddt = request.form.get('n_ddt', '').strip()
         data_ddt_str = request.form.get('data_ddt')
-        
+
         try:
             data_ddt_obj = datetime.strptime(data_ddt_str, "%Y-%m-%d").date()
             data_formatted = data_ddt_obj.strftime("%d/%m/%Y")
@@ -5511,42 +5518,47 @@ def ddt_finalize():
         dest_ragione = request.form.get('dest_ragione', '')
         dest_indirizzo = request.form.get('dest_indirizzo', '')
         dest_citta = request.form.get('dest_citta', '')
-        
+
         # Sovrascrittura da eventuale rubrica
         dest_key = request.form.get('dest_key')
         if dest_key:
-             try:
-                 dest_info = load_destinatari().get(dest_key, {})
-                 if dest_info:
-                     dest_ragione = dest_info.get('ragione_sociale', '')
-                     dest_indirizzo = dest_info.get('indirizzo', '')
-                     dest_citta = dest_info.get('citta', '')
-             except: pass
-        
+            try:
+                dest_info = load_destinatari().get(dest_key, {})
+                if dest_info:
+                    dest_ragione = dest_info.get('ragione_sociale', '')
+                    dest_indirizzo = dest_info.get('indirizzo', '')
+                    dest_citta = dest_info.get('citta', '')
+            except:
+                pass
+
         # 4. Recupera Articoli
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
         righe_per_pdf = []
 
         # 5. Loop Articoli
         for art in articoli:
-            # Recupera modifiche dal form
             raw_pezzi = request.form.get(f"pezzi_{art.id_articolo}")
             raw_colli = request.form.get(f"colli_{art.id_articolo}")
             raw_peso = request.form.get(f"peso_{art.id_articolo}")
-            # Recupera la nota (eventualmente modificata)
             nuove_note = request.form.get(f"note_{art.id_articolo}", art.note)
-            
+
             nuovi_pezzi = to_int_eu(raw_pezzi) if raw_pezzi is not None else art.pezzo
             nuovi_colli = to_int_eu(raw_colli) if raw_colli is not None else art.n_colli
             nuovo_peso = to_float_eu(raw_peso) if raw_peso is not None else art.peso
-            
+
             # Se Finalizza -> Salva su DB
             if action == 'finalize':
                 art.data_uscita = data_ddt_obj
                 art.n_ddt_uscita = n_ddt
-                if nuove_note: art.note = nuove_note
-            
-            # Prepara riga PDF (AGGIUNTI I CAMPI MANCANTI)
+
+                # ✅ salva mezzo uscita su DB (colonna mezzi_uscita)
+                if hasattr(art, "mezzi_uscita"):
+                    art.mezzi_uscita = mezzo_uscita
+
+                if nuove_note is not None and str(nuove_note).strip() != "":
+                    art.note = nuove_note
+
+            # Prepara riga PDF (INVARIATO)
             righe_per_pdf.append({
                 'codice_articolo': art.codice_articolo or '',
                 'descrizione': art.descrizione or '',
@@ -5554,11 +5566,11 @@ def ddt_finalize():
                 'n_colli': nuovi_colli,
                 'peso': nuovo_peso,
                 'n_arrivo': art.n_arrivo or '',
-                'note': nuove_note,           
-                'commessa': art.commessa,     # <--- AGGIUNTO
-                'ordine': art.ordine,         # <--- AGGIUNTO
-                'buono': art.buono_n,         # <--- AGGIUNTO
-                'protocollo': art.protocollo  # <--- AGGIUNTO
+                'note': nuove_note,
+                'commessa': art.commessa,
+                'ordine': art.ordine,
+                'buono': art.buono_n,
+                'protocollo': art.protocollo
             })
 
         # 6. Salvataggio DB
@@ -5566,7 +5578,7 @@ def ddt_finalize():
             db.commit()
             flash(f"DDT N.{n_ddt} del {data_formatted} salvato con successo.", "success")
 
-        # 7. Dati Generali PDF
+        # 7. Dati Generali PDF (INVARIATO)
         ddt_data = {
             'n_ddt': n_ddt,
             'data_uscita': data_formatted,
@@ -5583,7 +5595,7 @@ def ddt_finalize():
         pdf_bio = io.BytesIO()
         _genera_pdf_ddt_file(ddt_data, righe_per_pdf, pdf_bio)
         pdf_bio.seek(0)
-        
+
         safe_n = n_ddt.replace('/', '-').replace('\\', '-')
         filename = f"DDT_{safe_n}_{data_ddt_str}.pdf"
 
@@ -5600,7 +5612,6 @@ def ddt_finalize():
         return f"Errore durante la creazione del DDT: {e}", 500
     finally:
         db.close()
-
 
 
 @app.route('/ddt/mezzo_uscita', methods=['GET', 'POST'])
