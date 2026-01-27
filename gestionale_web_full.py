@@ -1786,6 +1786,47 @@ function submitDdt(actionType) {
 </script>
 {% endblock %}
 """
+DDT_MEZZO_USCITA_HTML = """
+{% extends "base.html" %}
+{% block content %}
+<div class="container" style="max-width:520px; margin-top:30px;">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h5 class="mb-2"><i class="bi bi-truck"></i> Mezzo in uscita</h5>
+
+      {% if n_ddt %}
+      <div class="alert alert-info py-2">
+        DDT Uscita: <b>{{ n_ddt }}</b>
+      </div>
+      {% endif %}
+
+      <form method="POST">
+        <input type="hidden" name="ids" value="{{ ids }}">
+        <input type="hidden" name="n_ddt" value="{{ n_ddt }}">
+
+        <label class="form-label fw-bold">Seleziona mezzo *</label>
+        <select name="mezzo" class="form-select" required>
+          <option value="" selected disabled>-- Seleziona --</option>
+          <option value="Motrice">Motrice</option>
+          <option value="Bilico">Bilico</option>
+          <option value="Furgone">Furgone</option>
+        </select>
+
+        <div class="d-flex justify-content-end mt-3">
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-save"></i> Salva
+          </button>
+        </div>
+      </form>
+
+      <div class="text-muted small mt-3">
+        Compilazione obbligatoria per aggiornare la colonna <b>Mezzo in uscita</b> nelle righe selezionate.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+"""
 
 
 LABELS_FORM_HTML = """
