@@ -3143,93 +3143,169 @@ def stampa_picking_pdf():
     import io
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
     from reportlab.lib.units import mm
 
     # Filtri
-    mese = request.form.get('mese')
-    cliente = request.form.get('cliente')
+    mese = (request.form.get('mese') or '').strip()
+    cliente = (request.form.get('cliente') or '').strip()
 
     db = SessionLocal()
     try:
         query = db.query(Lavorazione)
-        
-        if mese: query = query.filter(Lavorazione.data.like(f"{mese}%"))
-        if cliente: query = query.filter(Lavorazione.cliente.ilike(f"%{cliente}%"))
-        
+
+        if mese:
+            query = query.filter(Lavorazione.data.like(f"{mese}%"))
+        if cliente:
+            query = query.filter(Lavorazione.cliente.ilike(f"%{cliente}%"))
+
         rows = query.order_by(Lavorazione.data.asc()).all()
-        
+
         bio = io.BytesIO()
-        doc = SimpleDocTemplate(bio, pagesize=landscape(A4), topMargin=10*mm, bottomMargin=10*mm)
+
+        # ✅ Margini + landscape
+        doc = SimpleDocTemplate(
+            bio,
+            pagesize=landscape(A4),
+            leftMargin=10*mm,
+            rightMargin=10*mm,
+            topMargin=10*mm,
+            bottomMargin=10*mm
+        )
+
         elements = []
         styles = getSampleStyleSheet()
 
+        # ✅ Stili per intestazioni “wrap”
+        header_style = ParagraphStyle(
+            "header_style",
+            parent=styles["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=8,
+            leading=9,
+            alignment=1,  # CENTER
+            textColor=colors.black
+        )
+        cell_style = ParagraphStyle(
+            "cell_style",
+            parent=styles["Normal"],
+            fontSize=8,
+            leading=9,
+            textColor=colors.black
+        )
+
         # Titolo
         title = f"REPORT PICKING - {mese if mese else 'Tutto'} - {cliente if cliente else 'Tutti'}"
-        elements.append(Paragraph(f"<b>{title}</b>", styles['Title']))
-        elements.append(Spacer(1, 5*mm))
+        elements.append(Paragraph(f"<b>{title}</b>", styles["Title"]))
+        elements.append(Spacer(1, 4*mm))
 
-        # Intestazione Tabella
-        data = [['DATA', 'CLIENTE', 'DESCRIZIONE', 'RICHIESTA', 'COLLI', 'PALLET ENTRATI / PALLET USCITI', 'BLUE', 'WHITE']]
-        
+        # ✅ Intestazioni con a capo per evitare “taglio” colonne finali
+        data = [[
+            Paragraph("DATA", header_style),
+            Paragraph("CLIENTE", header_style),
+            Paragraph("DESCRIZIONE", header_style),
+            Paragraph("RICHIESTA", header_style),
+            Paragraph("COLLI", header_style),
+            Paragraph("PALLET ENTRATI<br/>/ PALLET USCITI", header_style),
+            Paragraph("ORE<br/>BLUE", header_style),
+            Paragraph("ORE<br/>WHITE", header_style),
+        ]]
+
         # Totali
-        t_colli = 0; t_pin = 0; t_pout = 0; t_blue = 0.0; t_white = 0.0
+        t_colli = 0
+        t_pin = 0
+        t_pout = 0
+        t_blue = 0.0
+        t_white = 0.0
 
         for r in rows:
-            # FIX DATA SICURO
+            # Data sicura
             d_str = ""
             if r.data:
-                try: d_str = r.data.strftime('%d/%m/%Y') # Se è oggetto date
-                except: d_str = str(r.data)[:10]         # Se è stringa
-            
-            p_str = f"{r.pallet_forniti or 0} / {r.pallet_uscita or 0}"
-            
-            # Accumula totali
+                try:
+                    d_str = r.data.strftime('%d/%m/%Y')
+                except:
+                    d_str = str(r.data)[:10]
+
+            p_in = int(r.pallet_forniti or 0)
+            p_out = int(r.pallet_uscita or 0)
+            p_str = f"{p_in} / {p_out}"
+
+            # Totali
             try: t_colli += int(r.colli or 0)
             except: pass
-            try: t_pin += int(r.pallet_forniti or 0)
-            except: pass
-            try: t_pout += int(r.pallet_uscita or 0)
-            except: pass
+            t_pin += p_in
+            t_pout += p_out
             try: t_blue += float(r.ore_blue_collar or 0)
             except: pass
             try: t_white += float(r.ore_white_collar or 0)
             except: pass
 
             data.append([
-                d_str,
-                str(r.cliente or '')[:20],
-                str(r.descrizione or '')[:30],
-                str(r.richiesta_di or '')[:15],
-                str(r.colli or ''),
-                p_str,
-                str(r.ore_blue_collar or ''),
-                str(r.ore_white_collar or '')
+                Paragraph(d_str, cell_style),
+                Paragraph(str(r.cliente or '')[:25], cell_style),
+                Paragraph(str(r.descrizione or '')[:45], cell_style),
+                Paragraph(str(r.richiesta_di or '')[:22], cell_style),
+                Paragraph(str(r.colli or ''), cell_style),
+                Paragraph(p_str, cell_style),
+                Paragraph(str(r.ore_blue_collar or ''), cell_style),
+                Paragraph(str(r.ore_white_collar or ''), cell_style),
             ])
 
         # Riga Totali
-        data.append(['TOTALI', '', '', '', str(t_colli), f"{t_pin}/{t_pout}", str(t_blue), str(t_white)])
+        data.append([
+            Paragraph("<b>TOTALI</b>", cell_style),
+            "", "", "",
+            Paragraph(f"<b>{t_colli}</b>", cell_style),
+            Paragraph(f"<b>{t_pin} / {t_pout}</b>", cell_style),
+            Paragraph(f"<b>{t_blue:.1f}</b>", cell_style),
+            Paragraph(f"<b>{t_white:.1f}</b>", cell_style),
+        ])
 
-        # Creazione Tabella
-        t = Table(data, colWidths=[25*mm, 45*mm, 80*mm, 40*mm, 15*mm, 25*mm, 15*mm, 15*mm])
+        # ✅ ColWidths ricalcolate (A4 landscape: 297mm - 20mm margini = 277mm)
+        col_widths = [
+            22*mm,  # DATA
+            40*mm,  # CLIENTE
+            85*mm,  # DESCRIZIONE
+            40*mm,  # RICHIESTA
+            15*mm,  # COLLI
+            35*mm,  # PALLET IN/OUT
+            20*mm,  # BLUE
+            20*mm,  # WHITE
+        ]
+
+        t = Table(data, colWidths=col_widths, repeatRows=1)
         t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey), # Header grigio
-            ('fontName', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            # Riga Totali in grassetto
-            ('fontName', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+
+            # ✅ più spazio verticale per header
+            ('TOPPADDING', (0, 0), (-1, 0), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+
+            # celle normali
+            ('FONTSIZE', (0, 1), (-1, -2), 8),
+            ('TOPPADDING', (0, 1), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 3),
+
+            # Riga totali evidenziata
             ('BACKGROUND', (0, -1), (-1, -1), colors.whitesmoke),
         ]))
-        
+
         elements.append(t)
         doc.build(elements)
-        
+
         bio.seek(0)
-        return send_file(bio, as_attachment=True, download_name=f"report_picking.pdf", mimetype='application/pdf')
+        return send_file(
+            bio,
+            as_attachment=True,
+            download_name="report_picking.pdf",
+            mimetype="application/pdf"
+        )
 
     except Exception as e:
         return f"Errore stampa PDF: {e}"
