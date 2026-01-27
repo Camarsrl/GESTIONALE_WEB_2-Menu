@@ -1700,14 +1700,14 @@ DDT_PREVIEW_HTML = """
                 <input name="aspetto" class="form-control" value="A VISTA">
             </div>
 
-            <!-- ✅ NUOVO: MEZZO IN USCITA (obbligatorio SOLO in Finalizza) -->
+            <!-- ✅ MEZZO IN USCITA (colonna DB: mezzi_in_uscita) -->
             <div class="col-md-4">
                 <label class="form-label">Mezzo in uscita *</label>
-                <select name="mezzo_uscita" id="mezzo_uscita" class="form-select">
+                <select name="mezzi_in_uscita" id="mezzi_in_uscita" class="form-select">
                     <option value="" selected>-- Seleziona --</option>
-                    <option value="Motrice">Motrice</option>
-                    <option value="Bilico">Bilico</option>
-                    <option value="Furgone">Furgone</option>
+                    <option value="MOTRICE">Motrice</option>
+                    <option value="BILICO">Bilico</option>
+                    <option value="FURGONE">Furgone</option>
                 </select>
                 <div class="form-text">Obbligatorio quando fai “Finalizza”.</div>
             </div>
@@ -1715,7 +1715,6 @@ DDT_PREVIEW_HTML = """
 
         <hr style="margin-top:18px; margin-bottom:18px;">
 
-        <!-- ✅ TITOLO "Articoli nel DDT" + spazio prima della tabella -->
         <div class="mt-3" style="margin-bottom:18px;">
             <h5 class="mb-0" style="font-weight:600;">Articoli nel DDT</h5>
         </div>
@@ -1771,10 +1770,10 @@ function submitDdt(actionType) {
 
     // ✅ obbligatorio SOLO in finalize
     if (actionType === 'finalize') {
-        const mezzo = (document.getElementById('mezzo_uscita').value || '').trim();
+        const mezzo = (document.getElementById('mezzi_in_uscita').value || '').trim();
         if (!mezzo) {
             alert("Seleziona il Mezzo in uscita (Motrice / Bilico / Furgone) prima di finalizzare.");
-            document.getElementById('mezzo_uscita').focus();
+            document.getElementById('mezzi_in_uscita').focus();
             return;
         }
     }
@@ -1808,6 +1807,7 @@ function submitDdt(actionType) {
 </script>
 {% endblock %}
 """
+
 
 DDT_MEZZO_USCITA_HTML = """
 {% extends "base.html" %}
