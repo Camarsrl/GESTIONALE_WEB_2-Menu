@@ -1827,6 +1827,23 @@ DDT_MEZZO_USCITA_HTML = """
 </div>
 {% endblock %}
 """
+DDT_MEZZO_USCITA_OK_HTML = """
+{% extends "base.html" %}
+{% block content %}
+<div class="container" style="max-width:520px; margin-top:30px;">
+  <div class="alert alert-success shadow-sm">
+    <b>Salvato!</b><br>
+    Mezzo in uscita: <b>{{ mezzo }}</b><br>
+    Righe aggiornate: <b>{{ count }}</b>
+    {% if n_ddt %}<br>DDT: <b>{{ n_ddt }}</b>{% endif %}
+  </div>
+
+  <script>
+    setTimeout(function(){ window.close(); }, 900);
+  </script>
+</div>
+{% endblock %}
+"""
 
 
 LABELS_FORM_HTML = """
