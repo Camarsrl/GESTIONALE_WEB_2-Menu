@@ -3217,11 +3217,9 @@ def lavorazioni():
 @login_required
 def stampa_picking_pdf():
     import io
-    from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib import colors
-    from reportlab.lib.units import mm
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
 
     # Filtri
     mese = (request.form.get('mese') or '').strip()
@@ -3231,64 +3229,54 @@ def stampa_picking_pdf():
     try:
         query = db.query(Lavorazione)
 
+        # Filtro mese (se data è Date/DateTime)
         if mese:
-            query = query.filter(Lavorazione.data.like(f"{mese}%"))
+            try:
+                year, month = mese.split("-")
+                y = int(year); m = int(month)
+                start = date(y, m, 1)
+                end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+                query = query.filter(Lavorazione.data >= start, Lavorazione.data < end)
+            except:
+                # fallback se data fosse stringa
+                query = query.filter(Lavorazione.data.like(f"{mese}%"))
+
         if cliente:
             query = query.filter(Lavorazione.cliente.ilike(f"%{cliente}%"))
 
         rows = query.order_by(Lavorazione.data.asc()).all()
 
-        bio = io.BytesIO()
+        # --- CREA EXCEL ---
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Picking"
 
-        # ✅ Margini + landscape
-        doc = SimpleDocTemplate(
-            bio,
-            pagesize=landscape(A4),
-            leftMargin=10*mm,
-            rightMargin=10*mm,
-            topMargin=10*mm,
-            bottomMargin=10*mm
-        )
-
-        elements = []
-        styles = getSampleStyleSheet()
-
-        # ✅ Stili per intestazioni “wrap”
-        header_style = ParagraphStyle(
-            "header_style",
-            parent=styles["Normal"],
-            fontName="Helvetica-Bold",
-            fontSize=8,
-            leading=9,
-            alignment=1,  # CENTER
-            textColor=colors.black
-        )
-        cell_style = ParagraphStyle(
-            "cell_style",
-            parent=styles["Normal"],
-            fontSize=8,
-            leading=9,
-            textColor=colors.black
-        )
+        bold = Font(bold=True)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        header_fill = PatternFill("solid", fgColor="D9E1F2")
 
         # Titolo
         title = f"REPORT PICKING - {mese if mese else 'Tutto'} - {cliente if cliente else 'Tutti'}"
-        elements.append(Paragraph(f"<b>{title}</b>", styles["Title"]))
-        elements.append(Spacer(1, 4*mm))
+        ws["A1"] = title
+        ws["A1"].font = Font(bold=True, size=16)
+        ws.merge_cells("A1:I1")
+        ws["A1"].alignment = center
 
-        # ✅ Intestazioni con a capo per evitare “taglio” colonne finali
-        data = [[
-            Paragraph("DATA", header_style),
-            Paragraph("CLIENTE", header_style),
-            Paragraph("DESCRIZIONE", header_style),
-            Paragraph("RICHIESTA", header_style),
-            Paragraph("COLLI", header_style),
-            Paragraph("PALLET ENTRATI<br/>/ PALLET USCITI", header_style),
-            Paragraph("ORE<br/>BLUE", header_style),
-            Paragraph("ORE<br/>WHITE", header_style),
-        ]]
+        # Header
+        headers = [
+            "DATA", "CLIENTE", "DESCRIZIONE", "RICHIESTA", "SERIALI",
+            "COLLI", "PALLET ENTRATI", "PALLET USCITI", "BLUE", "WHITE"
+        ]
+        start_row = 3
+        for col, h in enumerate(headers, start=1):
+            cell = ws.cell(row=start_row, column=col, value=h)
+            cell.font = bold
+            cell.fill = header_fill
+            cell.alignment = center
 
-        # Totali
+        # Dati + Totali
+        riga = start_row + 1
         t_colli = 0
         t_pin = 0
         t_pout = 0
@@ -3296,95 +3284,83 @@ def stampa_picking_pdf():
         t_white = 0.0
 
         for r in rows:
-            # Data sicura
+            # data sicura
             d_str = ""
             if r.data:
                 try:
-                    d_str = r.data.strftime('%d/%m/%Y')
+                    d_str = r.data.strftime("%Y-%m-%d")
                 except:
                     d_str = str(r.data)[:10]
 
-            p_in = int(r.pallet_forniti or 0)
-            p_out = int(r.pallet_uscita or 0)
-            p_str = f"{p_in} / {p_out}"
+            colli = int(r.colli or 0)
+            pin = int(r.pallet_forniti or 0)
+            pout = int(r.pallet_uscita or 0)
+            blue = float(r.ore_blue_collar or 0)
+            white = float(r.ore_white_collar or 0)
 
-            # Totali
-            try: t_colli += int(r.colli or 0)
-            except: pass
-            t_pin += p_in
-            t_pout += p_out
-            try: t_blue += float(r.ore_blue_collar or 0)
-            except: pass
-            try: t_white += float(r.ore_white_collar or 0)
-            except: pass
+            t_colli += colli
+            t_pin += pin
+            t_pout += pout
+            t_blue += blue
+            t_white += white
 
-            data.append([
-                Paragraph(d_str, cell_style),
-                Paragraph(str(r.cliente or '')[:25], cell_style),
-                Paragraph(str(r.descrizione or '')[:45], cell_style),
-                Paragraph(str(r.richiesta_di or '')[:22], cell_style),
-                Paragraph(str(r.colli or ''), cell_style),
-                Paragraph(p_str, cell_style),
-                Paragraph(str(r.ore_blue_collar or ''), cell_style),
-                Paragraph(str(r.ore_white_collar or ''), cell_style),
-            ])
+            ws.cell(riga, 1, d_str).alignment = center
+            ws.cell(riga, 2, (r.cliente or "")).alignment = left
+            ws.cell(riga, 3, (r.descrizione or "")).alignment = left
+            ws.cell(riga, 4, (r.richiesta_di or "")).alignment = left
+            ws.cell(riga, 5, (r.seriali or "")).alignment = left
 
-        # Riga Totali
-        data.append([
-            Paragraph("<b>TOTALI</b>", cell_style),
-            "", "", "",
-            Paragraph(f"<b>{t_colli}</b>", cell_style),
-            Paragraph(f"<b>{t_pin} / {t_pout}</b>", cell_style),
-            Paragraph(f"<b>{t_blue:.1f}</b>", cell_style),
-            Paragraph(f"<b>{t_white:.1f}</b>", cell_style),
-        ])
+            ws.cell(riga, 6, colli).alignment = center
+            ws.cell(riga, 7, pin).alignment = center
+            ws.cell(riga, 8, pout).alignment = center
 
-        # ✅ ColWidths ricalcolate (A4 landscape: 297mm - 20mm margini = 277mm)
-        col_widths = [
-            22*mm,  # DATA
-            40*mm,  # CLIENTE
-            85*mm,  # DESCRIZIONE
-            40*mm,  # RICHIESTA
-            15*mm,  # COLLI
-            35*mm,  # PALLET IN/OUT
-            20*mm,  # BLUE
-            20*mm,  # WHITE
-        ]
+            b = ws.cell(riga, 9, blue)
+            b.number_format = '0.0'
+            b.alignment = center
 
-        t = Table(data, colWidths=col_widths, repeatRows=1)
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            w = ws.cell(riga, 10, white)
+            w.number_format = '0.0'
+            w.alignment = center
 
-            # ✅ più spazio verticale per header
-            ('TOPPADDING', (0, 0), (-1, 0), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+            riga += 1
 
-            # celle normali
-            ('FONTSIZE', (0, 1), (-1, -2), 8),
-            ('TOPPADDING', (0, 1), (-1, -1), 3),
-            ('BOTTOMPADDING', (0, 1), (-1, -1), 3),
+        # Riga totali
+        ws.cell(riga, 1, "TOTALI").font = bold
+        ws.merge_cells(start_row=riga, start_column=1, end_row=riga, end_column=5)
+        ws.cell(riga, 1).alignment = Alignment(horizontal="right", vertical="center")
 
-            # Riga totali evidenziata
-            ('BACKGROUND', (0, -1), (-1, -1), colors.whitesmoke),
-        ]))
+        ws.cell(riga, 6, t_colli).font = bold
+        ws.cell(riga, 7, t_pin).font = bold
+        ws.cell(riga, 8, t_pout).font = bold
+        ws.cell(riga, 9, t_blue).font = bold
+        ws.cell(riga, 10, t_white).font = bold
 
-        elements.append(t)
-        doc.build(elements)
+        for c in range(6, 11):
+            ws.cell(riga, c).alignment = center
 
+        # Larghezze colonne (così si leggono bene!)
+        col_widths = [12, 18, 45, 20, 20, 10, 14, 14, 10, 10]
+        for i, w in enumerate(col_widths, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+
+        # Salva in memoria
+        bio = io.BytesIO()
+        wb.save(bio)
         bio.seek(0)
+
+        safe_mese = mese.replace("-", "_") if mese else "TUTTO"
+        safe_cli = (cliente.replace(" ", "_") if cliente else "TUTTI")
+        filename = f"Report_Picking_{safe_mese}_{safe_cli}.xlsx"
+
         return send_file(
             bio,
             as_attachment=True,
-            download_name="report_picking.pdf",
-            mimetype="application/pdf"
+            download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
     except Exception as e:
-        return f"Errore stampa PDF: {e}"
+        return f"Errore export Picking Excel: {e}", 500
     finally:
         db.close()
 
