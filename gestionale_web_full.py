@@ -5145,6 +5145,7 @@ def bulk_duplicate():
                     protocollo=original.protocollo,
                     buono_n=original.buono_n,
                     ordine=original.ordine,
+                    lotto=original.lotto,
                     data_ingresso=original.data_ingresso,
                     n_ddt_ingresso=original.n_ddt_ingresso,
                     data_uscita=original.data_uscita,
