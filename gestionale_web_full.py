@@ -731,17 +731,18 @@ REPORT_INVENTARIO_HTML = """
 </body>
 </html>
 """
-
 REPORT_TRASPORTI_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
     <title>Report Trasporti</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { font-size: 12px; }
-        h1 { font-size: 24px; }
+        h1 { font-size: 22px; }
         .table th { background-color: #f0f0f0; }
+        .wrap { white-space: normal; }
     </style>
 </head>
 <body onload="window.print()">
@@ -749,14 +750,15 @@ REPORT_TRASPORTI_HTML = """
         <h1 class="mb-3">Report Trasporti</h1>
 
         <div class="mb-3 p-2 bg-light border">
-            <strong>Filtri applicati:</strong>
+            <strong>Filtri applicati:</strong><br>
             Periodo: {{ mese }} |
             Cliente: {{ cliente }} |
+            Mezzo: {{ mezzo }} |
             DDT: {{ ddt_uscita }} |
             Consolidato: {{ consolidato }}
         </div>
 
-        <table class="table table-bordered table-sm">
+        <table class="table table-bordered table-sm align-middle">
             <thead>
                 <tr>
                     <th>Data</th>
@@ -764,6 +766,7 @@ REPORT_TRASPORTI_HTML = """
                     <th>Cliente</th>
                     <th>Trasportatore</th>
                     <th>DDT</th>
+                    <th>Mag.</th>
                     <th>Consolidato</th>
                     <th class="text-end">Costo</th>
                 </tr>
@@ -773,23 +776,22 @@ REPORT_TRASPORTI_HTML = """
                 <tr>
                     <td>{{ t.data or '' }}</td>
                     <td>{{ t.tipo_mezzo or '' }}</td>
-                    <td>{{ t.cliente or '' }}</td>
-                    <td>{{ t.trasportatore or '' }}</td>
+                    <td class="wrap">{{ t.cliente or '' }}</td>
+                    <td class="wrap">{{ t.trasportatore or '' }}</td>
                     <td>{{ t.ddt_uscita or '' }}</td>
+                    <td>{{ t.magazzino or '' }}</td>
                     <td>{{ t.consolidato or '' }}</td>
                     <td class="text-end">€ {{ '%.2f'|format(t.costo) if t.costo else '0.00' }}</td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="7" class="text-center">
-                        Nessun dato trovato per i criteri selezionati.
-                    </td>
+                    <td colspan="8" class="text-center">Nessun dato trovato per i criteri selezionati.</td>
                 </tr>
                 {% endfor %}
             </tbody>
             <tfoot>
                 <tr class="table-dark fw-bold">
-                    <td colspan="6" class="text-end">TOTALE COMPLESSIVO</td>
+                    <td colspan="7" class="text-end">TOTALE COMPLESSIVO</td>
                     <td class="text-end">€ {{ totale }}</td>
                 </tr>
             </tfoot>
@@ -802,8 +804,6 @@ REPORT_TRASPORTI_HTML = """
 </body>
 </html>
 """
-
-
 
 LOGIN_HTML = """
 {% extends 'base.html' %}
