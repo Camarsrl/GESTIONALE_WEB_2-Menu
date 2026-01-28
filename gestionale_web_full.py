@@ -2987,17 +2987,19 @@ def trasporti():
         db.close()
 
 
-from datetime import date, datetime
-from flask import render_template_string
-
 @app.route('/report_trasporti', methods=['POST'])
 @login_required
 def report_trasporti():
     if session.get('role') != 'admin':
         return "No Access", 403
 
-    # Recupera i filtri dal form HTML
-    mese = (request.form.get('mese') or '').strip()          # es: "2026-01"
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    # Recupera i filtri dal form
+    mese = (request.form.get('mese') or '').strip()              # Es. '2025-01'
     mezzo = (request.form.get('tipo_mezzo') or '').strip()
     cliente = (request.form.get('cliente') or '').strip()
     ddt_uscita = (request.form.get('ddt_uscita') or '').strip()
@@ -3007,21 +3009,19 @@ def report_trasporti():
     try:
         query = db.query(Trasporto)
 
-        # ✅ FILTRO MESE SICURO (per campi DATE)
+        # Filtro mese (robusto: se data è Date/DateTime)
         if mese:
             try:
-                y, m = [int(x) for x in mese.split('-')]
+                year, month = mese.split("-")
+                y = int(year)
+                m = int(month)
                 start = date(y, m, 1)
-                # mese successivo
-                if m == 12:
-                    end = date(y + 1, 1, 1)
-                else:
-                    end = date(y, m + 1, 1)
+                end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
                 query = query.filter(Trasporto.data >= start, Trasporto.data < end)
-            except Exception as e:
-                print(f"Filtro mese non valido: {mese} - {e}")
+            except:
+                # fallback se Trasporto.data fosse stringa
+                query = query.filter(Trasporto.data.like(f"{mese}%"))
 
-        # ✅ altri filtri (con LIKE “morbido”)
         if mezzo:
             query = query.filter(Trasporto.tipo_mezzo.ilike(f"%{mezzo}%"))
         if cliente:
@@ -3031,27 +3031,102 @@ def report_trasporti():
         if consolidato:
             query = query.filter(Trasporto.consolidato.ilike(f"%{consolidato}%"))
 
-        # Ordina per data crescente per il report
         dati = query.order_by(Trasporto.data.asc().nullslast(), Trasporto.id.asc()).all()
 
-        # Totale costi
-        totale_costo = sum(float(t.costo or 0.0) for t in dati)
+        # --- CREA EXCEL ---
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Trasporti"
 
-        # ✅ Usa template string (così non serve report_trasporti_print.html)
-        return render_template_string(
-            REPORT_TRASPORTI_HTML,
-            dati=dati,
-            totale=f"{totale_costo:.2f}",
-            mese=(mese if mese else "Tutto il periodo"),
-            cliente=(cliente if cliente else "Tutti"),
-            mezzo=(mezzo if mezzo else "Tutti"),
-            ddt_uscita=(ddt_uscita if ddt_uscita else "Tutti"),
-            consolidato=(consolidato if consolidato else "Tutti"),
+        bold = Font(bold=True)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        header_fill = PatternFill("solid", fgColor="D9E1F2")
+
+        # Titolo
+        ws["A1"] = "REPORT TRASPORTI"
+        ws["A1"].font = Font(bold=True, size=16)
+        ws.merge_cells("A1:H1")
+        ws["A1"].alignment = center
+
+        # Filtri
+        ws["A3"] = "Filtri:"
+        ws["A3"].font = bold
+        ws["B3"] = f"Mese={mese or 'Tutti'} | Cliente={cliente or 'Tutti'} | Mezzo={mezzo or 'Tutti'} | DDT={ddt_uscita or 'Tutti'} | Consolidato={consolidato or 'Tutti'}"
+        ws.merge_cells("B3:H3")
+
+        # Header tabella
+        headers = ["Data", "Mezzo", "Cliente", "Trasportatore", "DDT", "Magazzino", "Consolidato", "Costo (€)"]
+        start_row = 5
+        for col, h in enumerate(headers, start=1):
+            cell = ws.cell(row=start_row, column=col, value=h)
+            cell.font = bold
+            cell.fill = header_fill
+            cell.alignment = center
+
+        # Righe
+        riga = start_row + 1
+        totale = 0.0
+
+        for t in dati:
+            # Data sicura
+            d_val = ""
+            if t.data:
+                try:
+                    d_val = t.data.strftime("%Y-%m-%d")
+                except:
+                    d_val = str(t.data)[:10]
+
+            costo_val = float(t.costo or 0.0)
+            totale += costo_val
+
+            ws.cell(riga, 1, d_val).alignment = center
+            ws.cell(riga, 2, (t.tipo_mezzo or "")).alignment = left
+            ws.cell(riga, 3, (t.cliente or "")).alignment = left
+            ws.cell(riga, 4, (t.trasportatore or "")).alignment = left
+            ws.cell(riga, 5, (t.ddt_uscita or "")).alignment = center
+            ws.cell(riga, 6, (t.magazzino or "")).alignment = center
+            ws.cell(riga, 7, (t.consolidato or "")).alignment = center
+
+            c = ws.cell(riga, 8, costo_val)
+            c.number_format = '#,##0.00'
+            c.alignment = center
+
+            riga += 1
+
+        # Riga Totale
+        ws.cell(riga, 1, "TOTALE").font = bold
+        ws.merge_cells(start_row=riga, start_column=1, end_row=riga, end_column=7)
+        ws.cell(riga, 1).alignment = Alignment(horizontal="right", vertical="center")
+        tot_cell = ws.cell(riga, 8, totale)
+        tot_cell.font = bold
+        tot_cell.number_format = '#,##0.00'
+        tot_cell.alignment = center
+
+        # Larghezze colonne
+        col_widths = [12, 16, 22, 22, 14, 14, 16, 12]
+        for i, w in enumerate(col_widths, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+
+        # Salva in memoria
+        bio = io.BytesIO()
+        wb.save(bio)
+        bio.seek(0)
+
+        safe_mese = mese.replace("-", "_") if mese else "TUTTO"
+        filename = f"Report_Trasporti_{safe_mese}.xlsx"
+
+        return send_file(
+            bio,
+            as_attachment=True,
+            download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+    except Exception as e:
+        return f"Errore export Trasporti Excel: {e}", 500
     finally:
         db.close()
-
-
 
 
 # --- GESTIONE LAVORAZIONI (ADMIN) ---
