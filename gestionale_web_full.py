@@ -2987,6 +2987,9 @@ def trasporti():
         db.close()
 
 
+from datetime import date, datetime
+from flask import render_template_string
+
 @app.route('/report_trasporti', methods=['POST'])
 @login_required
 def report_trasporti():
@@ -2994,63 +2997,61 @@ def report_trasporti():
         return "No Access", 403
 
     # Recupera i filtri dal form HTML
-    mese = (request.form.get('mese') or '').strip()              # Es. '2025-01'
+    mese = (request.form.get('mese') or '').strip()          # es: "2026-01"
     mezzo = (request.form.get('tipo_mezzo') or '').strip()
     cliente = (request.form.get('cliente') or '').strip()
-    ddt_uscita = (request.form.get('ddt_uscita') or '').strip()  # ✅
-    consolidato = (request.form.get('consolidato') or '').strip()# ✅
+    ddt_uscita = (request.form.get('ddt_uscita') or '').strip()
+    consolidato = (request.form.get('consolidato') or '').strip()
 
     db = SessionLocal()
     try:
         query = db.query(Trasporto)
 
-        # Applica i filtri se presenti
+        # ✅ FILTRO MESE SICURO (per campi DATE)
         if mese:
-            # se Trasporto.data è Date/DateTime, usa questa logica (robusta)
             try:
-                year, month = mese.split("-")
-                y = int(year)
-                m = int(month)
+                y, m = [int(x) for x in mese.split('-')]
                 start = date(y, m, 1)
-                end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+                # mese successivo
+                if m == 12:
+                    end = date(y + 1, 1, 1)
+                else:
+                    end = date(y, m + 1, 1)
                 query = query.filter(Trasporto.data >= start, Trasporto.data < end)
-            except:
-                # fallback (se data è stringa)
-                query = query.filter(Trasporto.data.like(f"{mese}%"))
+            except Exception as e:
+                print(f"Filtro mese non valido: {mese} - {e}")
 
+        # ✅ altri filtri (con LIKE “morbido”)
         if mezzo:
-            query = query.filter(Trasporto.tipo_mezzo == mezzo)
-
+            query = query.filter(Trasporto.tipo_mezzo.ilike(f"%{mezzo}%"))
         if cliente:
-            query = query.filter(Trasporto.cliente == cliente)
-
-        # ✅ FILTRI AGGIUNTI
+            query = query.filter(Trasporto.cliente.ilike(f"%{cliente}%"))
         if ddt_uscita:
-            # match parziale (così puoi scrivere anche solo una parte)
             query = query.filter(Trasporto.ddt_uscita.ilike(f"%{ddt_uscita}%"))
-
         if consolidato:
-            # match parziale
             query = query.filter(Trasporto.consolidato.ilike(f"%{consolidato}%"))
 
         # Ordina per data crescente per il report
         dati = query.order_by(Trasporto.data.asc().nullslast(), Trasporto.id.asc()).all()
 
-        # Calcola il totale costi
-        totale_costo = sum((t.costo or 0.0) for t in dati)
+        # Totale costi
+        totale_costo = sum(float(t.costo or 0.0) for t in dati)
 
-        return render_template(
-            'report_trasporti_print.html',
+        # ✅ Usa template string (così non serve report_trasporti_print.html)
+        return render_template_string(
+            REPORT_TRASPORTI_HTML,
             dati=dati,
             totale=f"{totale_costo:.2f}",
             mese=(mese if mese else "Tutto il periodo"),
             cliente=(cliente if cliente else "Tutti"),
+            mezzo=(mezzo if mezzo else "Tutti"),
             ddt_uscita=(ddt_uscita if ddt_uscita else "Tutti"),
-            consolidato=(consolidato if consolidato else "Tutti")
+            consolidato=(consolidato if consolidato else "Tutti"),
         )
-
     finally:
         db.close()
+
+
 
 
 # --- GESTIONE LAVORAZIONI (ADMIN) ---
