@@ -6610,50 +6610,88 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento, m2_multipli
 @app.route('/calcola_costi', methods=['GET', 'POST'])
 @login_required
 def calcola_costi():
-    
+    from sqlalchemy import func  # <-- aggiungi questo import qui (o in cima al file)
+
     oggi = date.today()
     data_da_val = (oggi.replace(day=1)).strftime("%Y-%m-%d")
     data_a_val = oggi.strftime("%Y-%m-%d")
-    cliente_val = ""
+
     raggruppamento = "mese"
-    area_manovra_val = False
     risultati = []
+
+    # Ruolo
+    is_client = (session.get('role') == 'client')
+    cliente_forzato = current_cliente() if is_client else None
+
+    # Valori UI
+    cliente_val = cliente_forzato or ""
+    area_manovra_val = False  # per client rimane sempre False
 
     if request.method == 'POST':
         data_da_str = request.form.get('data_da')
         data_a_str = request.form.get('data_a')
-        cliente_val = (request.form.get('cliente') or '').strip()
         raggruppamento = request.form.get('raggruppamento', 'mese')
-        area_manovra = (request.form.get('area_manovra') == '1')
+
+        # --- CLIENT: forzo il cliente e blocco area manovra ---
+        if is_client:
+            cliente_val = (cliente_forzato or "").strip()
+            area_manovra = False
+        else:
+            # --- ADMIN: può filtrare manualmente e usare area manovra ---
+            cliente_val = (request.form.get('cliente') or '').strip()
+            area_manovra = (request.form.get('area_manovra') == '1')
+
         export_excel = ('export_excel' in request.form)
 
         try:
             db = SessionLocal()
             query = db.query(Articolo)
+
+            # Filtro cliente:
             if cliente_val:
-                query = query.filter(Articolo.cliente.ilike(f"%{cliente_val}%"))
+                norm = cliente_val.strip().upper()
+                query = query.filter(func.upper(func.trim(Articolo.cliente)) == norm)
+
             articoli = query.all()
             db.close()
 
-            risultati = _calcola_logica_costi(articoli, data_da_str, data_a_str, raggruppamento, m2_multiplier=(1.25 if area_manovra else 1.0))
-            
+            risultati = _calcola_logica_costi(
+                articoli,
+                data_da_str,
+                data_a_str,
+                raggruppamento,
+                m2_multiplier=(1.25 if area_manovra else 1.0)
+            )
+
             data_da_val = data_da_str
             data_a_val = data_a_str
-            area_manovra_val = area_manovra
+            area_manovra_val = area_manovra if not is_client else False
 
             # Export Excel del report costi
             if export_excel:
                 try:
                     df = pd.DataFrame(risultati)
-                    # Rinomina colonne più chiare
-                    df = df.rename(columns={'periodo':'Periodo','cliente':'Cliente','m2_tot':'M2 Tot','m2_medio':'M2 Medio','giorni':'Giorni'})
+                    df = df.rename(columns={
+                        'periodo': 'Periodo',
+                        'cliente': 'Cliente',
+                        'm2_tot': 'M2 Tot',
+                        'm2_medio': 'M2 Medio',
+                        'giorni': 'Giorni'
+                    })
                     bio = io.BytesIO()
                     df.to_excel(bio, index=False, engine='openpyxl')
                     bio.seek(0)
-                    extra = '_AREA_MANOVRA' if area_manovra else ''
+
+                    # Per i client non deve mai comparire AREA_MANOVRA
+                    extra = '_AREA_MANOVRA' if (area_manovra and not is_client) else ''
                     filename = f"Report_Costi{extra}_{data_da_val}_to_{data_a_val}.xlsx"
-                    return send_file(bio, as_attachment=True, download_name=filename,
-                                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+                    return send_file(
+                        bio,
+                        as_attachment=True,
+                        download_name=filename,
+                        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    )
                 except Exception as e:
                     flash(f"Errore export Excel: {e}", "danger")
 
@@ -6663,13 +6701,17 @@ def calcola_costi():
         except Exception as e:
             flash(f"Errore: {e}", "danger")
 
-    return render_template('calcoli.html', 
-                           risultati=risultati, 
-                           data_da=data_da_val, 
-                           data_a=data_a_val, 
-                           cliente_filtro=cliente_val, 
-                           raggruppamento=raggruppamento,
-                           area_manovra=area_manovra_val)
+    return render_template(
+        'calcoli.html',
+        risultati=risultati,
+        data_da=data_da_val,
+        data_a=data_a_val,
+        cliente_filtro=cliente_val,
+        raggruppamento=raggruppamento,
+        area_manovra=area_manovra_val,
+        is_client=is_client
+    )
+
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
