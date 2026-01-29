@@ -160,6 +160,48 @@ else:
 DOCS_DIR = MEDIA_DIR / "docs"
 PHOTOS_DIR = MEDIA_DIR / "photos"
 
+
+# ========================================================
+#  BACKUP (DB + JSON + Media) - crea ZIP in /media/backups
+# ========================================================
+BACKUP_DIR = MEDIA_DIR / "backups"
+BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+
+def create_backup_zip(include_media: bool = True) -> Path:
+    """Crea un backup ZIP e ritorna il path."""
+    import zipfile
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = BACKUP_DIR / f"backup_camar_{ts}.zip"
+
+    def _safe_add(zf, p: Path, arcname: str):
+        try:
+            if p.exists():
+                zf.write(p, arcname=arcname)
+        except Exception as e:
+            print(f"[WARN] backup skip {p}: {e}")
+
+    with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        # DB
+        _safe_add(zf, APP_DIR / "magazzino.db", "magazzino.db")
+
+        # Config / JSON
+        for name in ["mappe_excel.json", "destinatari_saved.json", "progressivi_ddt.json"]:
+            _safe_add(zf, APP_DIR / name, f"config/{name}")
+            _safe_add(zf, MEDIA_DIR / name, f"config/{name}")  # se sta sul disco
+
+        _safe_add(zf, _rubrica_email_path(), "config/rubrica_email.json")
+
+        # Media (docs + photos)
+        if include_media:
+            for folder, arcroot in [(DOCS_DIR, "media/docs"), (PHOTOS_DIR, "media/photos")]:
+                if folder.exists():
+                    for p in folder.rglob("*"):
+                        if p.is_file():
+                            _safe_add(zf, p, f"{arcroot}/{p.name}")
+
+    return out
+
+
 # --- CONFIGURAZIONE FILE MAPPE EXCEL ---
 # Definiamo qui i percorsi esatti per evitare confusione
 MAPPE_FILE_PERSISTENT = MEDIA_DIR / "mappe_excel.json"        # File modificabile (nel disco dati)
@@ -553,6 +595,53 @@ def load_destinatari():
             }
         }
     return data
+
+# ========================================================
+#  RUBRICA EMAIL (contatti + gruppi)
+#  File: rubrica_email.json (su disco persistente se presente)
+# ========================================================
+
+def _rubrica_email_path() -> Path:
+    # Su Render MEDIA_DIR punta a /var/data/app (persistente) se esiste
+    return (MEDIA_DIR / "rubrica_email.json") if 'MEDIA_DIR' in globals() else (APP_DIR / "rubrica_email.json")
+
+def load_rubrica_email():
+    fp = _rubrica_email_path()
+    if fp.exists():
+        try:
+            data = json.loads(fp.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                # Normalizza struttura
+                data.setdefault("contatti", {})
+                data.setdefault("gruppi", {})
+                return data
+        except Exception:
+            pass
+    # default
+    return {"contatti": {}, "gruppi": {}}
+
+def save_rubrica_email(data: dict):
+    fp = _rubrica_email_path()
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def _parse_emails(raw: str):
+    # accetta ; oppure , e ripulisce
+    emails = []
+    for e in (raw or "").replace(";", ",").split(","):
+        e = e.strip()
+        if e:
+            emails.append(e)
+    # de-dup preservando ordine
+    seen = set()
+    out = []
+    for e in emails:
+        if e.lower() in seen: 
+            continue
+        seen.add(e.lower())
+        out.append(e)
+    return out
+
 def next_ddt_number():
     PROG_FILE = APP_DIR / "progressivi_ddt.json"
     y = str(date.today().year)[-2:]
@@ -627,6 +716,17 @@ BASE_HTML = """
                             <i class="bi bi-box-seam"></i> PICKING
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-outline-light text-white px-3 ms-2 btn-nav-admin" href="{{ url_for('rubrica_email') }}">
+                            <i class="bi bi-journal-bookmark"></i> RUBRICA EMAIL
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-outline-warning text-dark px-3 ms-2 btn-nav-admin" href="{{ url_for('backup_download') }}">
+                            <i class="bi bi-download"></i> BACKUP
+                        </a>
+                    </li>
+
                     <li class="nav-item">
                          <a class="nav-link text-white-50 ms-1" href="{{ url_for('manage_mappe') }}" title="Gestione Mappe"><i class="bi bi-gear"></i></a>
                     </li>
@@ -1011,9 +1111,18 @@ CALCOLI_HTML = """
                         </div>
                     </div>
 
-                    <div class="col-auto ms-auto">
-                        <button type="submit" class="btn btn-secondary border-dark px-4" style="background-color: #e0e0e0; color: black;">Calcola</button>
+                    
+                    <input type="hidden" name="area_manovra" id="area_manovra" value="{{ '1' if area_manovra else '0' }}">
+                    <div class="col-auto ms-auto d-flex gap-2">
+                        <button type="button" class="btn btn-secondary border-dark px-4" style="background-color: #e0e0e0; color: black;" onclick="document.getElementById('area_manovra').value='0'; this.closest('form').submit();">Calcola</button>
+                        <button type="button" class="btn btn-warning border-dark px-4" onclick="document.getElementById('area_manovra').value='1'; this.closest('form').submit();">
+                            Area Manovra {% if area_manovra %}<i class="bi bi-check2-circle"></i>{% endif %}
+                        </button>
+                        <button type="submit" name="export_excel" value="1" class="btn btn-success border-dark px-4">
+                            <i class="bi bi-file-earmark-excel"></i> Excel
+                        </button>
                     </div>
+
                 </div>
             </form>
         </div>
@@ -2097,6 +2206,116 @@ DESTINATARI_HTML = """
 {% endblock %}
 """
 
+RUBRICA_EMAIL_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-10 col-lg-9">
+    <div class="card p-4 shadow-sm">
+      <div class="d-flex justify-content-between align-items-center">
+        <h3 class="mb-0"><i class="bi bi-journal-bookmark"></i> Rubrica Email</h3>
+        <a href="{{ url_for('home') }}" class="btn btn-outline-secondary btn-sm">Torna alla Home</a>
+      </div>
+      <hr>
+
+      <div class="row g-4">
+        <div class="col-md-6">
+          <h5>Contatti</h5>
+          <form method="post" class="row g-2 mb-3">
+            <input type="hidden" name="action" value="save_contact">
+            <div class="col-5">
+              <input class="form-control" name="nome" placeholder="Nome (es. Ufficio Genova)">
+            </div>
+            <div class="col-7">
+              <input class="form-control" name="email" placeholder="email@dominio.it">
+            </div>
+            <div class="col-12 d-grid">
+              <button class="btn btn-primary btn-sm">Salva Contatto</button>
+            </div>
+          </form>
+
+          <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle">
+              <thead class="table-light">
+                <tr><th>Nome</th><th>Email</th><th class="text-end">Azioni</th></tr>
+              </thead>
+              <tbody>
+              {% for nome, info in rubrica.contatti.items() %}
+                <tr>
+                  <td>{{ nome }}</td>
+                  <td>{{ info.email }}</td>
+                  <td class="text-end">
+                    <form method="post" class="d-inline">
+                      <input type="hidden" name="action" value="delete_contact">
+                      <input type="hidden" name="nome" value="{{ nome }}">
+                      <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Eliminare contatto?')">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              {% else %}
+                <tr><td colspan="3" class="text-center text-muted">Nessun contatto.</td></tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="form-text">
+            Suggerimento: nei gruppi puoi incollare una lista di email separate da <b>;</b> o <b>,</b>.
+          </div>
+        </div>
+
+        <div class="col-md-6">
+          <h5>Gruppi</h5>
+          <form method="post" class="mb-3">
+            <input type="hidden" name="action" value="save_group">
+            <div class="mb-2">
+              <input class="form-control" name="gruppo" placeholder="Nome gruppo (es. FINCANTIERI)">
+            </div>
+            <div class="mb-2">
+              <textarea class="form-control" name="emails" rows="3" placeholder="email1@...; email2@..."></textarea>
+            </div>
+            <button class="btn btn-success btn-sm w-100">Salva Gruppo</button>
+          </form>
+
+          <div class="accordion" id="accGruppi">
+            {% for g, emails in rubrica.gruppi.items() %}
+            <div class="accordion-item">
+              <h2 class="accordion-header" id="h{{ loop.index }}">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#c{{ loop.index }}">
+                  {{ g }} <span class="badge bg-secondary ms-2">{{ emails|length }}</span>
+                </button>
+              </h2>
+              <div id="c{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#accGruppi">
+                <div class="accordion-body">
+                  <div class="small text-muted mb-2">Email:</div>
+                  <div class="border rounded p-2 small" style="white-space: pre-wrap;">{{ emails|join('; ') }}</div>
+                  <form method="post" class="mt-2">
+                    <input type="hidden" name="action" value="delete_group">
+                    <input type="hidden" name="gruppo" value="{{ g }}">
+                    <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Eliminare gruppo?')">
+                      <i class="bi bi-trash"></i> Elimina gruppo
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+            {% else %}
+              <div class="text-muted">Nessun gruppo.</div>
+            {% endfor %}
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+"""
+
+
+
 
 
 # --- TEMPLATE PAGINA PICKING / LAVORAZIONI (Senza Emoji, usa Icone Bootstrap) ---
@@ -2526,6 +2745,17 @@ INVIA_EMAIL_HTML = """
 
                 <div class="mb-3">
                     <label class="form-label">Destinatari</label>
+                    <div class="mb-2">
+                        <label class="form-label">Gruppo (rubrica)</label>
+                        <select id="gruppo_email" class="form-select form-select-sm">
+                            <option value="">-- Seleziona un gruppo --</option>
+                            {% for g, emails in (email_groups or {}).items() %}
+                                <option value="{{ emails|join('; ') }}">{{ g }} ({{ emails|length }})</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Se scegli un gruppo, le email verranno inserite automaticamente qui sotto.</div>
+                    </div>
+
                     <input
                         type="text"
                         name="destinatario"
@@ -2598,6 +2828,20 @@ Cordiali saluti,</textarea>
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const sel = document.getElementById('gruppo_email');
+  const inp = document.querySelector('input[name="destinatario"]');
+  if(sel && inp){
+    sel.addEventListener('change', function(){
+      if(this.value){
+        inp.value = this.value;
+      }
+    });
+  }
+});
+</script>
 {% endblock %}
 """
 
@@ -2633,6 +2877,7 @@ templates = {
         'invia_email.html': INVIA_EMAIL_HTML,
         'export_client.html': EXPORT_CLIENT_HTML,
         'destinatari.html': DESTINATARI_HTML,
+        'rubrica_email.html': RUBRICA_EMAIL_HTML,
         'calcoli.html': CALCOLI_HTML
     }
 
@@ -3966,7 +4211,7 @@ def invia_email():
     # =========================
     if request.method == 'GET':
         selected_ids = request.args.getlist('ids')
-        return render_template('invia_email.html', selected_ids=",".join(selected_ids))
+        return render_template('invia_email.html', selected_ids=",".join(selected_ids), email_groups=load_rubrica_email().get('gruppi', {}))
 
     # =========================
     # POST
@@ -5316,6 +5561,74 @@ def manage_destinatari():
     )
 
 
+# ========================================================
+#  RUBRICA EMAIL (UI) + BACKUP (download)
+# ========================================================
+
+@app.route('/rubrica_email', methods=['GET', 'POST'])
+@login_required
+@require_admin
+def rubrica_email():
+    data = load_rubrica_email()
+
+    if request.method == 'POST':
+        action = request.form.get('action', 'save')
+
+        if action == 'save_contact':
+            nome = (request.form.get('nome') or '').strip()
+            email = (request.form.get('email') or '').strip()
+            if not nome or not email:
+                flash("Nome ed email sono obbligatori.", "warning")
+            else:
+                data["contatti"][nome] = {"email": email}
+                save_rubrica_email(data)
+                flash("Contatto salvato.", "success")
+
+        elif action == 'delete_contact':
+            nome = (request.form.get('nome') or '').strip()
+            if nome in data.get("contatti", {}):
+                del data["contatti"][nome]
+                # rimuovi anche dai gruppi
+                for g, emails in list(data.get("gruppi", {}).items()):
+                    data["gruppi"][g] = [e for e in emails if e != nome and e != data.get("contatti", {}).get(nome, {}).get("email")]
+                save_rubrica_email(data)
+                flash("Contatto eliminato.", "success")
+
+        elif action == 'save_group':
+            gruppo = (request.form.get('gruppo') or '').strip()
+            raw = (request.form.get('emails') or '').strip()
+            if not gruppo:
+                flash("Nome gruppo obbligatorio.", "warning")
+            else:
+                emails = _parse_emails(raw)
+                data["gruppi"][gruppo] = emails
+                save_rubrica_email(data)
+                flash("Gruppo salvato.", "success")
+
+        elif action == 'delete_group':
+            gruppo = (request.form.get('gruppo') or '').strip()
+            if gruppo in data.get("gruppi", {}):
+                del data["gruppi"][gruppo]
+                save_rubrica_email(data)
+                flash("Gruppo eliminato.", "success")
+
+        return redirect(url_for('rubrica_email'))
+
+    return render_template('rubrica_email.html', rubrica=data)
+
+@app.route('/backup', methods=['GET'])
+@login_required
+@require_admin
+def backup_download():
+    try:
+        p = create_backup_zip(include_media=True)
+        return send_file(p, as_attachment=True, download_name=p.name, mimetype="application/zip")
+    except Exception as e:
+        flash(f"Errore backup: {e}", "danger")
+        return redirect(url_for('home'))
+
+
+
 def _pdf_table(data, col_widths=None, header=True, hAlign='LEFT', style=None):
     t = Table(data, colWidths=col_widths, hAlign=hAlign)
     base_style = [
@@ -6187,7 +6500,7 @@ def _parse_data_db_helper(val):
     return None
 
 # --- LOGICA CALCOLO COSTI (ROBUSTA) ---
-def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento):
+def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento, m2_multiplier: float = 1.0):
     from collections import defaultdict
     from datetime import timedelta, date, datetime
 
@@ -6225,6 +6538,12 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento):
         except: m2 = 0.0
         
         if m2 <= 0: continue
+
+        # Area Manovra: +25% (o altro moltiplicatore)
+        try:
+            m2 = m2 * float(m2_multiplier or 1.0)
+        except Exception:
+            pass
 
         d_ingr = to_date_obj(art.data_ingresso)
         # Se la data è un codice strano (es. DDT), d_ingr sarà None e saltiamo la riga
@@ -6297,6 +6616,7 @@ def calcola_costi():
     data_a_val = oggi.strftime("%Y-%m-%d")
     cliente_val = ""
     raggruppamento = "mese"
+    area_manovra_val = False
     risultati = []
 
     if request.method == 'POST':
@@ -6304,6 +6624,8 @@ def calcola_costi():
         data_a_str = request.form.get('data_a')
         cliente_val = (request.form.get('cliente') or '').strip()
         raggruppamento = request.form.get('raggruppamento', 'mese')
+        area_manovra = (request.form.get('area_manovra') == '1')
+        export_excel = ('export_excel' in request.form)
 
         try:
             db = SessionLocal()
@@ -6313,10 +6635,27 @@ def calcola_costi():
             articoli = query.all()
             db.close()
 
-            risultati = _calcola_logica_costi(articoli, data_da_str, data_a_str, raggruppamento)
+            risultati = _calcola_logica_costi(articoli, data_da_str, data_a_str, raggruppamento, m2_multiplier=(1.25 if area_manovra else 1.0))
             
             data_da_val = data_da_str
             data_a_val = data_a_str
+            area_manovra_val = area_manovra
+
+            # Export Excel del report costi
+            if export_excel:
+                try:
+                    df = pd.DataFrame(risultati)
+                    # Rinomina colonne più chiare
+                    df = df.rename(columns={'periodo':'Periodo','cliente':'Cliente','m2_tot':'M2 Tot','m2_medio':'M2 Medio','giorni':'Giorni'})
+                    bio = io.BytesIO()
+                    df.to_excel(bio, index=False, engine='openpyxl')
+                    bio.seek(0)
+                    extra = '_AREA_MANOVRA' if area_manovra else ''
+                    filename = f"Report_Costi{extra}_{data_da_val}_to_{data_a_val}.xlsx"
+                    return send_file(bio, as_attachment=True, download_name=filename,
+                                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                except Exception as e:
+                    flash(f"Errore export Excel: {e}", "danger")
 
             if not risultati:
                 flash("Nessun dato valido trovato. Controlla che le date di ingresso siano corrette (non numeri DDT).", "warning")
@@ -6329,7 +6668,8 @@ def calcola_costi():
                            data_da=data_da_val, 
                            data_a=data_a_val, 
                            cliente_filtro=cliente_val, 
-                           raggruppamento=raggruppamento)
+                           raggruppamento=raggruppamento,
+                           area_manovra=area_manovra_val)
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
