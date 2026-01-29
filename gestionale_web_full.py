@@ -2479,7 +2479,6 @@ LAVORAZIONI_HTML = """
 {% endblock %}
 """
 
-
 CALCOLA_COSTI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -2499,10 +2498,17 @@ CALCOLA_COSTI_HTML = """
         <input type="date" name="data_a" class="form-control" value="{{ data_a }}" required>
       </div>
 
-      <div class="col-md-4">
-        <label class="form-label fw-bold">Cliente (contiene):</label>
-        <input type="text" name="cliente" class="form-control" value="{{ cliente_filtro or '' }}" placeholder="es. FINCANTIERI">
-      </div>
+      {% if is_client %}
+        <div class="col-md-4">
+          <label class="form-label fw-bold">Cliente:</label>
+          <input type="text" class="form-control" value="{{ cliente_filtro }}" readonly>
+        </div>
+      {% else %}
+        <div class="col-md-4">
+          <label class="form-label fw-bold">Cliente (contiene):</label>
+          <input type="text" name="cliente" class="form-control" value="{{ cliente_filtro or '' }}" placeholder="es. FINCANTIERI">
+        </div>
+      {% endif %}
 
       <div class="col-md-3">
         <label class="form-label fw-bold d-block">Raggruppa:</label>
@@ -2522,6 +2528,23 @@ CALCOLA_COSTI_HTML = """
       <div class="col-md-1 d-grid">
         <button type="submit" class="btn btn-secondary">Calcola</button>
       </div>
+
+      <!-- BOTTONI EXTRA: solo ADMIN -->
+      {% if not is_client %}
+        <div class="col-md-2 d-grid">
+          <button type="submit" class="btn btn-warning" name="area_manovra" value="1">
+            Area Manovra (+25%)
+          </button>
+        </div>
+      {% endif %}
+
+      <!-- EXPORT EXCEL: sempre visibile -->
+      <div class="col-md-2 d-grid">
+        <button type="submit" class="btn btn-success" name="export_excel" value="1">
+          Excel
+        </button>
+      </div>
+
     </form>
   </div>
 
@@ -2563,6 +2586,7 @@ CALCOLA_COSTI_HTML = """
 
 {% endblock %}
 """
+
 
 
 # --- TEMPLATE PAGINA TRASPORTI (Senza Emoji, usa Icone Bootstrap) ---
