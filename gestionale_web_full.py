@@ -3228,27 +3228,36 @@ def stampa_picking_pdf():
     try:
         query = db.query(Lavorazione)
 
-        # ✅ FILTRO MESE
+        # ✅ Qui trattiamo lavorazioni.data come TEXT -> la convertiamo in DATE (Postgres)
+        data_as_date = func.to_date(func.left(Lavorazione.data, 10), 'YYYY-MM-DD')
+
+        # ✅ FILTRO MESE (con range corretto)
         if mese:
-            # Caso standard: Lavorazione.data è DATE -> like funziona male, meglio range.
-            # Caso anomalo: se fosse TEXT, facciamo fallback.
             try:
                 year, month = mese.split("-")
-                y = int(year); m = int(month)
-                start = date(y, m, 1)
-                end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+                y = int(year)
+                m = int(month)
 
-                # se data è DATE:
-                query = query.filter(Lavorazione.data >= start, Lavorazione.data < end)
+                start_str = f"{y:04d}-{m:02d}-01"
+                if m == 12:
+                    end_str = f"{y+1:04d}-01-01"
+                else:
+                    end_str = f"{y:04d}-{m+1:02d}-01"
 
+                query = query.filter(
+                    data_as_date >= func.to_date(start_str, 'YYYY-MM-DD'),
+                    data_as_date < func.to_date(end_str, 'YYYY-MM-DD')
+                )
             except Exception:
-                # fallback (se data fosse TEXT)
-                query = query.filter(Lavorazione.data.like(f"{mese}%"))
+                # fallback se mese non è valido
+                pass
 
+        # ✅ FILTRO CLIENTE
         if cliente:
             query = query.filter(Lavorazione.cliente.ilike(f"%{cliente}%"))
 
-        rows = query.order_by(Lavorazione.data.asc().nullslast(), Lavorazione.id.asc()).all()
+        # ✅ ORDINAMENTO SICURO (per data convertita)
+        rows = query.order_by(data_as_date.asc().nullslast(), Lavorazione.id.asc()).all()
 
         # --- CREA EXCEL ---
         wb = Workbook()
@@ -3262,26 +3271,17 @@ def stampa_picking_pdf():
 
         ws["A1"] = "REPORT PICKING / LAVORAZIONI"
         ws["A1"].font = Font(bold=True, size=16)
-        ws.merge_cells("A1:I1")
+        ws.merge_cells("A1:J1")
         ws["A1"].alignment = center
 
         ws["A3"] = "Filtri:"
         ws["A3"].font = bold
         ws["B3"] = f"Mese={mese or 'Tutti'} | Cliente={cliente or 'Tutti'}"
-        ws.merge_cells("B3:I3")
+        ws.merge_cells("B3:J3")
 
-        # ✅ Intestazioni CORRETTE e leggibili
         headers = [
-            "Data",
-            "Cliente",
-            "Descrizione",
-            "Richiesta di",
-            "Seriali",
-            "Colli",
-            "Pallet Entrati",
-            "Pallet Usciti",
-            "Ore Blue",
-            "Ore White"
+            "Data", "Cliente", "Descrizione", "Richiesta di", "Seriali",
+            "Colli", "Pallet Entrati", "Pallet Usciti", "Ore Blue", "Ore White"
         ]
 
         start_row = 5
@@ -3301,13 +3301,7 @@ def stampa_picking_pdf():
         t_white = 0.0
 
         for r in rows:
-            # data
-            d_str = ""
-            if r.data:
-                try:
-                    d_str = r.data.strftime("%Y-%m-%d")
-                except Exception:
-                    d_str = str(r.data)[:10]
+            d_str = (str(r.data)[:10] if r.data else "")
 
             colli = int(r.colli or 0)
             pin = int(r.pallet_forniti or 0)
@@ -3335,7 +3329,7 @@ def stampa_picking_pdf():
 
             riga += 1
 
-        # Riga totali
+        # Riga Totali
         ws.cell(riga, 1, "TOTALI").font = bold
         ws.merge_cells(start_row=riga, start_column=1, end_row=riga, end_column=5)
         ws.cell(riga, 1).alignment = Alignment(horizontal="right", vertical="center")
@@ -3347,12 +3341,10 @@ def stampa_picking_pdf():
         tc9 = ws.cell(riga, 9, t_blue); tc9.font = bold; tc9.number_format = '0.00'; tc9.alignment = center
         tc10 = ws.cell(riga, 10, t_white); tc10.font = bold; tc10.number_format = '0.00'; tc10.alignment = center
 
-        # larghezze colonne (così non “taglia” le intestazioni)
         widths = [12, 18, 40, 20, 22, 10, 14, 14, 10, 10]
         for i, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(i)].width = w
 
-        # Freeze header
         ws.freeze_panes = "A6"
 
         bio = io.BytesIO()
