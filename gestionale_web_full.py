@@ -211,6 +211,45 @@ MAPPE_FILE_ORIGINAL = APP_DIR / "config." / "mappe_excel.json" # File originale 
 for d in (STATIC_DIR, MEDIA_DIR, DOCS_DIR, PHOTOS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
+# =========================
+# Backup automatico (1 volta al giorno)
+# - Non richiede librerie esterne
+# - Parte al primo accesso (prima request) e poi al massimo ogni 10 minuti controlla se è dovuto
+# - Disattivabile con AUTO_BACKUP=0
+# =========================
+_AUTO_BACKUP_LAST_CHECK = 0.0
+
+def auto_backup_if_due():
+    global _AUTO_BACKUP_LAST_CHECK
+    try:
+        now = time.time()
+        # limita i controlli (evita di farlo ad ogni request)
+        if _AUTO_BACKUP_LAST_CHECK and (now - _AUTO_BACKUP_LAST_CHECK) < 600:
+            return
+        _AUTO_BACKUP_LAST_CHECK = now
+
+        if str(os.environ.get("AUTO_BACKUP", "1")).lower() in ("0", "false", "no", "off"):
+            return
+
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        backups = list(BACKUP_DIR.glob("backup_camar_*.zip"))
+        latest = max(backups, default=None, key=lambda p: p.stat().st_mtime) if backups else None
+
+        # se non esiste, oppure è più vecchio di 24h => crea backup
+        if (latest is None) or ((now - latest.stat().st_mtime) > (24 * 3600)):
+            create_backup_zip(include_media=True)
+    except Exception as e:
+        print(f"[WARN] backup automatico fallito: {e}")
+
+@app.before_request
+def _auto_backup_hook():
+    # non blocca mai la navigazione: se fallisce, continua
+    try:
+        auto_backup_if_due()
+    except Exception:
+        pass
+
+
 def _discover_logo_path():
     # Lista aggiornata con il nome corretto del tuo file
     possible_names = [
@@ -1093,12 +1132,21 @@ CALCOLI_HTML = """
                         <input type="date" name="data_a" class="form-control form-control-sm" required value="{{ data_a }}">
                     </div>
 
+                    {% if is_admin %}
                     <div class="col-auto ms-4">
                         <label class="fw-bold">Cliente (contiene):</label>
                     </div>
                     <div class="col-auto">
                         <input type="text" name="cliente" class="form-control form-control-sm" value="{{ cliente_filtro }}">
                     </div>
+                    {% else %}
+                    <div class="col-auto ms-4">
+                        <label class="fw-bold">Cliente:</label>
+                    </div>
+                    <div class="col-auto">
+                        <input type="text" class="form-control form-control-sm" value="{{ cliente_filtro }}" readonly>
+                    </div>
+                    {% endif %}
 
                     <div class="col-auto ms-4">
                         <div class="form-check form-check-inline">
@@ -1112,12 +1160,14 @@ CALCOLI_HTML = """
                     </div>
 
                     
-                    <input type="hidden" name="area_manovra" id="area_manovra" value="{{ '1' if area_manovra else '0' }}">
+                    <input type="hidden" name="area_manovra" id="area_manovra" value="{{ '1' if (is_admin and area_manovra) else '0' }}">
                     <div class="col-auto ms-auto d-flex gap-2">
                         <button type="button" class="btn btn-secondary border-dark px-4" style="background-color: #e0e0e0; color: black;" onclick="document.getElementById('area_manovra').value='0'; this.closest('form').submit();">Calcola</button>
+                        {% if is_admin %}
                         <button type="button" class="btn btn-warning border-dark px-4" onclick="document.getElementById('area_manovra').value='1'; this.closest('form').submit();">
                             Area Manovra {% if area_manovra %}<i class="bi bi-check2-circle"></i>{% endif %}
                         </button>
+                        {% endif %}
                         <button type="submit" name="export_excel" value="1" class="btn btn-success border-dark px-4">
                             <i class="bi bi-file-earmark-excel"></i> Excel
                         </button>
@@ -2479,6 +2529,7 @@ LAVORAZIONI_HTML = """
 {% endblock %}
 """
 
+
 CALCOLA_COSTI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -2498,17 +2549,10 @@ CALCOLA_COSTI_HTML = """
         <input type="date" name="data_a" class="form-control" value="{{ data_a }}" required>
       </div>
 
-      {% if is_client %}
-        <div class="col-md-4">
-          <label class="form-label fw-bold">Cliente:</label>
-          <input type="text" class="form-control" value="{{ cliente_filtro }}" readonly>
-        </div>
-      {% else %}
-        <div class="col-md-4">
-          <label class="form-label fw-bold">Cliente (contiene):</label>
-          <input type="text" name="cliente" class="form-control" value="{{ cliente_filtro or '' }}" placeholder="es. FINCANTIERI">
-        </div>
-      {% endif %}
+      <div class="col-md-4">
+        <label class="form-label fw-bold">Cliente (contiene):</label>
+        <input type="text" name="cliente" class="form-control" value="{{ cliente_filtro or '' }}" placeholder="es. FINCANTIERI">
+      </div>
 
       <div class="col-md-3">
         <label class="form-label fw-bold d-block">Raggruppa:</label>
@@ -2528,23 +2572,6 @@ CALCOLA_COSTI_HTML = """
       <div class="col-md-1 d-grid">
         <button type="submit" class="btn btn-secondary">Calcola</button>
       </div>
-
-      <!-- BOTTONI EXTRA: solo ADMIN -->
-      {% if not is_client %}
-        <div class="col-md-2 d-grid">
-          <button type="submit" class="btn btn-warning" name="area_manovra" value="1">
-            Area Manovra (+25%)
-          </button>
-        </div>
-      {% endif %}
-
-      <!-- EXPORT EXCEL: sempre visibile -->
-      <div class="col-md-2 d-grid">
-        <button type="submit" class="btn btn-success" name="export_excel" value="1">
-          Excel
-        </button>
-      </div>
-
     </form>
   </div>
 
@@ -2586,7 +2613,6 @@ CALCOLA_COSTI_HTML = """
 
 {% endblock %}
 """
-
 
 
 # --- TEMPLATE PAGINA TRASPORTI (Senza Emoji, usa Icone Bootstrap) ---
@@ -6634,36 +6660,35 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento, m2_multipli
 @app.route('/calcola_costi', methods=['GET', 'POST'])
 @login_required
 def calcola_costi():
-    from sqlalchemy import func  # <-- aggiungi questo import qui (o in cima al file)
 
     oggi = date.today()
     data_da_val = (oggi.replace(day=1)).strftime("%Y-%m-%d")
     data_a_val = oggi.strftime("%Y-%m-%d")
 
+    # Admin: può filtrare clienti e usare area manovra
+    # Client: vede SOLO i propri costi (cliente = current_user.id) e NON può usare area manovra
+    is_admin = (session.get('role') == 'admin')
+    cliente_lock = current_cliente()  # ritorna stringa se role=client, altrimenti None
+
+    cliente_val = (cliente_lock or "")  # per i client è già fissato
     raggruppamento = "mese"
+    area_manovra_val = False
     risultati = []
-
-    # Ruolo
-    is_client = (session.get('role') == 'client')
-    cliente_forzato = current_cliente() if is_client else None
-
-    # Valori UI
-    cliente_val = cliente_forzato or ""
-    area_manovra_val = False  # per client rimane sempre False
 
     if request.method == 'POST':
         data_da_str = request.form.get('data_da')
         data_a_str = request.form.get('data_a')
+
         raggruppamento = request.form.get('raggruppamento', 'mese')
 
-        # --- CLIENT: forzo il cliente e blocco area manovra ---
-        if is_client:
-            cliente_val = (cliente_forzato or "").strip()
-            area_manovra = False
-        else:
-            # --- ADMIN: può filtrare manualmente e usare area manovra ---
+        # ✅ Se admin può scegliere cliente + area manovra
+        if is_admin:
             cliente_val = (request.form.get('cliente') or '').strip()
             area_manovra = (request.form.get('area_manovra') == '1')
+        else:
+            # ✅ Client: ignora qualsiasi valore inviato dal form
+            cliente_val = (cliente_lock or '').strip()
+            area_manovra = False
 
         export_excel = ('export_excel' in request.form)
 
@@ -6671,10 +6696,15 @@ def calcola_costi():
             db = SessionLocal()
             query = db.query(Articolo)
 
-            # Filtro cliente:
+            # ✅ FILTRO SICURO:
+            # - client: filtro esatto per il proprio nome cliente (case-insensitive e trim)
+            # - admin: può usare filtro "contiene" come prima
             if cliente_val:
-                norm = cliente_val.strip().upper()
-                query = query.filter(func.upper(func.trim(Articolo.cliente)) == norm)
+                if not is_admin:
+                    cli_up = cliente_val.strip().upper()
+                    query = query.filter(func.upper(func.trim(Articolo.cliente)) == cli_up)
+                else:
+                    query = query.filter(Articolo.cliente.ilike(f"%{cliente_val}%"))
 
             articoli = query.all()
             db.close()
@@ -6684,12 +6714,12 @@ def calcola_costi():
                 data_da_str,
                 data_a_str,
                 raggruppamento,
-                m2_multiplier=(1.25 if area_manovra else 1.0)
+                m2_multiplier=(1.25 if (is_admin and area_manovra) else 1.0)
             )
 
             data_da_val = data_da_str
             data_a_val = data_a_str
-            area_manovra_val = area_manovra if not is_client else False
+            area_manovra_val = bool(is_admin and area_manovra)
 
             # Export Excel del report costi
             if export_excel:
@@ -6705,11 +6735,8 @@ def calcola_costi():
                     bio = io.BytesIO()
                     df.to_excel(bio, index=False, engine='openpyxl')
                     bio.seek(0)
-
-                    # Per i client non deve mai comparire AREA_MANOVRA
-                    extra = '_AREA_MANOVRA' if (area_manovra and not is_client) else ''
+                    extra = '_AREA_MANOVRA' if area_manovra_val else ''
                     filename = f"Report_Costi{extra}_{data_da_val}_to_{data_a_val}.xlsx"
-
                     return send_file(
                         bio,
                         as_attachment=True,
@@ -6733,9 +6760,8 @@ def calcola_costi():
         cliente_filtro=cliente_val,
         raggruppamento=raggruppamento,
         area_manovra=area_manovra_val,
-        is_client=is_client
+        is_admin=is_admin
     )
-
 
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
