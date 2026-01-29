@@ -1113,6 +1113,7 @@ GIACENZE_HTML = """
                 </div>
                 <div class="row g-1 mb-1">
                     <div class="col-md-2"><input name="protocollo" class="form-control form-control-sm" placeholder="Protocollo" value="{{ request.args.get('protocollo','') }}"></div>
+                    <div class="col-md-2"><input name="magazzino" class="form-control form-control-sm" placeholder="Magazzino" value="{{ request.args.get('magazzino','') }}"></div>
                     <div class="col-md-2"><input name="descrizione" class="form-control form-control-sm" placeholder="Descrizione" value="{{ request.args.get('descrizione','') }}"></div>
                     <div class="col-md-2"><input name="buono_n" class="form-control form-control-sm" placeholder="N. Buono" value="{{ request.args.get('buono_n','') }}"></div>
                     <div class="col-md-2"><input name="n_arrivo" class="form-control form-control-sm" placeholder="N. Arrivo" value="{{ request.args.get('n_arrivo','') }}"></div>
