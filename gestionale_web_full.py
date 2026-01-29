@@ -2997,9 +2997,10 @@ def report_trasporti():
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
     from openpyxl.utils import get_column_letter
+    from sqlalchemy import func
 
     # Recupera i filtri dal form
-    mese = (request.form.get('mese') or '').strip()              # Es. '2025-01'
+    mese = (request.form.get('mese') or '').strip()              # es '2026-01'
     mezzo = (request.form.get('tipo_mezzo') or '').strip()
     cliente = (request.form.get('cliente') or '').strip()
     ddt_uscita = (request.form.get('ddt_uscita') or '').strip()
@@ -3009,7 +3010,7 @@ def report_trasporti():
     try:
         query = db.query(Trasporto)
 
-        # Filtro mese (robusto: se data è Date/DateTime)
+        # ✅ FILTRO MESE (compatibile se Trasporto.data è TEXT)
         if mese:
             try:
                 year, month = mese.split("-")
@@ -3017,9 +3018,13 @@ def report_trasporti():
                 m = int(month)
                 start = date(y, m, 1)
                 end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
-                query = query.filter(Trasporto.data >= start, Trasporto.data < end)
-            except:
-                # fallback se Trasporto.data fosse stringa
+
+                # Converte 'data' (testo) in data: to_date(data, 'YYYY-MM-DD')
+                data_as_date = func.to_date(Trasporto.data, 'YYYY-MM-DD')
+                query = query.filter(data_as_date >= start, data_as_date < end)
+
+            except Exception:
+                # fallback
                 query = query.filter(Trasporto.data.like(f"{mese}%"))
 
         if mezzo:
@@ -3043,19 +3048,16 @@ def report_trasporti():
         left = Alignment(horizontal="left", vertical="center", wrap_text=True)
         header_fill = PatternFill("solid", fgColor="D9E1F2")
 
-        # Titolo
         ws["A1"] = "REPORT TRASPORTI"
         ws["A1"].font = Font(bold=True, size=16)
         ws.merge_cells("A1:H1")
         ws["A1"].alignment = center
 
-        # Filtri
         ws["A3"] = "Filtri:"
         ws["A3"].font = bold
         ws["B3"] = f"Mese={mese or 'Tutti'} | Cliente={cliente or 'Tutti'} | Mezzo={mezzo or 'Tutti'} | DDT={ddt_uscita or 'Tutti'} | Consolidato={consolidato or 'Tutti'}"
         ws.merge_cells("B3:H3")
 
-        # Header tabella
         headers = ["Data", "Mezzo", "Cliente", "Trasportatore", "DDT", "Magazzino", "Consolidato", "Costo (€)"]
         start_row = 5
         for col, h in enumerate(headers, start=1):
@@ -3064,12 +3066,10 @@ def report_trasporti():
             cell.fill = header_fill
             cell.alignment = center
 
-        # Righe
         riga = start_row + 1
         totale = 0.0
 
         for t in dati:
-            # Data sicura
             d_val = ""
             if t.data:
                 try:
@@ -3094,7 +3094,6 @@ def report_trasporti():
 
             riga += 1
 
-        # Riga Totale
         ws.cell(riga, 1, "TOTALE").font = bold
         ws.merge_cells(start_row=riga, start_column=1, end_row=riga, end_column=7)
         ws.cell(riga, 1).alignment = Alignment(horizontal="right", vertical="center")
@@ -3103,12 +3102,10 @@ def report_trasporti():
         tot_cell.number_format = '#,##0.00'
         tot_cell.alignment = center
 
-        # Larghezze colonne
         col_widths = [12, 16, 22, 22, 14, 14, 16, 12]
         for i, w in enumerate(col_widths, start=1):
             ws.column_dimensions[get_column_letter(i)].width = w
 
-        # Salva in memoria
         bio = io.BytesIO()
         wb.save(bio)
         bio.seek(0)
@@ -3127,7 +3124,6 @@ def report_trasporti():
         return f"Errore export Trasporti Excel: {e}", 500
     finally:
         db.close()
-
 
 # --- GESTIONE LAVORAZIONI (ADMIN) ---
 @app.route('/lavorazioni', methods=['GET', 'POST'])
