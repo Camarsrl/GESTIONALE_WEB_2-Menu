@@ -3216,35 +3216,43 @@ def lavorazioni():
 @app.route('/stampa_picking_pdf', methods=['POST'])
 @login_required
 def stampa_picking_pdf():
+    if session.get('role') != 'admin':
+        return "No Access", 403
+
     import io
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
     from openpyxl.utils import get_column_letter
+    from sqlalchemy import func
 
-    # Filtri
-    mese = (request.form.get('mese') or '').strip()
+    mese = (request.form.get('mese') or '').strip()       # es '2026-01'
     cliente = (request.form.get('cliente') or '').strip()
 
     db = SessionLocal()
     try:
         query = db.query(Lavorazione)
 
-        # Filtro mese (se data è Date/DateTime)
+        # ✅ FILTRO MESE
         if mese:
+            # Caso standard: Lavorazione.data è DATE -> like funziona male, meglio range.
+            # Caso anomalo: se fosse TEXT, facciamo fallback.
             try:
                 year, month = mese.split("-")
                 y = int(year); m = int(month)
                 start = date(y, m, 1)
                 end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+
+                # se data è DATE:
                 query = query.filter(Lavorazione.data >= start, Lavorazione.data < end)
-            except:
-                # fallback se data fosse stringa
+
+            except Exception:
+                # fallback (se data fosse TEXT)
                 query = query.filter(Lavorazione.data.like(f"{mese}%"))
 
         if cliente:
             query = query.filter(Lavorazione.cliente.ilike(f"%{cliente}%"))
 
-        rows = query.order_by(Lavorazione.data.asc()).all()
+        rows = query.order_by(Lavorazione.data.asc().nullslast(), Lavorazione.id.asc()).all()
 
         # --- CREA EXCEL ---
         wb = Workbook()
@@ -3256,27 +3264,40 @@ def stampa_picking_pdf():
         left = Alignment(horizontal="left", vertical="center", wrap_text=True)
         header_fill = PatternFill("solid", fgColor="D9E1F2")
 
-        # Titolo
-        title = f"REPORT PICKING - {mese if mese else 'Tutto'} - {cliente if cliente else 'Tutti'}"
-        ws["A1"] = title
+        ws["A1"] = "REPORT PICKING / LAVORAZIONI"
         ws["A1"].font = Font(bold=True, size=16)
         ws.merge_cells("A1:I1")
         ws["A1"].alignment = center
 
-        # Header
+        ws["A3"] = "Filtri:"
+        ws["A3"].font = bold
+        ws["B3"] = f"Mese={mese or 'Tutti'} | Cliente={cliente or 'Tutti'}"
+        ws.merge_cells("B3:I3")
+
+        # ✅ Intestazioni CORRETTE e leggibili
         headers = [
-            "DATA", "CLIENTE", "DESCRIZIONE", "RICHIESTA", "SERIALI",
-            "COLLI", "PALLET ENTRATI", "PALLET USCITI", "BLUE", "WHITE"
+            "Data",
+            "Cliente",
+            "Descrizione",
+            "Richiesta di",
+            "Seriali",
+            "Colli",
+            "Pallet Entrati",
+            "Pallet Usciti",
+            "Ore Blue",
+            "Ore White"
         ]
-        start_row = 3
+
+        start_row = 5
         for col, h in enumerate(headers, start=1):
             cell = ws.cell(row=start_row, column=col, value=h)
             cell.font = bold
             cell.fill = header_fill
             cell.alignment = center
 
-        # Dati + Totali
         riga = start_row + 1
+
+        # Totali
         t_colli = 0
         t_pin = 0
         t_pout = 0
@@ -3284,19 +3305,19 @@ def stampa_picking_pdf():
         t_white = 0.0
 
         for r in rows:
-            # data sicura
+            # data
             d_str = ""
             if r.data:
                 try:
                     d_str = r.data.strftime("%Y-%m-%d")
-                except:
+                except Exception:
                     d_str = str(r.data)[:10]
 
             colli = int(r.colli or 0)
             pin = int(r.pallet_forniti or 0)
             pout = int(r.pallet_uscita or 0)
-            blue = float(r.ore_blue_collar or 0)
-            white = float(r.ore_white_collar or 0)
+            blue = float(r.ore_blue_collar or 0.0)
+            white = float(r.ore_white_collar or 0.0)
 
             t_colli += colli
             t_pin += pin
@@ -3309,18 +3330,12 @@ def stampa_picking_pdf():
             ws.cell(riga, 3, (r.descrizione or "")).alignment = left
             ws.cell(riga, 4, (r.richiesta_di or "")).alignment = left
             ws.cell(riga, 5, (r.seriali or "")).alignment = left
-
             ws.cell(riga, 6, colli).alignment = center
             ws.cell(riga, 7, pin).alignment = center
             ws.cell(riga, 8, pout).alignment = center
 
-            b = ws.cell(riga, 9, blue)
-            b.number_format = '0.0'
-            b.alignment = center
-
-            w = ws.cell(riga, 10, white)
-            w.number_format = '0.0'
-            w.alignment = center
+            c9 = ws.cell(riga, 9, blue);  c9.number_format = '0.00'; c9.alignment = center
+            c10 = ws.cell(riga, 10, white); c10.number_format = '0.00'; c10.alignment = center
 
             riga += 1
 
@@ -3332,25 +3347,24 @@ def stampa_picking_pdf():
         ws.cell(riga, 6, t_colli).font = bold
         ws.cell(riga, 7, t_pin).font = bold
         ws.cell(riga, 8, t_pout).font = bold
-        ws.cell(riga, 9, t_blue).font = bold
-        ws.cell(riga, 10, t_white).font = bold
 
-        for c in range(6, 11):
-            ws.cell(riga, c).alignment = center
+        tc9 = ws.cell(riga, 9, t_blue); tc9.font = bold; tc9.number_format = '0.00'; tc9.alignment = center
+        tc10 = ws.cell(riga, 10, t_white); tc10.font = bold; tc10.number_format = '0.00'; tc10.alignment = center
 
-        # Larghezze colonne (così si leggono bene!)
-        col_widths = [12, 18, 45, 20, 20, 10, 14, 14, 10, 10]
-        for i, w in enumerate(col_widths, start=1):
+        # larghezze colonne (così non “taglia” le intestazioni)
+        widths = [12, 18, 40, 20, 22, 10, 14, 14, 10, 10]
+        for i, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(i)].width = w
 
-        # Salva in memoria
+        # Freeze header
+        ws.freeze_panes = "A6"
+
         bio = io.BytesIO()
         wb.save(bio)
         bio.seek(0)
 
         safe_mese = mese.replace("-", "_") if mese else "TUTTO"
-        safe_cli = (cliente.replace(" ", "_") if cliente else "TUTTI")
-        filename = f"Report_Picking_{safe_mese}_{safe_cli}.xlsx"
+        filename = f"Report_Picking_{safe_mese}.xlsx"
 
         return send_file(
             bio,
