@@ -593,7 +593,8 @@ def admin_backups():
         return redirect(url_for("admin_backups"))
 
     backups = list_backups()
-    return render_template("admin_backups.html", backups=backups)
+   return render_template_string(ADMIN_BACKUPS_HTML, backups=backups)
+
 
 
 @app.route("/admin/backups/download/<path:filename>")
