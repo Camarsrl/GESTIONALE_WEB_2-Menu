@@ -250,6 +250,16 @@ def _auto_backup_hook():
     except Exception:
         pass
 
+def pulisci_backup_vecchi(max_files=50):
+    files = sorted(
+        Path(BACKUP_DIR).glob("backup_*.zip"),
+        key=os.path.getmtime,
+        reverse=True
+    )
+    for f in files[max_files:]:
+        f.unlink()
+
+
 
 def _discover_logo_path():
     # Lista aggiornata con il nome corretto del tuo file
