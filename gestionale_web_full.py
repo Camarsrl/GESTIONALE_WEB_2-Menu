@@ -2710,6 +2710,102 @@ LAVORAZIONI_HTML = """
 """
 
 
+# ==========================================================
+# TEMPLATE ADMIN BACKUPS (gestito dentro al file Python)
+# ==========================================================
+
+ADMIN_BACKUPS_HTML = """
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container-fluid mt-4">
+  <h3><i class="bi bi-hdd-stack"></i> Backup & Ripristino</h3>
+
+  <div class="alert alert-info">
+    I backup sono salvati su disco persistente Render:<br>
+    <b>/var/data/app/backups</b>
+  </div>
+
+  {% if backups %}
+    <div class="card shadow-sm">
+      <div class="table-responsive">
+        <table class="table table-striped align-middle mb-0">
+          <thead style="background:#f0f0f0;">
+            <tr>
+              <th>File Backup</th>
+              <th class="text-center">Data</th>
+              <th class="text-center">Dimensione (MB)</th>
+              <th class="text-end">Azioni</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {% for b in backups %}
+            <tr>
+              <td><code>{{ b.name }}</code></td>
+              <td class="text-center">{{ b.mtime }}</td>
+              <td class="text-center">{{ b.size_mb }}</td>
+
+              <td class="text-end">
+
+                <!-- DOWNLOAD -->
+                <a class="btn btn-sm btn-outline-primary"
+                   href="{{ url_for('admin_backup_download', filename=b.name) }}">
+                  <i class="bi bi-download"></i> Scarica
+                </a>
+
+                <!-- RIPRISTINA DB + JSON -->
+                <form method="post"
+                      style="display:inline-block"
+                      onsubmit="return confirm('Confermi ripristino di questo backup?');">
+                  <input type="hidden" name="action" value="restore">
+                  <input type="hidden" name="filename" value="{{ b.name }}">
+                  <input type="hidden" name="restore_media" value="0">
+
+                  <button type="submit" class="btn btn-sm btn-warning">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                    Ripristina DB
+                  </button>
+                </form>
+
+                <!-- RIPRISTINO COMPLETO -->
+                <form method="post"
+                      style="display:inline-block"
+                      onsubmit="return confirm('Ripristino completo (DB+PDF+Foto). Confermi?');">
+                  <input type="hidden" name="action" value="restore">
+                  <input type="hidden" name="filename" value="{{ b.name }}">
+                  <input type="hidden" name="restore_media" value="1">
+
+                  <button type="submit" class="btn btn-sm btn-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Ripristina Completo
+                  </button>
+                </form>
+
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+
+        </table>
+      </div>
+    </div>
+
+  {% else %}
+    <div class="alert alert-warning">
+      Nessun backup trovato nella cartella backups.
+    </div>
+  {% endif %}
+
+  <a href="{{ url_for('home') }}" class="btn btn-outline-secondary mt-3">
+    <i class="bi bi-arrow-left"></i> Torna alla Home
+  </a>
+</div>
+
+{% endblock %}
+"""
+
+
 CALCOLA_COSTI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
