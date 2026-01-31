@@ -522,6 +522,41 @@ def require_admin(view_func):
         return view_func(*args, **kwargs)
     return _wrapped
 
+@app.route("/admin/backups", methods=["GET", "POST"])
+@login_required
+@require_admin
+def admin_backups():
+    if request.method == "POST":
+        action = request.form.get("action")
+        filename = request.form.get("filename", "").strip()
+        restore_media = (request.form.get("restore_media") == "1")
+
+        try:
+            if action == "restore":
+                restore_from_backup_zip(filename, restore_media=restore_media)
+                flash("✅ Ripristino completato. Se noti dati non aggiornati, ricarica la pagina o riavvia il servizio su Render.", "success")
+            else:
+                flash("Azione non valida.", "warning")
+        except Exception as e:
+            flash(f"Errore ripristino: {e}", "danger")
+
+        return redirect(url_for("admin_backups"))
+
+    backups = list_backups()
+    return render_template("admin_backups.html", backups=backups)
+
+
+@app.route("/admin/backups/download/<path:filename>")
+@login_required
+@require_admin
+def admin_backup_download(filename):
+    # ✅ sicurezza path
+    p = (BACKUP_DIR / filename).resolve()
+    if not str(p).startswith(str(BACKUP_DIR.resolve())) or not p.exists():
+        flash("Backup non trovato.", "danger")
+        return redirect(url_for("admin_backups"))
+
+    return send_file(p, as_attachment=True, download_name=p.name)
 
 def current_cliente():
     """Cliente associato all'utente corrente (per i client è bloccato)."""
