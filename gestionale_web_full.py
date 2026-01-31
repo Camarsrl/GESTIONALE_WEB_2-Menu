@@ -260,6 +260,90 @@ def pulisci_backup_vecchi(max_files=50):
         f.unlink()
 
 
+from pathlib import Path
+import zipfile
+import tempfile
+import shutil
+from datetime import datetime
+
+# Assumo che tu abbia già:
+# BACKUP_DIR = Path("/var/data/app/backups")
+# MEDIA_DIR = Path("/var/data/app")
+# e che magazzino.db stia in MEDIA_DIR
+
+def _get_db_path():
+    # Percorso DB (modifica qui se nel tuo progetto è diverso)
+    return (MEDIA_DIR / "magazzino.db")
+
+def list_backups():
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    files = sorted(BACKUP_DIR.glob("backup_camar_*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+    out = []
+    for p in files:
+        out.append({
+            "name": p.name,
+            "path": p,
+            "size_mb": round(p.stat().st_size / (1024 * 1024), 2),
+            "mtime": datetime.fromtimestamp(p.stat().st_mtime).strftime("%d/%m/%Y %H:%M")
+        })
+    return out
+
+def restore_from_backup_zip(zip_filename: str, restore_media: bool = False):
+    """
+    Ripristino sicuro:
+    - valida che il file stia dentro BACKUP_DIR
+    - crea una copia di emergenza del DB attuale
+    - estrae lo zip in temp
+    - ripristina magazzino.db + JSON
+    - opzionale: ripristina cartelle docs/photos
+    """
+    # ✅ sicurezza: niente path traversal
+    zip_path = (BACKUP_DIR / zip_filename).resolve()
+    if not str(zip_path).startswith(str(BACKUP_DIR.resolve())):
+        raise Exception("Backup non valido (path non consentito).")
+    if not zip_path.exists():
+        raise Exception("Backup non trovato.")
+
+    db_path = _get_db_path()
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # ✅ copia emergenza DB attuale
+    if db_path.exists():
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        emergency = db_path.with_suffix(f".pre_restore_{ts}.bak")
+        shutil.copy2(db_path, emergency)
+
+    # ✅ estrai in temp e ripristina
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+
+        with zipfile.ZipFile(zip_path, "r") as z:
+            z.extractall(tmpdir)
+
+        # --- ripristina DB ---
+        extracted_db = tmpdir / "magazzino.db"
+        if extracted_db.exists():
+            shutil.copy2(extracted_db, db_path)
+        else:
+            raise Exception("Nel backup non c'è magazzino.db")
+
+        # --- ripristina JSON (se presenti) ---
+        for json_name in ["mappe_excel.json", "destinatari_saved.json", "rubrica_email.json"]:
+            src = tmpdir / json_name
+            if src.exists():
+                shutil.copy2(src, MEDIA_DIR / json_name)
+
+        # --- ripristina media (opzionale) ---
+        if restore_media:
+            for folder in ["docs", "photos"]:
+                src_folder = tmpdir / folder
+                dst_folder = MEDIA_DIR / folder
+                if src_folder.exists():
+                    if dst_folder.exists():
+                        shutil.rmtree(dst_folder)
+                    shutil.copytree(src_folder, dst_folder)
+
+    return True
 
 def _discover_logo_path():
     # Lista aggiornata con il nome corretto del tuo file
