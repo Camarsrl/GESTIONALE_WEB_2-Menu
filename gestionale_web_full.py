@@ -576,25 +576,26 @@ def require_admin(view_func):
 @login_required
 @require_admin
 def admin_backups():
+
     if request.method == "POST":
         action = request.form.get("action")
-        filename = request.form.get("filename", "").strip()
+        filename = request.form.get("filename", "")
         restore_media = (request.form.get("restore_media") == "1")
 
         try:
             if action == "restore":
                 restore_from_backup_zip(filename, restore_media=restore_media)
-                flash("✅ Ripristino completato. Se noti dati non aggiornati, ricarica la pagina o riavvia il servizio su Render.", "success")
+                flash("✅ Ripristino completato!", "success")
             else:
                 flash("Azione non valida.", "warning")
+
         except Exception as e:
             flash(f"Errore ripristino: {e}", "danger")
 
         return redirect(url_for("admin_backups"))
 
     backups = list_backups()
-   return render_template_string(ADMIN_BACKUPS_HTML, backups=backups)
-
+    return render_template_string(ADMIN_BACKUPS_HTML, backups=backups)
 
 
 @app.route("/admin/backups/download/<path:filename>")
