@@ -3966,6 +3966,7 @@ def stampa_picking_pdf():
 
 
 # --- NUOVO: EXPORT INVENTARIO EXCEL ---
+
 @app.post('/report_inventario_excel')
 @login_required
 def report_inventario_excel():
@@ -4005,19 +4006,14 @@ def report_inventario_excel():
         articoli = (
             db.query(Articolo)
             .filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
-            .filter((Articolo.data_uscita == None) | (Articolo.data_uscita == "") )
+            .filter((Articolo.data_uscita == None) | (Articolo.data_uscita == ""))
             .all()
         )
 
         righe = []
         for art in articoli:
-            # Se vuoi, puoi calcolare entrata come colli e uscita sempre 0
-            qta_entrata = int(art.n_colli or 0)
-            qta_uscita = 0
-            rimanenza = qta_entrata
-
-            # salta righe senza colli
-            if qta_entrata <= 0:
+            qta = int(art.n_colli or 0)
+            if qta <= 0:
                 continue
 
             righe.append({
@@ -4028,9 +4024,7 @@ def report_inventario_excel():
                 "posizione": getattr(art, "posizione", "") or "",
                 "data_ingresso": parse_d(art.data_ingresso),
                 "n_arrivo": getattr(art, "n_arrivo", "") or "",
-                "entrata": qta_entrata,
-                "uscita": qta_uscita,
-                "rimanenza": rimanenza
+                "colli": qta
             })
 
         wb = Workbook()
@@ -4082,7 +4076,7 @@ def report_inventario_excel():
                 row["posizione"],
                 row["data_ingresso"].strftime("%d/%m/%Y") if row["data_ingresso"] else "",
                 row["n_arrivo"],
-                row["rimanenza"],
+                row["colli"],
             ]
 
             for c, v in enumerate(values, 1):
@@ -4093,19 +4087,14 @@ def report_inventario_excel():
 
         ws.freeze_panes = "A6"
 
-        # Tabella Excel
         if r > start_row + 1:
-            tab = Table(
-                displayName="TabInventario",
-                ref=f"A{start_row}:H{r-1}"
-            )
+            tab = Table(displayName="TabInventario", ref=f"A{start_row}:H{r-1}")
             tab.tableStyleInfo = TableStyleInfo(
                 name="TableStyleMedium9",
                 showRowStripes=True
             )
             ws.add_table(tab)
 
-        # larghezze colonne più leggibili
         ws.column_dimensions["A"].width = 8
         ws.column_dimensions["B"].width = 22
         ws.column_dimensions["C"].width = 50
@@ -4128,168 +4117,7 @@ def report_inventario_excel():
         )
     finally:
         db.close()
-@app.post('/report_inventario_excel')
-@login_required
-def report_inventario_excel():
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-    from openpyxl.worksheet.table import Table, TableStyleInfo
-    import io
-    from datetime import datetime, date
 
-    # ✅ Client forzato sul proprio utente; Admin può scegliere cliente dal form
-    if session.get('role') == 'client':
-        cliente_rif = (current_user.id or '').strip()
-    else:
-        cliente_rif = (request.form.get('cliente_inventario') or '').strip()
-
-    if not cliente_rif:
-        return "Cliente mancante", 400
-
-    def parse_d(v):
-        if not v:
-            return None
-        if isinstance(v, datetime):
-            return v.date()
-        if isinstance(v, date):
-            return v
-        s = str(v).strip()[:10]
-        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
-            try:
-                return datetime.strptime(s, fmt).date()
-            except Exception:
-                pass
-        return None
-
-    db = SessionLocal()
-    try:
-        # ✅ Inventario totale: solo articoli in giacenza (data_uscita vuota)
-        articoli = (
-            db.query(Articolo)
-            .filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
-            .filter((Articolo.data_uscita == None) | (Articolo.data_uscita == "") )
-            .all()
-        )
-
-        righe = []
-        for art in articoli:
-            # Se vuoi, puoi calcolare entrata come colli e uscita sempre 0
-            qta_entrata = int(art.n_colli or 0)
-            qta_uscita = 0
-            rimanenza = qta_entrata
-
-            # salta righe senza colli
-            if qta_entrata <= 0:
-                continue
-
-            righe.append({
-                "id": art.id_articolo,
-                "codice": art.codice_articolo,
-                "descrizione": art.descrizione,
-                "lotto": getattr(art, "lotto", "") or "",
-                "posizione": getattr(art, "posizione", "") or "",
-                "data_ingresso": parse_d(art.data_ingresso),
-                "n_arrivo": getattr(art, "n_arrivo", "") or "",
-                "entrata": qta_entrata,
-                "uscita": qta_uscita,
-                "rimanenza": rimanenza
-            })
-
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "INVENTARIO"
-
-        bold = Font(bold=True)
-        center = Alignment(horizontal="center", vertical="center")
-        left = Alignment(horizontal="left", vertical="center")
-        header_fill = PatternFill("solid", fgColor="D9E1F2")
-        thin = Side(style="thin")
-        border = Border(left=thin, right=thin, top=thin, bottom=thin)
-
-        oggi_str = datetime.now().strftime("%Y-%m-%d")
-
-        ws["A1"] = "INVENTARIO TOTALE (GIACENZA ATTUALE)"
-        ws["A2"] = f"Cliente: {cliente_rif}"
-        ws["A3"] = f"Generato il: {oggi_str}"
-        ws["A1"].font = Font(bold=True, size=14)
-        ws["A2"].font = bold
-        ws["A3"].font = bold
-
-        headers = [
-            "ID",
-            "CODICE ARTICOLO",
-            "DESCRIZIONE",
-            "LOTTO",
-            "POSIZIONE",
-            "DATA INGRESSO",
-            "N. ARRIVO",
-            "COLLI (GIACENZA)",
-        ]
-
-        start_row = 5
-        for c, h in enumerate(headers, 1):
-            cell = ws.cell(row=start_row, column=c, value=h)
-            cell.font = bold
-            cell.alignment = center
-            cell.fill = header_fill
-            cell.border = border
-
-        r = start_row + 1
-        for row in righe:
-            values = [
-                row["id"],
-                row["codice"],
-                row["descrizione"],
-                row["lotto"],
-                row["posizione"],
-                row["data_ingresso"].strftime("%d/%m/%Y") if row["data_ingresso"] else "",
-                row["n_arrivo"],
-                row["rimanenza"],
-            ]
-
-            for c, v in enumerate(values, 1):
-                cell = ws.cell(row=r, column=c, value=v)
-                cell.alignment = left if c in (2, 3, 4, 5, 7) else center
-                cell.border = border
-            r += 1
-
-        ws.freeze_panes = "A6"
-
-        # Tabella Excel
-        if r > start_row + 1:
-            tab = Table(
-                displayName="TabInventario",
-                ref=f"A{start_row}:H{r-1}"
-            )
-            tab.tableStyleInfo = TableStyleInfo(
-                name="TableStyleMedium9",
-                showRowStripes=True
-            )
-            ws.add_table(tab)
-
-        # larghezze colonne più leggibili
-        ws.column_dimensions["A"].width = 8
-        ws.column_dimensions["B"].width = 22
-        ws.column_dimensions["C"].width = 50
-        ws.column_dimensions["D"].width = 16
-        ws.column_dimensions["E"].width = 14
-        ws.column_dimensions["F"].width = 14
-        ws.column_dimensions["G"].width = 14
-        ws.column_dimensions["H"].width = 18
-
-        bio = io.BytesIO()
-        wb.save(bio)
-        bio.seek(0)
-
-        filename = f"Inventario_TOTALE_{cliente_rif.replace(' ', '_')}_{oggi_str}.xlsx"
-        return send_file(
-            bio,
-            as_attachment=True,
-            download_name=filename,
-            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    finally:
-        db.close()
 
 # =========================
 # IMPORT EXCEL (con log)
