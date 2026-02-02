@@ -3990,7 +3990,8 @@ def report_inventario_excel():
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.worksheet.table import Table, TableStyleInfo
     import io
-    from datetime import datetime, date
+    from datetime import datetime
+    from collections import defaultdict
 
     # ✅ Client forzato sul proprio utente; Admin può scegliere cliente dal form
     if session.get('role') == 'client':
@@ -4001,48 +4002,62 @@ def report_inventario_excel():
     if not cliente_rif:
         return "Cliente mancante", 400
 
-    def parse_d(v):
-        if not v:
-            return None
-        if isinstance(v, datetime):
-            return v.date()
-        if isinstance(v, date):
-            return v
-        s = str(v).strip()[:10]
-        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
-            try:
-                return datetime.strptime(s, fmt).date()
-            except Exception:
-                pass
-        return None
-
     db = SessionLocal()
     try:
-        # ✅ Inventario totale: solo articoli in giacenza (data_uscita vuota)
+        # Prendo TUTTI gli articoli del cliente (non solo giacenza),
+        # perché dobbiamo calcolare entrata/uscita e rimanenza
         articoli = (
             db.query(Articolo)
             .filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
-            .filter((Articolo.data_uscita == None) | (Articolo.data_uscita == ""))
             .all()
         )
 
-        righe = []
+        # ✅ Aggregazione per CODICE ARTICOLO
+        # entrata = somma colli con data_ingresso valida
+        # uscita  = somma colli con data_uscita valida
+        agg = defaultdict(lambda: {"descrizione": "", "entrata": 0, "uscita": 0})
+
         for art in articoli:
-            qta = int(art.n_colli or 0)
-            if qta <= 0:
+            codice = (art.codice_articolo or "").strip()
+            if not codice:
                 continue
 
+            descr = (art.descrizione or "").strip()
+            try:
+                colli = int(art.n_colli or 0)
+            except Exception:
+                colli = 0
+
+            if colli <= 0:
+                continue
+
+            # Se manca descrizione nella prima occorrenza, la riempiamo
+            if descr and not agg[codice]["descrizione"]:
+                agg[codice]["descrizione"] = descr
+
+            # Entrata se ha data_ingresso
+            if art.data_ingresso:
+                agg[codice]["entrata"] += colli
+
+            # Uscita se ha data_uscita
+            if art.data_uscita:
+                agg[codice]["uscita"] += colli
+
+        # Costruisci righe finali come allegato
+        righe = []
+        for codice in sorted(agg.keys()):
+            entrata = agg[codice]["entrata"]
+            uscita = agg[codice]["uscita"]
+            rimanenza = entrata - uscita
             righe.append({
-                "id": art.id_articolo,
-                "codice": art.codice_articolo,
-                "descrizione": art.descrizione,
-                "lotto": getattr(art, "lotto", "") or "",
-                "posizione": getattr(art, "posizione", "") or "",
-                "data_ingresso": parse_d(art.data_ingresso),
-                "n_arrivo": getattr(art, "n_arrivo", "") or "",
-                "colli": qta
+                "codice": codice,
+                "descrizione": agg[codice]["descrizione"],
+                "entrata": entrata,
+                "uscita": uscita,
+                "rimanenza": rimanenza
             })
 
+        # === EXCEL ===
         wb = Workbook()
         ws = wb.active
         ws.title = "INVENTARIO"
@@ -4056,7 +4071,7 @@ def report_inventario_excel():
 
         oggi_str = datetime.now().strftime("%Y-%m-%d")
 
-        ws["A1"] = "INVENTARIO TOTALE (GIACENZA ATTUALE)"
+        ws["A1"] = "ELENCO ARTICOLI"
         ws["A2"] = f"Cliente: {cliente_rif}"
         ws["A3"] = f"Generato il: {oggi_str}"
         ws["A1"].font = Font(bold=True, size=14)
@@ -4067,11 +4082,9 @@ def report_inventario_excel():
             "ID",
             "CODICE ARTICOLO",
             "DESCRIZIONE",
-            "LOTTO",
-            "POSIZIONE",
-            "DATA INGRESSO",
-            "N. ARRIVO",
-            "COLLI (GIACENZA)",
+            "Q.TA ENTRATA",
+            "Q.TA USCITA",
+            "RIMANENZA"
         ]
 
         start_row = 5
@@ -4083,48 +4096,47 @@ def report_inventario_excel():
             cell.border = border
 
         r = start_row + 1
+        idx = 1
         for row in righe:
             values = [
-                row["id"],
+                str(idx).zfill(3),
                 row["codice"],
                 row["descrizione"],
-                row["lotto"],
-                row["posizione"],
-                row["data_ingresso"].strftime("%d/%m/%Y") if row["data_ingresso"] else "",
-                row["n_arrivo"],
-                row["colli"],
+                row["entrata"],
+                row["uscita"],
+                row["rimanenza"],
             ]
 
             for c, v in enumerate(values, 1):
                 cell = ws.cell(row=r, column=c, value=v)
-                cell.alignment = left if c in (2, 3, 4, 5, 7) else center
+                cell.alignment = left if c in (2, 3) else center
                 cell.border = border
             r += 1
+            idx += 1
 
         ws.freeze_panes = "A6"
 
         if r > start_row + 1:
-            tab = Table(displayName="TabInventario", ref=f"A{start_row}:H{r-1}")
+            tab = Table(displayName="TabInventario", ref=f"A{start_row}:F{r-1}")
             tab.tableStyleInfo = TableStyleInfo(
                 name="TableStyleMedium9",
                 showRowStripes=True
             )
             ws.add_table(tab)
 
+        # Larghezze colonne stile “allegato”
         ws.column_dimensions["A"].width = 8
-        ws.column_dimensions["B"].width = 22
-        ws.column_dimensions["C"].width = 50
-        ws.column_dimensions["D"].width = 16
+        ws.column_dimensions["B"].width = 24
+        ws.column_dimensions["C"].width = 55
+        ws.column_dimensions["D"].width = 14
         ws.column_dimensions["E"].width = 14
         ws.column_dimensions["F"].width = 14
-        ws.column_dimensions["G"].width = 14
-        ws.column_dimensions["H"].width = 18
 
         bio = io.BytesIO()
         wb.save(bio)
         bio.seek(0)
 
-        filename = f"Inventario_TOTALE_{cliente_rif.replace(' ', '_')}_{oggi_str}.xlsx"
+        filename = f"Inventario_{cliente_rif.replace(' ', '_')}_{oggi_str}.xlsx"
         return send_file(
             bio,
             as_attachment=True,
