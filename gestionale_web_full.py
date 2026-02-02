@@ -7097,6 +7097,8 @@ def calcola_costi():
     data_da_val = (oggi.replace(day=1)).strftime("%Y-%m-%d")
     data_a_val = oggi.strftime("%Y-%m-%d")
 
+    # Admin: può filtrare + area manovra
+    # Client: solo il proprio cliente e niente area manovra
     is_admin = (session.get('role') == 'admin')
     cliente_lock = current_cliente()  # stringa se role=client, altrimenti None
 
@@ -7104,13 +7106,11 @@ def calcola_costi():
     raggruppamento = "mese"
     area_manovra_val = False
     risultati = []
-
-    # ✅ default label/metrica
     metric = "m2"
 
     def _metric_for_cliente(nome_cliente: str) -> str:
         s = (nome_cliente or "").strip().upper()
-        # Se vuoi essere più preciso: == "GALVANO TECNICA"
+        # Per Galvano Tecnica calcoliamo COLLI in giacenza
         if "GALVANO" in s:
             return "colli"
         return "m2"
@@ -7120,6 +7120,7 @@ def calcola_costi():
         data_a_str = request.form.get('data_a')
         raggruppamento = request.form.get('raggruppamento', 'mese')
 
+        # Cliente + area manovra
         if is_admin:
             cliente_val = (request.form.get('cliente') or '').strip()
             area_manovra = (request.form.get('area_manovra') == '1')
@@ -7129,13 +7130,14 @@ def calcola_costi():
 
         export_excel = ('export_excel' in request.form)
 
-        # ✅ Decidi metrica in base al cliente selezionato/lock
+        # metrica (colli o m2)
         metric = _metric_for_cliente(cliente_val)
 
         try:
             db = SessionLocal()
             query = db.query(Articolo)
 
+            # ✅ filtro sicuro
             if cliente_val:
                 if not is_admin:
                     cli_up = cliente_val.strip().upper()
@@ -7146,40 +7148,49 @@ def calcola_costi():
             articoli = query.all()
             db.close()
 
-            risultati = _calcola_logica_costi(
-                articoli,
-                data_da_str,
-                data_a_str,
-                raggruppamento,
-                m2_multiplier=(1.25 if (is_admin and area_manovra and metric == "m2") else 1.0),
-                metric=metric
-            )
+            # ✅ calcolo in base a metrica
+            if metric == "colli":
+                risultati = _calcola_logica_colli_giacenza(
+                    articoli,
+                    data_da_str,
+                    data_a_str,
+                    raggruppamento
+                )
+            else:
+                risultati = _calcola_logica_costi(
+                    articoli,
+                    data_da_str,
+                    data_a_str,
+                    raggruppamento,
+                    m2_multiplier=(1.25 if (is_admin and area_manovra) else 1.0)
+                )
 
             data_da_val = data_da_str
             data_a_val = data_a_str
             area_manovra_val = bool(is_admin and area_manovra and metric == "m2")
 
-            # Export Excel
+            # ✅ Export Excel
             if export_excel:
                 try:
                     df = pd.DataFrame(risultati)
-                    # Colonne dinamiche
+
                     if metric == "colli":
+                        # qui i risultati hanno chiavi: periodo, cliente, tot, medio, giorni
                         df = df.rename(columns={
                             'periodo': 'Periodo',
                             'cliente': 'Cliente',
-                            'tot': 'Colli Tot',
-                            'medio': 'Colli Medio',
+                            'tot': 'Colli Giacenza (somma)',
+                            'medio': 'Colli Medi',
                             'giorni': 'Giorni'
                         })
-                        extra = ''
-                        filename = f"Report_Colli_{data_da_val}_to_{data_a_val}.xlsx"
+                        filename = f"Report_Colli_Giacenza_{data_da_val}_to_{data_a_val}.xlsx"
                     else:
+                        # qui i risultati hanno chiavi: periodo, cliente, m2_tot, m2_medio, giorni
                         df = df.rename(columns={
                             'periodo': 'Periodo',
                             'cliente': 'Cliente',
-                            'tot': 'M2 Tot',
-                            'medio': 'M2 Medio',
+                            'm2_tot': 'M2 Tot',
+                            'm2_medio': 'M2 Medio',
                             'giorni': 'Giorni'
                         })
                         extra = '_AREA_MANOVRA' if area_manovra_val else ''
@@ -7188,6 +7199,7 @@ def calcola_costi():
                     bio = io.BytesIO()
                     df.to_excel(bio, index=False, engine='openpyxl')
                     bio.seek(0)
+
                     return send_file(
                         bio,
                         as_attachment=True,
@@ -7198,12 +7210,12 @@ def calcola_costi():
                     flash(f"Errore export Excel: {e}", "danger")
 
             if not risultati:
-                flash("Nessun dato valido trovato. Controlla che le date di ingresso siano corrette (non numeri DDT).", "warning")
+                flash("Nessun dato valido trovato per i criteri selezionati.", "warning")
 
         except Exception as e:
             flash(f"Errore: {e}", "danger")
 
-    # ✅ anche su GET calcoliamo la metrica “default” in base al cliente lock
+    # ✅ anche su GET metrica in base al cliente lock
     metric = _metric_for_cliente(cliente_val)
 
     return render_template(
@@ -7217,6 +7229,7 @@ def calcola_costi():
         is_admin=is_admin,
         metric=metric
     )
+
 
 
 # --- AVVIO FLASK APP ---
