@@ -6986,6 +6986,110 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento,
 
     return risultati_finali
 
+
+def _calcola_logica_colli_giacenza(articoli, data_da, data_a, raggruppamento):
+    """
+    Calcola i COLLI in GIACENZA nel periodo (fotografia giornaliera o mensile),
+    togliendo quelli già usciti.
+
+    - Per ogni giorno: somma n_colli degli articoli che risultano "presenti" quel giorno.
+    - Presente = data_ingresso <= giorno AND (data_uscita è vuota oppure data_uscita > giorno)
+    """
+    from collections import defaultdict
+    from datetime import timedelta, date, datetime
+
+    colli_per_giorno = defaultdict(float)
+
+    def to_date_obj(d):
+        if not d:
+            return None
+        if isinstance(d, datetime):
+            return d.date()
+        if isinstance(d, date):
+            return d
+        s = str(d).strip().split(' ')[0]
+        if len(s) < 8 or not s[0].isdigit():
+            return None
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except Exception:
+                pass
+        return None
+
+    d_start = to_date_obj(data_da)
+    d_end = to_date_obj(data_a)
+    if not d_start or not d_end:
+        return []
+
+    for art in articoli:
+        try:
+            colli = float(int(art.n_colli or 0))
+        except Exception:
+            colli = 0.0
+
+        if colli <= 0:
+            continue
+
+        d_ingr = to_date_obj(art.data_ingresso)
+        if not d_ingr:
+            continue
+
+        d_usc = to_date_obj(art.data_uscita)
+
+        # Range di verifica nel periodo
+        start = max(d_ingr, d_start)
+        end = d_end
+
+        if end < start:
+            continue
+
+        cliente_key = (art.cliente or "SCONOSCIUTO").strip().upper()
+
+        curr = start
+        while curr <= end:
+            presente = (d_ingr <= curr) and ((d_usc is None) or (d_usc > curr))
+            if presente:
+                colli_per_giorno[(cliente_key, curr)] += colli
+            curr += timedelta(days=1)
+
+    risultati = []
+
+    if raggruppamento == "giorno":
+        keys = sorted(colli_per_giorno.keys(), key=lambda k: (k[0], k[1]))
+        for cli, day in keys:
+            v = colli_per_giorno[(cli, day)]
+            risultati.append({
+                "periodo": day.strftime("%d/%m/%Y"),
+                "cliente": cli,
+                "tot": f"{v:.0f}",
+                "medio": f"{v:.0f}",
+                "giorni": 1
+            })
+    else:
+        agg = defaultdict(lambda: {"sum": 0.0, "days": set()})
+        for (cli, day), v in colli_per_giorno.items():
+            k = (cli, day.year, day.month)
+            agg[k]["sum"] += v
+            agg[k]["days"].add(day)
+
+        keys = sorted(agg.keys(), key=lambda k: (k[1], k[2], k[0]))
+        for cli, y, m in keys:
+            dati = agg[(cli, y, m)]
+            n_days = len(dati["days"])
+            tot = dati["sum"]
+            avg = tot / n_days if n_days else 0.0
+            risultati.append({
+                "periodo": f"{m:02d}/{y}",
+                "cliente": cli,
+                "tot": f"{tot:.0f}",
+                "medio": f"{avg:.0f}",
+                "giorni": n_days
+            })
+
+    return risultati
+
+
 @app.route('/calcola_costi', methods=['GET', 'POST'])
 @login_required
 def calcola_costi():
