@@ -333,6 +333,7 @@
             "CLIENTE":"cliente",
             "PESO":"peso",
             "COLLI":"n_colli",
+			"PEZZI":"pezzi",
             "N.ARRIVO":"n_arrivo",
 			"DDT USCITA":"n_ddt_uscita",
             "DATA USCITA":"data_uscita"
