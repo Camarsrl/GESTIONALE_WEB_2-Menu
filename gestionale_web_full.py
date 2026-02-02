@@ -2837,7 +2837,15 @@ CALCOLA_COSTI_HTML = """
 {% block content %}
 
 <div class="container-fluid mt-4">
-  <h2><i class="bi bi-calculator"></i> Report Costi Magazzino (M² per cliente)</h2>
+
+  <h2>
+    <i class="bi bi-calculator"></i>
+    {% if metric == 'colli' %}
+      Report Costi Magazzino (Colli in giacenza)
+    {% else %}
+      Report Costi Magazzino (M² per cliente)
+    {% endif %}
+  </h2>
 
   <div class="card p-3 mb-3 bg-light border shadow-sm">
     <form method="post" class="row g-2 align-items-end">
@@ -2885,8 +2893,15 @@ CALCOLA_COSTI_HTML = """
             <tr>
               <th class="text-center">Periodo</th>
               <th>Cliente</th>
-              <th class="text-end">M² Tot</th>
-              <th class="text-end">M² Medio</th>
+
+              {% if metric == 'colli' %}
+                <th class="text-end">Colli Tot</th>
+                <th class="text-end">Colli Medio</th>
+              {% else %}
+                <th class="text-end">M² Tot</th>
+                <th class="text-end">M² Medio</th>
+              {% endif %}
+
               <th class="text-center">Giorni</th>
             </tr>
           </thead>
@@ -2895,8 +2910,8 @@ CALCOLA_COSTI_HTML = """
             <tr>
               <td class="text-center">{{ r.periodo }}</td>
               <td>{{ r.cliente }}</td>
-              <td class="text-end">{{ r.m2_tot }}</td>
-              <td class="text-end">{{ r.m2_medio }}</td>
+              <td class="text-end">{{ r.tot }}</td>
+              <td class="text-end">{{ r.medio }}</td>
               <td class="text-center">{{ r.giorni }}</td>
             </tr>
             {% endfor %}
@@ -2915,6 +2930,7 @@ CALCOLA_COSTI_HTML = """
 
 {% endblock %}
 """
+
 
 
 # --- TEMPLATE PAGINA TRASPORTI (Senza Emoji, usa Icone Bootstrap) ---
