@@ -4002,10 +4002,11 @@ def report_inventario_excel():
     if not cliente_rif:
         return "Cliente mancante", 400
 
+    # ✅ SOLO GALVANO TECNICA USA PEZZI
+    usa_pezzi = (cliente_rif.strip().upper() == "GALVANO TECNICA")
+
     db = SessionLocal()
     try:
-        # Prendo TUTTI gli articoli del cliente (non solo giacenza),
-        # perché dobbiamo calcolare entrata/uscita e rimanenza
         articoli = (
             db.query(Articolo)
             .filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
@@ -4013,8 +4014,6 @@ def report_inventario_excel():
         )
 
         # ✅ Aggregazione per CODICE ARTICOLO
-        # entrata = somma colli con data_ingresso valida
-        # uscita  = somma colli con data_uscita valida
         agg = defaultdict(lambda: {"descrizione": "", "entrata": 0, "uscita": 0})
 
         for art in articoli:
@@ -4023,32 +4022,41 @@ def report_inventario_excel():
                 continue
 
             descr = (art.descrizione or "").strip()
-            try:
-                colli = int(art.n_colli or 0)
-            except Exception:
-                colli = 0
 
-            if colli <= 0:
+            # ✅ quantità: PEZZI solo Galvano, COLLI per gli altri
+            if usa_pezzi:
+                q_raw = getattr(art, "pezzi", None)
+                if q_raw is None:
+                    q_raw = getattr(art, "pezzo", None)
+            else:
+                q_raw = getattr(art, "n_colli", None)
+
+            try:
+                qty = int(q_raw or 0)
+            except Exception:
+                qty = 0
+
+            if qty <= 0:
                 continue
 
-            # Se manca descrizione nella prima occorrenza, la riempiamo
             if descr and not agg[codice]["descrizione"]:
                 agg[codice]["descrizione"] = descr
 
             # Entrata se ha data_ingresso
-            if art.data_ingresso:
-                agg[codice]["entrata"] += colli
+            if getattr(art, "data_ingresso", None):
+                agg[codice]["entrata"] += qty
 
             # Uscita se ha data_uscita
-            if art.data_uscita:
-                agg[codice]["uscita"] += colli
+            if getattr(art, "data_uscita", None):
+                agg[codice]["uscita"] += qty
 
-        # Costruisci righe finali come allegato
+        # ✅ righe finali
         righe = []
         for codice in sorted(agg.keys()):
             entrata = agg[codice]["entrata"]
             uscita = agg[codice]["uscita"]
             rimanenza = entrata - uscita
+
             righe.append({
                 "codice": codice,
                 "descrizione": agg[codice]["descrizione"],
@@ -4057,7 +4065,9 @@ def report_inventario_excel():
                 "rimanenza": rimanenza
             })
 
-        # === EXCEL ===
+        # ============================
+        # ✅ CREAZIONE EXCEL
+        # ============================
         wb = Workbook()
         ws = wb.active
         ws.title = "INVENTARIO"
@@ -4071,23 +4081,28 @@ def report_inventario_excel():
 
         oggi_str = datetime.now().strftime("%Y-%m-%d")
 
+        tipo = "PEZZI" if usa_pezzi else "COLLI"
+
         ws["A1"] = "ELENCO ARTICOLI"
         ws["A2"] = f"Cliente: {cliente_rif}"
-        ws["A3"] = f"Generato il: {oggi_str}"
+        ws["A3"] = f"Inventario basato su: {tipo}"
+        ws["A4"] = f"Generato il: {oggi_str}"
+
         ws["A1"].font = Font(bold=True, size=14)
         ws["A2"].font = bold
         ws["A3"].font = bold
+        ws["A4"].font = bold
 
         headers = [
             "ID",
             "CODICE ARTICOLO",
             "DESCRIZIONE",
-            "Q.TA ENTRATA",
-            "Q.TA USCITA",
-            "RIMANENZA"
+            f"Q.TA ENTRATA ({tipo})",
+            f"Q.TA USCITA ({tipo})",
+            f"RIMANENZA ({tipo})"
         ]
 
-        start_row = 5
+        start_row = 6
         for c, h in enumerate(headers, 1):
             cell = ws.cell(row=start_row, column=c, value=h)
             cell.font = bold
@@ -4104,17 +4119,18 @@ def report_inventario_excel():
                 row["descrizione"],
                 row["entrata"],
                 row["uscita"],
-                row["rimanenza"],
+                row["rimanenza"]
             ]
 
             for c, v in enumerate(values, 1):
                 cell = ws.cell(row=r, column=c, value=v)
                 cell.alignment = left if c in (2, 3) else center
                 cell.border = border
+
             r += 1
             idx += 1
 
-        ws.freeze_panes = "A6"
+        ws.freeze_panes = "A7"
 
         if r > start_row + 1:
             tab = Table(displayName="TabInventario", ref=f"A{start_row}:F{r-1}")
@@ -4124,28 +4140,29 @@ def report_inventario_excel():
             )
             ws.add_table(tab)
 
-        # Larghezze colonne stile “allegato”
+        # larghezze colonne
         ws.column_dimensions["A"].width = 8
         ws.column_dimensions["B"].width = 24
         ws.column_dimensions["C"].width = 55
-        ws.column_dimensions["D"].width = 14
-        ws.column_dimensions["E"].width = 14
-        ws.column_dimensions["F"].width = 14
+        ws.column_dimensions["D"].width = 20
+        ws.column_dimensions["E"].width = 20
+        ws.column_dimensions["F"].width = 20
 
         bio = io.BytesIO()
         wb.save(bio)
         bio.seek(0)
 
         filename = f"Inventario_{cliente_rif.replace(' ', '_')}_{oggi_str}.xlsx"
+
         return send_file(
             bio,
             as_attachment=True,
             download_name=filename,
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
     finally:
         db.close()
-
 
 # =========================
 # IMPORT EXCEL (con log)
