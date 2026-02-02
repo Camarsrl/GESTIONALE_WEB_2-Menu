@@ -6893,14 +6893,13 @@ def _parse_data_db_helper(val):
     return None
 
 # --- LOGICA CALCOLO COSTI (ROBUSTA) ---
-
-def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento,
-                          m2_multiplier: float = 1.0,
-                          metric: str = "m2"):
+def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento, m2_multiplier: float = 1.0, metric: str = "m2"):
     """
     metric:
-      - "m2"    => calcola per M2 (come ora)
-      - "colli" => calcola per numero colli (per Galvano Tecnica)
+      - "m2"    => usa art.m2
+      - "colli" => usa art.n_colli
+      - "pezzi" => usa art.pezzi / art.pezzo
+    Ritorna SEMPRE anche m2_tot/m2_medio per compatibilità template.
     """
     from collections import defaultdict
     from datetime import timedelta, date, datetime
@@ -6914,13 +6913,13 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento,
             return d.date()
         if isinstance(d, date):
             return d
-        s = str(d).strip().split(' ')[0]
+        s = str(d).strip().split(" ")[0]
         if len(s) < 8 or not s[0].isdigit():
             return None
         for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
             try:
                 return datetime.strptime(s, fmt).date()
-            except Exception:
+            except:
                 pass
         return None
 
@@ -6931,36 +6930,55 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento,
 
     metric = (metric or "m2").strip().lower()
 
-    for art in articoli:
-        # --- valore da sommare per giorno ---
+    def get_qty(art):
+        # ✅ M2
+        if metric == "m2":
+            try:
+                val_m2 = str(getattr(art, "m2", "") or "").replace(",", ".")
+                m2 = float(val_m2) if val_m2 else 0.0
+            except:
+                m2 = 0.0
+            if m2 <= 0:
+                return 0.0
+
+            # Area manovra (solo se metric == m2)
+            try:
+                m2 = m2 * float(m2_multiplier or 1.0)
+            except:
+                pass
+
+            return float(m2)
+
+        # ✅ COLLI
         if metric == "colli":
             try:
-                val = float(int(art.n_colli or 0))
-            except Exception:
-                val = 0.0
-        else:
-            # default M2
+                return float(int(getattr(art, "n_colli", 0) or 0))
+            except:
+                return 0.0
+
+        # ✅ PEZZI
+        if metric == "pezzi":
+            raw = getattr(art, "pezzi", None)
+            if raw is None:
+                raw = getattr(art, "pezzo", None)
             try:
-                val_m2 = str(art.m2).replace(',', '.')
-                val = float(val_m2) if art.m2 else 0.0
-            except Exception:
-                val = 0.0
+                return float(int(raw or 0))
+            except:
+                return 0.0
 
-            if val > 0:
-                # Area Manovra applicata SOLO ai m2
-                try:
-                    val = val * float(m2_multiplier or 1.0)
-                except Exception:
-                    pass
+        # fallback
+        return 0.0
 
-        if val <= 0:
+    for art in articoli:
+        qty = get_qty(art)
+        if qty <= 0:
             continue
 
-        d_ingr = to_date_obj(art.data_ingresso)
+        d_ingr = to_date_obj(getattr(art, "data_ingresso", None))
         if not d_ingr:
             continue
 
-        d_usc = to_date_obj(art.data_uscita)
+        d_usc = to_date_obj(getattr(art, "data_uscita", None))
 
         inizio = max(d_ingr, d_start)
         if d_usc:
@@ -6971,47 +6989,56 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento,
         if fine < inizio:
             continue
 
-        curr = inizio
-        cliente_key = (art.cliente or "SCONOSCIUTO").strip().upper()
+        cliente_key = (getattr(art, "cliente", None) or "SCONOSCIUTO").strip().upper()
 
+        curr = inizio
         while curr <= fine:
-            val_per_giorno[(cliente_key, curr)] += val
+            val_per_giorno[(cliente_key, curr)] += qty
             curr += timedelta(days=1)
 
     risultati_finali = []
 
-    if raggruppamento == 'giorno':
+    def pack_row(periodo, cliente, tot, medio, giorni):
+        # ✅ compatibilità: restituisco SEMPRE anche m2_tot/m2_medio
+        # così il template admin che stampa r.m2_tot / r.m2_medio funziona sempre.
+        tot_s = f"{tot:.3f}" if isinstance(tot, (int, float)) else str(tot)
+        med_s = f"{medio:.3f}" if isinstance(medio, (int, float)) else str(medio)
+
+        return {
+            "periodo": periodo,
+            "cliente": cliente,
+            # chiavi nuove "neutre"
+            "tot": tot_s,
+            "medio": med_s,
+            "giorni": giorni,
+            # chiavi legacy del template
+            "m2_tot": tot_s,
+            "m2_medio": med_s,
+        }
+
+    if raggruppamento == "giorno":
         sorted_keys = sorted(val_per_giorno.keys(), key=lambda k: (k[0], k[1]))
         for cliente, giorno in sorted_keys:
-            v = val_per_giorno[(cliente, giorno)]
-            risultati_finali.append({
-                'periodo': giorno.strftime("%d/%m/%Y"),
-                'cliente': cliente,
-                'tot': f"{v:.3f}" if metric != "colli" else f"{v:.0f}",
-                'medio': f"{v:.3f}" if metric != "colli" else f"{v:.0f}",
-                'giorni': 1
-            })
+            val = val_per_giorno[(cliente, giorno)]
+            risultati_finali.append(
+                pack_row(giorno.strftime("%d/%m/%Y"), cliente, val, val, 1)
+            )
     else:
-        agg = defaultdict(lambda: {'sum': 0.0, 'days': set()})
-        for (cli, day), v in val_per_giorno.items():
+        agg = defaultdict(lambda: {"sum": 0.0, "days": set()})
+        for (cli, day), val in val_per_giorno.items():
             k = (cli, day.year, day.month)
-            agg[k]['sum'] += v
-            agg[k]['days'].add(day)
+            agg[k]["sum"] += val
+            agg[k]["days"].add(day)
 
         sorted_keys = sorted(agg.keys(), key=lambda k: (k[1], k[2], k[0]))
         for (cli, y, m) in sorted_keys:
             dati = agg[(cli, y, m)]
-            n_days = len(dati['days'])
-            tot = dati['sum']
-            avg = tot / n_days if n_days > 0 else 0
-
-            risultati_finali.append({
-                'periodo': f"{m:02d}/{y}",
-                'cliente': cli,
-                'tot': f"{tot:.3f}" if metric != "colli" else f"{tot:.0f}",
-                'medio': f"{avg:.3f}" if metric != "colli" else f"{avg:.0f}",
-                'giorni': n_days
-            })
+            n_days = len(dati["days"])
+            tot = dati["sum"]
+            avg = tot / n_days if n_days > 0 else 0.0
+            risultati_finali.append(
+                pack_row(f"{m:02d}/{y}", cli, tot, avg, n_days)
+            )
 
     return risultati_finali
 
