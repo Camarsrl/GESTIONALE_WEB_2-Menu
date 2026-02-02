@@ -556,7 +556,7 @@ DEFAULT_USERS = {
     'DE WAVE': 'Struppa01', 'FINCANTIERI': 'Struppa02', 'FINCANTIERI SCOPERTO': 'Struppa12',
     'FINCANTIERI ELETTRICO': 'Struppa13','RF-DE WAVE': 'Struppa03',
     'SGDP': 'Struppa04', 'WINGECO': 'Struppa05', 'AMICO': 'Struppa06', 'DUFERCO': 'Struppa07',
-    'SCORZA': 'Struppa08', 'MARINE INTERIORS': 'Struppa09', 'GALLVANO TECNICA': 'Struppa10', 'DE WAVE SAMA': 'Struppa11','OPS': '271214',
+    'SCORZA': 'Struppa08', 'MARINE INTERIORS': 'Struppa09', 'GALVANO TECNICA': 'Struppa10', 'DE WAVE SAMA': 'Struppa11','OPS': '271214',
     'CUSTOMS': 'Balleydier01', 'TAZIO': 'Balleydier02', 'DIEGO': 'Balleydier03', 'ADMIN': 'admin123'
 }
 ADMIN_USERS = {'ADMIN', 'OPS', 'CUSTOMS', 'TAZIO', 'DIEGO'}
