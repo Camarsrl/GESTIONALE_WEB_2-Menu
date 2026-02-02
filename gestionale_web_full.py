@@ -992,7 +992,7 @@ REPORT_INVENTARIO_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Inventario al {{ data_rif }}</title>
+  <title>Inventario Totale - {{ data_rif }}</title>
   <meta charset="utf-8">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
@@ -1000,19 +1000,22 @@ REPORT_INVENTARIO_HTML = """
       .pagebreak { page-break-after: always; }
     }
     table { font-size: 12px; }
-    h1 { font-size: 28px; margin-bottom: 10px; }
+    h1 { font-size: 26px; margin-bottom: 10px; }
     h3 { font-size: 18px; }
   </style>
 </head>
 
 <body onload="window.print()">
   <div class="container mt-4">
-    <h1 class="text-center">Inventario al {{ data_rif }}</h1>
+    <h1 class="text-center">Inventario Totale (Giacenza Attuale)</h1>
+    <div class="text-center text-muted" style="margin-top:-6px;">
+      Generato il {{ data_rif }}
+    </div>
     <hr>
 
     {% if not inventario or inventario|length == 0 %}
       <div class="alert alert-warning">
-        Nessun articolo presente in giacenza per la data selezionata.
+        Nessun articolo presente in giacenza.
       </div>
     {% endif %}
 
@@ -1052,6 +1055,7 @@ REPORT_INVENTARIO_HTML = """
 </body>
 </html>
 """
+
 REPORT_TRASPORTI_HTML = """
 <!DOCTYPE html>
 <html>
