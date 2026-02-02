@@ -2021,11 +2021,19 @@ DDT_PREVIEW_HTML = """
             <div class="col-md-3">
                 <label class="form-label">N. DDT</label>
                 <div class="input-group">
-                    <input name="n_ddt" id="n_ddt_input" class="form-control" value="{{ n_ddt }}">
-                    <button class="btn btn-outline-secondary" type="button" id="get-next-ddt" title="Nuovo Numero">
-                        <i class="bi bi-arrow-clockwise"></i>
+                    <!-- ✅ PREV -->
+                    <button class="btn btn-outline-secondary" type="button" id="get-prev-ddt" title="Numero precedente">
+                        <i class="bi bi-arrow-left"></i>
+                    </button>
+
+                    <input name="n_ddt" id="n_ddt_input" class="form-control text-center" value="{{ n_ddt }}">
+
+                    <!-- ✅ NEXT -->
+                    <button class="btn btn-outline-secondary" type="button" id="get-next-ddt" title="Numero successivo">
+                        <i class="bi bi-arrow-right"></i>
                     </button>
                 </div>
+                <div class="form-text">Usa ⬅️/➡️ per cambiare progressivo. Il numero viene salvato.</div>
             </div>
 
             <div class="col-md-2">
@@ -2111,10 +2119,22 @@ DDT_PREVIEW_HTML = """
 
 {% block extra_js %}
 <script>
+const nDdtInput = document.getElementById('n_ddt_input');
+
 document.getElementById('get-next-ddt').addEventListener('click', function() {
     fetch('{{ url_for('get_next_ddt_number') }}')
       .then(r => r.json())
-      .then(d => { document.getElementById('n_ddt_input').value = d.next_ddt; });
+      .then(d => { 
+          if (d.next_ddt) nDdtInput.value = d.next_ddt; 
+      });
+});
+
+document.getElementById('get-prev-ddt').addEventListener('click', function() {
+    fetch('{{ url_for('get_prev_ddt_number') }}')
+      .then(r => r.json())
+      .then(d => { 
+          if (d.prev_ddt) nDdtInput.value = d.prev_ddt; 
+      });
 });
 
 function submitDdt(actionType) {
