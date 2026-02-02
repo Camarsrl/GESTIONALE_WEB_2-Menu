@@ -1002,12 +1002,13 @@ REPORT_INVENTARIO_HTML = """
     table { font-size: 12px; }
     h1 { font-size: 26px; margin-bottom: 10px; }
     h3 { font-size: 18px; }
+    .thead-custom th { background: #d9e1f2 !important; }
   </style>
 </head>
 
 <body onload="window.print()">
   <div class="container mt-4">
-    <h1 class="text-center">Inventario Totale (Giacenza Attuale)</h1>
+    <h1 class="text-center">Inventario Totale</h1>
     <div class="text-center text-muted" style="margin-top:-6px;">
       Generato il {{ data_rif }}
     </div>
@@ -1015,35 +1016,33 @@ REPORT_INVENTARIO_HTML = """
 
     {% if not inventario or inventario|length == 0 %}
       <div class="alert alert-warning">
-        Nessun articolo presente in giacenza.
+        Nessun articolo trovato.
       </div>
     {% endif %}
 
-    {% for cliente, articoli in inventario.items() %}
+    {% for cliente, righe in inventario.items() %}
       <h3 class="mt-4 bg-light p-2">{{ cliente }}</h3>
 
       <table class="table table-sm table-bordered">
-        <thead>
+        <thead class="thead-custom">
           <tr>
-            <th>Codice</th>
-            <th>Descrizione</th>
-            <th>Lotto</th>
-            <th>Colli</th>
-            <th>Posizione</th>
-            <th>Data Ing.</th>
-            <th>N. Arrivo</th>
+            <th style="width:60px;">ID</th>
+            <th style="width:220px;">CODICE ARTICOLO</th>
+            <th>DESCRIZIONE</th>
+            <th class="text-center" style="width:130px;">Q.TA ENTRATA</th>
+            <th class="text-center" style="width:130px;">Q.TA USCITA</th>
+            <th class="text-center" style="width:130px;">RIMANENZA</th>
           </tr>
         </thead>
         <tbody>
-          {% for art in articoli %}
+          {% for r in righe %}
           <tr>
-            <td>{{ art.codice_articolo or '' }}</td>
-            <td>{{ art.descrizione or '' }}</td>
-            <td>{{ art.lotto or '' }}</td>
-            <td>{{ art.n_colli or '' }}</td>
-            <td>{{ art.posizione or '' }}</td>
-            <td>{{ art.data_ingresso or '' }}</td>
-            <td>{{ art.n_arrivo or '' }}</td>
+            <td class="text-center">{{ r.idx }}</td>
+            <td>{{ r.codice }}</td>
+            <td>{{ r.descrizione }}</td>
+            <td class="text-center">{{ r.entrata }}</td>
+            <td class="text-center">{{ r.uscita }}</td>
+            <td class="text-center">{{ r.rimanenza }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -1055,6 +1054,7 @@ REPORT_INVENTARIO_HTML = """
 </body>
 </html>
 """
+
 
 REPORT_TRASPORTI_HTML = """
 <!DOCTYPE html>
