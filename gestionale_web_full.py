@@ -1977,7 +1977,7 @@ DDT_PREVIEW_HTML = """
 {% block content %}
 <div class="card p-3">
 
-    <!-- ✅ HEADER con più spazio, logo più grande -->
+    <!-- ✅ HEADER -->
     <div class="d-flex align-items-center gap-3 mb-4" style="padding-bottom:10px;">
         {% if logo_url %}
             <img src="{{ logo_url }}" style="height:70px; margin-bottom:10px;">
@@ -2009,12 +2009,14 @@ DDT_PREVIEW_HTML = """
             <div class="col-md-4">
                 <label class="form-label">Destinatario</label>
                 <div class="input-group">
-                    <select class="form-select" name="dest_key">
+                    <select class="form-select" name="dest_key" required>
                         {% for k, v in destinatari.items() %}
                         <option value="{{ k }}">{{ k }} - {{ v.ragione_sociale }}</option>
                         {% endfor %}
                     </select>
-                    <a href="{{ url_for('manage_destinatari') }}" class="btn btn-outline-secondary" target="_blank"><i class="bi bi-pencil"></i></a>
+                    <a href="{{ url_for('manage_destinatari') }}" class="btn btn-outline-secondary" target="_blank">
+                        <i class="bi bi-pencil"></i>
+                    </a>
                 </div>
             </div>
 
@@ -2026,19 +2028,19 @@ DDT_PREVIEW_HTML = """
                         <i class="bi bi-arrow-left"></i>
                     </button>
 
-                    <input name="n_ddt" id="n_ddt_input" class="form-control text-center" value="{{ n_ddt }}">
+                    <input name="n_ddt" id="n_ddt_input" class="form-control text-center" value="{{ n_ddt }}" required>
 
                     <!-- ✅ NEXT -->
                     <button class="btn btn-outline-secondary" type="button" id="get-next-ddt" title="Numero successivo">
                         <i class="bi bi-arrow-right"></i>
                     </button>
                 </div>
-                <div class="form-text">Usa ⬅️/➡️ per cambiare progressivo. Il numero viene salvato.</div>
+                <div class="form-text">Usa ⬅️/➡️ per cambiare progressivo.</div>
             </div>
 
             <div class="col-md-2">
                 <label class="form-label">Data DDT</label>
-                <input name="data_ddt" type="date" class="form-control" value="{{ oggi }}">
+                <input name="data_ddt" type="date" class="form-control" value="{{ oggi }}" required>
             </div>
 
             <div class="col-md-3">
@@ -2061,7 +2063,7 @@ DDT_PREVIEW_HTML = """
                 <input name="aspetto" class="form-control" value="A VISTA">
             </div>
 
-            <!-- ✅ MEZZO IN USCITA (colonna DB: mezzi_in_uscita) -->
+            <!-- ✅ MEZZO IN USCITA -->
             <div class="col-md-4">
                 <label class="form-label">Mezzo in uscita *</label>
                 <select name="mezzi_in_uscita" id="mezzi_in_uscita" class="form-select">
@@ -2122,18 +2124,19 @@ DDT_PREVIEW_HTML = """
 const nDdtInput = document.getElementById('n_ddt_input');
 
 document.getElementById('get-next-ddt').addEventListener('click', function() {
-    fetch('{{ url_for('get_next_ddt_number') }}')
+    fetch('{{ url_for("get_next_ddt_number") }}')
       .then(r => r.json())
-      .then(d => { 
-          if (d.next_ddt) nDdtInput.value = d.next_ddt; 
+      .then(d => {
+          if (d.next_ddt) nDdtInput.value = d.next_ddt;
       });
 });
 
 document.getElementById('get-prev-ddt').addEventListener('click', function() {
-    fetch('{{ url_for('get_prev_ddt_number') }}')
+    const current = (nDdtInput.value || '').trim();
+    fetch('{{ url_for("get_prev_ddt_number") }}?current=' + encodeURIComponent(current))
       .then(r => r.json())
-      .then(d => { 
-          if (d.prev_ddt) nDdtInput.value = d.prev_ddt; 
+      .then(d => {
+          if (d.prev_ddt) nDdtInput.value = d.prev_ddt;
       });
 });
 
@@ -2180,6 +2183,7 @@ function submitDdt(actionType) {
 </script>
 {% endblock %}
 """
+
 
 
 DDT_MEZZO_USCITA_HTML = """
