@@ -3990,7 +3990,7 @@ def report_inventario_excel():
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.worksheet.table import Table, TableStyleInfo
     import io
-    from datetime import datetime
+    from datetime import datetime, date
     from collections import defaultdict
 
     # ✅ Client forzato sul proprio utente; Admin può scegliere cliente dal form
@@ -4002,7 +4002,34 @@ def report_inventario_excel():
     if not cliente_rif:
         return "Cliente mancante", 400
 
-    # ✅ SOLO GALVANO TECNICA USA PEZZI
+    # ✅ Data inventario FACOLTATIVA:
+    # - se vuota => oggi
+    # - se compilata => usa quella data come limite
+    data_rif_str = (request.form.get('data_inventario') or '').strip()
+
+    def parse_d(v):
+        if not v:
+            return None
+        if isinstance(v, datetime):
+            return v.date()
+        if isinstance(v, date):
+            return v
+        s = str(v).strip().split(' ')[0][:10]
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except Exception:
+                pass
+        return None
+
+    if data_rif_str:
+        d_limit = parse_d(data_rif_str)
+        if not d_limit:
+            return "Formato data inventario non valido", 400
+    else:
+        d_limit = date.today()
+
+    # ✅ SOLO GALVANO TECNICA USA PEZZI (al posto dei colli)
     usa_pezzi = (cliente_rif.strip().upper() == "GALVANO TECNICA")
 
     db = SessionLocal()
@@ -4042,12 +4069,16 @@ def report_inventario_excel():
             if descr and not agg[codice]["descrizione"]:
                 agg[codice]["descrizione"] = descr
 
-            # Entrata se ha data_ingresso
-            if getattr(art, "data_ingresso", None):
+            d_ing = parse_d(getattr(art, "data_ingresso", None))
+            d_usc = parse_d(getattr(art, "data_uscita", None))
+
+            # ✅ Logica inventario "al d_limit":
+            # - Conta ENTRATA solo se ingresso <= d_limit
+            # - Conta USCITA solo se uscita <= d_limit
+            if d_ing and d_ing <= d_limit:
                 agg[codice]["entrata"] += qty
 
-            # Uscita se ha data_uscita
-            if getattr(art, "data_uscita", None):
+            if d_usc and d_usc <= d_limit:
                 agg[codice]["uscita"] += qty
 
         # ✅ righe finali
@@ -4056,6 +4087,10 @@ def report_inventario_excel():
             entrata = agg[codice]["entrata"]
             uscita = agg[codice]["uscita"]
             rimanenza = entrata - uscita
+
+            # Se vuoi escludere righe a zero totale, lascia questo:
+            if entrata == 0 and uscita == 0 and rimanenza == 0:
+                continue
 
             righe.append({
                 "codice": codice,
@@ -4080,18 +4115,20 @@ def report_inventario_excel():
         border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
         oggi_str = datetime.now().strftime("%Y-%m-%d")
-
+        data_limite_str = d_limit.strftime("%Y-%m-%d")
         tipo = "PEZZI" if usa_pezzi else "COLLI"
 
         ws["A1"] = "ELENCO ARTICOLI"
         ws["A2"] = f"Cliente: {cliente_rif}"
         ws["A3"] = f"Inventario basato su: {tipo}"
-        ws["A4"] = f"Generato il: {oggi_str}"
+        ws["A4"] = f"Inventario al: {data_limite_str}"
+        ws["A5"] = f"Generato il: {oggi_str}"
 
         ws["A1"].font = Font(bold=True, size=14)
         ws["A2"].font = bold
         ws["A3"].font = bold
         ws["A4"].font = bold
+        ws["A5"].font = bold
 
         headers = [
             "ID",
@@ -4102,7 +4139,7 @@ def report_inventario_excel():
             f"RIMANENZA ({tipo})"
         ]
 
-        start_row = 6
+        start_row = 7
         for c, h in enumerate(headers, 1):
             cell = ws.cell(row=start_row, column=c, value=h)
             cell.font = bold
@@ -4130,7 +4167,7 @@ def report_inventario_excel():
             r += 1
             idx += 1
 
-        ws.freeze_panes = "A7"
+        ws.freeze_panes = "A9"
 
         if r > start_row + 1:
             tab = Table(displayName="TabInventario", ref=f"A{start_row}:F{r-1}")
@@ -4144,15 +4181,15 @@ def report_inventario_excel():
         ws.column_dimensions["A"].width = 8
         ws.column_dimensions["B"].width = 24
         ws.column_dimensions["C"].width = 55
-        ws.column_dimensions["D"].width = 20
-        ws.column_dimensions["E"].width = 20
-        ws.column_dimensions["F"].width = 20
+        ws.column_dimensions["D"].width = 22
+        ws.column_dimensions["E"].width = 22
+        ws.column_dimensions["F"].width = 22
 
         bio = io.BytesIO()
         wb.save(bio)
         bio.seek(0)
 
-        filename = f"Inventario_{cliente_rif.replace(' ', '_')}_{oggi_str}.xlsx"
+        filename = f"Inventario_{cliente_rif.replace(' ', '_')}_{data_limite_str}.xlsx"
 
         return send_file(
             bio,
