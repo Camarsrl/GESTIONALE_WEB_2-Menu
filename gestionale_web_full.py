@@ -5908,24 +5908,81 @@ def buono_preview():
     finally:
         db.close()
 
+from datetime import date
+from flask import request, redirect, url_for, flash, jsonify, render_template
+from flask_login import login_required
+
 @app.post('/ddt/preview')
 @login_required
 def ddt_preview():
-
     if session.get('role') != 'admin':
         flash('Accesso negato.', 'danger')
         return redirect(url_for('giacenze'))
-    ids_str_list = request.form.getlist('ids')
-    ids = [int(i) for i in ids_str_list if i.isdigit()]
+
+    # ⚠️ ids può arrivare in due modi:
+    # - lista di checkbox: ids=1 ids=2 ids=3
+    # - stringa csv in un campo hidden: ids="1,2,3"
+    ids = []
+
+    ids_list = request.form.getlist('ids')
+    if ids_list:
+        # caso checkbox
+        for i in ids_list:
+            if str(i).isdigit():
+                ids.append(int(i))
+    else:
+        # caso hidden "1,2,3"
+        ids_csv = (request.form.get('ids') or '').strip()
+        if ids_csv:
+            for part in ids_csv.split(','):
+                part = part.strip()
+                if part.isdigit():
+                    ids.append(int(part))
+
+    if not ids:
+        flash("Seleziona almeno un articolo per creare il DDT.", "warning")
+        return redirect(url_for('giacenze'))
+
     rows = _get_rows_from_ids(ids)
-    return render_template('ddt_preview.html',
-                           rows=rows, ids=",".join(map(str, ids)), destinatari=load_destinatari(),
-                           n_ddt=next_ddt_number(), oggi=date.today().isoformat())
+
+    return render_template(
+        'ddt_preview.html',
+        rows=rows,
+        ids=",".join(map(str, ids)),
+        destinatari=load_destinatari(),
+        n_ddt=next_ddt_number(),
+        oggi=date.today().isoformat()
+    )
+
 
 @app.get('/next_ddt_number')
 @login_required
 def get_next_ddt_number():
+    # ritorna il prossimo progressivo
     return jsonify({'next_ddt': next_ddt_number()})
+
+
+@app.get('/prev_ddt_number')
+@login_required
+def get_prev_ddt_number():
+    """
+    Restituisce il numero precedente rispetto a quello attualmente scritto nel campo.
+    Se non arriva un numero valido, usa next_ddt_number() come base.
+    """
+    current = (request.args.get('current') or '').strip()
+
+    try:
+        cur_int = int(current)
+    except Exception:
+        # se current non valido, partiamo dal next attuale
+        try:
+            cur_int = int(next_ddt_number())
+        except Exception:
+            cur_int = 1
+
+    prev_int = max(1, cur_int - 1)
+    return jsonify({'prev_ddt': str(prev_int)})
+
 
 @app.route('/manage_destinatari', methods=['GET', 'POST'])
 @login_required
