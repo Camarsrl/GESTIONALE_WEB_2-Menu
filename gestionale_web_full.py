@@ -672,47 +672,169 @@ def load_user(user_id):
 
 
 # --- HELPER ESTRAZIONE PDF (Necessario per Import PDF) ---
+
 def extract_data_from_ddt_pdf(path):
     import pdfplumber
+    import re
+    from datetime import date
+
+    def _to_float_it(s):
+        s = (s or "").strip()
+        if not s:
+            return None
+        s = s.replace(".", "").replace(",", ".")
+        try:
+            return float(s)
+        except:
+            return None
+
+    def _to_int(s):
+        try:
+            return int(str(s).strip())
+        except:
+            return None
+
+    meta = {
+        "cliente": "",
+        "fornitore": "",
+        "commessa": "",
+        "n_ddt": "",
+        "data_ingresso": date.today().strftime("%Y-%m-%d"),
+    }
     extracted_rows = []
-    meta = {'cliente': '', 'commessa': '', 'n_ddt': '', 'data_ingresso': date.today().strftime("%Y-%m-%d"), 'fornitore': ''}
-    
-    try:
-        with pdfplumber.open(path) as pdf:
-            full_text = ""
-            for page in pdf.pages:
-                text = page.extract_text() or ""
-                full_text += text + "\n"
-                lines = text.split('\n')
-                for line in lines:
-                    parts = line.strip().split()
-                    if len(parts) < 2: continue
-                    
-                    qty = 1
-                    desc = line.strip()
-                    code = ""
-                    found_q = False
-                    
-                    # Cerca quantità (numeri isolati piccoli)
-                    for i, p in enumerate(parts):
-                        if p.isdigit() and len(p) < 4:
-                            qty = int(p)
-                            desc = line.replace(p, "", 1).strip()
-                            found_q = True
-                            break
-                    
-                    # Cerca codice (parola lunga all'inizio)
-                    if len(parts[0]) > 3 and not parts[0].isdigit():
-                        code = parts[0]
-                        desc = desc.replace(code, "", 1).strip()
-                    
-                    if found_q or code:
-                        extracted_rows.append({'codice': code, 'descrizione': desc, 'qta': qty})
-    except Exception as e:
-        print(f"Errore lettura PDF: {e}")
-        
-    return meta, extracted_rows
-    
+
+    with pdfplumber.open(path) as pdf:
+        full_text = ""
+        for page in pdf.pages:
+            txt = page.extract_text() or ""
+            full_text += txt + "\n"
+
+    # -----------------------
+    # META (testata)
+    # -----------------------
+
+    # Cliente: prende la prima riga utile dopo "Destinatario merci"
+    m = re.search(r"Destinatario\s+merci\s*\n([^\n]+)", full_text, flags=re.IGNORECASE)
+    if m:
+        meta["cliente"] = m.group(1).strip()
+
+    # Fornitore: prova "Merce di proprieta di" + riga sotto, altrimenti prima ragione sociale in alto
+    m = re.search(r"Merce\s+di\s+propriet[aà]\s+di\s*\n([^\n]+)", full_text, flags=re.IGNORECASE)
+    if m:
+        meta["fornitore"] = m.group(1).strip()
+    else:
+        # fallback: prima riga "tipo ragione sociale" (molto conservativo)
+        top_lines = [l.strip() for l in full_text.splitlines() if l.strip()]
+        if top_lines:
+            meta["fornitore"] = top_lines[0][:80]
+
+    # Numero Bolla / DDT
+    m = re.search(r"Numero\s+Bolla\s+([A-Z0-9\/\-]+)", full_text, flags=re.IGNORECASE)
+    if m:
+        meta["n_ddt"] = m.group(1).strip()
+    else:
+        # fallback: cerca pattern tipo AT260209
+        m2 = re.search(r"\b[A-Z]{1,3}\d{4,10}\b", full_text)
+        if m2:
+            meta["n_ddt"] = m2.group(0).strip()
+
+    # Data Bolla -> data_ingresso
+    m = re.search(r"Data\s+Bolla\s+(\d{2}\/\d{2}\/\d{4})", full_text, flags=re.IGNORECASE)
+    if m:
+        ddmmyyyy = m.group(1).strip()
+        # converte in YYYY-MM-DD
+        try:
+            d, mth, y = ddmmyyyy.split("/")
+            meta["data_ingresso"] = f"{y}-{mth}-{d}"
+        except:
+            pass
+
+    # Commessa / riferimenti (se presenti)
+    # qui puoi aggiungere regole specifiche quando vuoi
+
+    # -----------------------
+    # RIGHE ARTICOLI
+    # -----------------------
+    # Pattern codice: molto tollerante ma evita di prendere parole normali
+    code_re = re.compile(r"\b[0-9A-Z]{3,}(?:[-\/][0-9A-Z]{2,}){1,}\b")
+
+    lines = [l.strip() for l in full_text.splitlines() if l.strip()]
+
+    for line in lines:
+        # cerca un codice all'inizio riga (o comunque presente)
+        code_m = code_re.search(line)
+        if not code_m:
+            continue
+
+        codice = code_m.group(0).strip()
+
+        # euristica: righe "Lotto ..." non sono righe articolo principali
+        if line.lower().startswith("lotto"):
+            continue
+
+        # prova a catturare: ... Imballo <TXT> Colli <INT> ... UM <TXT> Qta <NUM>
+        # es: ".... CAN 2 50,00 52,20 KG 50,00"
+        # prendiamo colli = primo intero "piccolo" dopo il codice; qta = ultimo numero con virgola/punto
+        rest = line.replace(codice, "", 1).strip()
+        parts = rest.split()
+
+        colli = None
+        qta = None
+        um = ""
+
+        # qta: ultimo numero nel testo
+        nums = re.findall(r"\d+(?:[.,]\d+)?", line)
+        if nums:
+            qta = _to_float_it(nums[-1])
+
+        # colli: cerca un intero plausibile (1..999) nel mezzo
+        for p in parts:
+            if p.isdigit():
+                v = _to_int(p)
+                if v is not None and 1 <= v <= 999:
+                    colli = v
+                    break
+
+        # UM: prova a prendere token tipo KG/PZ/NR
+        um_m = re.search(r"\b(KG|PZ|NR|N|UN)\b", line, flags=re.IGNORECASE)
+        if um_m:
+            um = um_m.group(1).upper()
+
+        # descrizione: togliamo pezzi “tecnici” (imballo/um/valori) ma restiamo conservativi
+        descrizione = rest
+        # rimuovi imballo comune tipo CAN, PAL, BOX, ecc. (opzionale)
+        descrizione = re.sub(r"\b(CAN|PAL|BOX|CRT|CASS)\b", "", descrizione, flags=re.IGNORECASE).strip()
+        # se colli è presente, togli la prima occorrenza
+        if colli is not None:
+            descrizione = re.sub(rf"\b{colli}\b", "", descrizione, count=1).strip()
+        # se UM trovato, toglilo
+        if um:
+            descrizione = re.sub(rf"\b{um}\b", "", descrizione, flags=re.IGNORECASE).strip()
+
+        extracted_rows.append({
+            "codice": codice,
+            "descrizione": descrizione,
+            "colli": colli if colli is not None else 1,
+            "pezzi": qta if qta is not None else 1,
+            "um": um
+        })
+
+    # de-dup: se stesso codice+descrizione ripetuto identico, somma colli/pezzi
+    merged = {}
+    for r in extracted_rows:
+        key = (r["codice"], r["descrizione"])
+        if key not in merged:
+            merged[key] = r
+        else:
+            merged[key]["colli"] = int(merged[key]["colli"] or 0) + int(r["colli"] or 0)
+            try:
+                merged[key]["pezzi"] = float(merged[key]["pezzi"] or 0) + float(r["pezzi"] or 0)
+            except:
+                pass
+
+    return meta, list(merged.values())
+
+
 def is_blank(v):
     try:
         if pd.isna(v): return True
