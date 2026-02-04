@@ -1919,6 +1919,7 @@ EDIT_HTML = """
 {% endblock %}
 """
 
+
 BULK_EDIT_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -1943,7 +1944,8 @@ BULK_EDIT_HTML = """
         <div class="card p-4 mb-4 bg-light border-dashed shadow-sm">
             <h5 class="text-primary"><i class="bi bi-cloud-upload"></i> Caricamento Allegati Massivo</h5>
             <div class="d-flex gap-2">
-                <input type="file" name="bulk_file" class="form-control" multiple>
+                <!-- ✅ CORRETTO: name="bulk_files" -->
+                <input type="file" name="bulk_files" class="form-control" multiple>
             </div>
             <small class="text-muted">I file selezionati verranno allegati a ciascuno degli articoli.</small>
         </div>
@@ -1963,7 +1965,7 @@ BULK_EDIT_HTML = """
                         </label>
                     </div>
                     <div class="card-body p-2 bg-light rounded-bottom">
-                        
+
                         {% if field_name == 'stato' %}
                             <input list="statoOptions" name="{{ field_name }}" id="in_{{ field_name }}" class="form-control form-control-sm" disabled placeholder="Seleziona...">
                             <datalist id="statoOptions">
@@ -1974,17 +1976,17 @@ BULK_EDIT_HTML = """
                                 <option value="FINCANTIERI SCOPERTO">
                                 <option value="AGGIUNTO A MANO">
                             </datalist>
-                        
+
                         {% elif 'data' in field_name %}
                             <input type="date" name="{{ field_name }}" id="in_{{ field_name }}" class="form-control form-control-sm" disabled>
-                        
-                        {% elif field_name in ['pezzo','n_colli','lunghezza','larghezza','altezza'] %}
+
+                        {% elif field_name in ['pezzo','n_colli','lunghezza','larghezza','altezza','peso'] %}
                             <input type="number" step="0.01" name="{{ field_name }}" id="in_{{ field_name }}" class="form-control form-control-sm" disabled>
 
                         {% else %}
                             <input type="text" name="{{ field_name }}" id="in_{{ field_name }}" class="form-control form-control-sm" disabled>
                         {% endif %}
-                        
+
                     </div>
                 </div>
             </div>
@@ -2000,6 +2002,8 @@ BULK_EDIT_HTML = """
 </div>
 {% endblock %}
 """
+
+
 BUONO_PREVIEW_HTML = """
 {% extends 'base.html' %}
 {% block content %}
