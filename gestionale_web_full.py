@@ -1591,11 +1591,24 @@ GIACENZE_HTML = """
                     <div class="col-md-2"><input name="codice_articolo" class="form-control form-control-sm" placeholder="Codice" value="{{ request.args.get('codice_articolo','') }}"></div>
                     <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial" value="{{ request.args.get('serial_number','') }}"></div>
                     <div class="col-md-2"><input name="ordine" class="form-control form-control-sm" placeholder="Ordine" value="{{ request.args.get('ordine','') }}"></div>
-                    <div class="col-md-2"><input name="lotto" class="form-control form-control-sm" placeholder="Lotto" value="{{ request.args.get('lotto','') }}"></div>
-                    <div class="col-md-2"><input name="commessa" class="form-control form-control-sm" placeholder="Commessa" value="{{ request.args.get('commessa','') }}"></div>
+
+                    <!-- ✅ NUOVO FILTRO: SOLO IN GIACENZA -->
+                    <div class="col-md-2 d-flex align-items-center">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="1" id="solo_giacenza" name="solo_giacenza"
+                                   {% if request.args.get('solo_giacenza') == '1' %}checked{% endif %}>
+                            <label class="form-check-label" for="solo_giacenza">
+                                Solo in giacenza
+                            </label>
+                        </div>
+                    </div>
+
                     <div class="col-md-1"><button type="submit" class="btn btn-primary btn-sm w-100">Cerca</button></div>
                 </div>
+
                 <div class="row g-1 mb-1">
+                    <div class="col-md-2"><input name="lotto" class="form-control form-control-sm" placeholder="Lotto" value="{{ request.args.get('lotto','') }}"></div>
+                    <div class="col-md-2"><input name="commessa" class="form-control form-control-sm" placeholder="Commessa" value="{{ request.args.get('commessa','') }}"></div>
                     <div class="col-md-2"><input name="protocollo" class="form-control form-control-sm" placeholder="Protocollo" value="{{ request.args.get('protocollo','') }}"></div>
                     <div class="col-md-2"><input name="magazzino" class="form-control form-control-sm" placeholder="Magazzino" value="{{ request.args.get('magazzino','') }}"></div>
                     <div class="col-md-2"><input name="descrizione" class="form-control form-control-sm" placeholder="Descrizione" value="{{ request.args.get('descrizione','') }}"></div>
@@ -1604,6 +1617,7 @@ GIACENZE_HTML = """
                     <div class="col-md-2"><input name="mezzi_in_uscita" class="form-control form-control-sm" placeholder="Mezzo Uscita" value="{{ request.args.get('mezzi_in_uscita','') }}"></div>
                     <div class="col-md-2"><input name="stato" class="form-control form-control-sm" placeholder="Stato" value="{{ request.args.get('stato','') }}"></div>
                 </div>
+
                 <div class="row g-1">
                     <div class="col-md-2"><input name="n_ddt_ingresso" class="form-control form-control-sm" placeholder="DDT Ing." value="{{ request.args.get('n_ddt_ingresso','') }}"></div>
                     <div class="col-md-2"><input name="n_ddt_uscita" class="form-control form-control-sm" placeholder="DDT Usc." value="{{ request.args.get('n_ddt_uscita','') }}"></div>
