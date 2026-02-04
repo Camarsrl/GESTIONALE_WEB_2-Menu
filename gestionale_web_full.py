@@ -1345,23 +1345,23 @@ IMPORT_PDF_HTML = """
             <h5 class="mb-3">Dati Testata (Rilevati o da compilare)</h5>
             <div class="col-md-3">
                 <label>Cliente</label>
-                <input name="cliente" class="form-control" value="{{ meta.cliente }}">
+                <input name="cliente" class="form-control" value="{{ meta.cliente or '' }}">
             </div>
             <div class="col-md-3">
                 <label>Fornitore</label>
-                <input name="fornitore" class="form-control" value="{{ meta.fornitore }}">
+                <input name="fornitore" class="form-control" value="{{ meta.fornitore or '' }}">
             </div>
             <div class="col-md-2">
                 <label>Commessa</label>
-                <input name="commessa" class="form-control" value="{{ meta.commessa }}">
+                <input name="commessa" class="form-control" value="{{ meta.commessa or '' }}">
             </div>
             <div class="col-md-2">
                 <label>N. DDT</label>
-                <input name="n_ddt" class="form-control" value="{{ meta.n_ddt }}">
+                <input name="n_ddt" class="form-control" value="{{ meta.n_ddt or '' }}">
             </div>
             <div class="col-md-2">
                 <label>Data Ingresso</label>
-                <input type="date" name="data_ingresso" class="form-control" value="{{ meta.data_ingresso }}">
+                <input type="date" name="data_ingresso" class="form-control" value="{{ meta.data_ingresso or '' }}">
             </div>
         </div>
 
@@ -1369,19 +1369,31 @@ IMPORT_PDF_HTML = """
             <table class="table table-striped table-sm align-middle">
                 <thead class="table-dark">
                     <tr>
-                        <th>Rimuovi</th>
+                        <th style="width:70px">Rimuovi</th>
                         <th>Codice Articolo</th>
                         <th>Descrizione</th>
-                        <th style="width:100px">Q.tà (Colli)</th>
+                        <th style="width:120px">Colli</th>
+                        <th style="width:160px">Pezzi / Q.tà</th>
                     </tr>
                 </thead>
                 <tbody id="rowsBody">
                     {% for r in rows %}
                     <tr>
-                        <td class="text-center"><button type="button" class="btn btn-danger btn-sm py-0" onclick="this.closest('tr').remove()">X</button></td>
-                        <td><input name="codice[]" class="form-control form-control-sm" value="{{ r.codice }}"></td>
-                        <td><input name="descrizione[]" class="form-control form-control-sm" value="{{ r.descrizione }}"></td>
-                        <td><input name="qta[]" type="number" class="form-control form-control-sm" value="{{ r.qta }}"></td>
+                        <td class="text-center">
+                            <button type="button" class="btn btn-danger btn-sm py-0" onclick="this.closest('tr').remove()">X</button>
+                        </td>
+                        <td>
+                            <input name="codice[]" class="form-control form-control-sm" value="{{ r.codice or '' }}">
+                        </td>
+                        <td>
+                            <input name="descrizione[]" class="form-control form-control-sm" value="{{ r.descrizione or '' }}">
+                        </td>
+                        <td>
+                            <input name="colli[]" type="number" min="0" class="form-control form-control-sm" value="{{ r.colli or r.qta or 1 }}">
+                        </td>
+                        <td>
+                            <input name="pezzi[]" type="number" step="0.01" class="form-control form-control-sm" value="{{ r.pezzi or 1 }}">
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -1402,10 +1414,13 @@ IMPORT_PDF_HTML = """
         const tbody = document.getElementById('rowsBody');
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td class="text-center"><button type="button" class="btn btn-danger btn-sm py-0" onclick="this.closest('tr').remove()">X</button></td>
+            <td class="text-center">
+                <button type="button" class="btn btn-danger btn-sm py-0" onclick="this.closest('tr').remove()">X</button>
+            </td>
             <td><input name="codice[]" class="form-control form-control-sm"></td>
             <td><input name="descrizione[]" class="form-control form-control-sm"></td>
-            <td><input name="qta[]" type="number" class="form-control form-control-sm" value="1"></td>
+            <td><input name="colli[]" type="number" min="0" class="form-control form-control-sm" value="1"></td>
+            <td><input name="pezzi[]" type="number" step="0.01" class="form-control form-control-sm" value="1"></td>
         `;
         tbody.appendChild(tr);
     }
@@ -1414,6 +1429,7 @@ IMPORT_PDF_HTML = """
 </div>
 {% endblock %}
 """
+
     
 CALCOLI_HTML = """
 {% extends 'base.html' %}
