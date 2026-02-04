@@ -419,22 +419,52 @@ def _discover_logo_path():
 LOGO_PATH = _discover_logo_path()
 
 # ========================================================
-# 3. CONFIGURAZIONE DATABASE
+# 3. CONFIGURAZIONE DATABASE (Render-safe)
 # ========================================================
-DB_URL = os.environ.get("DATABASE_URL")
+import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, scoped_session, declarative_base
+
+DB_URL = os.environ.get("DATABASE_URL", "").strip()
+
+# ✅ In produzione: MAI fallback silenzioso a sqlite
+IS_RENDER = bool(os.environ.get("RENDER")) or bool(os.environ.get("RENDER_SERVICE_ID"))
+
 if not DB_URL:
+    if IS_RENDER:
+        raise RuntimeError("DATABASE_URL non è impostata su Render! Controlla le Environment Variables del service.")
     DB_URL = f"sqlite:///{APP_DIR / 'magazzino.db'}"
-else:
-    if DB_URL.startswith("postgres://"):
-        DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
+
+# Render a volte usa postgres:// -> SQLAlchemy vuole postgresql://
+if DB_URL.startswith("postgres://"):
+    DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
 
 def _normalize_db_url(u: str) -> str:
-    if u.startswith("mysql://"): u = "mysql+pymysql://" + u[len("mysql://"):]
+    # opzionale: mysql
+    if u.startswith("mysql://"):
+        u = "mysql+pymysql://" + u[len("mysql://"):]
     return u
 
-engine = create_engine(_normalize_db_url(DB_URL), future=True, echo=False)
-SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
+DB_URL = _normalize_db_url(DB_URL)
+
+# ✅ pool_pre_ping evita connessioni "morte" (tipico su hosting)
+engine = create_engine(
+    DB_URL,
+    future=True,
+    echo=False,
+    pool_pre_ping=True
+)
+
+SessionLocal = scoped_session(
+    sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+)
+
 Base = declarative_base()
+
+# ✅ IMPORTANTISSIMO: rimuove la sessione a fine request (evita problemi con più utenti/worker)
+@app.teardown_appcontext
+def remove_scoped_session(exception=None):
+    SessionLocal.remove()
 
 # ========================================================
 # 4. DEFINIZIONE MODELLI
