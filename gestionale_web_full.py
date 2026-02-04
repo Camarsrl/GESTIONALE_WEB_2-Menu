@@ -4561,7 +4561,6 @@ def import_pdf():
 @login_required
 @require_admin
 def save_pdf_import():
-    # PROTEZIONE ADMIN
     if session.get('role') != 'admin':
         return "Accesso Negato", 403
 
@@ -4569,30 +4568,46 @@ def save_pdf_import():
     try:
         codici = request.form.getlist('codice[]')
         descrizioni = request.form.getlist('descrizione[]')
-        qtas = request.form.getlist('qta[]')
-        
+        colli_list = request.form.getlist('colli[]')
+        pezzi_list = request.form.getlist('pezzi[]')
+
         c = 0
         for i in range(len(codici)):
-            if codici[i].strip() or descrizioni[i].strip():
-                art = Articolo()
-                # Cliente: per i client e' bloccato sul proprio utente
-            if session.get('role') == 'client':
-                art.cliente = current_user.id
-            else:
-                art.cliente = request.form.get('cliente')
-                art.commessa = request.form.get('commessa')
-                art.n_ddt_ingresso = request.form.get('n_ddt')
-                art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
-                art.fornitore = request.form.get('fornitore')
-                art.stato = "DOGANALE"
-                art.codice_articolo = codici[i]
-                art.descrizione = descrizioni[i]
-                art.n_colli = to_int_eu(qtas[i])
-                db.add(art); c += 1
+            codice = (codici[i] or "").strip()
+            descr = (descrizioni[i] or "").strip()
+            if not codice and not descr:
+                continue
+
+            art = Articolo()
+
+            # testata
+            art.cliente = request.form.get('cliente')
+            art.fornitore = request.form.get('fornitore')
+            art.commessa = request.form.get('commessa')
+            art.n_ddt_ingresso = request.form.get('n_ddt')
+            art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
+            art.stato = "DOGANALE"
+
+            # riga
+            art.codice_articolo = codice
+            art.descrizione = descr
+            art.n_colli = to_int_eu(colli_list[i] if i < len(colli_list) else 1)
+            # pezzo è String nel modello, ma in UI lo vuoi numerico: salviamo come stringa “pulita”
+            pz = pezzi_list[i] if i < len(pezzi_list) else ""
+            art.pezzo = str(pz).strip()
+
+            db.add(art)
+            c += 1
+
         db.commit()
         flash(f"Importati {c} articoli.", "success")
         return redirect(url_for('giacenze'))
-    finally: db.close()
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore import PDF: {e}", "danger")
+        return redirect(url_for('import_pdf'))
+    finally:
+        db.close()
 
 
 
