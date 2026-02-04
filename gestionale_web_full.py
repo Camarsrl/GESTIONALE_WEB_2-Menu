@@ -5819,7 +5819,7 @@ def bulk_edit():
 
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
 
-        # ✅ Configurazione Campi Modificabili (CORRETTA)
+        # Configurazione Campi Modificabili
         editable_fields = [
             ('Cliente', 'cliente'),
             ('Fornitore', 'fornitore'),
@@ -5833,8 +5833,6 @@ def bulk_edit():
             ('Commessa', 'commessa'),
             ('Mezzo Uscita', 'mezzi_in_uscita'),
             ('N. Arrivo', 'n_arrivo'),
-            
-            # ✅ FIX: era ('Peso','Peso')
             ('Peso', 'peso'),
             ('Lotto', 'lotto'),
             ('Ordine', 'ordine'),
@@ -5860,7 +5858,7 @@ def bulk_edit():
 
                 field_name = key.replace('chk_', '').strip()
 
-                # accetta SOLO campi presenti nella lista editable_fields
+                # Accetta SOLO campi presenti nella lista editable_fields
                 if not any(f[1] == field_name for f in editable_fields):
                     continue
 
@@ -5869,12 +5867,10 @@ def bulk_edit():
                 if field_name in ['n_colli', 'pezzo']:
                     val = to_int_eu(val)
                 elif field_name in ['lunghezza', 'larghezza', 'altezza', 'peso']:
-                    # ✅ peso è numerico
                     val = to_float_eu(val)
                 elif 'data' in field_name:
                     val = parse_date_ui(val) if val else None
                 else:
-                    # stringhe pulite (descrizione ecc.)
                     val = (val or "").strip()
 
                 updates[field_name] = val
@@ -5896,7 +5892,7 @@ def bulk_edit():
                         C = updates.get('n_colli', art.n_colli)
                         art.m2, art.m3 = calc_m2_m3(L, W, H, C)
 
-            # 2) UPLOAD MASSIVO MULTIPLO (più file)
+            # 2) UPLOAD MASSIVO MULTIPLO (più file) ✅ CORRETTO
             files = request.files.getlist('bulk_files')
             count_uploaded = 0
 
@@ -5908,8 +5904,9 @@ def bulk_edit():
                         continue
 
                     raw_name = secure_filename(file.filename)
-                    content = file.read()  # leggo UNA volta
 
+                    # Legge UNA volta (poi lo duplica su ogni articolo)
+                    content = file.read()
                     if not content:
                         continue
 
@@ -5959,7 +5956,6 @@ def bulk_edit():
         return redirect(url_for('giacenze'))
     finally:
         db.close()
-
 
 
 @app.post('/delete_rows')
