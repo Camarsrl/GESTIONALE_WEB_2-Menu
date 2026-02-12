@@ -69,6 +69,25 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
+# =========================
+# Formattazione numeri ITA
+# =========================
+def it_num(value, decimals=2):
+    """Formatta un numero con la virgola come separatore decimale (stile IT)."""
+    if value is None or value == "":
+        return ""
+    try:
+        v = float(value)
+    except Exception:
+        return str(value)
+
+    s = f"{v:.{int(decimals)}f}"
+    return s.replace('.', ',')
+
+
+# filtro Jinja: {{ value|it_num(2) }}
+app.jinja_env.filters['it_num'] = it_num
+
 
 # =========================
 # Helpers debug mappe file
@@ -1015,25 +1034,44 @@ def _parse_emails(raw: str):
         out.append(e)
     return out
 
-def next_ddt_number():
-    PROG_FILE = APP_DIR / "progressivi_ddt.json"
-    y = str(date.today().year)[-2:]
-    prog = {}
-    if PROG_FILE.exists():
+def _ensure_progressivi_ddt_table(db):
+    """Crea (se necessario) la tabella progressivi_ddt nel DB.
+    Usiamo il DB invece di un file JSON così il progressivo resta memorizzato anche su server (Render/VPS).
+    """
+    try:
+        db.execute(text("""
+            CREATE TABLE IF NOT EXISTS progressivi_ddt (
+                anno VARCHAR(4) PRIMARY KEY,
+                last_num INTEGER NOT NULL
+            )
+        """))
+        db.commit()
+    except Exception:
+        # su alcuni DB/permessi, può fallire ma non blocchiamo l'app
         try:
-            prog = json.loads(PROG_FILE.read_text(encoding="utf-8"))
-        except Exception: prog = {}
-    n = int(prog.get(y, 0)) + 1
-    prog[y] = n
-    PROG_FILE.write_text(json.dumps(prog, ensure_ascii=False, indent=2), encoding="utf-8")
-    return f"{n:02d}/{y}"
+            db.rollback()
+        except Exception:
+            pass
 
 def peek_next_ddt_number():
-    """Restituisce il prossimo progressivo SENZA salvarlo su progressivi_ddt.json.
-    Serve per l'anteprima: il progressivo viene 'consumato' solo in Finalizza.
-    """
-    PROG_FILE = APP_DIR / "progressivi_ddt.json"
+    """Restituisce il prossimo progressivo SENZA incrementarlo (anteprima)."""
     y = str(date.today().year)[-2:]
+    # 1) prova DB
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_progressivi_ddt_table(db)
+            row = db.execute(text("SELECT last_num FROM progressivi_ddt WHERE anno=:y"), {"y": y}).fetchone()
+            last_num = int(row[0]) if row and row[0] is not None else 0
+            n = last_num + 1
+            return f"{n:02d}/{y}"
+        finally:
+            db.close()
+    except Exception:
+        pass
+
+    # 2) fallback file (compatibilità)
+    PROG_FILE = APP_DIR / "progressivi_ddt.json"
     prog = {}
     if PROG_FILE.exists():
         try:
@@ -1043,6 +1081,66 @@ def peek_next_ddt_number():
     n = int(prog.get(y, 0)) + 1
     return f"{n:02d}/{y}"
 
+def next_ddt_number():
+    """Incrementa e memorizza il progressivo (solo in Finalizza)."""
+    y = str(date.today().year)[-2:]
+
+    # 1) DB (preferito)
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_progressivi_ddt_table(db)
+
+            dialect = getattr(engine.dialect, "name", "")
+            if dialect and dialect.lower().startswith("mysql"):
+                # lock riga anno per evitare doppioni
+                row = db.execute(
+                    text("SELECT last_num FROM progressivi_ddt WHERE anno=:y FOR UPDATE"),
+                    {"y": y}
+                ).fetchone()
+            else:
+                row = db.execute(
+                    text("SELECT last_num FROM progressivi_ddt WHERE anno=:y"),
+                    {"y": y}
+                ).fetchone()
+
+            last_num = int(row[0]) if row and row[0] is not None else 0
+            n = last_num + 1
+
+            if row:
+                db.execute(
+                    text("UPDATE progressivi_ddt SET last_num=:n WHERE anno=:y"),
+                    {"n": n, "y": y}
+                )
+            else:
+                db.execute(
+                    text("INSERT INTO progressivi_ddt (anno, last_num) VALUES (:y, :n)"),
+                    {"y": y, "n": n}
+                )
+
+            db.commit()
+            return f"{n:02d}/{y}"
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+    except Exception:
+        # 2) fallback file (compatibilità)
+        PROG_FILE = APP_DIR / "progressivi_ddt.json"
+        prog = {}
+        if PROG_FILE.exists():
+            try:
+                prog = json.loads(PROG_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                prog = {}
+        n = int(prog.get(y, 0)) + 1
+        prog[y] = n
+        try:
+            PROG_FILE.write_text(json.dumps(prog, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+        return f"{n:02d}/{y}"
 
 
 # --- SEZIONE TEMPLATES HTML ---
@@ -1558,7 +1656,7 @@ CALCOLI_HTML = """
                     <th>Mese/Giorno</th>
                     <th>Cliente</th>
                     <th>M² * giorni</th>
-                    <th>M² medio</th>
+                    <th>M² effettivi</th>
                     <th>Giorni</th>
                 </tr>
             </thead>
@@ -1724,18 +1822,18 @@ GIACENZE_HTML = """
                     <td>{{ r.id_articolo }}</td>
                     <td title="{{ r.codice_articolo }}">{{ r.codice_articolo or '' }}</td>
                     <td>{{ r.pezzo or '' }}</td>
-                    <td>{{ r.larghezza|float|round(2) if r.larghezza else '' }}</td>
-                    <td>{{ r.lunghezza|float|round(2) if r.lunghezza else '' }}</td>
-                    <td>{{ r.altezza|float|round(2) if r.altezza else '' }}</td>
-                    <td>{{ r.m2|float|round(3) if r.m2 else '' }}</td>
-                    <td>{{ r.m3|float|round(3) if r.m3 else '' }}</td>
+                    <td>{{ r.larghezza|it_num(2) if r.larghezza else '' }}</td>
+                    <td>{{ r.lunghezza|it_num(2) if r.lunghezza else '' }}</td>
+                    <td>{{ r.altezza|it_num(2) if r.altezza else '' }}</td>
+                    <td>{{ r.m2|it_num(3) if r.m2 else '' }}</td>
+                    <td>{{ r.m3|it_num(3) if r.m3 else '' }}</td>
                     <td title="{{ r.descrizione }}">{{ (r.descrizione or '')[:25] }}...</td>
                     <td>{{ r.protocollo or '' }}</td> <td>{{ r.commessa or '' }}</td> <td>{{ r.ordine or '' }}</td>
                     <td>{{ r.n_colli or '' }}</td> <td>{{ r.fornitore or '' }}</td> <td>{{ r.magazzino or '' }}</td>
                     <td>{{ r.data_ingresso or '' }}</td>
                     <td>{{ r.n_ddt_ingresso or '' }}</td> <td>{{ r.n_ddt_uscita or '' }}</td>
                     <td>{{ r.data_uscita or '' }}</td>
-                    <td>{{ r.mezzi_in_uscita or '' }}</td> <td>{{ r.cliente or '' }}</td> <td>{{ r.peso or '' }}</td>
+                    <td>{{ r.mezzi_in_uscita or '' }}</td> <td>{{ r.cliente or '' }}</td> <td>{{ r.peso|it_num(2) if r.peso else '' }}</td>
                     <td>{{ r.posizione or '' }}</td> <td>{{ r.n_arrivo or '' }}</td> <td class="fw-buono">{{ r.buono_n or '' }}</td>
                     <td title="{{ r.note }}">{{ (r.note or '')[:15] }}...</td>
                     <td>{{ r.lotto or '' }}</td> <td>{{ r.ns_rif or '' }}</td> <td>{{ r.serial_number or '' }}</td>
@@ -5821,8 +5919,8 @@ def giacenze():
             total_pages=total_pages,
             total_items=total_items,
             total_colli=total_colli,
-            total_m2=f"{total_m2:.2f}",
-            total_peso=f"{total_peso:.2f}",
+            total_m2=it_num(total_m2, 2),
+            total_peso=it_num(total_peso, 2),
             today=date.today(),
             search_params=search_params
         )
@@ -7437,9 +7535,16 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento, m2_multipli
             dati = agg[(cli, y, m)]
             n_days = len(dati["days"])
             tot = dati["sum"]
-            avg = tot / n_days if n_days > 0 else 0.0
+
+            # ✅ M² EFFETTIVI (non medi): valore reale sull'ULTIMO giorno del periodo considerato per quel mese
+            if n_days > 0:
+                last_day = max(dati["days"])
+                eff = float(val_per_giorno.get((cli, last_day), 0.0))
+            else:
+                eff = 0.0
+
             risultati_finali.append(
-                pack_row(f"{m:02d}/{y}", cli, tot, avg, n_days)
+                pack_row(f"{m:02d}/{y}", cli, tot, eff, n_days)
             )
 
     return risultati_finali
