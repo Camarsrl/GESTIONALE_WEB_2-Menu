@@ -1028,6 +1028,23 @@ def next_ddt_number():
     PROG_FILE.write_text(json.dumps(prog, ensure_ascii=False, indent=2), encoding="utf-8")
     return f"{n:02d}/{y}"
 
+def peek_next_ddt_number():
+    """Restituisce il prossimo progressivo SENZA salvarlo su progressivi_ddt.json.
+    Serve per l'anteprima: il progressivo viene 'consumato' solo in Finalizza.
+    """
+    PROG_FILE = APP_DIR / "progressivi_ddt.json"
+    y = str(date.today().year)[-2:]
+    prog = {}
+    if PROG_FILE.exists():
+        try:
+            prog = json.loads(PROG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            prog = {}
+    n = int(prog.get(y, 0)) + 1
+    return f"{n:02d}/{y}"
+
+
+
 # --- SEZIONE TEMPLATES HTML ---
 BASE_HTML = """
 <!doctype html>
@@ -3498,11 +3515,8 @@ def login():
             
             flash(f"Benvenuto {username}", "success")
             
-            # 4. Reindirizza alla pagina richiesta o alle giacenze
-            next_page = request.args.get('next')
-            if not next_page or not next_page.startswith('/'):
-                next_page = url_for('home')
-            return redirect(next_page)
+            # 4. Dopo il login vai SEMPRE in Home (non alle giacenze)
+            return redirect(url_for('home'))
         else:
             flash("Credenziali non valide", "danger")
             
@@ -4223,6 +4237,9 @@ def report_inventario_excel():
     # ✅ SOLO GALVANO TECNICA USA PEZZI (al posto dei colli)
     usa_pezzi = (cliente_rif.strip().upper() == "GALVANO TECNICA")
 
+    # ✅ DUFERCO: nell'inventario serve vedere anche il Serial Number
+    is_duferco = (cliente_rif.strip().upper() == "DUFERCO")
+
     db = SessionLocal()
     try:
         articoli = (
@@ -4232,12 +4249,15 @@ def report_inventario_excel():
         )
 
         # ✅ Aggregazione per CODICE ARTICOLO
-        agg = defaultdict(lambda: {"descrizione": "", "entrata": 0, "uscita": 0})
+        agg = defaultdict(lambda: {"descrizione": "", "serial_number": "", "entrata": 0, "uscita": 0}) if is_duferco else defaultdict(lambda: {"descrizione": "", "entrata": 0, "uscita": 0})
 
         for art in articoli:
             codice = (art.codice_articolo or "").strip()
             if not codice:
                 continue
+
+            serial = (getattr(art, 'serial_number', None) or '').strip()
+            key = (codice, serial) if is_duferco else codice
 
             descr = (art.descrizione or "").strip()
 
@@ -4257,8 +4277,11 @@ def report_inventario_excel():
             if qty <= 0:
                 continue
 
-            if descr and not agg[codice]["descrizione"]:
-                agg[codice]["descrizione"] = descr
+            if descr and not agg[key]["descrizione"]:
+                agg[key]["descrizione"] = descr
+
+            if is_duferco and serial and not agg[key]["serial_number"]:
+                agg[key]["serial_number"] = serial
 
             d_ing = parse_d(getattr(art, "data_ingresso", None))
             d_usc = parse_d(getattr(art, "data_uscita", None))
@@ -4267,25 +4290,32 @@ def report_inventario_excel():
             # - Conta ENTRATA solo se ingresso <= d_limit
             # - Conta USCITA solo se uscita <= d_limit
             if d_ing and d_ing <= d_limit:
-                agg[codice]["entrata"] += qty
+                agg[key]["entrata"] += qty
 
             if d_usc and d_usc <= d_limit:
-                agg[codice]["uscita"] += qty
+                agg[key]["uscita"] += qty
 
         # ✅ righe finali
         righe = []
-        for codice in sorted(agg.keys()):
-            entrata = agg[codice]["entrata"]
-            uscita = agg[codice]["uscita"]
+        for k in sorted(agg.keys()):
+            data = agg[k]
+            entrata = data.get("entrata", 0)
+            uscita = data.get("uscita", 0)
             rimanenza = entrata - uscita
 
             # Se vuoi escludere righe a zero totale, lascia questo:
             if entrata == 0 and uscita == 0 and rimanenza == 0:
                 continue
 
+            if is_duferco:
+                codice, serial = k
+            else:
+                codice, serial = k, ""
+
             righe.append({
                 "codice": codice,
-                "descrizione": agg[codice]["descrizione"],
+                "serial_number": serial,
+                "descrizione": data.get("descrizione", ""),
                 "entrata": entrata,
                 "uscita": uscita,
                 "rimanenza": rimanenza
@@ -4324,6 +4354,12 @@ def report_inventario_excel():
         headers = [
             "ID",
             "CODICE ARTICOLO",
+        ]
+
+        if is_duferco:
+            headers.append("SERIAL NUMBER")
+
+        headers += [
             "DESCRIZIONE",
             f"Q.TA ENTRATA ({tipo})",
             f"Q.TA USCITA ({tipo})",
@@ -4344,6 +4380,12 @@ def report_inventario_excel():
             values = [
                 str(idx).zfill(3),
                 row["codice"],
+            ]
+
+            if is_duferco:
+                values.append(row.get("serial_number", ""))
+
+            values += [
                 row["descrizione"],
                 row["entrata"],
                 row["uscita"],
@@ -6204,7 +6246,7 @@ def ddt_preview():
         rows=rows,
         ids=",".join(map(str, ids)),
         destinatari=load_destinatari(),
-        n_ddt=next_ddt_number(),
+        n_ddt=peek_next_ddt_number(),
         oggi=date.today().isoformat()
     )
 
@@ -6213,7 +6255,7 @@ def ddt_preview():
 @login_required
 def get_next_ddt_number():
     # ritorna il prossimo progressivo
-    return jsonify({'next_ddt': next_ddt_number()})
+    return jsonify({'next_ddt': peek_next_ddt_number()})
 
 
 @app.get('/prev_ddt_number')
@@ -6230,7 +6272,7 @@ def get_prev_ddt_number():
     except Exception:
         # se current non valido, partiamo dal next attuale
         try:
-            cur_int = int(next_ddt_number())
+            cur_int = int(peek_next_ddt_number().split('/')[0])
         except Exception:
             cur_int = 1
 
@@ -6755,6 +6797,18 @@ def ddt_finalize():
         # 2. Dati Testata
         n_ddt = request.form.get('n_ddt', '').strip()
         data_ddt_str = request.form.get('data_ddt')
+
+        # ✅ Progressivo DDT: viene salvato SOLO quando si preme "Finalizza"
+        # In anteprima mostriamo il prossimo numero senza consumarlo.
+        if action == 'finalize':
+            try:
+                if (not n_ddt) or (n_ddt == peek_next_ddt_number()):
+                    n_ddt = next_ddt_number()
+            except Exception:
+                # fallback: se qualcosa va storto, non blocchiamo la finalizzazione
+                if not n_ddt:
+                    n_ddt = next_ddt_number()
+
 
         try:
             data_ddt_obj = datetime.strptime(data_ddt_str, "%Y-%m-%d").date()
