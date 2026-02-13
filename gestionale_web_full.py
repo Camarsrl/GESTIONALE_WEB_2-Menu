@@ -1143,6 +1143,78 @@ def next_ddt_number():
         return f"{n:02d}/{y}"
 
 
+
+
+def consume_specific_ddt_number(n_ddt: str) -> None:
+    """
+    Aggiorna il progressivo salvato (tabella progressivi_ddt o file json) per evitare
+    che un numero scelto manualmente (con le frecce) venga riutilizzato in futuro.
+
+    - NON cambia il valore del DDT passato.
+    - Aggiorna last_num = max(last_num, numero_scelto) per l'anno del DDT.
+    """
+    if not n_ddt:
+        return
+    n_ddt = str(n_ddt).strip()
+
+    m = re.match(r'^(\d+)\s*/\s*(\d{2})$', n_ddt)
+    if not m:
+        return
+
+    try:
+        chosen_num = int(m.group(1))
+        chosen_year = m.group(2)
+    except Exception:
+        return
+
+    if chosen_num < 1:
+        return
+
+    # 1) DB (preferito)
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_progressivi_ddt_table(db)
+            row = db.execute(text("SELECT last_num FROM progressivi_ddt WHERE anno=:y"), {"y": chosen_year}).fetchone()
+            last_num = int(row[0]) if row and row[0] is not None else 0
+            new_last = max(last_num, chosen_num)
+
+            if row:
+                db.execute(
+                    text("UPDATE progressivi_ddt SET last_num=:n WHERE anno=:y"),
+                    {"n": new_last, "y": chosen_year}
+                )
+            else:
+                db.execute(
+                    text("INSERT INTO progressivi_ddt (anno, last_num) VALUES (:y, :n)"),
+                    {"y": chosen_year, "n": new_last}
+                )
+            db.commit()
+            return
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+    except Exception:
+        pass
+
+    # 2) fallback file (compatibilità)
+    try:
+        PROG_FILE = APP_DIR / "progressivi_ddt.json"
+        prog = {}
+        if PROG_FILE.exists():
+            try:
+                prog = json.loads(PROG_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                prog = {}
+        last_num = int(prog.get(chosen_year, 0) or 0)
+        prog[chosen_year] = max(last_num, chosen_num)
+        PROG_FILE.write_text(json.dumps(prog, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
 # --- SEZIONE TEMPLATES HTML ---
 BASE_HTML = """
 <!doctype html>
@@ -2426,7 +2498,8 @@ DDT_PREVIEW_HTML = """
 const nDdtInput = document.getElementById('n_ddt_input');
 
 document.getElementById('get-next-ddt').addEventListener('click', function() {
-    fetch('{{ url_for("get_next_ddt_number") }}')
+    const current = (nDdtInput.value || '').trim();
+    fetch('{{ url_for("get_next_ddt_number") }}?current=' + encodeURIComponent(current))
       .then(r => r.json())
       .then(d => {
           if (d.next_ddt) nDdtInput.value = d.next_ddt;
@@ -6352,30 +6425,93 @@ def ddt_preview():
 @app.get('/next_ddt_number')
 @login_required
 def get_next_ddt_number():
-    # ritorna il prossimo progressivo
-    return jsonify({'next_ddt': peek_next_ddt_number()})
+    """
+    Restituisce il numero successivo rispetto a quello attualmente scritto nel campo,
+    SENZA memorizzarlo su DB (serve solo per cambiare il valore con le frecce).
+    Accetta ?current=NN/YY oppure ?current=NN.
+    """
+    current = (request.args.get('current') or '').strip()
+
+    # base = numero + anno
+    base_num = None
+    base_year = None
+
+    # prova formato NN/YY
+    m = re.match(r'^(\d+)\s*/\s*(\d{2})$', current)
+    if m:
+        try:
+            base_num = int(m.group(1))
+            base_year = m.group(2)
+        except Exception:
+            base_num = None
+            base_year = None
+
+    # prova solo numero
+    if base_num is None and current.isdigit():
+        base_num = int(current)
+
+    # se non valido, usa il "peek" (es. 01/26)
+    if base_num is None or base_year is None:
+        try:
+            p = peek_next_ddt_number()
+            pm = re.match(r'^(\d+)\s*/\s*(\d{2})$', (p or '').strip())
+            if pm:
+                base_num = int(pm.group(1))
+                base_year = pm.group(2)
+        except Exception:
+            pass
+
+    if base_num is None:
+        base_num = 1
+    if base_year is None:
+        base_year = str(date.today().year)[-2:]
+
+    nxt = base_num + 1
+    return jsonify({'next_ddt': f"{nxt:02d}/{base_year}"})
 
 
 @app.get('/prev_ddt_number')
 @login_required
 def get_prev_ddt_number():
     """
-    Restituisce il numero precedente rispetto a quello attualmente scritto nel campo.
-    Se non arriva un numero valido, usa next_ddt_number() come base.
+    Restituisce il numero precedente rispetto a quello attualmente scritto nel campo,
+    SENZA memorizzarlo su DB (serve solo per cambiare il valore con le frecce).
+    Accetta ?current=NN/YY oppure ?current=NN.
     """
     current = (request.args.get('current') or '').strip()
 
-    try:
-        cur_int = int(current)
-    except Exception:
-        # se current non valido, partiamo dal next attuale
-        try:
-            cur_int = int(peek_next_ddt_number().split('/')[0])
-        except Exception:
-            cur_int = 1
+    base_num = None
+    base_year = None
 
-    prev_int = max(1, cur_int - 1)
-    return jsonify({'prev_ddt': str(prev_int)})
+    m = re.match(r'^(\d+)\s*/\s*(\d{2})$', current)
+    if m:
+        try:
+            base_num = int(m.group(1))
+            base_year = m.group(2)
+        except Exception:
+            base_num = None
+            base_year = None
+
+    if base_num is None and current.isdigit():
+        base_num = int(current)
+
+    if base_num is None or base_year is None:
+        try:
+            p = peek_next_ddt_number()
+            pm = re.match(r'^(\d+)\s*/\s*(\d{2})$', (p or '').strip())
+            if pm:
+                base_num = int(pm.group(1))
+                base_year = pm.group(2)
+        except Exception:
+            pass
+
+    if base_num is None:
+        base_num = 1
+    if base_year is None:
+        base_year = str(date.today().year)[-2:]
+
+    prv = max(1, base_num - 1)
+    return jsonify({'prev_ddt': f"{prv:02d}/{base_year}"})
 
 
 @app.route('/manage_destinatari', methods=['GET', 'POST'])
@@ -6907,6 +7043,10 @@ def ddt_finalize():
                 if not n_ddt:
                     n_ddt = next_ddt_number()
 
+        # ✅ Se l'utente ha scelto un numero diverso (con le frecce),
+        # aggiorniamo comunque il progressivo per evitare riutilizzi futuri.
+        if action == 'finalize':
+            consume_specific_ddt_number(n_ddt)
 
         try:
             data_ddt_obj = datetime.strptime(data_ddt_str, "%Y-%m-%d").date()
