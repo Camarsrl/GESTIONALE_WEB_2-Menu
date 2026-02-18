@@ -5865,7 +5865,8 @@ def giacenze():
             for char in [' ', '.', '-', '_']:
                 cliente_db_norm = func.replace(cliente_db_norm, char, '')
 
-            qs = qs.filter(cliente_db_norm.like(f"%{user_key_norm}%"))
+            qs = qs.filter(cliente_db_norm == user_key_norm)
+
         else:
             if args.get('cliente'):
                 qs = qs.filter(Articolo.cliente.ilike(f"%{args.get('cliente')}%"))
