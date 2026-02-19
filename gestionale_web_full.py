@@ -89,6 +89,317 @@ def it_num(value, decimals=2):
 app.jinja_env.filters['it_num'] = it_num
 
 
+# ========================================================
+#  API INTEGRAZIONE (multi-cliente, 1 API KEY = 1 cliente)
+#  - NIENTE accesso DB esterno
+#  - Il cliente NON si passa nei parametri: è determinato dalla API key
+#  - Header richiesto: X-API-KEY
+# ========================================================
+
+def _load_api_clients_from_env() -> dict:
+    """Carica mappa API_KEY -> CLIENTE.
+
+    Priorità:
+    1) API_KEYS_JSON='{"key1":"GALVANO TECNICA","key2":"DUFERCO"}'
+    2) CORES_API_KEY + CORES_API_CLIENTE (setup semplice per 1 cliente)
+    """
+    clients = {}
+
+    raw = (os.environ.get("API_KEYS_JSON") or "").strip()
+    if raw:
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                for k, v in data.items():
+                    kk = (str(k) or "").strip()
+                    vv = (str(v) or "").strip().upper()
+                    if kk and vv:
+                        clients[kk] = vv
+        except Exception as e:
+            print(f"[WARN] API_KEYS_JSON non valido: {e}")
+
+    # fallback semplice: 1 key 1 cliente
+    if not clients:
+        k = (os.environ.get("CORES_API_KEY") or "").strip()
+        c = (os.environ.get("CORES_API_CLIENTE") or "").strip().upper()
+        if k and c:
+            clients[k] = c
+
+    return clients
+
+API_CLIENTS = _load_api_clients_from_env()
+
+def _api_get_cliente_from_key():
+    key = (request.headers.get("X-API-KEY") or "").strip()
+    if not key:
+        return None
+    return API_CLIENTS.get(key)
+
+def _api_unauthorized():
+    return jsonify({"error": "unauthorized"}), 401
+
+def _api_bad_request(msg="bad request"):
+    return jsonify({"error": "bad_request", "message": msg}), 400
+
+@app.route("/api/v1/health", methods=["GET"])
+def api_health():
+    """Endpoint di test. Se passi una API key valida, ritorna anche il cliente associato."""
+    cliente = _api_get_cliente_from_key()
+    out = {"status": "ok", "time": datetime.utcnow().isoformat() + "Z"}
+    if cliente:
+        out["cliente"] = cliente
+    return jsonify(out)
+
+@app.route("/api/v1/giacenze", methods=["GET"])
+def api_giacenze():
+    """Giacenze attuali del cliente associato alla API key."""
+    cliente = _api_get_cliente_from_key()
+    if not cliente:
+        return _api_unauthorized()
+
+    q = (request.args.get("q") or "").strip()
+    lotto = (request.args.get("lotto") or "").strip()
+    stato = (request.args.get("stato") or "").strip()
+
+    try:
+        limit = int(request.args.get("limit") or 500)
+    except Exception:
+        limit = 500
+    try:
+        offset = int(request.args.get("offset") or 0)
+    except Exception:
+        offset = 0
+
+    limit = max(1, min(limit, 2000))
+    offset = max(0, offset)
+
+    db = SessionLocal()
+    try:
+        qry = db.query(Articolo).filter(func.upper(Articolo.cliente) == cliente)
+
+        # solo giacenze attive (non uscite)
+        qry = qry.filter((Articolo.data_uscita == None) | (Articolo.data_uscita == ""))
+
+        if lotto:
+            qry = qry.filter(Articolo.lotto == lotto)
+
+        if stato:
+            qry = qry.filter(func.upper(Articolo.stato) == stato.upper())
+
+        if q:
+            like = f"%{q}%"
+            qry = qry.filter(or_(
+                Articolo.codice_articolo.ilike(like),
+                Articolo.descrizione.ilike(like),
+                Articolo.lotto.ilike(like),
+                Articolo.serial_number.ilike(like),
+                Articolo.ns_rif.ilike(like),
+            ))
+
+        total = qry.count()
+        rows = qry.order_by(Articolo.id_articolo.desc()).offset(offset).limit(limit).all()
+
+        items = []
+        for a in rows:
+            items.append({
+                "id": a.id_articolo,
+                "codice": a.codice_articolo,
+                "descrizione": a.descrizione,
+                "cliente": (a.cliente or ""),
+                "lotto": (a.lotto or ""),
+                "serial_number": (a.serial_number or ""),
+                "colli": a.n_colli,
+                "peso": a.peso,
+                "m2": a.m2,
+                "m3": a.m3,
+                "magazzino": a.magazzino,
+                "posizione": a.posizione,
+                "stato": a.stato,
+                "data_ingresso": a.data_ingresso,
+                "ddt_ingresso": a.n_ddt_ingresso,
+            })
+
+        return jsonify({
+            "cliente": cliente,
+            "count": len(items),
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "items": items
+        })
+    finally:
+        db.close()
+
+@app.route("/api/v1/inventario", methods=["GET"])
+def api_inventario():
+    """Inventario (fotografia) del cliente associato alla API key.
+    Nota: usa le giacenze attive come base (stato attuale).
+    """
+    cliente = _api_get_cliente_from_key()
+    if not cliente:
+        return _api_unauthorized()
+
+    raggruppa = (request.args.get("raggruppa") or "lotto").strip().lower()
+    if raggruppa not in ("lotto", "codice", "serial"):
+        return _api_bad_request("raggruppa deve essere lotto|codice|serial")
+
+    db = SessionLocal()
+    try:
+        rows = db.query(Articolo).filter(
+            func.upper(Articolo.cliente) == cliente,
+            (Articolo.data_uscita == None) | (Articolo.data_uscita == "")
+        ).all()
+
+        agg = {}
+        for a in rows:
+            if raggruppa == "serial":
+                k = (a.serial_number or "").strip()
+                if not k:
+                    # se manca serial, lo raggruppiamo per lotto+codice per non perdere la riga
+                    k = f"NO_SERIAL|{(a.lotto or '')}|{(a.codice_articolo or '')}"
+            elif raggruppa == "codice":
+                k = (a.codice_articolo or "").strip()
+            else:
+                k = (a.lotto or "").strip()
+
+            if not k:
+                k = "(vuoto)"
+
+            if k not in agg:
+                agg[k] = {
+                    "key": k,
+                    "codice": a.codice_articolo,
+                    "descrizione": a.descrizione,
+                    "lotto": a.lotto,
+                    "serial_number": a.serial_number if raggruppa == "serial" else "",
+                    "righe": 0,
+                    "colli": 0,
+                    "peso": 0.0,
+                    "m2": 0.0,
+                    "m3": 0.0,
+                }
+
+            rec = agg[k]
+            rec["righe"] += 1
+            rec["colli"] += int(a.n_colli or 0)
+            rec["peso"] += float(a.peso or 0.0)
+            rec["m2"] += float(a.m2 or 0.0)
+            rec["m3"] += float(a.m3 or 0.0)
+
+        items = list(agg.values())
+        # ordinamento stabile
+        items.sort(key=lambda r: (r.get("codice") or "", r.get("lotto") or "", r.get("serial_number") or ""))
+
+        return jsonify({
+            "cliente": cliente,
+            "raggruppa": raggruppa,
+            "count": len(items),
+            "items": items
+        })
+    finally:
+        db.close()
+
+@app.route("/api/v1/movimenti", methods=["GET"])
+def api_movimenti():
+    """Movimenti (ingresso/uscita) ricostruiti dai campi dell'articolo.
+    Nota: non è un registro movimenti dedicato; ogni articolo genera al massimo 1 ingresso e 1 uscita.
+    """
+    cliente = _api_get_cliente_from_key()
+    if not cliente:
+        return _api_unauthorized()
+
+    lotto = (request.args.get("lotto") or "").strip()
+    tipo = (request.args.get("tipo") or "tutti").strip().lower()
+    if tipo not in ("ingresso", "uscita", "tutti"):
+        return _api_bad_request("tipo deve essere ingresso|uscita|tutti")
+
+    da = to_date_db(request.args.get("da"))
+    a = to_date_db(request.args.get("a"))
+    # a inclusiva: la convertiamo in fine giornata
+    if a:
+        a_dt = datetime.combine(a, datetime.max.time())
+    else:
+        a_dt = None
+
+    db = SessionLocal()
+    try:
+        rows = db.query(Articolo).filter(func.upper(Articolo.cliente) == cliente).all()
+
+        out = []
+        for art in rows:
+            if lotto and (str(art.lotto or "").strip() != lotto):
+                continue
+
+            # ingresso
+            d_in = to_date_db(art.data_ingresso)
+            if d_in and tipo in ("ingresso", "tutti"):
+                dt_in = datetime.combine(d_in, datetime.min.time())
+                if da and dt_in < datetime.combine(da, datetime.min.time()):
+                    pass
+                elif a_dt and dt_in > a_dt:
+                    pass
+                else:
+                    out.append({
+                        "data": d_in.isoformat(),
+                        "tipo": "ingresso",
+                        "id": art.id_articolo,
+                        "codice": art.codice_articolo,
+                        "descrizione": art.descrizione,
+                        "lotto": art.lotto,
+                        "serial_number": art.serial_number,
+                        "colli": art.n_colli,
+                        "peso": art.peso,
+                        "m2": art.m2,
+                        "m3": art.m3,
+                        "ddt": art.n_ddt_ingresso,
+                        "magazzino": art.magazzino,
+                        "posizione": art.posizione,
+                    })
+
+            # uscita
+            d_out = to_date_db(art.data_uscita)
+            if d_out and tipo in ("uscita", "tutti"):
+                dt_out = datetime.combine(d_out, datetime.min.time())
+                if da and dt_out < datetime.combine(da, datetime.min.time()):
+                    pass
+                elif a_dt and dt_out > a_dt:
+                    pass
+                else:
+                    out.append({
+                        "data": d_out.isoformat(),
+                        "tipo": "uscita",
+                        "id": art.id_articolo,
+                        "codice": art.codice_articolo,
+                        "descrizione": art.descrizione,
+                        "lotto": art.lotto,
+                        "serial_number": art.serial_number,
+                        "colli": art.n_colli,
+                        "peso": art.peso,
+                        "m2": art.m2,
+                        "m3": art.m3,
+                        "ddt": art.n_ddt_uscita,
+                        "magazzino": art.magazzino,
+                        "posizione": art.posizione,
+                    })
+
+        # sort per data desc
+        def _key(r):
+            try:
+                return r.get("data") or ""
+            except Exception:
+                return ""
+        out.sort(key=_key, reverse=True)
+
+        return jsonify({
+            "cliente": cliente,
+            "count": len(out),
+            "items": out
+        })
+    finally:
+        db.close()
+
+
+
 # =========================
 # Helpers debug mappe file
 # =========================
