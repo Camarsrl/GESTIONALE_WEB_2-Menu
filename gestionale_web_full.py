@@ -1045,13 +1045,13 @@ def extract_data_from_ddt_pdf(path):
         s = s.replace(".", "").replace(",", ".")
         try:
             return float(s)
-        except:
+        except Exception:
             return None
 
     def _to_int(s):
         try:
             return int(str(s).strip())
-        except:
+        except Exception:
             return None
 
     meta = {
@@ -1067,36 +1067,25 @@ def extract_data_from_ddt_pdf(path):
         full_text = ""
         for page in pdf.pages:
             txt = page.extract_text() or ""
-            full_text += txt + "\n"
+            full_text += "\n" + txt
 
     # -----------------------
-    # META (testata)
+    # TESTATA (semplice)
     # -----------------------
-
-    # Cliente: prende la prima riga utile dopo "Destinatario merci"
-    m = re.search(r"Destinatario\s+merci\s*\n([^\n]+)", full_text, flags=re.IGNORECASE)
+    # Cliente / Destinatario (euristiche: prendi prima occorrenza di "Spett.le" o "Cliente")
+    m = re.search(r"(?:Spett\.?le|Cliente)\s*[:\-]?\s*(.+)", full_text, flags=re.IGNORECASE)
     if m:
-        meta["cliente"] = m.group(1).strip()
+        meta["cliente"] = m.group(1).strip()[:80]
 
-    # Fornitore: prova "Merce di proprieta di" + riga sotto, altrimenti prima ragione sociale in alto
-    m = re.search(r"Merce\s+di\s+propriet[aà]\s+di\s*\n([^\n]+)", full_text, flags=re.IGNORECASE)
+    # Fornitore / Mittente (euristica)
+    m = re.search(r"(?:Fornitore|Mittente)\s*[:\-]?\s*(.+)", full_text, flags=re.IGNORECASE)
     if m:
-        meta["fornitore"] = m.group(1).strip()
-    else:
-        # fallback: prima riga "tipo ragione sociale" (molto conservativo)
-        top_lines = [l.strip() for l in full_text.splitlines() if l.strip()]
-        if top_lines:
-            meta["fornitore"] = top_lines[0][:80]
+        meta["fornitore"] = m.group(1).strip()[:80]
 
-    # Numero Bolla / DDT
-    m = re.search(r"Numero\s+Bolla\s+([A-Z0-9\/\-]+)", full_text, flags=re.IGNORECASE)
+    # N. Bolla / DDT
+    m = re.search(r"(?:N\.\s*(?:Bolla|DDT)|Bolla\s+N\.?)\s*[:\-]?\s*([A-Z0-9\-\/]+)", full_text, flags=re.IGNORECASE)
     if m:
         meta["n_ddt"] = m.group(1).strip()
-    else:
-        # fallback: cerca pattern tipo AT260209
-        m2 = re.search(r"\b[A-Z]{1,3}\d{4,10}\b", full_text)
-        if m2:
-            meta["n_ddt"] = m2.group(0).strip()
 
     # Data Bolla -> data_ingresso
     m = re.search(r"Data\s+Bolla\s+(\d{2}\/\d{2}\/\d{4})", full_text, flags=re.IGNORECASE)
@@ -1106,21 +1095,28 @@ def extract_data_from_ddt_pdf(path):
         try:
             d, mth, y = ddmmyyyy.split("/")
             meta["data_ingresso"] = f"{y}-{mth}-{d}"
-        except:
+        except Exception:
             pass
-
-    # Commessa / riferimenti (se presenti)
-    # qui puoi aggiungere regole specifiche quando vuoi
 
     # -----------------------
     # RIGHE ARTICOLI
     # -----------------------
-    # Pattern codice: molto tollerante ma evita di prendere parole normali
+    # Pattern codice: tollerante
     code_re = re.compile(r"\b[0-9A-Z]{3,}(?:[-\/][0-9A-Z]{2,}){1,}\b")
 
     lines = [l.strip() for l in full_text.splitlines() if l.strip()]
 
+    last_row = None
+
     for line in lines:
+        # ✅ aggancia LOTTO alla riga precedente se presente su riga separata
+        if line.lower().startswith("lotto"):
+            if last_row is not None:
+                m_lot = re.search(r"lotto\s*[:\-]?\s*([A-Z0-9\-\/\.]+)", line, flags=re.IGNORECASE)
+                if m_lot:
+                    last_row["lotto"] = m_lot.group(1).strip()
+            continue
+
         # cerca un codice all'inizio riga (o comunque presente)
         code_m = code_re.search(line)
         if not code_m:
@@ -1128,13 +1124,7 @@ def extract_data_from_ddt_pdf(path):
 
         codice = code_m.group(0).strip()
 
-        # euristica: righe "Lotto ..." non sono righe articolo principali
-        if line.lower().startswith("lotto"):
-            continue
-
-        # prova a catturare: ... Imballo <TXT> Colli <INT> ... UM <TXT> Qta <NUM>
-        # es: ".... CAN 2 50,00 52,20 KG 50,00"
-        # prendiamo colli = primo intero "piccolo" dopo il codice; qta = ultimo numero con virgola/punto
+        # prova a catturare: ... Colli <INT> ... UM <TXT> Qta <NUM>
         rest = line.replace(codice, "", 1).strip()
         parts = rest.split()
 
@@ -1171,15 +1161,18 @@ def extract_data_from_ddt_pdf(path):
         if um:
             descrizione = re.sub(rf"\b{um}\b", "", descrizione, flags=re.IGNORECASE).strip()
 
-        extracted_rows.append({
+        row = {
             "codice": codice,
             "descrizione": descrizione,
             "colli": colli if colli is not None else 1,
             "pezzi": qta if qta is not None else 1,
-            "um": um
-        })
+            "um": um,
+            "lotto": ""
+        }
+        extracted_rows.append(row)
+        last_row = row
 
-    # de-dup: se stesso codice+descrizione ripetuto identico, somma colli/pezzi
+    # de-dup: se stesso codice+descrizione ripetuto identico, somma colli/pezzi e conserva lotto se presente
     merged = {}
     for r in extracted_rows:
         key = (r["codice"], r["descrizione"])
@@ -1189,8 +1182,10 @@ def extract_data_from_ddt_pdf(path):
             merged[key]["colli"] = int(merged[key]["colli"] or 0) + int(r["colli"] or 0)
             try:
                 merged[key]["pezzi"] = float(merged[key]["pezzi"] or 0) + float(r["pezzi"] or 0)
-            except:
+            except Exception:
                 pass
+            if not merged[key].get("lotto") and r.get("lotto"):
+                merged[key]["lotto"] = r.get("lotto")
 
     return meta, list(merged.values())
 
@@ -1902,6 +1897,8 @@ IMPORT_PDF_HTML = """
                         <th>Descrizione</th>
                         <th style="width:120px">Colli</th>
                         <th style="width:160px">Pezzi / Q.tà</th>
+                        <th style="width:80px">UM</th>
+                        <th style="width:160px">Lotto</th>
                     </tr>
                 </thead>
                 <tbody id="rowsBody">
@@ -1921,6 +1918,12 @@ IMPORT_PDF_HTML = """
                         </td>
                         <td>
                             <input name="pezzi[]" type="number" step="0.01" class="form-control form-control-sm" value="{{ r.pezzi or 1 }}">
+                        </td>
+                        <td>
+                            <input name="um[]" class="form-control form-control-sm" value="{{ r.um or '' }}" readonly>
+                        </td>
+                        <td>
+                            <input name="lotto[]" class="form-control form-control-sm" value="{{ r.lotto or '' }}">
                         </td>
                     </tr>
                     {% endfor %}
@@ -1949,6 +1952,8 @@ IMPORT_PDF_HTML = """
             <td><input name="descrizione[]" class="form-control form-control-sm"></td>
             <td><input name="colli[]" type="number" min="0" class="form-control form-control-sm" value="1"></td>
             <td><input name="pezzi[]" type="number" step="0.01" class="form-control form-control-sm" value="1"></td>
+            <td><input name="um[]" class="form-control form-control-sm" value="" readonly></td>
+            <td><input name="lotto[]" class="form-control form-control-sm" value=""></td>
         `;
         tbody.appendChild(tr);
     }
@@ -5159,6 +5164,8 @@ def save_pdf_import():
         descrizioni = request.form.getlist('descrizione[]')
         colli_list = request.form.getlist('colli[]')
         pezzi_list = request.form.getlist('pezzi[]')
+        um_list = request.form.getlist('um[]')
+        lotto_list = request.form.getlist('lotto[]')
 
         c = 0
         for i in range(len(codici)):
@@ -5179,13 +5186,21 @@ def save_pdf_import():
 
             # riga
             art.codice_articolo = codice
-            art.lotto = lotto
-            art.peso = peso
             art.descrizione = descr
             art.n_colli = to_int_eu(colli_list[i] if i < len(colli_list) else 1)
-            # pezzo è String nel modello, ma in UI lo vuoi numerico: salviamo come stringa “pulita”
+            # Lotto (se presente nel PDF o inserito a mano)
+            lt = lotto_list[i] if i < len(lotto_list) else ""
+            art.lotto = (lt or "").strip()
+
+            # Quantità/Peso: se UM è KG, trattiamo la quantità come PESO (Kg). Altrimenti come PEZZI.
             pz = pezzi_list[i] if i < len(pezzi_list) else ""
-            art.pezzo = str(pz).strip()
+            um = (um_list[i] if i < len(um_list) else "").strip().upper()
+
+            if um == "KG":
+                art.peso = to_float_eu(pz)
+                art.pezzo = ""
+            else:
+                art.pezzo = str(pz).strip()
 
             db.add(art)
             c += 1
