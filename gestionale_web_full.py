@@ -5175,10 +5175,12 @@ def save_pdf_import():
             art.commessa = request.form.get('commessa')
             art.n_ddt_ingresso = request.form.get('n_ddt')
             art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
-            art.stato = "DOGANALE"
+            art.stato = "NAZIONALE"
 
             # riga
             art.codice_articolo = codice
+            art.lotto = lotto
+            art.peso = peso
             art.descrizione = descr
             art.n_colli = to_int_eu(colli_list[i] if i < len(colli_list) else 1)
             # pezzo è String nel modello, ma in UI lo vuoi numerico: salviamo come stringa “pulita”
