@@ -1069,29 +1069,58 @@ def extract_data_from_ddt_pdf(path):
             txt = page.extract_text() or ""
             full_text += "\n" + txt
 
+        # -----------------------
+    # TESTATA (euristiche robuste)
     # -----------------------
-    # TESTATA (semplice)
-    # -----------------------
-    # Cliente / Destinatario (euristiche: prendi prima occorrenza di "Spett.le" o "Cliente")
-    m = re.search(r"(?:Spett\.?le|Cliente)\s*[:\-]?\s*(.+)", full_text, flags=re.IGNORECASE)
-    if m:
-        meta["cliente"] = m.group(1).strip()[:80]
+    lines = [l.strip() for l in full_text.splitlines() if l.strip()]
 
-    # Fornitore / Mittente (euristica)
-    m = re.search(r"(?:Fornitore|Mittente)\s*[:\-]?\s*(.+)", full_text, flags=re.IGNORECASE)
-    if m:
-        meta["fornitore"] = m.group(1).strip()[:80]
+    def _next_nonempty_after(label_re_list, max_ahead=3):
+        for idx, ln in enumerate(lines):
+            for lr in label_re_list:
+                if re.search(lr, ln, flags=re.IGNORECASE):
+                    # se nella stessa riga c'è "LABEL: valore"
+                    m_inline = re.search(r":\s*(.+)$", ln)
+                    if m_inline and m_inline.group(1).strip():
+                        return m_inline.group(1).strip()[:120]
+                    # altrimenti prendi la prossima riga non vuota
+                    for j in range(1, max_ahead + 1):
+                        if idx + j < len(lines):
+                            cand = lines[idx + j].strip()
+                            # evita di prendere altre etichette
+                            if cand and not re.search(r"^(cliente|fornitore|mittente|destinatario|ddt|bolla|data)\b", cand, flags=re.IGNORECASE):
+                                return cand[:120]
+        return ""
 
-    # N. Bolla / DDT
-    m = re.search(r"(?:N\.\s*(?:Bolla|DDT)|Bolla\s+N\.?)\s*[:\-]?\s*([A-Z0-9\-\/]+)", full_text, flags=re.IGNORECASE)
+    # Cliente / Destinatario
+    meta["cliente"] = (
+        _next_nonempty_after([r"\bDestinatario\b", r"\bDestinatario\s+merci\b", r"\bCliente\b", r"\bSpett\.?le\b"])
+        or meta["cliente"]
+    )
+
+    # Fornitore / Mittente
+    meta["fornitore"] = (
+        _next_nonempty_after([r"\bFornitore\b", r"\bMittente\b", r"Merce\s+di\s+propriet", r"\bSpedizione\s+da\b"])
+        or meta["fornitore"]
+    )
+
+    # N. DDT / Bolla (cerca in tutta la pagina)
+    m = re.search(r"(?:N\.\s*(?:Bolla|DDT)|Bolla\s+N\.?(?:\s*DDT)?|DDT\s*N\.?)\s*[:\-]?\s*([A-Z0-9\-\/]+)", full_text, flags=re.IGNORECASE)
     if m:
         meta["n_ddt"] = m.group(1).strip()
+    else:
+        # fallback: pattern tipico 0013/26 oppure AT260209
+        m2 = re.search(r"\b\d{1,5}\/\d{2}\b", full_text)
+        if m2:
+            meta["n_ddt"] = m2.group(0).strip()
+        else:
+            m3 = re.search(r"\b[A-Z]{1,3}\d{4,10}\b", full_text)
+            if m3:
+                meta["n_ddt"] = m3.group(0).strip()
 
-    # Data Bolla -> data_ingresso
-    m = re.search(r"Data\s+Bolla\s+(\d{2}\/\d{2}\/\d{4})", full_text, flags=re.IGNORECASE)
+    # Data DDT/Bolla -> data_ingresso (accetta anche "Data" semplice)
+    m = re.search(r"(?:Data\s+Bolla|Data\s+DDT|\bData\b)\s*[:\-]?\s*(\d{2}\/\d{2}\/\d{4})", full_text, flags=re.IGNORECASE)
     if m:
         ddmmyyyy = m.group(1).strip()
-        # converte in YYYY-MM-DD
         try:
             d, mth, y = ddmmyyyy.split("/")
             meta["data_ingresso"] = f"{y}-{mth}-{d}"
@@ -1161,12 +1190,19 @@ def extract_data_from_ddt_pdf(path):
         if um:
             descrizione = re.sub(rf"\b{um}\b", "", descrizione, flags=re.IGNORECASE).strip()
 
+        # Galvano Tecnica: codice spesso del tipo 1689615-0025-1-000 -> il terzo blocco è il "pezzo"
+        pezzi_articolo = ""
+        m_pz = re.match(r"^\d+-\d+-(\d+)-\d+$", codice)
+        if m_pz:
+            pezzi_articolo = m_pz.group(1).lstrip("0") or m_pz.group(1)
+
         row = {
             "codice": codice,
             "descrizione": descrizione,
             "colli": colli if colli is not None else 1,
-            "pezzi": qta if qta is not None else 1,
+            "pezzi": qta if qta is not None else 1,   # peso/q.tà
             "um": um,
+            "pezzi_articolo": pezzi_articolo,
             "lotto": ""
         }
         extracted_rows.append(row)
@@ -1896,8 +1932,9 @@ IMPORT_PDF_HTML = """
                         <th>Codice Articolo</th>
                         <th>Descrizione</th>
                         <th style="width:120px">Colli</th>
-                        <th style="width:160px">Pezzi / Q.tà</th>
+                        <th style="width:160px">Peso / Q.tà</th>
                         <th style="width:80px">UM</th>
+                        <th style="width:120px">Pezzi</th>
                         <th style="width:160px">Lotto</th>
                     </tr>
                 </thead>
@@ -1921,6 +1958,9 @@ IMPORT_PDF_HTML = """
                         </td>
                         <td>
                             <input name="um[]" class="form-control form-control-sm" value="{{ r.um or '' }}" readonly>
+                        </td>
+                        <td>
+                            <input name="pezzi_articolo[]" type="number" min="0" class="form-control form-control-sm" value="{{ r.pezzi_articolo or '' }}">
                         </td>
                         <td>
                             <input name="lotto[]" class="form-control form-control-sm" value="{{ r.lotto or '' }}">
@@ -1953,6 +1993,7 @@ IMPORT_PDF_HTML = """
             <td><input name="colli[]" type="number" min="0" class="form-control form-control-sm" value="1"></td>
             <td><input name="pezzi[]" type="number" step="0.01" class="form-control form-control-sm" value="1"></td>
             <td><input name="um[]" class="form-control form-control-sm" value="" readonly></td>
+            <td><input name="pezzi_articolo[]" type="number" min="0" class="form-control form-control-sm" value=""></td>
             <td><input name="lotto[]" class="form-control form-control-sm" value=""></td>
         `;
         tbody.appendChild(tr);
@@ -5163,8 +5204,9 @@ def save_pdf_import():
         codici = request.form.getlist('codice[]')
         descrizioni = request.form.getlist('descrizione[]')
         colli_list = request.form.getlist('colli[]')
-        pezzi_list = request.form.getlist('pezzi[]')
+        qta_list = request.form.getlist('pezzi[]')  # peso / quantità
         um_list = request.form.getlist('um[]')
+        pezzi_articolo_list = request.form.getlist('pezzi_articolo[]')  # pezzi (separati dal peso)
         lotto_list = request.form.getlist('lotto[]')
 
         c = 0
@@ -5192,15 +5234,23 @@ def save_pdf_import():
             lt = lotto_list[i] if i < len(lotto_list) else ""
             art.lotto = (lt or "").strip()
 
-            # Quantità/Peso: se UM è KG, trattiamo la quantità come PESO (Kg). Altrimenti come PEZZI.
-            pz = pezzi_list[i] if i < len(pezzi_list) else ""
+            # Quantità/Peso: il campo 'pezzi[]' in tabella è usato come Peso/Q.tà.
+            qta = qta_list[i] if i < len(qta_list) else ""
             um = (um_list[i] if i < len(um_list) else "").strip().upper()
 
+            # Pezzi articolo (separato): es. da codice 1689615-0025-1-000 -> 1
+            pz_art = pezzi_articolo_list[i] if i < len(pezzi_articolo_list) else ""
+            pz_art = str(pz_art).strip()
+
             if um == "KG":
-                art.peso = to_float_eu(pz)
-                art.pezzo = ""
+                # qta = peso in Kg
+                art.peso = to_float_eu(qta)
+                # salva anche i pezzi se presenti
+                art.pezzo = pz_art
             else:
-                art.pezzo = str(pz).strip()
+                # qta = pezzi/quantità (non Kg)
+                art.pezzo = str(qta).strip()
+                art.peso = None
 
             db.add(art)
             c += 1
