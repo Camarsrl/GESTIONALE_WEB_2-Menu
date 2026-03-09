@@ -1050,181 +1050,236 @@ def extract_data_from_ddt_pdf(path):
 
     def _to_int(s):
         try:
-            return int(str(s).strip())
+            return int(float(str(s).strip().replace(",", ".")))
         except Exception:
             return None
 
-    meta = {
-        "cliente": "",
-        "fornitore": "",
-        "commessa": "",
-        "n_ddt": "",
-        "data_ingresso": date.today().strftime("%Y-%m-%d"),
-    }
-    extracted_rows = []
+    def _clean_spaces(s):
+        return re.sub(r"\s+", " ", (s or "")).strip()
 
-    with pdfplumber.open(path) as pdf:
-        full_text = ""
-        for page in pdf.pages:
-            txt = page.extract_text() or ""
-            full_text += "\n" + txt
+    def _looks_like_code(tok):
+        tok = (tok or "").strip().upper()
+        if not tok:
+            return False
+        if re.fullmatch(r"\d{6,8}-\d{4}-\d+-\d+", tok):
+            return True
+        if re.fullmatch(r"\d{6,8}-\d{4}", tok):
+            return True
+        if re.fullmatch(r"[0-9A-Z]{3,}(?:[-/][0-9A-Z]{2,}){1,}", tok):
+            return True
+        return False
 
-        # -----------------------
-    # TESTATA (euristiche robuste)
-    # -----------------------
-    lines = [l.strip() for l in full_text.splitlines() if l.strip()]
-
-    def _next_nonempty_after(label_re_list, max_ahead=3):
-        for idx, ln in enumerate(lines):
-            for lr in label_re_list:
-                if re.search(lr, ln, flags=re.IGNORECASE):
-                    # se nella stessa riga c'è "LABEL: valore"
-                    m_inline = re.search(r":\s*(.+)$", ln)
-                    if m_inline and m_inline.group(1).strip():
-                        return m_inline.group(1).strip()[:120]
-                    # altrimenti prendi la prossima riga non vuota
-                    for j in range(1, max_ahead + 1):
-                        if idx + j < len(lines):
-                            cand = lines[idx + j].strip()
-                            # evita di prendere altre etichette
-                            if cand and not re.search(r"^(cliente|fornitore|mittente|destinatario|ddt|bolla|data)\b", cand, flags=re.IGNORECASE):
-                                return cand[:120]
+    def _first_code_in_line(line):
+        patterns = [
+            r"\d{6,8}-\d{4}-\d+-\d+",
+            r"\d{6,8}-\d{4}",
+            r"[0-9A-Z]{3,}(?:[-/][0-9A-Z]{2,}){1,}",
+        ]
+        for pat in patterns:
+            m = re.search(pat, line)
+            if m:
+                return m.group(0).strip()
         return ""
 
-    # Cliente / Destinatario
-    meta["cliente"] = (
-        _next_nonempty_after([r"\bDestinatario\b", r"\bDestinatario\s+merci\b", r"\bCliente\b", r"\bSpett\.?le\b"])
-        or meta["cliente"]
-    )
+    def _extract_meta(lines, full_text):
+        meta = {
+            "cliente": "",
+            "fornitore": "",
+            "commessa": "",
+            "n_ddt": "",
+            "data_ingresso": date.today().strftime("%Y-%m-%d"),
+        }
 
-    # Fornitore / Mittente
-    meta["fornitore"] = (
-        _next_nonempty_after([r"\bFornitore\b", r"\bMittente\b", r"Merce\s+di\s+propriet", r"\bSpedizione\s+da\b"])
-        or meta["fornitore"]
-    )
+        def _line_value(idx, ln):
+            ln = ln.strip()
+            for sep in (":", "-"):
+                if sep in ln:
+                    left, right = ln.split(sep, 1)
+                    if re.search(r"(cliente|destinatario|fornitore|mittente|ddt|bolla|data|commessa)", left, re.I):
+                        right = right.strip()
+                        if right:
+                            return right
+            for j in range(1, 4):
+                if idx + j < len(lines):
+                    cand = lines[idx + j].strip()
+                    if cand and not re.search(r"^(cliente|destinatario|fornitore|mittente|ddt|bolla|data|commessa)", cand, re.I):
+                        return cand
+            return ""
 
-    # N. DDT / Bolla (cerca in tutta la pagina)
-    m = re.search(r"(?:N\.\s*(?:Bolla|DDT)|Bolla\s+N\.?(?:\s*DDT)?|DDT\s*N\.?)\s*[:\-]?\s*([A-Z0-9\-\/]+)", full_text, flags=re.IGNORECASE)
-    if m:
-        meta["n_ddt"] = m.group(1).strip()
-    else:
-        # fallback: pattern tipico 0013/26 oppure AT260209
-        m2 = re.search(r"\b\d{1,5}\/\d{2}\b", full_text)
-        if m2:
-            meta["n_ddt"] = m2.group(0).strip()
-        else:
-            m3 = re.search(r"\b[A-Z]{1,3}\d{4,10}\b", full_text)
-            if m3:
-                meta["n_ddt"] = m3.group(0).strip()
+        for idx, ln in enumerate(lines):
+            low = ln.lower()
+            if not meta["cliente"] and re.search(r"(destinatario(?:\s+merci)?|cliente|spett\.?le)", low, re.I):
+                meta["cliente"] = _line_value(idx, ln)[:120]
+            if not meta["fornitore"] and re.search(r"(fornitore|mittente|spedizione\s+da|merce\s+di\s+propriet)", low, re.I):
+                meta["fornitore"] = _line_value(idx, ln)[:120]
+            if not meta["commessa"] and re.search(r"commessa", low, re.I):
+                meta["commessa"] = _line_value(idx, ln)[:120]
+            if not meta["n_ddt"]:
+                m = re.search(r"(?:N\.?\s*(?:DDT|Bolla)|DDT\s*N\.?|Bolla\s*N\.?)\s*[:\-]?\s*([A-Z0-9\-/]+)", ln, flags=re.I)
+                if m:
+                    meta["n_ddt"] = m.group(1).strip()
+            if meta["data_ingresso"] == date.today().strftime("%Y-%m-%d"):
+                m = re.search(r"(?:Data\s*DDT|Data\s*Bolla|Data)\s*[:\-]?\s*(\d{2}/\d{2}/\d{4})", ln, flags=re.I)
+                if m:
+                    try:
+                        d, mth, y = m.group(1).split("/")
+                        meta["data_ingresso"] = f"{y}-{mth}-{d}"
+                    except Exception:
+                        pass
 
-    # Data DDT/Bolla -> data_ingresso (accetta anche "Data" semplice)
-    m = re.search(r"(?:Data\s+Bolla|Data\s+DDT|\bData\b)\s*[:\-]?\s*(\d{2}\/\d{2}\/\d{4})", full_text, flags=re.IGNORECASE)
-    if m:
-        ddmmyyyy = m.group(1).strip()
-        try:
-            d, mth, y = ddmmyyyy.split("/")
-            meta["data_ingresso"] = f"{y}-{mth}-{d}"
-        except Exception:
-            pass
+        if not meta["n_ddt"]:
+            m = re.search(r"\d{1,5}/\d{2}", full_text)
+            if m:
+                meta["n_ddt"] = m.group(0)
+        if not meta["n_ddt"]:
+            m = re.search(r"[A-Z]{1,3}\d{4,10}", full_text)
+            if m:
+                meta["n_ddt"] = m.group(0)
+        if meta["data_ingresso"] == date.today().strftime("%Y-%m-%d"):
+            m = re.search(r"(\d{2}/\d{2}/\d{4})", full_text)
+            if m:
+                try:
+                    d, mth, y = m.group(1).split("/")
+                    meta["data_ingresso"] = f"{y}-{mth}-{d}"
+                except Exception:
+                    pass
+        return meta
 
-    # -----------------------
-    # RIGHE ARTICOLI
-    # -----------------------
-    # Pattern codice: tollerante
-    code_re = re.compile(r"\b[0-9A-Z]{3,}(?:[-\/][0-9A-Z]{2,}){1,}\b")
+    with pdfplumber.open(path) as pdf:
+        texts = []
+        for page in pdf.pages:
+            txt = page.extract_text() or ""
+            if txt:
+                texts.append(txt)
+        full_text = "\n".join(texts)
 
-    lines = [l.strip() for l in full_text.splitlines() if l.strip()]
-
+    lines = [_clean_spaces(l) for l in full_text.splitlines() if _clean_spaces(l)]
+    meta = _extract_meta(lines, full_text)
+    extracted_rows = []
     last_row = None
 
     for line in lines:
-        # ✅ aggancia LOTTO alla riga precedente se presente su riga separata
-        if line.lower().startswith("lotto"):
-            if last_row is not None:
-                m_lot = re.search(r"lotto\s*[:\-]?\s*([A-Z0-9\-\/\.]+)", line, flags=re.IGNORECASE)
-                if m_lot:
-                    last_row["lotto"] = m_lot.group(1).strip()
+        low = line.lower()
+
+        # righe accessorie agganciate all'ultima riga articolo
+        if last_row is not None:
+            m_lotto = re.search(r"lotto\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+            if m_lotto:
+                last_row["lotto"] = m_lotto.group(1).strip()
+                continue
+            m_ser = re.search(r"(?:serial(?:e)?|serial\s*number|matricola|s/?n)\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+            if m_ser:
+                last_row["serial_number"] = m_ser.group(1).strip()
+                continue
+
+        if re.search(r"^(cliente|fornitore|destinatario|mittente|commessa|n\.?\s*ddt|ddt|bolla|data)", line, re.I):
             continue
 
-        # cerca un codice all'inizio riga (o comunque presente)
-        code_m = code_re.search(line)
-        if not code_m:
+        codice = _first_code_in_line(line)
+        if not codice:
             continue
 
-        codice = code_m.group(0).strip()
+        rest = _clean_spaces(line.replace(codice, " ", 1))
+        if not rest:
+            rest = line
 
-        # prova a catturare: ... Colli <INT> ... UM <TXT> Qta <NUM>
-        rest = line.replace(codice, "", 1).strip()
-        parts = rest.split()
+        um = ""
+        um_m = re.search(r"(KG|KGS|PZ|PZS|NR|N\.?|UN)", line, flags=re.I)
+        if um_m:
+            um = um_m.group(1).upper().replace('.', '')
+            if um == 'KGS':
+                um = 'KG'
+            if um == 'PZS':
+                um = 'PZ'
 
         colli = None
-        qta = None
-        um = ""
+        m_colli = re.search(r"colli\s*[:\-]?\s*(\d+)", line, flags=re.I)
+        if m_colli:
+            colli = _to_int(m_colli.group(1))
+        else:
+            after = rest.split()
+            for tok in after:
+                if tok.isdigit():
+                    v = _to_int(tok)
+                    if v is not None and 0 <= v <= 9999:
+                        colli = v
+                        break
 
-        # qta: ultimo numero nel testo
-        nums = re.findall(r"\d+(?:[.,]\d+)?", line)
-        if nums:
-            qta = _to_float_it(nums[-1])
+        lotto = ""
+        m_lotto_inline = re.search(r"lotto\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+        if m_lotto_inline:
+            lotto = m_lotto_inline.group(1).strip()
 
-        # colli: cerca un intero plausibile (1..999) nel mezzo
-        for p in parts:
-            if p.isdigit():
-                v = _to_int(p)
-                if v is not None and 1 <= v <= 999:
-                    colli = v
-                    break
+        serial = ""
+        m_ser_inline = re.search(r"(?:serial(?:e)?|serial\s*number|matricola|s/?n)\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+        if m_ser_inline:
+            serial = m_ser_inline.group(1).strip()
 
-        # UM: prova a prendere token tipo KG/PZ/NR
-        um_m = re.search(r"\b(KG|PZ|NR|N|UN)\b", line, flags=re.IGNORECASE)
-        if um_m:
-            um = um_m.group(1).upper()
-
-        # descrizione: togliamo pezzi “tecnici” (imballo/um/valori) ma restiamo conservativi
-        descrizione = rest
-        # rimuovi imballo comune tipo CAN, PAL, BOX, ecc. (opzionale)
-        descrizione = re.sub(r"\b(CAN|PAL|BOX|CRT|CASS)\b", "", descrizione, flags=re.IGNORECASE).strip()
-        # se colli è presente, togli la prima occorrenza
-        if colli is not None:
-            descrizione = re.sub(rf"\b{colli}\b", "", descrizione, count=1).strip()
-        # se UM trovato, toglilo
-        if um:
-            descrizione = re.sub(rf"\b{um}\b", "", descrizione, flags=re.IGNORECASE).strip()
-
-        # Galvano Tecnica: codice spesso del tipo 1689615-0025-1-000 -> il terzo blocco è il "pezzo"
         pezzi_articolo = ""
-        m_pz = re.match(r"^\d+-\d+-(\d+)-\d+$", codice)
-        if m_pz:
-            pezzi_articolo = m_pz.group(1).lstrip("0") or m_pz.group(1)
+        m_pz_code = re.match(r"^(\d{6,8})-(\d{4})-(\d+)-(\d+)$", codice)
+        if m_pz_code:
+            pezzi_articolo = m_pz_code.group(3).lstrip('0') or m_pz_code.group(3)
+
+        m_pz = re.search(r"(?:pezzi|pezzo|pz|nr|n\.)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)", line, flags=re.I)
+        if m_pz and not pezzi_articolo:
+            pezzi_articolo = str(_to_int(m_pz.group(1)) or "")
+
+        # numeri candidati per kg/qta, ripulendo il codice e i dati testuali
+        temp_for_nums = line
+        temp_for_nums = temp_for_nums.replace(codice, ' ')
+        temp_for_nums = re.sub(r"(?:lotto|serial(?:e)?|serial\s*number|matricola|s/?n)\s*[:\-]?\s*[A-Z0-9\-./]+", " ", temp_for_nums, flags=re.I)
+        nums = re.findall(r"\d+(?:[.,]\d+)?", temp_for_nums)
+        qta = None
+        if nums:
+            # preferisci l'ultimo decimale o comunque l'ultimo numero > 0
+            preferred = None
+            for n in nums:
+                if ',' in n or '.' in n:
+                    preferred = n
+            if preferred is None:
+                preferred = nums[-1]
+            qta = _to_float_it(preferred)
+
+        descrizione = rest
+        descrizione = re.sub(r"lotto\s*[:\-]?\s*[A-Z0-9\-./]+", " ", descrizione, flags=re.I)
+        descrizione = re.sub(r"(?:serial(?:e)?|serial\s*number|matricola|s/?n)\s*[:\-]?\s*[A-Z0-9\-./]+", " ", descrizione, flags=re.I)
+        descrizione = re.sub(r"(CAN|PAL|BOX|CRT|CASS|COLLI?)", " ", descrizione, flags=re.I)
+        if colli is not None:
+            descrizione = re.sub(rf"{re.escape(str(colli))}", " ", descrizione, count=1)
+        if um:
+            descrizione = re.sub(rf"{re.escape(um)}", " ", descrizione, flags=re.I)
+        if qta is not None:
+            descrizione = re.sub(r"\d+(?:[.,]\d+)?\s*$", " ", descrizione).strip()
+        descrizione = _clean_spaces(descrizione)
 
         row = {
             "codice": codice,
             "descrizione": descrizione,
-            "colli": colli if colli is not None else 1,
-            "pezzi": qta if qta is not None else 1,   # peso/q.tà
+            "colli": colli if colli is not None else 0,
+            "pezzi": qta if qta is not None else 0,
             "um": um,
             "pezzi_articolo": pezzi_articolo,
-            "lotto": ""
+            "lotto": lotto,
+            "serial_number": serial,
         }
         extracted_rows.append(row)
         last_row = row
 
-    # de-dup: se stesso codice+descrizione ripetuto identico, somma colli/pezzi e conserva lotto se presente
     merged = {}
     for r in extracted_rows:
-        key = (r["codice"], r["descrizione"])
+        key = (r.get("codice") or "", r.get("descrizione") or "", r.get("lotto") or "", r.get("serial_number") or "")
         if key not in merged:
-            merged[key] = r
+            merged[key] = dict(r)
         else:
-            merged[key]["colli"] = int(merged[key]["colli"] or 0) + int(r["colli"] or 0)
+            merged[key]["colli"] = to_int_eu(merged[key].get("colli")) + to_int_eu(r.get("colli"))
             try:
-                merged[key]["pezzi"] = float(merged[key]["pezzi"] or 0) + float(r["pezzi"] or 0)
+                merged[key]["pezzi"] = float(merged[key].get("pezzi") or 0) + float(r.get("pezzi") or 0)
             except Exception:
                 pass
-            if not merged[key].get("lotto") and r.get("lotto"):
-                merged[key]["lotto"] = r.get("lotto")
+            if not merged[key].get("pezzi_articolo") and r.get("pezzi_articolo"):
+                merged[key]["pezzi_articolo"] = r.get("pezzi_articolo")
 
     return meta, list(merged.values())
-
 
 def is_blank(v):
     try:
@@ -1936,6 +1991,7 @@ IMPORT_PDF_HTML = """
                         <th style="width:80px">UM</th>
                         <th style="width:120px">Pezzi</th>
                         <th style="width:160px">Lotto</th>
+                        <th style="width:180px">Seriale</th>
                     </tr>
                 </thead>
                 <tbody id="rowsBody">
@@ -1964,6 +2020,9 @@ IMPORT_PDF_HTML = """
                         </td>
                         <td>
                             <input name="lotto[]" class="form-control form-control-sm" value="{{ r.lotto or '' }}">
+                        </td>
+                        <td>
+                            <input name="serial_number[]" class="form-control form-control-sm" value="{{ r.serial_number or '' }}">
                         </td>
                     </tr>
                     {% endfor %}
@@ -2400,7 +2459,7 @@ EDIT_HTML = """
         <div class="col-md-2"><label class="form-label">Pezzi</label><input type="number" name="pezzo" class="form-control" value="{{ row.pezzo or '' }}"></div>
         <div class="col-md-2 bg-warning bg-opacity-10 rounded border border-warning">
             <label class="form-label fw-bold text-dark">N° Colli</label>
-            <input type="number" name="n_colli" class="form-control fw-bold" value="{{ row.n_colli or 1 }}">
+            <input type="number" name="n_colli" min="0" class="form-control fw-bold" value="{{ row.n_colli if row.n_colli is not none else 1 }}">
             <small class="text-muted" style="font-size:10px">Se > 1, crea N righe separate!</small>
         </div>
         <div class="col-md-2"><label class="form-label">Peso (Kg)</label><input type="number" step="0.01" name="peso" class="form-control" value="{{ row.peso or '' }}"></div>
@@ -5208,6 +5267,7 @@ def save_pdf_import():
         um_list = request.form.getlist('um[]')
         pezzi_articolo_list = request.form.getlist('pezzi_articolo[]')  # pezzi (separati dal peso)
         lotto_list = request.form.getlist('lotto[]')
+        serial_list = request.form.getlist('serial_number[]')
 
         c = 0
         for i in range(len(codici)):
@@ -5229,10 +5289,12 @@ def save_pdf_import():
             # riga
             art.codice_articolo = codice
             art.descrizione = descr
-            art.n_colli = to_int_eu(colli_list[i] if i < len(colli_list) else 1)
+            art.n_colli = max(0, to_int_eu(colli_list[i] if i < len(colli_list) else 0))
             # Lotto (se presente nel PDF o inserito a mano)
             lt = lotto_list[i] if i < len(lotto_list) else ""
             art.lotto = (lt or "").strip()
+            sr = serial_list[i] if i < len(serial_list) else ""
+            art.serial_number = (sr or "").strip()
 
             # Quantità/Peso: il campo 'pezzi[]' in tabella è usato come Peso/Q.tà.
             qta = qta_list[i] if i < len(qta_list) else ""
@@ -5249,8 +5311,8 @@ def save_pdf_import():
                 art.pezzo = pz_art
             else:
                 # qta = pezzi/quantità (non Kg)
-                art.pezzo = str(qta).strip()
-                art.peso = None
+                art.pezzo = str(pz_art or qta).strip()
+                art.peso = to_float_eu(qta) if str(qta).strip() else None
 
             db.add(art)
             c += 1
@@ -5932,7 +5994,7 @@ def edit_articolo(id):
         if request.method == 'POST':
             # 1. Recupera Colli (per eventuale split)
             colli_input = to_int_eu(request.form.get('n_colli'))
-            if colli_input < 1: colli_input = 1
+            if colli_input < 0: colli_input = 0
 
             # 2. Aggiorna tutti i campi
             art.codice_articolo = request.form.get('codice_articolo')
@@ -5975,7 +6037,7 @@ def edit_articolo(id):
             art.altezza = to_float_eu(request.form.get('altezza'))
             
             # Calcoli
-            m2_calc, m3_calc = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, 1)
+            m2_calc, m3_calc = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, art.n_colli)
             art.m2 = m2_calc
             m3_man = request.form.get('m3')
             art.m3 = to_float_eu(m3_man) if m3_man and to_float_eu(m3_man) > 0 else m3_calc
@@ -6042,7 +6104,7 @@ def edit_record(id_articolo):
         if request.method == 'POST':
             # --- SALVATAGGIO MODIFICHE ---
             colli_input = to_int_eu(request.form.get('n_colli'))
-            if colli_input < 1: colli_input = 1
+            if colli_input < 0: colli_input = 0
 
             # Aggiornamento campi
             art.codice_articolo = request.form.get('codice_articolo')
@@ -6071,15 +6133,15 @@ def edit_record(id_articolo):
             art.n_ddt_uscita = request.form.get('n_ddt_uscita')
             
             art.pezzo = request.form.get('pezzo')
-            # Nella modifica singola, n_colli resta 1 per coerenza, se split gestito sotto
-            art.n_colli = 1 
+            # In modifica puoi anche salvare 0 colli; se >1 manteniamo 1 sulla riga base e creiamo copie
+            art.n_colli = colli_input if colli_input <= 1 else 1 
             art.peso = to_float_eu(request.form.get('peso'))
             art.lunghezza = to_float_eu(request.form.get('lunghezza'))
             art.larghezza = to_float_eu(request.form.get('larghezza'))
             art.altezza = to_float_eu(request.form.get('altezza'))
             
             # Calcoli
-            m2_calc, m3_calc = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, 1)
+            m2_calc, m3_calc = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, art.n_colli)
             art.m2 = m2_calc
             m3_man = request.form.get('m3')
             art.m3 = to_float_eu(m3_man) if m3_man and to_float_eu(m3_man) > 0 else m3_calc
