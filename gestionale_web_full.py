@@ -536,7 +536,7 @@ def create_backup_zip(include_media: bool = True) -> Path:
 # --- CONFIGURAZIONE FILE MAPPE EXCEL ---
 # Definiamo qui i percorsi esatti per evitare confusione
 MAPPE_FILE_PERSISTENT = MEDIA_DIR / "mappe_excel.json"        # File modificabile (nel disco dati)
-MAPPE_FILE_ORIGINAL = APP_DIR / "config." / "mappe_excel.json" # File originale (da GitHub)
+MAPPE_FILE_ORIGINAL = APP_DIR / "config" / "mappe_excel.json" # File originale (da GitHub)
 
 # Crea le cartelle se non esistono
 for d in (STATIC_DIR, MEDIA_DIR, DOCS_DIR, PHOTOS_DIR):
@@ -1336,7 +1336,7 @@ def calc_m2_m3(L, P, H, colli=1):
     l = to_float_eu(L)
     p = to_float_eu(P)
     h = to_float_eu(H)
-    c = max(1, to_int_eu(colli))
+    c = max(0, to_int_eu(colli))
 
     # Logica intelligente: se le misure sono grandi (>10), assumiamo siano CM e convertiamo in METRI
     # Esempio: 120 -> 1.20
@@ -2459,7 +2459,7 @@ EDIT_HTML = """
         <div class="col-md-2"><label class="form-label">Pezzi</label><input type="number" name="pezzo" class="form-control" value="{{ row.pezzo or '' }}"></div>
         <div class="col-md-2 bg-warning bg-opacity-10 rounded border border-warning">
             <label class="form-label fw-bold text-dark">N° Colli</label>
-            <input type="number" name="n_colli" min="0" class="form-control fw-bold" value="{{ row.n_colli if row.n_colli is not none else 1 }}">
+            <input type="number" name="n_colli" min="0" class="form-control fw-bold" value="{{ row.n_colli if row.n_colli is not none else 0 }}">
             <small class="text-muted" style="font-size:10px">Se > 1, crea N righe separate!</small>
         </div>
         <div class="col-md-2"><label class="form-label">Peso (Kg)</label><input type="number" step="0.01" name="peso" class="form-control" value="{{ row.peso or '' }}"></div>
@@ -5779,7 +5779,7 @@ def nuovo_articolo():
             # --- RECUPERO DATI FORM ---
             # Determina quante righe creare in base al numero di colli
             n_colli_input = to_int_eu(request.form.get('n_colli'))
-            if n_colli_input < 1: n_colli_input = 1
+            if n_colli_input < 0: n_colli_input = 0
             
             created_articles = []
 
@@ -6187,7 +6187,10 @@ def edit_row(id):
                     v = to_float_eu(v)
                 elif f in ('n_colli', 'pezzo'):
                     v = to_int_eu(v)
-                setattr(row, f, v if v != '' else None)
+                if f == 'n_colli':
+                    setattr(row, f, max(0, to_int_eu(v)))
+                else:
+                    setattr(row, f, v if v != '' else None)
         row.m2, row.m3 = calc_m2_m3(row.lunghezza, row.larghezza, row.altezza, row.n_colli)
         if 'files' in request.files:
             for f in request.files.getlist('files'):
