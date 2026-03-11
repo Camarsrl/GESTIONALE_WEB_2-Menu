@@ -536,7 +536,7 @@ def create_backup_zip(include_media: bool = True) -> Path:
 # --- CONFIGURAZIONE FILE MAPPE EXCEL ---
 # Definiamo qui i percorsi esatti per evitare confusione
 MAPPE_FILE_PERSISTENT = MEDIA_DIR / "mappe_excel.json"        # File modificabile (nel disco dati)
-MAPPE_FILE_ORIGINAL = APP_DIR / "config." / "mappe_excel.json" # File originale (da GitHub)
+MAPPE_FILE_ORIGINAL = APP_DIR / "config" / "mappe_excel.json" # File originale (da GitHub)
 
 # Crea le cartelle se non esistono
 for d in (STATIC_DIR, MEDIA_DIR, DOCS_DIR, PHOTOS_DIR):
@@ -1071,9 +1071,9 @@ def extract_data_from_ddt_pdf(path):
 
     def _first_code_in_line(line):
         patterns = [
-            r"\d{6,8}-\d{4}-\d+-\d+",
-            r"\d{6,8}-\d{4}",
-            r"[0-9A-Z]{3,}(?:[-/][0-9A-Z]{2,}){1,}",
+            r"\b\d{6,8}-\d{4}-\d+-\d+\b",
+            r"\b\d{6,8}-\d{4}\b",
+            r"\b[0-9A-Z]{3,}(?:[-/][0-9A-Z]{2,}){1,}\b",
         ]
         for pat in patterns:
             m = re.search(pat, line)
@@ -1102,24 +1102,24 @@ def extract_data_from_ddt_pdf(path):
             for j in range(1, 4):
                 if idx + j < len(lines):
                     cand = lines[idx + j].strip()
-                    if cand and not re.search(r"^(cliente|destinatario|fornitore|mittente|ddt|bolla|data|commessa)", cand, re.I):
+                    if cand and not re.search(r"^(cliente|destinatario|fornitore|mittente|ddt|bolla|data|commessa)\b", cand, re.I):
                         return cand
             return ""
 
         for idx, ln in enumerate(lines):
             low = ln.lower()
-            if not meta["cliente"] and re.search(r"(destinatario(?:\s+merci)?|cliente|spett\.?le)", low, re.I):
+            if not meta["cliente"] and re.search(r"\b(destinatario(?:\s+merci)?|cliente|spett\.?le)\b", low, re.I):
                 meta["cliente"] = _line_value(idx, ln)[:120]
-            if not meta["fornitore"] and re.search(r"(fornitore|mittente|spedizione\s+da|merce\s+di\s+propriet)", low, re.I):
+            if not meta["fornitore"] and re.search(r"\b(fornitore|mittente|spedizione\s+da|merce\s+di\s+propriet)\b", low, re.I):
                 meta["fornitore"] = _line_value(idx, ln)[:120]
-            if not meta["commessa"] and re.search(r"commessa", low, re.I):
+            if not meta["commessa"] and re.search(r"\bcommessa\b", low, re.I):
                 meta["commessa"] = _line_value(idx, ln)[:120]
             if not meta["n_ddt"]:
                 m = re.search(r"(?:N\.?\s*(?:DDT|Bolla)|DDT\s*N\.?|Bolla\s*N\.?)\s*[:\-]?\s*([A-Z0-9\-/]+)", ln, flags=re.I)
                 if m:
                     meta["n_ddt"] = m.group(1).strip()
             if meta["data_ingresso"] == date.today().strftime("%Y-%m-%d"):
-                m = re.search(r"(?:Data\s*DDT|Data\s*Bolla|Data)\s*[:\-]?\s*(\d{2}/\d{2}/\d{4})", ln, flags=re.I)
+                m = re.search(r"(?:Data\s*DDT|Data\s*Bolla|\bData\b)\s*[:\-]?\s*(\d{2}/\d{2}/\d{4})", ln, flags=re.I)
                 if m:
                     try:
                         d, mth, y = m.group(1).split("/")
@@ -1128,15 +1128,15 @@ def extract_data_from_ddt_pdf(path):
                         pass
 
         if not meta["n_ddt"]:
-            m = re.search(r"\d{1,5}/\d{2}", full_text)
+            m = re.search(r"\b\d{1,5}/\d{2}\b", full_text)
             if m:
                 meta["n_ddt"] = m.group(0)
         if not meta["n_ddt"]:
-            m = re.search(r"[A-Z]{1,3}\d{4,10}", full_text)
+            m = re.search(r"\b[A-Z]{1,3}\d{4,10}\b", full_text)
             if m:
                 meta["n_ddt"] = m.group(0)
         if meta["data_ingresso"] == date.today().strftime("%Y-%m-%d"):
-            m = re.search(r"(\d{2}/\d{2}/\d{4})", full_text)
+            m = re.search(r"\b(\d{2}/\d{2}/\d{4})\b", full_text)
             if m:
                 try:
                     d, mth, y = m.group(1).split("/")
@@ -1163,16 +1163,16 @@ def extract_data_from_ddt_pdf(path):
 
         # righe accessorie agganciate all'ultima riga articolo
         if last_row is not None:
-            m_lotto = re.search(r"lotto\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+            m_lotto = re.search(r"\blotto\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
             if m_lotto:
                 last_row["lotto"] = m_lotto.group(1).strip()
                 continue
-            m_ser = re.search(r"(?:serial(?:e)?|serial\s*number|matricola|s/?n)\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+            m_ser = re.search(r"\b(?:serial(?:e)?|serial\s*number|matricola|s/?n)\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
             if m_ser:
                 last_row["serial_number"] = m_ser.group(1).strip()
                 continue
 
-        if re.search(r"^(cliente|fornitore|destinatario|mittente|commessa|n\.?\s*ddt|ddt|bolla|data)", line, re.I):
+        if re.search(r"^(cliente|fornitore|destinatario|mittente|commessa|n\.?\s*ddt|ddt|bolla|data)\b", line, re.I):
             continue
 
         codice = _first_code_in_line(line)
@@ -1184,7 +1184,7 @@ def extract_data_from_ddt_pdf(path):
             rest = line
 
         um = ""
-        um_m = re.search(r"(KG|KGS|PZ|PZS|NR|N\.?|UN)", line, flags=re.I)
+        um_m = re.search(r"\b(KG|KGS|PZ|PZS|NR|N\.?|UN)\b", line, flags=re.I)
         if um_m:
             um = um_m.group(1).upper().replace('.', '')
             if um == 'KGS':
@@ -1193,7 +1193,7 @@ def extract_data_from_ddt_pdf(path):
                 um = 'PZ'
 
         colli = None
-        m_colli = re.search(r"colli\s*[:\-]?\s*(\d+)", line, flags=re.I)
+        m_colli = re.search(r"\bcolli\b\s*[:\-]?\s*(\d+)", line, flags=re.I)
         if m_colli:
             colli = _to_int(m_colli.group(1))
         else:
@@ -1206,12 +1206,12 @@ def extract_data_from_ddt_pdf(path):
                         break
 
         lotto = ""
-        m_lotto_inline = re.search(r"lotto\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+        m_lotto_inline = re.search(r"\blotto\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
         if m_lotto_inline:
             lotto = m_lotto_inline.group(1).strip()
 
         serial = ""
-        m_ser_inline = re.search(r"(?:serial(?:e)?|serial\s*number|matricola|s/?n)\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+        m_ser_inline = re.search(r"\b(?:serial(?:e)?|serial\s*number|matricola|s/?n)\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
         if m_ser_inline:
             serial = m_ser_inline.group(1).strip()
 
@@ -1220,14 +1220,14 @@ def extract_data_from_ddt_pdf(path):
         if m_pz_code:
             pezzi_articolo = m_pz_code.group(3).lstrip('0') or m_pz_code.group(3)
 
-        m_pz = re.search(r"(?:pezzi|pezzo|pz|nr|n\.)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)", line, flags=re.I)
+        m_pz = re.search(r"\b(?:pezzi|pezzo|pz|nr|n\.)\b\s*[:\-]?\s*(\d+(?:[.,]\d+)?)", line, flags=re.I)
         if m_pz and not pezzi_articolo:
             pezzi_articolo = str(_to_int(m_pz.group(1)) or "")
 
         # numeri candidati per kg/qta, ripulendo il codice e i dati testuali
         temp_for_nums = line
         temp_for_nums = temp_for_nums.replace(codice, ' ')
-        temp_for_nums = re.sub(r"(?:lotto|serial(?:e)?|serial\s*number|matricola|s/?n)\s*[:\-]?\s*[A-Z0-9\-./]+", " ", temp_for_nums, flags=re.I)
+        temp_for_nums = re.sub(r"\b(?:lotto|serial(?:e)?|serial\s*number|matricola|s/?n)\b\s*[:\-]?\s*[A-Z0-9\-./]+", " ", temp_for_nums, flags=re.I)
         nums = re.findall(r"\d+(?:[.,]\d+)?", temp_for_nums)
         qta = None
         if nums:
@@ -1241,15 +1241,15 @@ def extract_data_from_ddt_pdf(path):
             qta = _to_float_it(preferred)
 
         descrizione = rest
-        descrizione = re.sub(r"lotto\s*[:\-]?\s*[A-Z0-9\-./]+", " ", descrizione, flags=re.I)
-        descrizione = re.sub(r"(?:serial(?:e)?|serial\s*number|matricola|s/?n)\s*[:\-]?\s*[A-Z0-9\-./]+", " ", descrizione, flags=re.I)
-        descrizione = re.sub(r"(CAN|PAL|BOX|CRT|CASS|COLLI?)", " ", descrizione, flags=re.I)
+        descrizione = re.sub(r"\blotto\b\s*[:\-]?\s*[A-Z0-9\-./]+", " ", descrizione, flags=re.I)
+        descrizione = re.sub(r"\b(?:serial(?:e)?|serial\s*number|matricola|s/?n)\b\s*[:\-]?\s*[A-Z0-9\-./]+", " ", descrizione, flags=re.I)
+        descrizione = re.sub(r"\b(CAN|PAL|BOX|CRT|CASS|COLLI?)\b", " ", descrizione, flags=re.I)
         if colli is not None:
-            descrizione = re.sub(rf"{re.escape(str(colli))}", " ", descrizione, count=1)
+            descrizione = re.sub(rf"\b{re.escape(str(colli))}\b", " ", descrizione, count=1)
         if um:
-            descrizione = re.sub(rf"{re.escape(um)}", " ", descrizione, flags=re.I)
+            descrizione = re.sub(rf"\b{re.escape(um)}\b", " ", descrizione, flags=re.I)
         if qta is not None:
-            descrizione = re.sub(r"\d+(?:[.,]\d+)?\s*$", " ", descrizione).strip()
+            descrizione = re.sub(r"\b\d+(?:[.,]\d+)?\b\s*$", " ", descrizione).strip()
         descrizione = _clean_spaces(descrizione)
 
         row = {
@@ -4159,7 +4159,7 @@ def home():
 
 def load_mappe():
     """Carica mappe_excel.json: prima da config. (con punto), poi fallback su root."""
-    config_path = APP_DIR / "config." / "mappe_excel.json"   # <-- cartella con il punto
+    config_path = APP_DIR / "config" / "mappe_excel.json"   # <-- cartella con il punto
     root_path = APP_DIR / "mappe_excel.json"
 
     json_path = config_path if config_path.exists() else root_path
@@ -5333,6 +5333,7 @@ def save_pdf_import():
 # --- EXPORTAZIONE EXCEL ---
 @app.get('/export_excel')
 @login_required
+@require_admin
 def export_excel():
     import math
     import re
