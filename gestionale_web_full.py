@@ -1082,68 +1082,91 @@ def extract_data_from_ddt_pdf(path):
         return ""
 
     def _extract_meta(lines, full_text):
-        meta = {
-            "cliente": "",
-            "fornitore": "",
-            "commessa": "",
-            "n_ddt": "",
-            "data_ingresso": date.today().strftime("%Y-%m-%d"),
-        }
+    meta = {
+        "cliente": "",
+        "fornitore": "",
+        "commessa": "",
+        "n_ddt": "",
+        "data_ingresso": date.today().strftime("%Y-%m-%d"),
+    }
 
-        def _line_value(idx, ln):
-            ln = ln.strip()
-            for sep in (":", "-"):
-                if sep in ln:
-                    left, right = ln.split(sep, 1)
-                    if re.search(r"(cliente|destinatario|fornitore|mittente|ddt|bolla|data|commessa)", left, re.I):
-                        right = right.strip()
-                        if right:
-                            return right
-            for j in range(1, 4):
-                if idx + j < len(lines):
-                    cand = lines[idx + j].strip()
-                    if cand and not re.search(r"^(cliente|destinatario|fornitore|mittente|ddt|bolla|data|commessa)\b", cand, re.I):
-                        return cand
-            return ""
+    def _clean_value(v):
+        v = (v or "").strip(" :-\t")
+        v = re.sub(r"\s{2,}", " ", v).strip()
+        return v
 
-        for idx, ln in enumerate(lines):
-            low = ln.lower()
-            if not meta["cliente"] and re.search(r"\b(destinatario(?:\s+merci)?|cliente|spett\.?le)\b", low, re.I):
-                meta["cliente"] = _line_value(idx, ln)[:120]
-            if not meta["fornitore"] and re.search(r"\b(fornitore|mittente|spedizione\s+da|merce\s+di\s+propriet)\b", low, re.I):
-                meta["fornitore"] = _line_value(idx, ln)[:120]
-            if not meta["commessa"] and re.search(r"\bcommessa\b", low, re.I):
-                meta["commessa"] = _line_value(idx, ln)[:120]
-            if not meta["n_ddt"]:
-                m = re.search(r"(?:N\.?\s*(?:DDT|Bolla)|DDT\s*N\.?|Bolla\s*N\.?)\s*[:\-]?\s*([A-Z0-9\-/]+)", ln, flags=re.I)
-                if m:
-                    meta["n_ddt"] = m.group(1).strip()
-            if meta["data_ingresso"] == date.today().strftime("%Y-%m-%d"):
-                m = re.search(r"(?:Data\s*DDT|Data\s*Bolla|\bData\b)\s*[:\-]?\s*(\d{2}/\d{2}/\d{4})", ln, flags=re.I)
-                if m:
-                    try:
-                        d, mth, y = m.group(1).split("/")
-                        meta["data_ingresso"] = f"{y}-{mth}-{d}"
-                    except Exception:
-                        pass
+    def _is_label_text(txt):
+        return bool(re.search(
+            r"\b(cliente|destinatario|fornitore|mittente|ddt|bolla|data|commessa|ordine)\b",
+            txt or "",
+            re.I
+        ))
 
+    def _line_value(idx, ln):
+        ln = (ln or "").strip()
+
+        # 1) prova a leggere il valore sulla stessa riga dopo : oppure -
+        for sep in (":", "-"):
+            if sep in ln:
+                left, right = ln.split(sep, 1)
+                if re.search(r"(cliente|destinatario|fornitore|mittente|ddt|bolla|data|commessa|ordine)", left, re.I):
+                    right = _clean_value(right)
+                    if right and not _is_label_text(right):
+                        return right
+
+        # 2) prova le 3 righe successive
+        for j in range(1, 4):
+            if idx + j < len(lines):
+                cand = _clean_value(lines[idx + j])
+                if cand and not _is_label_text(cand):
+                    return cand
+
+        return ""
+
+    for idx, ln in enumerate(lines):
+        low = (ln or "").lower()
+
+        # CLIENTE
+        if not meta["cliente"] and re.search(r"\b(destinatario(?:\s+merci)?|cliente|spett\.?le)\b", low, re.I):
+            meta["cliente"] = _line_value(idx, ln)[:120]
+
+        # FORNITORE
+        if not meta["fornitore"] and re.search(r"\b(fornitore|mittente|spedizione\s+da|merce\s+di\s+propriet)\b", low, re.I):
+            meta["fornitore"] = _line_value(idx, ln)[:120]
+
+        # COMMESSA / ORDINE
+        if not meta["commessa"] and re.search(r"\b(commessa|ordine(?:\s+cliente)?)\b", low, re.I):
+            meta["commessa"] = _line_value(idx, ln)[:120]
+
+        # NUMERO DDT / BOLLA
         if not meta["n_ddt"]:
-            m = re.search(r"\b\d{1,5}/\d{2}\b", full_text)
+            m = re.search(
+                r"(?:N\.?\s*(?:DDT|Bolla)|DDT\s*N\.?|Bolla\s*N\.?)\s*[:\-]?\s*([A-Z0-9./\-]+)",
+                ln,
+                flags=re.I
+            )
             if m:
-                meta["n_ddt"] = m.group(0)
-        if not meta["n_ddt"]:
-            m = re.search(r"\b[A-Z]{1,3}\d{4,10}\b", full_text)
-            if m:
-                meta["n_ddt"] = m.group(0)
-        if meta["data_ingresso"] == date.today().strftime("%Y-%m-%d"):
-            m = re.search(r"\b(\d{2}/\d{2}/\d{4})\b", full_text)
-            if m:
-                try:
-                    d, mth, y = m.group(1).split("/")
-                    meta["data_ingresso"] = f"{y}-{mth}-{d}"
-                except Exception:
-                    pass
-        return meta
+                meta["n_ddt"] = m.group(1).strip()
+
+    # fallback numero DDT su tutto il testo
+    if not meta["n_ddt"]:
+        m = re.search(r"\b\d{1,6}/\d{2}\b", full_text)
+        if m:
+            meta["n_ddt"] = m.group(0).strip()
+
+    # fallback data su tutto il testo
+    m = re.search(r"\b(\d{2}/\d{2}/\d{4})\b", full_text)
+    if m:
+        try:
+            meta["data_ingresso"] = datetime.strptime(m.group(1), "%d/%m/%Y").strftime("%Y-%m-%d")
+        except:
+            pass
+
+    # pulizia finale
+    for k in ("cliente", "fornitore", "commessa", "n_ddt"):
+        meta[k] = _clean_value(meta[k])
+
+    return meta
 
     with pdfplumber.open(path) as pdf:
         texts = []
