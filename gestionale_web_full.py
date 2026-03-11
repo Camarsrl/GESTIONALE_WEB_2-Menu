@@ -5333,7 +5333,6 @@ def save_pdf_import():
 # --- EXPORTAZIONE EXCEL ---
 @app.get('/export_excel')
 @login_required
-@require_admin
 def export_excel():
     import math
     import re
