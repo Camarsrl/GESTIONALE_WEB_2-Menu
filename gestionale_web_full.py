@@ -536,7 +536,7 @@ def create_backup_zip(include_media: bool = True) -> Path:
 # --- CONFIGURAZIONE FILE MAPPE EXCEL ---
 # Definiamo qui i percorsi esatti per evitare confusione
 MAPPE_FILE_PERSISTENT = MEDIA_DIR / "mappe_excel.json"        # File modificabile (nel disco dati)
-MAPPE_FILE_ORIGINAL = APP_DIR / "config" / "mappe_excel.json" # File originale (da GitHub)
+MAPPE_FILE_ORIGINAL = APP_DIR / "config." / "mappe_excel.json" # File originale (da GitHub)
 
 # Crea le cartelle se non esistono
 for d in (STATIC_DIR, MEDIA_DIR, DOCS_DIR, PHOTOS_DIR):
@@ -1071,9 +1071,9 @@ def extract_data_from_ddt_pdf(path):
 
     def _first_code_in_line(line):
         patterns = [
-            r"\b\d{6,8}-\d{4}-\d+-\d+\b",
-            r"\b\d{6,8}-\d{4}\b",
-            r"\b[0-9A-Z]{3,}(?:[-/][0-9A-Z]{2,}){1,}\b",
+            r"\d{6,8}-\d{4}-\d+-\d+",
+            r"\d{6,8}-\d{4}",
+            r"[0-9A-Z]{3,}(?:[-/][0-9A-Z]{2,}){1,}",
         ]
         for pat in patterns:
             m = re.search(pat, line)
@@ -1102,24 +1102,24 @@ def extract_data_from_ddt_pdf(path):
             for j in range(1, 4):
                 if idx + j < len(lines):
                     cand = lines[idx + j].strip()
-                    if cand and not re.search(r"^(cliente|destinatario|fornitore|mittente|ddt|bolla|data|commessa)\b", cand, re.I):
+                    if cand and not re.search(r"^(cliente|destinatario|fornitore|mittente|ddt|bolla|data|commessa)", cand, re.I):
                         return cand
             return ""
 
         for idx, ln in enumerate(lines):
             low = ln.lower()
-            if not meta["cliente"] and re.search(r"\b(destinatario(?:\s+merci)?|cliente|spett\.?le)\b", low, re.I):
+            if not meta["cliente"] and re.search(r"(destinatario(?:\s+merci)?|cliente|spett\.?le)", low, re.I):
                 meta["cliente"] = _line_value(idx, ln)[:120]
-            if not meta["fornitore"] and re.search(r"\b(fornitore|mittente|spedizione\s+da|merce\s+di\s+propriet)\b", low, re.I):
+            if not meta["fornitore"] and re.search(r"(fornitore|mittente|spedizione\s+da|merce\s+di\s+propriet)", low, re.I):
                 meta["fornitore"] = _line_value(idx, ln)[:120]
-            if not meta["commessa"] and re.search(r"\bcommessa\b", low, re.I):
+            if not meta["commessa"] and re.search(r"commessa", low, re.I):
                 meta["commessa"] = _line_value(idx, ln)[:120]
             if not meta["n_ddt"]:
                 m = re.search(r"(?:N\.?\s*(?:DDT|Bolla)|DDT\s*N\.?|Bolla\s*N\.?)\s*[:\-]?\s*([A-Z0-9\-/]+)", ln, flags=re.I)
                 if m:
                     meta["n_ddt"] = m.group(1).strip()
             if meta["data_ingresso"] == date.today().strftime("%Y-%m-%d"):
-                m = re.search(r"(?:Data\s*DDT|Data\s*Bolla|\bData\b)\s*[:\-]?\s*(\d{2}/\d{2}/\d{4})", ln, flags=re.I)
+                m = re.search(r"(?:Data\s*DDT|Data\s*Bolla|Data)\s*[:\-]?\s*(\d{2}/\d{2}/\d{4})", ln, flags=re.I)
                 if m:
                     try:
                         d, mth, y = m.group(1).split("/")
@@ -1128,15 +1128,15 @@ def extract_data_from_ddt_pdf(path):
                         pass
 
         if not meta["n_ddt"]:
-            m = re.search(r"\b\d{1,5}/\d{2}\b", full_text)
+            m = re.search(r"\d{1,5}/\d{2}", full_text)
             if m:
                 meta["n_ddt"] = m.group(0)
         if not meta["n_ddt"]:
-            m = re.search(r"\b[A-Z]{1,3}\d{4,10}\b", full_text)
+            m = re.search(r"[A-Z]{1,3}\d{4,10}", full_text)
             if m:
                 meta["n_ddt"] = m.group(0)
         if meta["data_ingresso"] == date.today().strftime("%Y-%m-%d"):
-            m = re.search(r"\b(\d{2}/\d{2}/\d{4})\b", full_text)
+            m = re.search(r"(\d{2}/\d{2}/\d{4})", full_text)
             if m:
                 try:
                     d, mth, y = m.group(1).split("/")
@@ -1163,16 +1163,16 @@ def extract_data_from_ddt_pdf(path):
 
         # righe accessorie agganciate all'ultima riga articolo
         if last_row is not None:
-            m_lotto = re.search(r"\blotto\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+            m_lotto = re.search(r"lotto\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
             if m_lotto:
                 last_row["lotto"] = m_lotto.group(1).strip()
                 continue
-            m_ser = re.search(r"\b(?:serial(?:e)?|serial\s*number|matricola|s/?n)\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+            m_ser = re.search(r"(?:serial(?:e)?|serial\s*number|matricola|s/?n)\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
             if m_ser:
                 last_row["serial_number"] = m_ser.group(1).strip()
                 continue
 
-        if re.search(r"^(cliente|fornitore|destinatario|mittente|commessa|n\.?\s*ddt|ddt|bolla|data)\b", line, re.I):
+        if re.search(r"^(cliente|fornitore|destinatario|mittente|commessa|n\.?\s*ddt|ddt|bolla|data)", line, re.I):
             continue
 
         codice = _first_code_in_line(line)
@@ -1184,7 +1184,7 @@ def extract_data_from_ddt_pdf(path):
             rest = line
 
         um = ""
-        um_m = re.search(r"\b(KG|KGS|PZ|PZS|NR|N\.?|UN)\b", line, flags=re.I)
+        um_m = re.search(r"(KG|KGS|PZ|PZS|NR|N\.?|UN)", line, flags=re.I)
         if um_m:
             um = um_m.group(1).upper().replace('.', '')
             if um == 'KGS':
@@ -1193,7 +1193,7 @@ def extract_data_from_ddt_pdf(path):
                 um = 'PZ'
 
         colli = None
-        m_colli = re.search(r"\bcolli\b\s*[:\-]?\s*(\d+)", line, flags=re.I)
+        m_colli = re.search(r"colli\s*[:\-]?\s*(\d+)", line, flags=re.I)
         if m_colli:
             colli = _to_int(m_colli.group(1))
         else:
@@ -1206,12 +1206,12 @@ def extract_data_from_ddt_pdf(path):
                         break
 
         lotto = ""
-        m_lotto_inline = re.search(r"\blotto\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+        m_lotto_inline = re.search(r"lotto\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
         if m_lotto_inline:
             lotto = m_lotto_inline.group(1).strip()
 
         serial = ""
-        m_ser_inline = re.search(r"\b(?:serial(?:e)?|serial\s*number|matricola|s/?n)\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+        m_ser_inline = re.search(r"(?:serial(?:e)?|serial\s*number|matricola|s/?n)\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
         if m_ser_inline:
             serial = m_ser_inline.group(1).strip()
 
@@ -1220,14 +1220,14 @@ def extract_data_from_ddt_pdf(path):
         if m_pz_code:
             pezzi_articolo = m_pz_code.group(3).lstrip('0') or m_pz_code.group(3)
 
-        m_pz = re.search(r"\b(?:pezzi|pezzo|pz|nr|n\.)\b\s*[:\-]?\s*(\d+(?:[.,]\d+)?)", line, flags=re.I)
+        m_pz = re.search(r"(?:pezzi|pezzo|pz|nr|n\.)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)", line, flags=re.I)
         if m_pz and not pezzi_articolo:
             pezzi_articolo = str(_to_int(m_pz.group(1)) or "")
 
         # numeri candidati per kg/qta, ripulendo il codice e i dati testuali
         temp_for_nums = line
         temp_for_nums = temp_for_nums.replace(codice, ' ')
-        temp_for_nums = re.sub(r"\b(?:lotto|serial(?:e)?|serial\s*number|matricola|s/?n)\b\s*[:\-]?\s*[A-Z0-9\-./]+", " ", temp_for_nums, flags=re.I)
+        temp_for_nums = re.sub(r"(?:lotto|serial(?:e)?|serial\s*number|matricola|s/?n)\s*[:\-]?\s*[A-Z0-9\-./]+", " ", temp_for_nums, flags=re.I)
         nums = re.findall(r"\d+(?:[.,]\d+)?", temp_for_nums)
         qta = None
         if nums:
@@ -1241,15 +1241,15 @@ def extract_data_from_ddt_pdf(path):
             qta = _to_float_it(preferred)
 
         descrizione = rest
-        descrizione = re.sub(r"\blotto\b\s*[:\-]?\s*[A-Z0-9\-./]+", " ", descrizione, flags=re.I)
-        descrizione = re.sub(r"\b(?:serial(?:e)?|serial\s*number|matricola|s/?n)\b\s*[:\-]?\s*[A-Z0-9\-./]+", " ", descrizione, flags=re.I)
-        descrizione = re.sub(r"\b(CAN|PAL|BOX|CRT|CASS|COLLI?)\b", " ", descrizione, flags=re.I)
+        descrizione = re.sub(r"lotto\s*[:\-]?\s*[A-Z0-9\-./]+", " ", descrizione, flags=re.I)
+        descrizione = re.sub(r"(?:serial(?:e)?|serial\s*number|matricola|s/?n)\s*[:\-]?\s*[A-Z0-9\-./]+", " ", descrizione, flags=re.I)
+        descrizione = re.sub(r"(CAN|PAL|BOX|CRT|CASS|COLLI?)", " ", descrizione, flags=re.I)
         if colli is not None:
-            descrizione = re.sub(rf"\b{re.escape(str(colli))}\b", " ", descrizione, count=1)
+            descrizione = re.sub(rf"{re.escape(str(colli))}", " ", descrizione, count=1)
         if um:
-            descrizione = re.sub(rf"\b{re.escape(um)}\b", " ", descrizione, flags=re.I)
+            descrizione = re.sub(rf"{re.escape(um)}", " ", descrizione, flags=re.I)
         if qta is not None:
-            descrizione = re.sub(r"\b\d+(?:[.,]\d+)?\b\s*$", " ", descrizione).strip()
+            descrizione = re.sub(r"\d+(?:[.,]\d+)?\s*$", " ", descrizione).strip()
         descrizione = _clean_spaces(descrizione)
 
         row = {
@@ -2195,6 +2195,7 @@ GIACENZE_HTML = """
         </form>
         {% endif %}
         <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
+        <a href="{{ url_for('export_excel') }}{% if request.query_string %}?{{ request.query_string.decode('utf-8') }}{% endif %}" class="btn btn-sm btn-success"><i class="bi bi-file-earmark-excel"></i> Excel Filtri</a>
 
         <form action="{{ url_for('report_inventario_excel') }}" method="POST" class="d-inline-block">
             <div class="input-group input-group-sm">
@@ -4158,7 +4159,7 @@ def home():
 
 def load_mappe():
     """Carica mappe_excel.json: prima da config. (con punto), poi fallback su root."""
-    config_path = APP_DIR / "config" / "mappe_excel.json"   # <-- cartella con il punto
+    config_path = APP_DIR / "config." / "mappe_excel.json"   # <-- cartella con il punto
     root_path = APP_DIR / "mappe_excel.json"
 
     json_path = config_path if config_path.exists() else root_path
@@ -5334,12 +5335,170 @@ def save_pdf_import():
 @login_required
 @require_admin
 def export_excel():
+    import math
+    import re
+    from sqlalchemy import func
+    from datetime import datetime, date
+
     db = SessionLocal()
-    df = pd.read_sql(db.query(Articolo).statement, db.bind)
-    bio = io.BytesIO()
-    df.to_excel(bio, index=False, engine='openpyxl')
-    bio.seek(0)
-    return send_file(bio, as_attachment=True, download_name='Giacenze_Totali.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    try:
+        args = request.args
+        qs = db.query(Articolo).order_by(Articolo.id_articolo.desc())
+
+        if session.get('role') == 'client':
+            user_key = (current_user.id or '').strip().upper()
+            user_key_norm = re.sub(r'[^A-Z0-9]+', '', user_key)
+            cliente_db_norm = func.upper(func.trim(Articolo.cliente))
+            for char in [' ', '.', '-', '_']:
+                cliente_db_norm = func.replace(cliente_db_norm, char, '')
+            qs = qs.filter(cliente_db_norm == user_key_norm)
+        else:
+            if args.get('cliente'):
+                qs = qs.filter(Articolo.cliente.ilike(f"%{args.get('cliente')}%"))
+
+        if args.get('id'):
+            try:
+                qs = qs.filter(Articolo.id_articolo == int(args.get('id')))
+            except Exception:
+                pass
+
+        text_filters = [
+            'commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo', 'lotto',
+            'fornitore', 'ordine', 'magazzino', 'mezzi_in_uscita', 'stato',
+            'n_ddt_ingresso', 'n_ddt_uscita', 'codice_articolo', 'serial_number', 'n_arrivo'
+        ]
+        for field in text_filters:
+            val = args.get(field)
+            if val and val.strip():
+                qs = qs.filter(getattr(Articolo, field).ilike(f"%{val.strip()}%"))
+
+        all_rows = qs.all()
+        filtered_rows = []
+
+        def get_date_arg(k):
+            v = args.get(k)
+            try:
+                return datetime.strptime(v, "%Y-%m-%d").date() if v else None
+            except Exception:
+                return None
+
+        d_ing_da, d_ing_a = get_date_arg('data_ing_da'), get_date_arg('data_ing_a')
+        d_usc_da, d_usc_a = get_date_arg('data_usc_da'), get_date_arg('data_usc_a')
+
+        def parse_d(val):
+            if isinstance(val, date):
+                return val
+            if not val:
+                return None
+            if isinstance(val, str):
+                s = val.strip().split(' ')[0][:10]
+                for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+                    try:
+                        return datetime.strptime(s, fmt).date()
+                    except Exception:
+                        pass
+            return None
+
+        if any([d_ing_da, d_ing_a, d_usc_da, d_usc_a]):
+            for r in all_rows:
+                keep = True
+                if d_ing_da or d_ing_a:
+                    rd = parse_d(r.data_ingresso)
+                    if not rd or (d_ing_da and rd < d_ing_da) or (d_ing_a and rd > d_ing_a):
+                        keep = False
+                if keep and (d_usc_da or d_usc_a):
+                    rd = parse_d(r.data_uscita)
+                    if not rd or (d_usc_da and rd < d_usc_da) or (d_usc_a and rd > d_usc_a):
+                        keep = False
+                if keep:
+                    filtered_rows.append(r)
+        else:
+            filtered_rows = all_rows
+
+        if args.get('solo_giacenza') == '1':
+            tmp = []
+            for r in filtered_rows:
+                has_data_usc = parse_d(r.data_uscita) is not None
+                has_ddt_usc = bool((r.n_ddt_uscita or '').strip())
+                if (not has_data_usc) and (not has_ddt_usc):
+                    tmp.append(r)
+            filtered_rows = tmp
+
+        def fmt_num(val, dec=2):
+            try:
+                if val is None or val == '':
+                    return ''
+                return round(float(val), dec)
+            except Exception:
+                return ''
+
+        export_rows = []
+        for r in filtered_rows:
+            export_rows.append({
+                'ID': r.id_articolo,
+                'Codice': r.codice_articolo or '',
+                'Pz': r.pezzo or '',
+                'Larg': fmt_num(r.larghezza, 2),
+                'Lung': fmt_num(r.lunghezza, 2),
+                'Alt': fmt_num(r.altezza, 2),
+                'M2': fmt_num(r.m2, 3),
+                'M3': fmt_num(r.m3, 3),
+                'Descrizione': r.descrizione or '',
+                'Protocollo': r.protocollo or '',
+                'Commessa': r.commessa or '',
+                'Ordine': r.ordine or '',
+                'Colli': r.n_colli if r.n_colli is not None else '',
+                'Fornitore': r.fornitore or '',
+                'Magazzino': r.magazzino or '',
+                'Data Ing': r.data_ingresso or '',
+                'DDT Ing': r.n_ddt_ingresso or '',
+                'DDT Usc': r.n_ddt_uscita or '',
+                'Data Usc': r.data_uscita or '',
+                'Mezzo Usc': r.mezzi_in_uscita or '',
+                'Cliente': r.cliente or '',
+                'Kg': fmt_num(r.peso, 2),
+                'Posiz': r.posizione or '',
+                'N.Arr': r.n_arrivo or '',
+                'N.Buono': r.buono_n or '',
+                'Note': r.note or '',
+                'Lotto': r.lotto or '',
+                'Ns.Rif': getattr(r, 'ns_rif', '') or '',
+                'Serial': r.serial_number or '',
+                'Stato': r.stato or '',
+            })
+
+        df = pd.DataFrame(export_rows, columns=[
+            'ID', 'Codice', 'Pz', 'Larg', 'Lung', 'Alt', 'M2', 'M3', 'Descrizione',
+            'Protocollo', 'Commessa', 'Ordine', 'Colli', 'Fornitore', 'Magazzino',
+            'Data Ing', 'DDT Ing', 'DDT Usc', 'Data Usc', 'Mezzo Usc', 'Cliente',
+            'Kg', 'Posiz', 'N.Arr', 'N.Buono', 'Note', 'Lotto', 'Ns.Rif', 'Serial', 'Stato'
+        ])
+
+        bio = io.BytesIO()
+        with pd.ExcelWriter(bio, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Giacenze')
+            ws = writer.book['Giacenze']
+            for col_cells in ws.columns:
+                max_length = 0
+                col_letter = col_cells[0].column_letter
+                for cell in col_cells:
+                    val = '' if cell.value is None else str(cell.value)
+                    if len(val) > max_length:
+                        max_length = len(val)
+                ws.column_dimensions[col_letter].width = min(max(max_length + 2, 10), 40)
+            ws.freeze_panes = 'A2'
+        bio.seek(0)
+
+        ts = datetime.now().strftime('%Y%m%d_%H%M')
+        filename = f'Giacenze_Filtrate_{ts}.xlsx' if request.args else f'Giacenze_Totali_{ts}.xlsx'
+        return send_file(
+            bio,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    finally:
+        db.close()
 
 @app.route('/export_client', methods=['GET', 'POST'])
 @login_required
