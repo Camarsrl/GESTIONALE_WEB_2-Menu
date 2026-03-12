@@ -1041,6 +1041,46 @@ def get_users():
 # ORA possiamo chiamarla, perché è stata definita sopra
 USERS_DB = get_users()
 
+def get_clienti_utenti():
+    """Elenco clienti validi ricavati dagli utenti, escludendo gli utenti admin/tecnici."""
+    utenti = get_users() or {}
+    out = []
+    seen = set()
+    for nome in utenti.keys():
+        n = (nome or '').strip()
+        if not n:
+            continue
+        up = n.upper()
+        if up in ADMIN_USERS:
+            continue
+        norm = normalize_text_key(n)
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        out.append(up)
+    return sorted(out)
+
+
+def canonical_cliente_from_users(value, allow_blank=False):
+    raw = (value or '').strip()
+    if not raw:
+        return '' if allow_blank else None
+    norm = normalize_text_key(raw)
+    if not norm:
+        return '' if allow_blank else None
+    for cliente in get_clienti_utenti():
+        if normalize_text_key(cliente) == norm:
+            return cliente
+    return None
+
+
+def validate_cliente_or_raise(value, allow_blank=False):
+    canonical = canonical_cliente_from_users(value, allow_blank=allow_blank)
+    if canonical is None:
+        validi = ', '.join(get_clienti_utenti())
+        raise ValueError(f"Cliente non valido. Seleziona un cliente presente negli utenti: {validi}")
+    return canonical
+
 
 def _is_werkzeug_hash(s: str) -> bool:
     if not isinstance(s, str):
@@ -2035,7 +2075,10 @@ IMPORT_PDF_HTML = """
             <h5 class="mb-3">Dati Testata (Rilevati o da compilare)</h5>
             <div class="col-md-3">
                 <label>Cliente</label>
-                <input name="cliente" class="form-control" value="{{ meta.cliente or '' }}">
+                <input name="cliente" class="form-control" list="clientiUtentiListImport" value="{{ meta.cliente or '' }}" required>
+                <datalist id="clientiUtentiListImport">
+                    {% for c in clienti_validi %}<option value="{{ c }}">{% endfor %}
+                </datalist>
             </div>
             <div class="col-md-3">
                 <label>Fornitore</label>
@@ -2521,7 +2564,12 @@ EDIT_HTML = """
         </div>
         <div class="col-md-2"><label class="form-label">Commessa</label><input type="text" name="commessa" class="form-control" value="{{ row.commessa or '' }}"></div>
 
-        <div class="col-md-4"><label class="form-label">Cliente</label><input type="text" name="cliente" class="form-control" value="{{ row.cliente or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">Cliente</label>
+            <input type="text" name="cliente" class="form-control" list="clientiUtentiList" value="{{ row.cliente or '' }}" required>
+            <datalist id="clientiUtentiList">
+                {% for c in clienti_validi %}<option value="{{ c }}">{% endfor %}
+            </datalist>
+        </div>
         <div class="col-md-4"><label class="form-label">Fornitore</label><input type="text" name="fornitore" class="form-control" value="{{ row.fornitore or '' }}"></div>
         <div class="col-md-4"><label class="form-label">Protocollo</label><input type="text" name="protocollo" class="form-control" value="{{ row.protocollo or '' }}"></div>
         
@@ -3481,8 +3529,11 @@ LAVORAZIONI_HTML = """
             </div>
 
             <div class="col-md-2"><label class="small fw-bold">Cliente</label>
-                <input type="text" name="cliente" class="form-control"
-                       value="{{ edit_row.cliente if edit_row else '' }}">
+                <input type="text" name="cliente" class="form-control" list="clientiUtentiListTrasporti"
+                       value="{{ edit_row.cliente if edit_row else '' }}" required>
+                <datalist id="clientiUtentiListTrasporti">
+                    {% for c in clienti_validi %}<option value="{{ c }}">{% endfor %}
+                </datalist>
             </div>
 
             <div class="col-md-3"><label class="small fw-bold">Descrizione</label>
@@ -3927,8 +3978,11 @@ TRASPORTI_HTML = """
             </div>
 
             <div class="col-md-2"><label class="small fw-bold">Cliente</label>
-                <input type="text" name="cliente" class="form-control"
-                       value="{{ edit_row.cliente if edit_row else '' }}">
+                <input type="text" name="cliente" class="form-control" list="clientiUtentiListTrasporti"
+                       value="{{ edit_row.cliente if edit_row else '' }}" required>
+                <datalist id="clientiUtentiListTrasporti">
+                    {% for c in clienti_validi %}<option value="{{ c }}">{% endfor %}
+                </datalist>
             </div>
 
             <div class="col-md-2"><label class="small fw-bold">Trasportatore</label>
@@ -4535,7 +4589,7 @@ def trasporti():
                 rec.costo = float(costo_str.replace(',', '.')) if costo_str != '' else None
 
                 rec.tipo_mezzo = (request.form.get('tipo_mezzo') or '').strip() or None
-                rec.cliente = (request.form.get('cliente') or '').strip() or None
+                rec.cliente = validate_cliente_or_raise(request.form.get('cliente')) or None
                 rec.trasportatore = (request.form.get('trasportatore') or '').strip() or None
                 rec.ddt_uscita = (request.form.get('ddt_uscita') or '').strip() or None
                 rec.magazzino = (request.form.get('magazzino') or '').strip() or None
@@ -4565,7 +4619,7 @@ def trasporti():
                 nuovo = Trasporto(
                     data=data_val,
                     tipo_mezzo=(request.form.get('tipo_mezzo') or '').strip() or None,
-                    cliente=(request.form.get('cliente') or '').strip() or None,
+                    cliente=validate_cliente_or_raise(request.form.get('cliente')) or None,
                     trasportatore=(request.form.get('trasportatore') or '').strip() or None,
                     ddt_uscita=(request.form.get('ddt_uscita') or '').strip() or None,
                     magazzino=(request.form.get('magazzino') or '').strip() or None,
@@ -4646,7 +4700,8 @@ def trasporti():
             trasporti=dati,
             today=date.today(),
             edit_row=edit_row,
-            filtri=filtri
+            filtri=filtri,
+            clienti_validi=get_clienti_utenti()
         )
 
     finally:
@@ -4812,7 +4867,7 @@ def lavorazioni():
 
             d_val = datetime.strptime(request.form.get('data'), '%Y-%m-%d').date()
             rec.data = d_val
-            rec.cliente = request.form.get('cliente')
+            rec.cliente = validate_cliente_or_raise(request.form.get('cliente'))
             rec.descrizione = request.form.get('descrizione')
             rec.richiesta_di = request.form.get('richiesta_di')
             rec.seriali = request.form.get('seriali')
@@ -4840,7 +4895,7 @@ def lavorazioni():
             d_val = datetime.strptime(request.form.get('data'), '%Y-%m-%d').date()
             nuovo = Lavorazione(
                 data=d_val,
-                cliente=request.form.get('cliente'),
+                cliente=validate_cliente_or_raise(request.form.get('cliente')),
                 descrizione=request.form.get('descrizione'),
                 richiesta_di=request.form.get('richiesta_di'),
                 seriali=request.form.get('seriali'),
@@ -4933,7 +4988,7 @@ def lavorazioni():
     dati = q.order_by(Lavorazione.data.desc(), Lavorazione.id.desc()).all()
     db.close()
 
-    return render_template('lavorazioni.html', lavorazioni=dati, today=date.today(), edit_row=edit_row, filtri=filtri)
+    return render_template('lavorazioni.html', lavorazioni=dati, today=date.today(), edit_row=edit_row, filtri=filtri, clienti_validi=get_clienti_utenti())
 
 
 
@@ -5566,12 +5621,12 @@ def import_pdf():
                 meta, rows = extract_data_from_ddt_pdf(temp_path)
                 # Pulisce file temp
                 if os.path.exists(temp_path): os.remove(temp_path)
-                return render_template('import_pdf.html', meta=meta, rows=rows)
+                return render_template('import_pdf.html', meta=meta, rows=rows, clienti_validi=get_clienti_utenti())
             except Exception as e:
                 flash(f"Errore PDF: {e}", "danger")
                 return redirect(url_for('giacenze'))
                 
-    return render_template('import_pdf.html', meta={}, rows=[])
+    return render_template('import_pdf.html', meta={}, rows=[], clienti_validi=get_clienti_utenti())
 
 @app.route('/save_pdf_import', methods=['POST'])
 @login_required
@@ -5601,7 +5656,7 @@ def save_pdf_import():
             art = Articolo()
 
             # testata
-            art.cliente = request.form.get('cliente')
+            art.cliente = validate_cliente_or_raise(request.form.get('cliente'))
             art.fornitore = request.form.get('fornitore')
             art.commessa = request.form.get('commessa')
             art.n_ddt_ingresso = request.form.get('n_ddt')
@@ -6307,6 +6362,7 @@ def nuovo_articolo():
             if n_colli_input < 1: n_colli_input = 1
             
             created_articles = []
+            cliente_form = validate_cliente_or_raise(request.form.get('cliente'))
 
             # --- CICLO DI CREAZIONE (Crea N righe identiche) ---
             for _ in range(n_colli_input):
@@ -6319,7 +6375,7 @@ def nuovo_articolo():
             if session.get('role') == 'client':
                 art.cliente = current_user.id
             else:
-                art.cliente = request.form.get('cliente')
+                art.cliente = cliente_form
                 art.fornitore = request.form.get('fornitore')
                 art.commessa = request.form.get('commessa')
                 art.ordine = request.form.get('ordine')
@@ -6418,7 +6474,7 @@ def nuovo_articolo():
     # GET: Mostra form vuoto
     dummy_art = Articolo() 
     dummy_art.data_ingresso = date.today().strftime("%d/%m/%Y")
-    return render_template('edit.html', row=dummy_art)
+    return render_template('edit.html', row=dummy_art, clienti_validi=get_clienti_utenti())
     
 # 1. ELIMINA ARTICOLO (Per la pagina Magazzino)
 @app.route('/delete_articolo/<int:id>')
@@ -6528,7 +6584,7 @@ def edit_articolo(id):
             if session.get('role') == 'client':
                 art.cliente = current_user.id
             else:
-                art.cliente = request.form.get('cliente')
+                art.cliente = cliente_form
             art.fornitore = request.form.get('fornitore')
             art.commessa = request.form.get('commessa')
             art.ordine = request.form.get('ordine')
@@ -6607,7 +6663,7 @@ def edit_articolo(id):
             return redirect(url_for('giacenze'))
 
         # GET: Mostra template modifica
-        return render_template('edit.html', row=art)
+        return render_template('edit.html', row=art, clienti_validi=get_clienti_utenti())
 
     except Exception as e:
         db.rollback()
@@ -6638,7 +6694,7 @@ def edit_record(id_articolo):
             if session.get('role') == 'client':
                 art.cliente = current_user.id
             else:
-                art.cliente = request.form.get('cliente')
+                art.cliente = cliente_form
             art.fornitore = request.form.get('fornitore')
             art.commessa = request.form.get('commessa')
             art.ordine = request.form.get('ordine')
@@ -6686,7 +6742,7 @@ def edit_record(id_articolo):
             db.commit()
             return redirect(url_for('giacenze'))
 
-        return render_template('edit.html', row=art)
+        return render_template('edit.html', row=art, clienti_validi=get_clienti_utenti())
     except Exception as e:
         db.rollback()
         flash(f"Errore: {e}", "danger")
@@ -6712,6 +6768,8 @@ def edit_row(id):
                     v = to_float_eu(v)
                 elif f in ('n_colli', 'pezzo'):
                     v = to_int_eu(v)
+                if f == 'cliente' and session.get('role') != 'client':
+                    v = validate_cliente_or_raise(v, allow_blank=True)
                 setattr(row, f, v if v != '' else None)
         row.m2, row.m3 = calc_m2_m3(row.lunghezza, row.larghezza, row.altezza, row.n_colli)
         if 'files' in request.files:
@@ -6727,7 +6785,7 @@ def edit_row(id):
         flash('Riga salvata', 'success')
         return redirect(url_for('giacenze'))
 
-    return render_template('edit.html', row=row, fields=get_all_fields_map().items())
+    return render_template('edit.html', row=row, fields=get_all_fields_map().items(), clienti_validi=get_clienti_utenti())
 
 
 
