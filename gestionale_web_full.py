@@ -3557,6 +3557,86 @@ LAVORAZIONI_HTML = """
         </form>
     </div>
 
+    <div class="card p-3 mb-3 border-warning shadow-sm">
+        <h6 class="text-warning-emphasis fw-bold"><i class="bi bi-funnel"></i> Filtri Tabella Picking</h6>
+        <form method="GET" action="{{ url_for('lavorazioni') }}" class="row g-2 align-items-end">
+            <div class="col-md-2">
+                <label class="small">Data da</label>
+                <input type="date" name="data_da" class="form-control form-control-sm" value="{{ filtri.get('data_da','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Data a</label>
+                <input type="date" name="data_a" class="form-control form-control-sm" value="{{ filtri.get('data_a','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Cliente</label>
+                <input type="text" name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ filtri.get('cliente','') }}">
+            </div>
+            <div class="col-md-3">
+                <label class="small">Descrizione</label>
+                <input type="text" name="descrizione" class="form-control form-control-sm" placeholder="Descrizione" value="{{ filtri.get('descrizione','') }}">
+            </div>
+            <div class="col-md-3">
+                <label class="small">Richiesta di</label>
+                <input type="text" name="richiesta_di" class="form-control form-control-sm" placeholder="Richiesta di" value="{{ filtri.get('richiesta_di','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Seriali</label>
+                <input type="text" name="seriali" class="form-control form-control-sm" placeholder="Seriali" value="{{ filtri.get('seriali','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Colli da</label>
+                <input type="number" name="colli_da" class="form-control form-control-sm" value="{{ filtri.get('colli_da','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Colli a</label>
+                <input type="number" name="colli_a" class="form-control form-control-sm" value="{{ filtri.get('colli_a','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Pallet entrati da</label>
+                <input type="number" name="pallet_forniti_da" class="form-control form-control-sm" value="{{ filtri.get('pallet_forniti_da','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Pallet entrati a</label>
+                <input type="number" name="pallet_forniti_a" class="form-control form-control-sm" value="{{ filtri.get('pallet_forniti_a','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Pallet usciti da</label>
+                <input type="number" name="pallet_uscita_da" class="form-control form-control-sm" value="{{ filtri.get('pallet_uscita_da','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Pallet usciti a</label>
+                <input type="number" name="pallet_uscita_a" class="form-control form-control-sm" value="{{ filtri.get('pallet_uscita_a','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Ore Blue da</label>
+                <input type="text" name="ore_blue_da" class="form-control form-control-sm" placeholder="0,0" value="{{ filtri.get('ore_blue_da','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Ore Blue a</label>
+                <input type="text" name="ore_blue_a" class="form-control form-control-sm" placeholder="0,0" value="{{ filtri.get('ore_blue_a','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Ore White da</label>
+                <input type="text" name="ore_white_da" class="form-control form-control-sm" placeholder="0,0" value="{{ filtri.get('ore_white_da','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Ore White a</label>
+                <input type="text" name="ore_white_a" class="form-control form-control-sm" placeholder="0,0" value="{{ filtri.get('ore_white_a','') }}">
+            </div>
+            <div class="col-md-2 d-grid">
+                <button type="submit" class="btn btn-warning btn-sm fw-bold">
+                    <i class="bi bi-search"></i> Filtra
+                </button>
+            </div>
+            <div class="col-md-2 d-grid">
+                <a href="{{ url_for('lavorazioni') }}" class="btn btn-outline-secondary btn-sm fw-bold">
+                    Reset
+                </a>
+            </div>
+        </form>
+    </div>
+
     <div class="card shadow-sm">
         <div class="table-responsive">
             <table class="table table-bordered table-hover mb-0 align-middle">
@@ -3912,6 +3992,62 @@ TRASPORTI_HTML = """
                 <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">
                     Genera PDF
                 </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card p-3 mb-3 border-info shadow-sm">
+        <h6 class="text-info fw-bold"><i class="bi bi-funnel"></i> Filtri Tabella Trasporti</h6>
+        <form method="GET" action="{{ url_for('trasporti') }}" class="row g-2 align-items-end">
+            <div class="col-md-2">
+                <label class="small">Data da</label>
+                <input type="date" name="data_da" class="form-control form-control-sm" value="{{ filtri.get('data_da','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Data a</label>
+                <input type="date" name="data_a" class="form-control form-control-sm" value="{{ filtri.get('data_a','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Cliente</label>
+                <input type="text" name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ filtri.get('cliente','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Mezzo</label>
+                <input type="text" name="tipo_mezzo" class="form-control form-control-sm" placeholder="Mezzo" value="{{ filtri.get('tipo_mezzo','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Trasportatore</label>
+                <input type="text" name="trasportatore" class="form-control form-control-sm" placeholder="Trasportatore" value="{{ filtri.get('trasportatore','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">DDT Uscita</label>
+                <input type="text" name="ddt_uscita" class="form-control form-control-sm" placeholder="DDT" value="{{ filtri.get('ddt_uscita','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Magazzino</label>
+                <input type="text" name="magazzino" class="form-control form-control-sm" placeholder="Magazzino" value="{{ filtri.get('magazzino','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Consolidato</label>
+                <input type="text" name="consolidato" class="form-control form-control-sm" placeholder="Consolidato" value="{{ filtri.get('consolidato','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Costo da</label>
+                <input type="text" name="costo_da" class="form-control form-control-sm" placeholder="0,00" value="{{ filtri.get('costo_da','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">Costo a</label>
+                <input type="text" name="costo_a" class="form-control form-control-sm" placeholder="0,00" value="{{ filtri.get('costo_a','') }}">
+            </div>
+            <div class="col-md-2 d-grid">
+                <button type="submit" class="btn btn-info btn-sm fw-bold">
+                    <i class="bi bi-search"></i> Filtra
+                </button>
+            </div>
+            <div class="col-md-2 d-grid">
+                <a href="{{ url_for('trasporti') }}" class="btn btn-outline-secondary btn-sm fw-bold">
+                    Reset
+                </a>
             </div>
         </form>
     </div>
@@ -4456,7 +4592,51 @@ def trasporti():
                 edit_row = None
 
         # --- VISUALIZZA LISTA ---
-        dati = db.query(Trasporto).order_by(
+        filtri = {
+            'data_da': (request.args.get('data_da') or '').strip(),
+            'data_a': (request.args.get('data_a') or '').strip(),
+            'cliente': (request.args.get('cliente') or '').strip(),
+            'tipo_mezzo': (request.args.get('tipo_mezzo') or '').strip(),
+            'trasportatore': (request.args.get('trasportatore') or '').strip(),
+            'ddt_uscita': (request.args.get('ddt_uscita') or '').strip(),
+            'magazzino': (request.args.get('magazzino') or '').strip(),
+            'consolidato': (request.args.get('consolidato') or '').strip(),
+            'costo_da': (request.args.get('costo_da') or '').strip(),
+            'costo_a': (request.args.get('costo_a') or '').strip(),
+        }
+
+        q = db.query(Trasporto)
+
+        try:
+            if filtri['data_da']:
+                q = q.filter(Trasporto.data >= datetime.strptime(filtri['data_da'], '%Y-%m-%d').date())
+            if filtri['data_a']:
+                q = q.filter(Trasporto.data <= datetime.strptime(filtri['data_a'], '%Y-%m-%d').date())
+        except:
+            pass
+
+        if filtri['cliente']:
+            q = q.filter(Trasporto.cliente.ilike(f"%{filtri['cliente']}%"))
+        if filtri['tipo_mezzo']:
+            q = q.filter(Trasporto.tipo_mezzo.ilike(f"%{filtri['tipo_mezzo']}%"))
+        if filtri['trasportatore']:
+            q = q.filter(Trasporto.trasportatore.ilike(f"%{filtri['trasportatore']}%"))
+        if filtri['ddt_uscita']:
+            q = q.filter(Trasporto.ddt_uscita.ilike(f"%{filtri['ddt_uscita']}%"))
+        if filtri['magazzino']:
+            q = q.filter(Trasporto.magazzino.ilike(f"%{filtri['magazzino']}%"))
+        if filtri['consolidato']:
+            q = q.filter(Trasporto.consolidato.ilike(f"%{filtri['consolidato']}%"))
+
+        try:
+            if filtri['costo_da']:
+                q = q.filter(Trasporto.costo >= float(filtri['costo_da'].replace(',', '.')))
+            if filtri['costo_a']:
+                q = q.filter(Trasporto.costo <= float(filtri['costo_a'].replace(',', '.')))
+        except:
+            pass
+
+        dati = q.order_by(
             Trasporto.data.desc().nullslast(),
             Trasporto.id.desc()
         ).all()
@@ -4465,7 +4645,8 @@ def trasporti():
             'trasporti.html',
             trasporti=dati,
             today=date.today(),
-            edit_row=edit_row
+            edit_row=edit_row,
+            filtri=filtri
         )
 
     finally:
@@ -4687,10 +4868,72 @@ def lavorazioni():
             edit_row = None
 
     # --- VISUALIZZAZIONE ---
-    dati = db.query(Lavorazione).order_by(Lavorazione.data.desc()).all()
+    filtri = {
+        'data_da': (request.args.get('data_da') or '').strip(),
+        'data_a': (request.args.get('data_a') or '').strip(),
+        'cliente': (request.args.get('cliente') or '').strip(),
+        'descrizione': (request.args.get('descrizione') or '').strip(),
+        'richiesta_di': (request.args.get('richiesta_di') or '').strip(),
+        'seriali': (request.args.get('seriali') or '').strip(),
+        'colli_da': (request.args.get('colli_da') or '').strip(),
+        'colli_a': (request.args.get('colli_a') or '').strip(),
+        'pallet_forniti_da': (request.args.get('pallet_forniti_da') or '').strip(),
+        'pallet_forniti_a': (request.args.get('pallet_forniti_a') or '').strip(),
+        'pallet_uscita_da': (request.args.get('pallet_uscita_da') or '').strip(),
+        'pallet_uscita_a': (request.args.get('pallet_uscita_a') or '').strip(),
+        'ore_blue_da': (request.args.get('ore_blue_da') or '').strip(),
+        'ore_blue_a': (request.args.get('ore_blue_a') or '').strip(),
+        'ore_white_da': (request.args.get('ore_white_da') or '').strip(),
+        'ore_white_a': (request.args.get('ore_white_a') or '').strip(),
+    }
+
+    q = db.query(Lavorazione)
+
+    try:
+        if filtri['data_da']:
+            q = q.filter(Lavorazione.data >= datetime.strptime(filtri['data_da'], '%Y-%m-%d').date())
+        if filtri['data_a']:
+            q = q.filter(Lavorazione.data <= datetime.strptime(filtri['data_a'], '%Y-%m-%d').date())
+    except:
+        pass
+
+    if filtri['cliente']:
+        q = q.filter(Lavorazione.cliente.ilike(f"%{filtri['cliente']}%"))
+    if filtri['descrizione']:
+        q = q.filter(Lavorazione.descrizione.ilike(f"%{filtri['descrizione']}%"))
+    if filtri['richiesta_di']:
+        q = q.filter(Lavorazione.richiesta_di.ilike(f"%{filtri['richiesta_di']}%"))
+    if filtri['seriali']:
+        q = q.filter(Lavorazione.seriali.ilike(f"%{filtri['seriali']}%"))
+
+    try:
+        if filtri['colli_da']:
+            q = q.filter(Lavorazione.colli >= int(filtri['colli_da']))
+        if filtri['colli_a']:
+            q = q.filter(Lavorazione.colli <= int(filtri['colli_a']))
+        if filtri['pallet_forniti_da']:
+            q = q.filter(Lavorazione.pallet_forniti >= int(filtri['pallet_forniti_da']))
+        if filtri['pallet_forniti_a']:
+            q = q.filter(Lavorazione.pallet_forniti <= int(filtri['pallet_forniti_a']))
+        if filtri['pallet_uscita_da']:
+            q = q.filter(Lavorazione.pallet_uscita >= int(filtri['pallet_uscita_da']))
+        if filtri['pallet_uscita_a']:
+            q = q.filter(Lavorazione.pallet_uscita <= int(filtri['pallet_uscita_a']))
+        if filtri['ore_blue_da']:
+            q = q.filter(Lavorazione.ore_blue_collar >= float(filtri['ore_blue_da'].replace(',', '.')))
+        if filtri['ore_blue_a']:
+            q = q.filter(Lavorazione.ore_blue_collar <= float(filtri['ore_blue_a'].replace(',', '.')))
+        if filtri['ore_white_da']:
+            q = q.filter(Lavorazione.ore_white_collar >= float(filtri['ore_white_da'].replace(',', '.')))
+        if filtri['ore_white_a']:
+            q = q.filter(Lavorazione.ore_white_collar <= float(filtri['ore_white_a'].replace(',', '.')))
+    except:
+        pass
+
+    dati = q.order_by(Lavorazione.data.desc(), Lavorazione.id.desc()).all()
     db.close()
 
-    return render_template('lavorazioni.html', lavorazioni=dati, today=date.today(), edit_row=edit_row)
+    return render_template('lavorazioni.html', lavorazioni=dati, today=date.today(), edit_row=edit_row, filtri=filtri)
 
 
 
@@ -5411,7 +5654,7 @@ def save_pdf_import():
 # --- EXPORTAZIONE EXCEL ---
 @app.get('/export_excel')
 @login_required
-@require_admin
+
 def export_excel():
     import math
     import re
@@ -6609,8 +6852,53 @@ def giacenze():
             if val and val.strip():
                 qs = qs.filter(getattr(Articolo, field).ilike(f"%{val.strip()}%"))
 
+        # 5) Filtro M2 (range DA/A + compatibilità col vecchio campo singolo)
+        m2_da = args.get('m2_da')
+        m2_a = args.get('m2_a')
+        m2_legacy = args.get('m2')
+
+        def _to_float_it(v):
+            if v is None:
+                return None
+            if isinstance(v, (int, float)):
+                return float(v)
+            s = str(v).strip().replace(' ', '')
+            if not s:
+                return None
+            try:
+                if ',' in s and '.' in s:
+                    s2 = s.replace('.', '').replace(',', '.')
+                else:
+                    s2 = s.replace(',', '.')
+                return float(s2)
+            except Exception:
+                return None
+
+        m2_da_f = _to_float_it(m2_da)
+        m2_a_f = _to_float_it(m2_a)
+
+        m2_filter = None
+        if m2_da_f is None and m2_a_f is None and m2_legacy:
+            m2_filter = parse_float_filter(m2_legacy)
+
         # 5) Recupero righe (per filtro date in Python)
         all_rows = qs.all()
+
+        if m2_da_f is not None or m2_a_f is not None:
+            tmp = []
+            for r in all_rows:
+                n = _to_float_it(r.m2)
+                if n is None:
+                    continue
+                if m2_da_f is not None and n < m2_da_f:
+                    continue
+                if m2_a_f is not None and n > m2_a_f:
+                    continue
+                tmp.append(r)
+            all_rows = tmp
+        elif m2_filter is not None:
+            all_rows = [r for r in all_rows if match_numeric_filter(r.m2, m2_filter)]
+
         filtered_rows = []
 
         # 6) Filtri Date
