@@ -2322,7 +2322,8 @@ GIACENZE_HTML = """
                     <div class="col-md-2"><input name="protocollo" class="form-control form-control-sm" placeholder="Protocollo" value="{{ request.args.get('protocollo','') }}"></div>
                     <div class="col-md-2"><input name="magazzino" class="form-control form-control-sm" placeholder="Magazzino" value="{{ request.args.get('magazzino','') }}"></div>
                     <div class="col-md-2"><input name="descrizione" class="form-control form-control-sm" placeholder="Descrizione" value="{{ request.args.get('descrizione','') }}"></div>
-                    <div class="col-md-2"><input name="m2" class="form-control form-control-sm" placeholder="M2 (es. 1,25 o 1-2)" value="{{ request.args.get('m2','') }}"></div>
+                    <div class="col-md-2"><input name="m2_da" class="form-control form-control-sm" placeholder="M2 da" value="{{ request.args.get('m2_da','') }}"></div>
+                    <div class="col-md-2"><input name="m2_a" class="form-control form-control-sm" placeholder="M2 a" value="{{ request.args.get('m2_a','') }}"></div>
                     <div class="col-md-2"><input name="buono_n" class="form-control form-control-sm" placeholder="N. Buono" value="{{ request.args.get('buono_n','') }}"></div>
                     <div class="col-md-2"><input name="n_arrivo" class="form-control form-control-sm" placeholder="N. Arrivo" value="{{ request.args.get('n_arrivo','') }}"></div>
                     <div class="col-md-2"><input name="mezzi_in_uscita" class="form-control form-control-sm" placeholder="Mezzo Uscita" value="{{ request.args.get('mezzi_in_uscita','') }}"></div>
@@ -5447,12 +5448,54 @@ def export_excel():
             val = args.get(field)
             if val and val.strip():
                 qs = qs.filter(getattr(Articolo, field).ilike(f"%{val.strip()}%"))
+        m2_da = args.get('m2_da')
+        m2_a = args.get('m2_a')
+        m2_legacy = args.get('m2')  # compatibilità: vecchio filtro singolo (es. "1,25" o "1-2")
 
-        m2_filter = parse_float_filter(args.get('m2'))
+        def _to_float_it(v):
+            if v is None:
+                return None
+            if isinstance(v, (int, float)):
+                return float(v)
+            s = str(v).strip().replace(' ', '')
+            if not s:
+                return None
+            try:
+                # Gestione formati tipo 1.234,56 (migliaia + decimali)
+                if ',' in s and '.' in s:
+                    s2 = s.replace('.', '').replace(',', '.')
+                else:
+                    s2 = s.replace(',', '.')
+                return float(s2)
+            except Exception:
+                return None
+
+        m2_da_f = _to_float_it(m2_da)
+        m2_a_f = _to_float_it(m2_a)
+
+        # Se non usi i campi DA/A ma passi il vecchio campo "m2", usa la logica precedente
+        m2_filter = None
+        if m2_da_f is None and m2_a_f is None and m2_legacy:
+            m2_filter = parse_float_filter(m2_legacy)
 
         all_rows = qs.all()
-        if m2_filter is not None:
+
+        # Nuovo filtro M2 DA/A
+        if m2_da_f is not None or m2_a_f is not None:
+            tmp = []
+            for r in all_rows:
+                n = _to_float_it(r.m2)
+                if n is None:
+                    continue
+                if m2_da_f is not None and n < m2_da_f:
+                    continue
+                if m2_a_f is not None and n > m2_a_f:
+                    continue
+                tmp.append(r)
+            all_rows = tmp
+        elif m2_filter is not None:
             all_rows = [r for r in all_rows if match_numeric_filter(r.m2, m2_filter)]
+
         filtered_rows = []
 
         def get_date_arg(k):
