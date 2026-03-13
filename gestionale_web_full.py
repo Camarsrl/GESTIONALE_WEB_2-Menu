@@ -2721,7 +2721,7 @@ REPORT_FATTURAZIONE_HTML = """
             </div>
         </form>
         <div class="mt-3 small text-muted">
-            Per i clienti standard il report mostra M2 presenti nel mese, giacenza a fine mese, M2 usciti e M2 entrate doganali. Per Galvano Tecnica viene mostrato il totale pallet in giacenza usando la colonna N° Colli.
+            Per i clienti standard il report mostra M2 presenti nel mese, giacenza a fine mese, M2 usciti, M2 entrate doganali e il picco M2 occupati nel mese. Per Galvano Tecnica viene mostrato il totale pallet in giacenza usando la colonna N° Colli.
         </div>
     </div>
 </div>
@@ -2737,6 +2737,7 @@ REPORT_FATTURAZIONE_HTML = """
                         <th class="text-end">M2 giacenza fine mese</th>
                         <th class="text-end">M2 usciti nel mese</th>
                         <th class="text-end">Entrate doganali M2</th>
+                        <th class="text-end">Picco M2 occupati</th>
                         <th class="text-end">Pallet giacenza mese</th>
                     </tr>
                 </thead>
@@ -2748,10 +2749,11 @@ REPORT_FATTURAZIONE_HTML = """
                         <td class="text-end">{{ r.m2_fine_mese|it_num(2) }}</td>
                         <td class="text-end">{{ r.m2_usciti|it_num(2) }}</td>
                         <td class="text-end">{{ r.entrate_doganali_m2|it_num(2) }}</td>
+                        <td class="text-end">{{ r.picco_m2_occupati|it_num(2) }}</td>
                         <td class="text-end">{{ r.pallet_giacenza|it_num(0) }}</td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="6" class="text-center text-muted py-4">Nessun dato disponibile per il periodo selezionato.</td></tr>
+                    <tr><td colspan="7" class="text-center text-muted py-4">Nessun dato disponibile per il periodo selezionato.</td></tr>
                     {% endfor %}
                 </tbody>
                 {% if rows %}
@@ -2762,6 +2764,7 @@ REPORT_FATTURAZIONE_HTML = """
                         <td class="text-end">{{ totals.m2_fine_mese|it_num(2) }}</td>
                         <td class="text-end">{{ totals.m2_usciti|it_num(2) }}</td>
                         <td class="text-end">{{ totals.entrate_doganali_m2|it_num(2) }}</td>
+                        <td class="text-end">{{ totals.picco_m2_occupati|it_num(2) }}</td>
                         <td class="text-end">{{ totals.pallet_giacenza|it_num(0) }}</td>
                     </tr>
                 </tfoot>
@@ -4510,6 +4513,7 @@ def _compute_report_fatturazione_data(mese: int, anno: int):
         'm2_fine_mese': 0.0,
         'm2_usciti': 0.0,
         'entrate_doganali_m2': 0.0,
+        'picco_m2_occupati': 0.0,
         'pallet_giacenza': 0.0,
     }
 
@@ -4520,14 +4524,14 @@ def _compute_report_fatturazione_data(mese: int, anno: int):
             'm2_fine_mese': 0.0,
             'm2_usciti': 0.0,
             'entrate_doganali_m2': 0.0,
+            'picco_m2_occupati': 0.0,
             'pallet_giacenza': 0.0,
         }
         norm_cli = conf['norm']
 
-        for art in articoli:
-            if normalize_text_key(getattr(art, 'cliente', '')) != norm_cli:
-                continue
+        cliente_articoli = [art for art in articoli if normalize_text_key(getattr(art, 'cliente', '')) == norm_cli]
 
+        for art in cliente_articoli:
             d_ing = parse_any_date(getattr(art, 'data_ingresso', None))
             d_usc = parse_any_date(getattr(art, 'data_uscita', None))
             stato_norm = normalize_text_key(getattr(art, 'stato', ''))
@@ -4553,6 +4557,20 @@ def _compute_report_fatturazione_data(mese: int, anno: int):
                     row['m2_usciti'] += m2
                 if ingresso_doganale:
                     row['entrate_doganali_m2'] += m2
+
+        if conf['mode'] != 'pallet':
+            peak = 0.0
+            for day_num in range(1, last_day.day + 1):
+                current_day = date(anno, mese, day_num)
+                occupied_m2 = 0.0
+                for art in cliente_articoli:
+                    d_ing = parse_any_date(getattr(art, 'data_ingresso', None))
+                    d_usc = parse_any_date(getattr(art, 'data_uscita', None))
+                    if d_ing is not None and d_ing <= current_day and (d_usc is None or d_usc >= current_day):
+                        occupied_m2 += _safe_float(getattr(art, 'm2', 0))
+                if occupied_m2 > peak:
+                    peak = occupied_m2
+            row['picco_m2_occupati'] = peak
 
         if any(abs(v) > 1e-9 for k, v in row.items() if k != 'cliente'):
             rows.append(row)
@@ -4611,18 +4629,18 @@ def export_report_fatturazione_excel():
         except Exception:
             current_row = 1
 
-    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
+    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=7)
     ws.cell(current_row, 1).value = f'Report Fatturazione Camar - {mese:02d}/{anno}'
     ws.cell(current_row, 1).font = Font(bold=True, size=15)
     ws.cell(current_row, 1).alignment = Alignment(horizontal='center')
     current_row += 1
 
-    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
+    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=7)
     ws.cell(current_row, 1).value = f'Periodo: {first_day.strftime("%d/%m/%Y")} - {last_day.strftime("%d/%m/%Y")}'
     ws.cell(current_row, 1).alignment = Alignment(horizontal='center')
     current_row += 2
 
-    headers = ['Cliente', 'M2 presenti nel mese', 'M2 giacenza fine mese', 'M2 usciti nel mese', 'Entrate doganali M2', 'Pallet giacenza mese']
+    headers = ['Cliente', 'M2 presenti nel mese', 'M2 giacenza fine mese', 'M2 usciti nel mese', 'Entrate doganali M2', 'Picco M2 occupati', 'Pallet giacenza mese']
     header_fill = PatternFill('solid', fgColor='1F6FB2')
     thin = Side(style='thin', color='CCCCCC')
 
@@ -4636,7 +4654,7 @@ def export_report_fatturazione_excel():
     for row in rows:
         current_row += 1
         values = [
-            row['cliente'], row['m2_presenti'], row['m2_fine_mese'], row['m2_usciti'], row['entrate_doganali_m2'], row['pallet_giacenza']
+            row['cliente'], row['m2_presenti'], row['m2_fine_mese'], row['m2_usciti'], row['entrate_doganali_m2'], row['picco_m2_occupati'], row['pallet_giacenza']
         ]
         for col, value in enumerate(values, 1):
             cell = ws.cell(current_row, col, value)
@@ -4647,7 +4665,7 @@ def export_report_fatturazione_excel():
 
     if rows:
         current_row += 1
-        total_values = ['TOTALE', totals['m2_presenti'], totals['m2_fine_mese'], totals['m2_usciti'], totals['entrate_doganali_m2'], totals['pallet_giacenza']]
+        total_values = ['TOTALE', totals['m2_presenti'], totals['m2_fine_mese'], totals['m2_usciti'], totals['entrate_doganali_m2'], totals['picco_m2_occupati'], totals['pallet_giacenza']]
         for col, value in enumerate(total_values, 1):
             cell = ws.cell(current_row, col, value)
             cell.font = Font(bold=True)
@@ -4657,7 +4675,7 @@ def export_report_fatturazione_excel():
                 cell.number_format = '0.00'
                 cell.alignment = Alignment(horizontal='right')
 
-    widths = {1: 28, 2: 18, 3: 22, 4: 18, 5: 20, 6: 18}
+    widths = {1: 28, 2: 18, 3: 22, 4: 18, 5: 20, 6: 18, 7: 18}
     for col_idx, width in widths.items():
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
