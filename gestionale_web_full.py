@@ -1799,6 +1799,11 @@ BASE_HTML = """
                             <i class="bi bi-download"></i> BACKUP
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-outline-info text-white px-3 ms-2 btn-nav-admin" href="{{ url_for('report_fatturazione') }}">
+                            <i class="bi bi-bar-chart-line"></i> FATTURAZIONE
+                        </a>
+                    </li>
 
                     <li class="nav-item">
                          <a class="nav-link text-white-50 ms-1" href="{{ url_for('manage_mappe') }}" title="Gestione Mappe"><i class="bi bi-gear"></i></a>
@@ -2676,6 +2681,95 @@ EDIT_HTML = """
     </div>
 </div>
 {% endif %}
+{% endblock %}
+"""
+
+
+REPORT_FATTURAZIONE_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+    <div class="d-flex align-items-center gap-3">
+        {% if logo_url %}<img src="{{ logo_url }}" style="height:56px; width:auto;">{% endif %}
+        <div>
+            <h3 class="mb-0"><i class="bi bi-bar-chart-line"></i> Report Fatturazione</h3>
+            <div class="text-muted small">Area riservata agli amministratori</div>
+        </div>
+    </div>
+    <a href="{{ url_for('export_report_fatturazione_excel', mese=mese, anno=anno) }}" class="btn btn-success">
+        <i class="bi bi-file-earmark-excel"></i> Esporta Excel
+    </a>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label fw-bold">Mese</label>
+                <select name="mese" class="form-select">
+                    {% for m in range(1, 13) %}
+                    <option value="{{ m }}" {% if m == mese %}selected{% endif %}>{{ "%02d"|format(m) }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-bold">Anno</label>
+                <input type="number" name="anno" class="form-control" value="{{ anno }}">
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> Visualizza</button>
+            </div>
+        </form>
+        <div class="mt-3 small text-muted">
+            Per i clienti standard il report mostra M2 presenti nel mese, giacenza a fine mese, M2 usciti e M2 entrate doganali. Per Galvano Tecnica viene mostrato il totale pallet in giacenza usando la colonna N° Colli.
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped table-bordered align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Cliente</th>
+                        <th class="text-end">M2 presenti nel mese</th>
+                        <th class="text-end">M2 giacenza fine mese</th>
+                        <th class="text-end">M2 usciti nel mese</th>
+                        <th class="text-end">Entrate doganali M2</th>
+                        <th class="text-end">Pallet giacenza mese</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rows %}
+                    <tr>
+                        <td><strong>{{ r.cliente }}</strong></td>
+                        <td class="text-end">{{ r.m2_presenti|it_num(2) }}</td>
+                        <td class="text-end">{{ r.m2_fine_mese|it_num(2) }}</td>
+                        <td class="text-end">{{ r.m2_usciti|it_num(2) }}</td>
+                        <td class="text-end">{{ r.entrate_doganali_m2|it_num(2) }}</td>
+                        <td class="text-end">{{ r.pallet_giacenza|it_num(0) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-center text-muted py-4">Nessun dato disponibile per il periodo selezionato.</td></tr>
+                    {% endfor %}
+                </tbody>
+                {% if rows %}
+                <tfoot class="table-light fw-bold">
+                    <tr>
+                        <td>TOTALE</td>
+                        <td class="text-end">{{ totals.m2_presenti|it_num(2) }}</td>
+                        <td class="text-end">{{ totals.m2_fine_mese|it_num(2) }}</td>
+                        <td class="text-end">{{ totals.m2_usciti|it_num(2) }}</td>
+                        <td class="text-end">{{ totals.entrate_doganali_m2|it_num(2) }}</td>
+                        <td class="text-end">{{ totals.pallet_giacenza|it_num(0) }}</td>
+                    </tr>
+                </tfoot>
+                {% endif %}
+            </table>
+        </div>
+    </div>
+</div>
 {% endblock %}
 """
 
@@ -4310,7 +4404,8 @@ templates = {
         'export_client.html': EXPORT_CLIENT_HTML,
         'destinatari.html': DESTINATARI_HTML,
         'rubrica_email.html': RUBRICA_EMAIL_HTML,
-        'calcoli.html': CALCOLI_HTML
+        'calcoli.html': CALCOLI_HTML,
+        'report_fatturazione.html': REPORT_FATTURAZIONE_HTML
     }
 
 # ========================================================
@@ -4339,6 +4434,242 @@ def logo_url():
 @app.context_processor
 def inject_globals():
     return dict(logo_url=logo_url())
+
+
+
+# ========================================================
+# REPORT FATTURAZIONE (SOLO ADMIN)
+# ========================================================
+FATTURAZIONE_SPECIAL_RULES = {
+    normalize_text_key('GALVANO TECNICA'): {'mode': 'pallet', 'label': 'GALVANO TECNICA'},
+}
+
+
+def parse_any_date(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    s = str(value).strip().split(' ')[0]
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(s[:10], fmt).date()
+        except Exception:
+            pass
+    return None
+
+
+def _cliente_report_config():
+    configs = []
+    for cli in get_clienti_utenti():
+        norm = normalize_text_key(cli)
+        special = FATTURAZIONE_SPECIAL_RULES.get(norm, {})
+        mode = special.get('mode', 'm2')
+        label = special.get('label', cli)
+        configs.append({'cliente': cli, 'label': label, 'mode': mode, 'norm': norm})
+    configs.sort(key=lambda x: (0 if x['mode'] == 'm2' else 1, x['label']))
+    return configs
+
+
+def _safe_float(value):
+    try:
+        return float(str(value).replace(',', '.')) if value not in (None, '') else 0.0
+    except Exception:
+        return 0.0
+
+
+def _safe_int(value, default_if_blank=0):
+    if value in (None, ''):
+        return default_if_blank
+    try:
+        return int(float(str(value).replace(',', '.')))
+    except Exception:
+        return default_if_blank
+
+
+def _compute_report_fatturazione_data(mese: int, anno: int):
+    mese = max(1, min(12, int(mese)))
+    anno = int(anno)
+    first_day = date(anno, mese, 1)
+    last_day = date(anno, mese, calendar.monthrange(anno, mese)[1])
+
+    db = SessionLocal()
+    try:
+        articoli = db.query(Articolo).all()
+    finally:
+        db.close()
+
+    configs = _cliente_report_config()
+    rows = []
+    totals = {
+        'm2_presenti': 0.0,
+        'm2_fine_mese': 0.0,
+        'm2_usciti': 0.0,
+        'entrate_doganali_m2': 0.0,
+        'pallet_giacenza': 0.0,
+    }
+
+    for conf in configs:
+        row = {
+            'cliente': conf['label'],
+            'm2_presenti': 0.0,
+            'm2_fine_mese': 0.0,
+            'm2_usciti': 0.0,
+            'entrate_doganali_m2': 0.0,
+            'pallet_giacenza': 0.0,
+        }
+        norm_cli = conf['norm']
+
+        for art in articoli:
+            if normalize_text_key(getattr(art, 'cliente', '')) != norm_cli:
+                continue
+
+            d_ing = parse_any_date(getattr(art, 'data_ingresso', None))
+            d_usc = parse_any_date(getattr(art, 'data_uscita', None))
+            stato_norm = normalize_text_key(getattr(art, 'stato', ''))
+            m2 = _safe_float(getattr(art, 'm2', 0))
+
+            presente_nel_mese = d_ing is not None and d_ing <= last_day and (d_usc is None or d_usc >= first_day)
+            presente_fine_mese = d_ing is not None and d_ing <= last_day and (d_usc is None or d_usc >= last_day)
+            uscito_nel_mese = d_usc is not None and first_day <= d_usc <= last_day
+            ingresso_doganale = d_ing is not None and first_day <= d_ing <= last_day and 'DOGAN' in stato_norm
+
+            if conf['mode'] == 'pallet':
+                pallet_qty = _safe_int(getattr(art, 'n_colli', None), default_if_blank=1)
+                if pallet_qty <= 0:
+                    pallet_qty = 1
+                if presente_nel_mese:
+                    row['pallet_giacenza'] += pallet_qty
+            else:
+                if presente_nel_mese:
+                    row['m2_presenti'] += m2
+                if presente_fine_mese:
+                    row['m2_fine_mese'] += m2
+                if uscito_nel_mese:
+                    row['m2_usciti'] += m2
+                if ingresso_doganale:
+                    row['entrate_doganali_m2'] += m2
+
+        if any(abs(v) > 1e-9 for k, v in row.items() if k != 'cliente'):
+            rows.append(row)
+            for key in totals:
+                totals[key] += row[key]
+
+    return rows, totals, first_day, last_day
+
+
+@app.route('/report_fatturazione')
+@login_required
+@require_admin
+def report_fatturazione():
+    today = date.today()
+    mese = request.args.get('mese', today.month, type=int)
+    anno = request.args.get('anno', today.year, type=int)
+    rows, totals, first_day, last_day = _compute_report_fatturazione_data(mese, anno)
+    return render_template(
+        'report_fatturazione.html',
+        title='Report Fatturazione',
+        mese=mese,
+        anno=anno,
+        rows=rows,
+        totals=totals,
+        periodo_da=first_day,
+        periodo_a=last_day,
+    )
+
+
+@app.route('/report_fatturazione/export_excel')
+@login_required
+@require_admin
+def export_report_fatturazione_excel():
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.drawing.image import Image as XLImage
+
+    today = date.today()
+    mese = request.args.get('mese', today.month, type=int)
+    anno = request.args.get('anno', today.year, type=int)
+    rows, totals, first_day, last_day = _compute_report_fatturazione_data(mese, anno)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Fatturazione'
+
+    current_row = 1
+    if LOGO_PATH and Path(LOGO_PATH).exists():
+        try:
+            img = XLImage(str(LOGO_PATH))
+            img.width = 180
+            img.height = 55
+            ws.add_image(img, 'A1')
+            current_row = 5
+        except Exception:
+            current_row = 1
+
+    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
+    ws.cell(current_row, 1).value = f'Report Fatturazione Camar - {mese:02d}/{anno}'
+    ws.cell(current_row, 1).font = Font(bold=True, size=15)
+    ws.cell(current_row, 1).alignment = Alignment(horizontal='center')
+    current_row += 1
+
+    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
+    ws.cell(current_row, 1).value = f'Periodo: {first_day.strftime("%d/%m/%Y")} - {last_day.strftime("%d/%m/%Y")}'
+    ws.cell(current_row, 1).alignment = Alignment(horizontal='center')
+    current_row += 2
+
+    headers = ['Cliente', 'M2 presenti nel mese', 'M2 giacenza fine mese', 'M2 usciti nel mese', 'Entrate doganali M2', 'Pallet giacenza mese']
+    header_fill = PatternFill('solid', fgColor='1F6FB2')
+    thin = Side(style='thin', color='CCCCCC')
+
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(current_row, col, header)
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal='center')
+        cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    for row in rows:
+        current_row += 1
+        values = [
+            row['cliente'], row['m2_presenti'], row['m2_fine_mese'], row['m2_usciti'], row['entrate_doganali_m2'], row['pallet_giacenza']
+        ]
+        for col, value in enumerate(values, 1):
+            cell = ws.cell(current_row, col, value)
+            cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+            if col > 1:
+                cell.number_format = '0.00'
+                cell.alignment = Alignment(horizontal='right')
+
+    if rows:
+        current_row += 1
+        total_values = ['TOTALE', totals['m2_presenti'], totals['m2_fine_mese'], totals['m2_usciti'], totals['entrate_doganali_m2'], totals['pallet_giacenza']]
+        for col, value in enumerate(total_values, 1):
+            cell = ws.cell(current_row, col, value)
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill('solid', fgColor='D9EAF7')
+            cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+            if col > 1:
+                cell.number_format = '0.00'
+                cell.alignment = Alignment(horizontal='right')
+
+    widths = {1: 28, 2: 18, 3: 22, 4: 18, 5: 20, 6: 18}
+    for col_idx, width in widths.items():
+        ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    return send_file(
+        bio,
+        as_attachment=True,
+        download_name=f'report_fatturazione_{anno}_{mese:02d}.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
 
 # --- ROUTE PRINCIPALI E AUTH ---
 @app.route('/')
@@ -6556,6 +6887,7 @@ def duplica_articolo(id_articolo):
 @require_admin
 def edit_articolo(id):
     db = SessionLocal()
+    cliente_form = get_clienti_utenti()
     try:
         art = db.query(Articolo).get(id)
         if not art:
@@ -6584,7 +6916,7 @@ def edit_articolo(id):
             if session.get('role') == 'client':
                 art.cliente = current_user.id
             else:
-                art.cliente = cliente_form
+                art.cliente = validate_cliente_or_raise(request.form.get('cliente'))
             art.fornitore = request.form.get('fornitore')
             art.commessa = request.form.get('commessa')
             art.ordine = request.form.get('ordine')
@@ -6676,6 +7008,7 @@ def edit_articolo(id):
 @login_required
 def edit_record(id_articolo):
     db = SessionLocal()
+    cliente_form = get_clienti_utenti()
     try:
         art = db.query(Articolo).filter(Articolo.id_articolo == id_articolo).first()
         if not art:
@@ -6694,7 +7027,7 @@ def edit_record(id_articolo):
             if session.get('role') == 'client':
                 art.cliente = current_user.id
             else:
-                art.cliente = cliente_form
+                art.cliente = validate_cliente_or_raise(request.form.get('cliente'))
             art.fornitore = request.form.get('fornitore')
             art.commessa = request.form.get('commessa')
             art.ordine = request.form.get('ordine')
