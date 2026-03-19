@@ -5507,22 +5507,20 @@ def report_inventario_excel():
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.worksheet.table import Table, TableStyleInfo
+    from openpyxl.utils import get_column_letter
     import io
     from datetime import datetime, date
     from collections import defaultdict
 
-    # ✅ Client forzato sul proprio utente; Admin può scegliere cliente dal form
+    # Client bloccato sul proprio account; Admin seleziona un cliente valido dal form.
     if session.get('role') == 'client':
         cliente_rif = (current_user.id or '').strip()
     else:
-        cliente_rif = (request.form.get('cliente_inventario') or '').strip()
+        cliente_rif = validate_cliente_or_raise(request.form.get('cliente_inventario'))
 
     if not cliente_rif:
         return "Cliente mancante", 400
 
-    # ✅ Data inventario FACOLTATIVA:
-    # - se vuota => oggi
-    # - se compilata => usa quella data come limite
     data_rif_str = (request.form.get('data_inventario') or '').strip()
 
     def parse_d(v):
@@ -5547,22 +5545,29 @@ def report_inventario_excel():
     else:
         d_limit = date.today()
 
-    # ✅ SOLO GALVANO TECNICA USA PEZZI (al posto dei colli)
-    usa_pezzi = (cliente_rif.strip().upper() == "GALVANO TECNICA")
-
-    # ✅ DUFERCO: nell'inventario serve vedere anche il Serial Number
-    is_duferco = (cliente_rif.strip().upper() == "DUFERCO")
+    cliente_key = normalize_text_key(cliente_rif)
+    usa_pezzi = (cliente_key == normalize_text_key("GALVANO TECNICA"))
+    is_duferco = (cliente_key == normalize_text_key("DUFERCO"))
 
     db = SessionLocal()
     try:
+        # Match ESATTO e normalizzato: evita che l'admin mescoli clienti simili
         articoli = (
             db.query(Articolo)
-            .filter(Articolo.cliente.ilike(f"%{cliente_rif}%"))
+            .filter(normalized_sql_text(Articolo.cliente) == cliente_key)
             .all()
         )
 
-        # ✅ Aggregazione per CODICE ARTICOLO
-        agg = defaultdict(lambda: {"descrizione": "", "serial_number": "", "entrata": 0, "uscita": 0}) if is_duferco else defaultdict(lambda: {"descrizione": "", "entrata": 0, "uscita": 0})
+        agg = defaultdict(lambda: {
+            "descrizione": "",
+            "serial_number": "",
+            "entrata": 0,
+            "uscita": 0
+        }) if is_duferco else defaultdict(lambda: {
+            "descrizione": "",
+            "entrata": 0,
+            "uscita": 0
+        })
 
         for art in articoli:
             codice = (art.codice_articolo or "").strip()
@@ -5571,10 +5576,8 @@ def report_inventario_excel():
 
             serial = (getattr(art, 'serial_number', None) or '').strip()
             key = (codice, serial) if is_duferco else codice
-
             descr = (art.descrizione or "").strip()
 
-            # ✅ quantità: PEZZI solo Galvano, COLLI per gli altri
             if usa_pezzi:
                 q_raw = getattr(art, "pezzi", None)
                 if q_raw is None:
@@ -5583,12 +5586,9 @@ def report_inventario_excel():
                 q_raw = getattr(art, "n_colli", None)
 
             try:
-                qty = int(q_raw or 0)
+                qty = int(float(str(q_raw).replace(',', '.'))) if str(q_raw).strip() != '' else 0
             except Exception:
                 qty = 0
-
-            if qty <= 0:
-                continue
 
             if descr and not agg[key]["descrizione"]:
                 agg[key]["descrizione"] = descr
@@ -5599,24 +5599,19 @@ def report_inventario_excel():
             d_ing = parse_d(getattr(art, "data_ingresso", None))
             d_usc = parse_d(getattr(art, "data_uscita", None))
 
-            # ✅ Logica inventario "al d_limit":
-            # - Conta ENTRATA solo se ingresso <= d_limit
-            # - Conta USCITA solo se uscita <= d_limit
             if d_ing and d_ing <= d_limit:
                 agg[key]["entrata"] += qty
 
             if d_usc and d_usc <= d_limit:
                 agg[key]["uscita"] += qty
 
-        # ✅ righe finali
         righe = []
         for k in sorted(agg.keys()):
             data = agg[k]
-            entrata = data.get("entrata", 0)
-            uscita = data.get("uscita", 0)
+            entrata = int(data.get("entrata", 0) or 0)
+            uscita = int(data.get("uscita", 0) or 0)
             rimanenza = entrata - uscita
 
-            # Se vuoi escludere righe a zero totale, lascia questo:
             if entrata == 0 and uscita == 0 and rimanenza == 0:
                 continue
 
@@ -5634,9 +5629,6 @@ def report_inventario_excel():
                 "rimanenza": rimanenza
             })
 
-        # ============================
-        # ✅ CREAZIONE EXCEL
-        # ============================
         wb = Workbook()
         ws = wb.active
         ws.title = "INVENTARIO"
@@ -5664,14 +5656,9 @@ def report_inventario_excel():
         ws["A4"].font = bold
         ws["A5"].font = bold
 
-        headers = [
-            "ID",
-            "CODICE ARTICOLO",
-        ]
-
+        headers = ["ID", "CODICE ARTICOLO"]
         if is_duferco:
             headers.append("SERIAL NUMBER")
-
         headers += [
             "DESCRIZIONE",
             f"Q.TA ENTRATA ({tipo})",
@@ -5690,60 +5677,44 @@ def report_inventario_excel():
         r = start_row + 1
         idx = 1
         for row in righe:
-            values = [
-                str(idx).zfill(3),
-                row["codice"],
-            ]
-
+            values = [str(idx).zfill(3), row["codice"]]
             if is_duferco:
                 values.append(row.get("serial_number", ""))
-
-            values += [
-                row["descrizione"],
-                row["entrata"],
-                row["uscita"],
-                row["rimanenza"]
-            ]
+            values += [row["descrizione"], row["entrata"], row["uscita"], row["rimanenza"]]
 
             for c, v in enumerate(values, 1):
                 cell = ws.cell(row=r, column=c, value=v)
-                cell.alignment = left if c in (2, 3) else center
+                cell.alignment = left if c in (2, 3, 4 if is_duferco else 3) else center
                 cell.border = border
-
             r += 1
             idx += 1
 
-        ws.freeze_panes = "A9"
+        ws.freeze_panes = f"A{start_row + 1}"
 
         if r > start_row + 1:
-            tab = Table(displayName="TabInventario", ref=f"A{start_row}:F{r-1}")
-            tab.tableStyleInfo = TableStyleInfo(
-                name="TableStyleMedium9",
-                showRowStripes=True
-            )
+            last_col = get_column_letter(len(headers))
+            tab = Table(displayName="TabInventario", ref=f"A{start_row}:{last_col}{r-1}")
+            tab.tableStyleInfo = TableStyleInfo(name="TableStyleMedium9", showRowStripes=True)
             ws.add_table(tab)
 
-        # larghezze colonne
-        ws.column_dimensions["A"].width = 8
-        ws.column_dimensions["B"].width = 24
-        ws.column_dimensions["C"].width = 55
-        ws.column_dimensions["D"].width = 22
-        ws.column_dimensions["E"].width = 22
-        ws.column_dimensions["F"].width = 22
+        widths = [8, 24]
+        if is_duferco:
+            widths.append(22)
+        widths += [55, 22, 22, 22]
+        for i, w in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = w
 
         bio = io.BytesIO()
         wb.save(bio)
         bio.seek(0)
 
         filename = f"Inventario_{cliente_rif.replace(' ', '_')}_{data_limite_str}.xlsx"
-
         return send_file(
             bio,
             as_attachment=True,
             download_name=filename,
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
     finally:
         db.close()
 
