@@ -1122,10 +1122,12 @@ def load_user(user_id):
 
 # --- HELPER ESTRAZIONE PDF (Necessario per Import PDF) ---
 
+
 def extract_data_from_ddt_pdf(path):
     import pdfplumber
+    import pytesseract
     import re
-    from datetime import date
+    from datetime import date, datetime
 
     def _to_float_it(s):
         s = (s or "").strip()
@@ -1146,23 +1148,33 @@ def extract_data_from_ddt_pdf(path):
     def _clean_spaces(s):
         return re.sub(r"\s+", " ", (s or "")).strip()
 
+    def _norm(s):
+        return re.sub(r"[^A-Z0-9]+", "", (s or "").upper())
+
     def _looks_like_code(tok):
         tok = (tok or "").strip().upper()
         if not tok:
             return False
-        if re.fullmatch(r"\d{6,8}-\d{4}-\d+-\d+", tok):
-            return True
-        if re.fullmatch(r"\d{6,8}-\d{4}", tok):
-            return True
-        if re.fullmatch(r"[0-9A-Z]{3,}(?:[-/][0-9A-Z]{2,}){1,}", tok):
-            return True
-        return False
+        patterns = [
+            r"\d{6,8}-\d{4}-\d+-\d+",
+            r"\d{6,8}-\d{4}",
+            r"ITM\d{5,}",
+            r"U\d{6,}",
+            r"[A-Z]{1,4}/\d{4,8}",
+            r"\d{4}\.\d{3}",
+            r"[0-9A-Z]{3,}(?:[-/.][0-9A-Z]{2,}){1,}",
+        ]
+        return any(re.fullmatch(p, tok) for p in patterns)
 
     def _first_code_in_line(line):
         patterns = [
             r"\b\d{6,8}-\d{4}-\d+-\d+\b",
             r"\b\d{6,8}-\d{4}\b",
-            r"\b[0-9A-Z]{3,}(?:[-/][0-9A-Z]{2,}){1,}\b",
+            r"\bITM\d{5,}\b",
+            r"\bU\d{6,}\b",
+            r"\b[A-Z]{1,4}/\d{4,8}\b",
+            r"\b\d{4}\.\d{3}\b",
+            r"\b[0-9A-Z]{3,}(?:[-/.][0-9A-Z]{2,}){1,}\b",
         ]
         for pat in patterns:
             m = re.search(pat, line)
@@ -1170,232 +1182,401 @@ def extract_data_from_ddt_pdf(path):
                 return m.group(0).strip()
         return ""
 
+    def _ocr_page(page):
+        try:
+            img = page.to_image(resolution=200).original
+            txt = pytesseract.image_to_string(img, lang='eng', config='--psm 6') or ""
+            return txt
+        except Exception:
+            return ""
+
+    def _extract_text(pdf):
+        chunks = []
+        for page in pdf.pages:
+            txt = (page.extract_text() or "").strip()
+            if len(re.findall(r"[A-Za-z0-9]", txt)) < 40:
+                ocr_txt = _ocr_page(page).strip()
+                if len(re.findall(r"[A-Za-z0-9]", ocr_txt)) > len(re.findall(r"[A-Za-z0-9]", txt)):
+                    txt = ocr_txt
+            chunks.append(txt)
+        return "\n".join([c for c in chunks if c])
+
+    def _canonical_client_from_text(full_text, lines):
+        t = (full_text or "").upper()
+        destination_zone = " ".join(
+            ln for ln in lines
+            if re.search(r"DESTINAT|DESTINAZIONE|DELIVERY ADDRESS|LUOGO DESTINAZIONE MERCE|LUOGO DESTINAZIONE|CLIENTE", ln, re.I)
+            or ('C/O CAMAR' in ln.upper())
+        ).upper()
+        zone = destination_zone or t
+
+        alias_map = {
+            'GALVANO TECNICA': [r'COTUGNO\s+GALVANOTECNICA', r'GALVANO ?TECNICA', r'GALVANOTECNICA'],
+            'FINCANTIERI': [r'FINCANTIERI'],
+            'AMICO': [r'AMICO\s*&\s*CO', r'AMICO'],
+            'DUFERCO': [r'DUFERCO'],
+            'WINGECO': [r'WINGECO'],
+            'DE WAVE': [r'DE\s*WAVE'],
+            'RF-DE WAVE': [r'RF\s*[- ]\s*DE\s*WAVE'],
+            'DE WAVE SAMA': [r'DE\s*WAVE\s*SAMA'],
+            'MARINE INTERIORS': [r'MARINE\s+INTERIORS'],
+            'SIEMGROUP': [r'SIEMGROUP', r'SIEM\s+GROUP'],
+            'SGDP': [r'SGDP'],
+            'SCORZA': [r'SCORZA'],
+        }
+
+        for canonical, pats in alias_map.items():
+            if any(re.search(p, zone, re.I) for p in pats):
+                return canonical
+        for canonical, pats in alias_map.items():
+            if any(re.search(p, t, re.I) for p in pats):
+                return canonical
+
+        try:
+            clienti_validi = get_clienti_utenti()
+        except Exception:
+            clienti_validi = []
+        for c in clienti_validi:
+            if _norm(c) and _norm(c) in _norm(zone):
+                return c
+        for c in clienti_validi:
+            if _norm(c) and _norm(c) in _norm(t):
+                return c
+        return ""
+
+    def _extract_supplier(lines, full_text):
+        known = [
+            r'ATOTECH(?:\s+ITALIA)?\s+S\.R\.L\.?',
+            r'MKS\s+ATOTECH',
+            r'HALTON\s+MARINE\s+OY',
+            r'CO\. ?ME\. ?FRI\.?[-A-Z ]*S\.P\.A\.?',
+            r'FINCANTIERI\s+S\.P\.A\.?',
+            r'AMICO\s*&\s*CO\.\s*S\.P\.A\.?',
+            r'AMICO\s*&\s*CO',
+        ]
+        head = lines[:80]
+        joined_head = "\n".join(head)
+        for pat in known:
+            m = re.search(pat, joined_head, re.I)
+            if m:
+                val = _clean_spaces(m.group(0).replace('MKS ', ''))
+                return val
+
+        bad_words = ('LOGISTICA', 'LOGISTICS', 'VETTORE', 'CORRIERE', 'TRASPORT', 'CA.MAR', 'CAMAR')
+        company_re = re.compile(r'([A-Z0-9&.,\- ]{3,}(?:S\.R\.L\.?|S\.P\.A\.?|SRL|SPA|OY|LTD|GMBH|SAS))', re.I)
+        for ln in head:
+            cand = _clean_spaces(ln)
+            if not cand or any(b in cand.upper() for b in bad_words):
+                continue
+            m = company_re.search(cand)
+            if m:
+                return _clean_spaces(m.group(1))
+        return ""
+
     def _extract_meta(lines, full_text):
         meta = {
-            "cliente": "",
-            "fornitore": "",
+            "cliente": _canonical_client_from_text(full_text, lines),
+            "fornitore": _extract_supplier(lines, full_text),
             "commessa": "",
             "n_ddt": "",
             "data_ingresso": date.today().strftime("%Y-%m-%d"),
         }
 
-        def _clean_value(v):
-            v = (v or "").strip(" :-	")
-            v = re.sub(r"\s{2,}", " ", v).strip()
-            return v
+        for ln in lines:
+            if not meta['n_ddt']:
+                for pat in [
+                    r"(?:DDT\s*N[°º.]?|N[°º.]?\s*DDT|NUMERO\s*BOLLA|DELIVERY\s*NOTE|DOCUMENTO\s*DI\s*TRASPORTO)\s*[:\-]?\s*([A-Z0-9./\-]{4,})",
+                    r"\b(DN\d{5,})\b",
+                    r"\b([A-Z]{1,3}\d{5,})\b",
+                ]:
+                    m = re.search(pat, ln, re.I)
+                    if m:
+                        val = m.group(1).strip()
+                        if val.upper() not in ('D.D.T', 'DDT'):
+                            meta['n_ddt'] = val
+                            break
 
-        def _is_label_text(txt):
-            return bool(re.search(
-                r"(cliente|destinatario|fornitore|mittente|ddt|bolla|data|commessa|ordine)",
-                txt or "",
-                re.I
-            ))
-
-        def _line_value(idx, ln):
-            ln = (ln or "").strip()
-
-            # 1) prova a leggere il valore sulla stessa riga dopo : oppure -
-            for sep in (":", "-"):
-                if sep in ln:
-                    left, right = ln.split(sep, 1)
-                    if re.search(r"(cliente|destinatario|fornitore|mittente|ddt|bolla|data|commessa|ordine)", left, re.I):
-                        right = _clean_value(right)
-                        if right and not _is_label_text(right):
-                            return right
-
-            # 2) prova le 3 righe successive
-            for j in range(1, 4):
-                if idx + j < len(lines):
-                    cand = _clean_value(lines[idx + j])
-                    if cand and not _is_label_text(cand):
-                        return cand
-
-            return ""
-
-        for idx, ln in enumerate(lines):
-            low = (ln or "").lower()
-
-            # CLIENTE
-            if not meta["cliente"] and re.search(r"(destinatario(?:\s+merci)?|cliente|spett\.?le)", low, re.I):
-                meta["cliente"] = _line_value(idx, ln)[:120]
-
-            # FORNITORE
-            if not meta["fornitore"] and re.search(r"(fornitore|mittente|spedizione\s+da|merce\s+di\s+propriet)", low, re.I):
-                meta["fornitore"] = _line_value(idx, ln)[:120]
-
-            # COMMESSA / ORDINE
-            if not meta["commessa"] and re.search(r"(commessa|ordine(?:\s+cliente)?)", low, re.I):
-                meta["commessa"] = _line_value(idx, ln)[:120]
-
-            # NUMERO DDT / BOLLA
-            if not meta["n_ddt"]:
-                m = re.search(
-                    r"(?:N\.?\s*(?:DDT|Bolla)|DDT\s*N\.?|Bolla\s*N\.?)\s*[:\-]?\s*([A-Z0-9./\-]+)",
-                    ln,
-                    flags=re.I
-                )
+            if not meta['commessa']:
+                m = re.search(r"(?:COMMESSA|ORDINE\s*/\s*CONTRATTO|YOUR\s+ORDER\s+NO\.?|VS\.?\s*RIF\.?|RIFERIMENTO)\s*[:\-]?\s*([A-Z0-9./\-]{4,})", ln, re.I)
                 if m:
-                    meta["n_ddt"] = m.group(1).strip()
+                    meta['commessa'] = m.group(1).strip()
 
-        # fallback numero DDT su tutto il testo
-        if not meta["n_ddt"]:
-            m = re.search(r"\d{1,6}/\d{2}", full_text)
+        if not meta['commessa']:
+            m = re.search(r"\b(00\d{4,}[A-Z]{1,5}|SE-COP-\d+|OV\d+|[A-Z]{2}\d{6,})\b", full_text, re.I)
             if m:
-                meta["n_ddt"] = m.group(0).strip()
-            else:
-                m = re.search(r"[A-Z]{1,3}\d{4,10}", full_text)
-                if m:
-                    meta["n_ddt"] = m.group(0).strip()
+                meta['commessa'] = m.group(1).strip()
 
-        # fallback data su tutto il testo
-        m = re.search(r"(\d{2}/\d{2}/\d{4})", full_text)
+        m = re.search(r"\b(\d{2}/\d{2}/\d{4})\b", full_text)
         if m:
             try:
-                meta["data_ingresso"] = datetime.strptime(m.group(1), "%d/%m/%Y").strftime("%Y-%m-%d")
+                meta['data_ingresso'] = datetime.strptime(m.group(1), "%d/%m/%Y").strftime("%Y-%m-%d")
             except Exception:
                 pass
+        else:
+            m = re.search(r"\b(\d{1,2}\.\d{1,2}\.\d{4})\b", full_text)
+            if m:
+                try:
+                    meta['data_ingresso'] = datetime.strptime(m.group(1), "%d.%m.%Y").strftime("%Y-%m-%d")
+                except Exception:
+                    pass
 
-        # pulizia finale
-        for k in ("cliente", "fornitore", "commessa", "n_ddt"):
-            meta[k] = _clean_value(meta[k])
+        return {k: _clean_spaces(v) for k, v in meta.items()}
 
-        return meta
+    def _merge_rows(rows):
+        merged = {}
+        for r in rows:
+            key = (r.get('codice') or '', r.get('descrizione') or '', r.get('lotto') or '', r.get('serial_number') or '')
+            if key not in merged:
+                merged[key] = dict(r)
+            else:
+                merged[key]['colli'] = to_int_eu(merged[key].get('colli')) + to_int_eu(r.get('colli'))
+                try:
+                    merged[key]['pezzi'] = float(merged[key].get('pezzi') or 0) + float(r.get('pezzi') or 0)
+                except Exception:
+                    pass
+                if not merged[key].get('pezzi_articolo') and r.get('pezzi_articolo'):
+                    merged[key]['pezzi_articolo'] = r.get('pezzi_articolo')
+                if not merged[key].get('um') and r.get('um'):
+                    merged[key]['um'] = r.get('um')
+        return list(merged.values())
+
+    def _base_row(codice='', descrizione='', colli=0, pezzi=0, um='', pezzi_articolo='', lotto='', serial_number=''):
+        return {
+            'codice': (codice or '').strip(),
+            'descrizione': _clean_spaces(descrizione),
+            'colli': colli if colli is not None else 0,
+            'pezzi': pezzi if pezzi is not None else 0,
+            'um': (um or '').strip().upper(),
+            'pezzi_articolo': (pezzi_articolo or '').strip(),
+            'lotto': (lotto or '').strip(),
+            'serial_number': (serial_number or '').strip(),
+        }
+
+    def _parse_atotech(lines):
+        rows = []
+        current = None
+        for ln in lines:
+            m = re.search(r"\b(\d{7}-\d{4}-\d+-\d+)\b\s+(.+?)\s+(?:CAN|PAL|BOX|CRT|UN)\s+(\d+)\s+(\d+(?:,\d+)?)\s+(\d+(?:,\d+)?)\s+(KG|PZ|NR|UN)\s+(\d+(?:,\d+)?)", ln, re.I)
+            if m:
+                codice = m.group(1)
+                descr = m.group(2)
+                colli = _to_int(m.group(3)) or 0
+                um = m.group(6).upper()
+                qta = _to_float_it(m.group(7)) or 0
+                pezzi_articolo = ''
+                mc = re.match(r"^(\d{6,8})-(\d{4})-(\d+)-", codice)
+                if mc:
+                    pezzi_articolo = mc.group(3).lstrip('0') or mc.group(3)
+                current = _base_row(codice, descr, colli, qta, um, pezzi_articolo)
+                rows.append(current)
+                continue
+            if current is not None:
+                mlot = re.search(r"\bLOTTO\b\s*([A-Z0-9\-./]+)", ln, re.I)
+                if mlot:
+                    current['lotto'] = mlot.group(1).strip()
+        return rows
+
+    def _parse_comefri(lines):
+        rows = []
+        for ln in lines:
+            m = re.search(r"^(?:\d+\s+)?([A-Z]{1,4}/\d{3,8})\s+(U\d{6,}|[A-Z0-9.\-/]{5,})\s+(.+?)\s+(PZ|KG|NR)\s+(\d+(?:[.,]\d+)?)\s*$", ln, re.I)
+            if m:
+                articolo_cliente = m.group(1).strip()
+                codice = m.group(2).strip()
+                descr = m.group(3).strip()
+                um = m.group(4).upper()
+                qta = _to_float_it(m.group(5)) or 0
+                rows.append(_base_row(codice, descr, 1, qta, um, str(_to_int(qta) or '')))
+        return rows
+
+    def _parse_amico(lines):
+        rows = []
+        i = 0
+        while i < len(lines):
+            ln = lines[i]
+            if re.fullmatch(r"\d{1,3}", ln.strip()):
+                collo = _to_int(ln.strip()) or 0
+                block = []
+                j = i + 1
+                while j < len(lines) and len(block) < 6:
+                    nxt = lines[j]
+                    if re.fullmatch(r"\d{1,3}", nxt.strip()) and block:
+                        break
+                    block.append(nxt)
+                    if re.search(r"\b\d{4}\.\d{3}\b.*\b\d+(?:[.,]\d+)?\b$", nxt):
+                        break
+                    j += 1
+                joined = " ".join(block)
+                m = re.search(r"(.+?)\s+(\d{4}\.\d{3})\s+(\d+(?:[.,]\d+)?)\s*$", joined)
+                if m:
+                    descr = m.group(1)
+                    codice = m.group(2)
+                    qta = _to_float_it(m.group(3)) or 0
+                    rows.append(_base_row(codice, descr, collo, qta, 'PZ', str(_to_int(qta) or '')))
+                    i = j
+            i += 1
+        return rows
+
+    def _parse_halton(lines):
+        rows = []
+        for idx, ln in enumerate(lines):
+            if 'ITM' not in ln.upper():
+                continue
+            m = re.search(r"\b(ITM\d{5,})\b\s+(.+?)\s+(\d+(?:[.,]\d+)?)\s+(?:\d+(?:[.,]\d+)?\s+)?(PCS|PZ|KG)\b", ln, re.I)
+            if m:
+                codice = m.group(1)
+                descr = m.group(2)
+                qta = _to_float_it(m.group(3)) or 0
+                um = m.group(4).upper()
+                extra = []
+                k = idx + 1
+                while k < len(lines) and len(extra) < 3:
+                    nxt = lines[k]
+                    if _first_code_in_line(nxt) or re.search(r"^\d+\s+\d+\s+ITM", nxt):
+                        break
+                    if not re.search(r"COMMODITY CODE|COUNTRY OF ORIGIN|EARLIER DELIVERED|PAGE\b", nxt, re.I):
+                        extra.append(nxt)
+                    k += 1
+                descr = _clean_spaces(" ".join([descr] + extra))
+                rows.append(_base_row(codice, descr, 0, qta, um, str(_to_int(qta) or '')))
+        return rows
+
+    def _parse_fincantieri_generic(lines):
+        rows = []
+        # caso pedane / nessun codice articolo
+        full = "\n".join(lines)
+        if re.search(r"\bPEDANE\b", full, re.I):
+            m_qty = re.search(r"\b(\d+)\s+PZ\s+PEDANE\b", full, re.I)
+            m_colli = re.search(r"NUMERO\s+COLLI\s+(\d+)", full, re.I)
+            m_peso = re.search(r"TOTALE:\s*\d+\s+(\d+[.,]\d+)", full, re.I)
+            qty = _to_int(m_qty.group(1)) if m_qty else 0
+            colli = _to_int(m_colli.group(1)) if m_colli else qty
+            peso = _to_float_it(m_peso.group(1)) if m_peso else qty
+            rows.append(_base_row('', 'PEDANE', colli or 0, peso or 0, 'KG', str(qty or '')))
+        return rows
+
+    def _parse_generic(lines):
+        extracted_rows = []
+        last_row = None
+        for line in lines:
+            if last_row is not None:
+                m_lotto = re.search(r"\bLOTTO\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+                if m_lotto:
+                    last_row['lotto'] = m_lotto.group(1).strip()
+                    continue
+                m_ser = re.search(r"\b(?:SERIAL(?:E)?|SERIAL\s*NUMBER|MATRICOLA|S/?N)\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+                if m_ser:
+                    last_row['serial_number'] = m_ser.group(1).strip()
+                    continue
+
+            if re.search(r"^(CLIENTE|FORNITORE|DESTINATARIO|MITTENTE|COMMESSA|N\.?\s*DDT|DDT|BOLLA|DATA)\b", line, re.I):
+                continue
+
+            codice = _first_code_in_line(line)
+            if not codice and not re.search(r"\bPEDANE\b", line, re.I):
+                continue
+
+            rest = _clean_spaces(line.replace(codice, ' ', 1)) if codice else line
+            um = ''
+            um_m = re.search(r"\b(KG|KGS|PZ|PZS|NR|N\.?|UN|PCS)\b", line, flags=re.I)
+            if um_m:
+                um = um_m.group(1).upper().replace('.', '')
+                um = {'KGS': 'KG', 'PZS': 'PZ', 'PCS': 'PZ'}.get(um, um)
+
+            colli = None
+            m_colli = re.search(r"\bCOLLI\b\s*[:\-]?\s*(\d+)", line, flags=re.I)
+            if m_colli:
+                colli = _to_int(m_colli.group(1))
+            else:
+                tokens = rest.split()
+                for tok in tokens:
+                    if tok.isdigit():
+                        v = _to_int(tok)
+                        if v is not None and 0 <= v <= 9999:
+                            colli = v
+                            break
+
+            lotto = ''
+            m_lotto_inline = re.search(r"\bLOTTO\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+            if m_lotto_inline:
+                lotto = m_lotto_inline.group(1).strip()
+
+            serial = ''
+            m_ser_inline = re.search(r"\b(?:SERIAL(?:E)?|SERIAL\s*NUMBER|MATRICOLA|S/?N)\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
+            if m_ser_inline:
+                serial = m_ser_inline.group(1).strip()
+
+            pezzi_articolo = ''
+            m_pz_code = re.match(r"^(\d{6,8})-(\d{4})-(\d+)-", codice or '')
+            if m_pz_code:
+                pezzi_articolo = m_pz_code.group(3).lstrip('0') or m_pz_code.group(3)
+
+            temp_for_nums = line
+            if codice:
+                temp_for_nums = temp_for_nums.replace(codice, ' ')
+            temp_for_nums = re.sub(r"\b(?:LOTTO|SERIAL(?:E)?|SERIAL\s*NUMBER|MATRICOLA|S/?N)\b\s*[:\-]?\s*[A-Z0-9\-./]+", ' ', temp_for_nums, flags=re.I)
+            nums = re.findall(r"\d+(?:[.,]\d+)?", temp_for_nums)
+            qta = None
+            if nums:
+                preferred = None
+                for n in nums:
+                    if ',' in n or '.' in n:
+                        preferred = n
+                if preferred is None:
+                    preferred = nums[-1]
+                qta = _to_float_it(preferred)
+
+            descrizione = rest
+            descrizione = re.sub(r"\bLOTTO\b\s*[:\-]?\s*[A-Z0-9\-./]+", ' ', descrizione, flags=re.I)
+            descrizione = re.sub(r"\b(?:SERIAL(?:E)?|SERIAL\s*NUMBER|MATRICOLA|S/?N)\b\s*[:\-]?\s*[A-Z0-9\-./]+", ' ', descrizione, flags=re.I)
+            descrizione = re.sub(r"\b(CAN|PAL|BOX|CRT|CASS|COLLI?|PCS)\b", ' ', descrizione, flags=re.I)
+            if colli is not None:
+                descrizione = re.sub(rf"\b{re.escape(str(colli))}\b", ' ', descrizione, count=1)
+            if um:
+                descrizione = re.sub(rf"\b{re.escape(um)}\b", ' ', descrizione, flags=re.I)
+            descrizione = _clean_spaces(descrizione)
+
+            if not codice and not descrizione:
+                continue
+
+            row = _base_row(codice, descrizione, colli if colli is not None else 0, qta if qta is not None else 0, um, pezzi_articolo, lotto, serial)
+            extracted_rows.append(row)
+            last_row = row
+        return extracted_rows
 
     with pdfplumber.open(path) as pdf:
-        texts = []
-        for page in pdf.pages:
-            txt = page.extract_text() or ""
-            if txt:
-                texts.append(txt)
-        full_text = "\n".join(texts)
+        full_text = _extract_text(pdf)
 
     lines = [_clean_spaces(l) for l in full_text.splitlines() if _clean_spaces(l)]
     meta = _extract_meta(lines, full_text)
-    extracted_rows = []
-    last_row = None
 
-    for line in lines:
-        low = line.lower()
+    rows = []
+    rows.extend(_parse_atotech(lines))
+    rows.extend(_parse_comefri(lines))
+    rows.extend(_parse_amico(lines))
+    rows.extend(_parse_halton(lines))
+    rows.extend(_parse_fincantieri_generic(lines))
+    rows.extend(_parse_generic(lines))
 
-        # righe accessorie agganciate all'ultima riga articolo
-        if last_row is not None:
-            m_lotto = re.search(r"\blotto\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
-            if m_lotto:
-                last_row["lotto"] = m_lotto.group(1).strip()
-                continue
-            m_ser = re.search(r"\b(?:serial(?:e)?|serial\s*number|matricola|s/?n)\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
-            if m_ser:
-                last_row["serial_number"] = m_ser.group(1).strip()
-                continue
-
-        if re.search(r"^(cliente|fornitore|destinatario|mittente|commessa|n\.?\s*ddt|ddt|bolla|data)\b", line, re.I):
+    # pulizia righe improbabili / preferenza codice articolo vero
+    cleaned = []
+    seen = set()
+    for r in rows:
+        codice = (r.get('codice') or '').strip()
+        descr = _clean_spaces(r.get('descrizione') or '')
+        if not codice and not descr:
             continue
-
-        codice = _first_code_in_line(line)
-        if not codice:
+        if descr.upper() in {'CLIENTE', 'FORNITORE', 'DESTINATARIO', 'MITTENTE'}:
             continue
+        # evita righe duplicate palesi
+        sig = (codice, descr, r.get('colli') or 0, r.get('pezzi') or 0, r.get('lotto') or '', r.get('serial_number') or '')
+        if sig in seen:
+            continue
+        seen.add(sig)
+        r['descrizione'] = descr
+        cleaned.append(r)
 
-        rest = _clean_spaces(line.replace(codice, " ", 1))
-        if not rest:
-            rest = line
-
-        um = ""
-        um_m = re.search(r"\b(KG|KGS|PZ|PZS|NR|N\.?|UN)\b", line, flags=re.I)
-        if um_m:
-            um = um_m.group(1).upper().replace('.', '')
-            if um == 'KGS':
-                um = 'KG'
-            if um == 'PZS':
-                um = 'PZ'
-
-        colli = None
-        m_colli = re.search(r"\bcolli\b\s*[:\-]?\s*(\d+)", line, flags=re.I)
-        if m_colli:
-            colli = _to_int(m_colli.group(1))
-        else:
-            after = rest.split()
-            for tok in after:
-                if tok.isdigit():
-                    v = _to_int(tok)
-                    if v is not None and 0 <= v <= 9999:
-                        colli = v
-                        break
-
-        lotto = ""
-        m_lotto_inline = re.search(r"\blotto\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
-        if m_lotto_inline:
-            lotto = m_lotto_inline.group(1).strip()
-
-        serial = ""
-        m_ser_inline = re.search(r"\b(?:serial(?:e)?|serial\s*number|matricola|s/?n)\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
-        if m_ser_inline:
-            serial = m_ser_inline.group(1).strip()
-
-        pezzi_articolo = ""
-        m_pz_code = re.match(r"^(\d{6,8})-(\d{4})-(\d+)-(\d+)$", codice)
-        if m_pz_code:
-            pezzi_articolo = m_pz_code.group(3).lstrip('0') or m_pz_code.group(3)
-
-        m_pz = re.search(r"\b(?:pezzi|pezzo|pz|nr|n\.)\b\s*[:\-]?\s*(\d+(?:[.,]\d+)?)", line, flags=re.I)
-        if m_pz and not pezzi_articolo:
-            pezzi_articolo = str(_to_int(m_pz.group(1)) or "")
-
-        # numeri candidati per kg/qta, ripulendo il codice e i dati testuali
-        temp_for_nums = line
-        temp_for_nums = temp_for_nums.replace(codice, ' ')
-        temp_for_nums = re.sub(r"\b(?:lotto|serial(?:e)?|serial\s*number|matricola|s/?n)\b\s*[:\-]?\s*[A-Z0-9\-./]+", " ", temp_for_nums, flags=re.I)
-        nums = re.findall(r"\d+(?:[.,]\d+)?", temp_for_nums)
-        qta = None
-        if nums:
-            # preferisci l'ultimo decimale o comunque l'ultimo numero > 0
-            preferred = None
-            for n in nums:
-                if ',' in n or '.' in n:
-                    preferred = n
-            if preferred is None:
-                preferred = nums[-1]
-            qta = _to_float_it(preferred)
-
-        descrizione = rest
-        descrizione = re.sub(r"\blotto\b\s*[:\-]?\s*[A-Z0-9\-./]+", " ", descrizione, flags=re.I)
-        descrizione = re.sub(r"\b(?:serial(?:e)?|serial\s*number|matricola|s/?n)\b\s*[:\-]?\s*[A-Z0-9\-./]+", " ", descrizione, flags=re.I)
-        descrizione = re.sub(r"\b(CAN|PAL|BOX|CRT|CASS|COLLI?)\b", " ", descrizione, flags=re.I)
-        if colli is not None:
-            descrizione = re.sub(rf"\b{re.escape(str(colli))}\b", " ", descrizione, count=1)
-        if um:
-            descrizione = re.sub(rf"\b{re.escape(um)}\b", " ", descrizione, flags=re.I)
-        if qta is not None:
-            descrizione = re.sub(r"\b\d+(?:[.,]\d+)?\b\s*$", " ", descrizione).strip()
-        descrizione = _clean_spaces(descrizione)
-
-        row = {
-            "codice": codice,
-            "descrizione": descrizione,
-            "colli": colli if colli is not None else 0,
-            "pezzi": qta if qta is not None else 0,
-            "um": um,
-            "pezzi_articolo": pezzi_articolo,
-            "lotto": lotto,
-            "serial_number": serial,
-        }
-        extracted_rows.append(row)
-        last_row = row
-
-    merged = {}
-    for r in extracted_rows:
-        key = (r.get("codice") or "", r.get("descrizione") or "", r.get("lotto") or "", r.get("serial_number") or "")
-        if key not in merged:
-            merged[key] = dict(r)
-        else:
-            merged[key]["colli"] = to_int_eu(merged[key].get("colli")) + to_int_eu(r.get("colli"))
-            try:
-                merged[key]["pezzi"] = float(merged[key].get("pezzi") or 0) + float(r.get("pezzi") or 0)
-            except Exception:
-                pass
-            if not merged[key].get("pezzi_articolo") and r.get("pezzi_articolo"):
-                merged[key]["pezzi_articolo"] = r.get("pezzi_articolo")
-
-    return meta, list(merged.values())
+    return meta, _merge_rows(cleaned)
 
 def is_blank(v):
     try:
