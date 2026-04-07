@@ -9327,22 +9327,19 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             return str(v)
 
     def build_qr_flowable(value):
-        try:
-            qr = QrCodeWidget(str(value or "").strip())
-            bounds = qr.getBounds()
-            width = bounds[2] - bounds[0]
-            height = bounds[3] - bounds[1]
+    try:
+        qr = QrCodeWidget(str(value or "").strip())
+        bounds = qr.getBounds()
+        width = bounds[2] - bounds[0]
+        height = bounds[3] - bounds[1]
 
-            side = 15 * mm
-            scale_x = side / width if width else 1
-            scale_y = side / height if height else 1
-
-            drawing = Drawing(side, side)
-            qr.transform = [scale_x, 0, 0, scale_y, 0, 0]
-            drawing.add(qr)
-            return drawing
-        except Exception:
-            return Spacer(15 * mm, 15 * mm)
+        side = 16 * mm
+        drawing = Drawing(side, side)
+        qr.transform = [side / width, 0, 0, side / height, 0, 0]
+        drawing.add(qr)
+        return drawing
+    except Exception:
+        return Spacer(16 * mm, 16 * mm)
 
     def build_code128_flowable(value):
         try:
