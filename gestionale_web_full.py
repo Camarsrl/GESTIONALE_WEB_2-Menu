@@ -9251,7 +9251,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
     bio = io.BytesIO()
 
-    # Etichetta Brother QL-800: 100 x 62 mm orizzontale
+    # Formato Brother QL-800: 100mm x 62mm ORIZZONTALE
     if formato == '62x100':
         pagesize = (100 * mm, 62 * mm)
         margin = 1.2 * mm
@@ -9262,45 +9262,40 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     doc = SimpleDocTemplate(
         bio,
         pagesize=pagesize,
-        leftMargin=margin,
-        rightMargin=margin,
-        topMargin=margin,
-        bottomMargin=margin
+        leftMargin=margin, rightMargin=margin,
+        topMargin=margin, bottomMargin=margin
     )
 
     styles = getSampleStyleSheet()
 
+    # Font compatti per lasciare spazio al barcode
     s_lbl = ParagraphStyle(
         'LBL', parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=8.0, leading=8.2,
-        spaceAfter=0, spaceBefore=0
+        fontSize=8.2, leading=8.7
     )
     s_val = ParagraphStyle(
         'VAL', parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=7.9, leading=8.1,
-        spaceAfter=0, spaceBefore=0
+        fontSize=8.1, leading=8.6
     )
     s_hi = ParagraphStyle(
         'HI', parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=8.8, leading=9.0,
-        spaceAfter=0, spaceBefore=0
+        fontSize=9.4, leading=9.8
     )
     s_bar_label = ParagraphStyle(
         'BARLBL', parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=6.0, leading=6.2,
-        spaceAfter=0, spaceBefore=0
+        fontSize=6.3, leading=6.8
     )
     s_bar_value = ParagraphStyle(
         'BARVAL', parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=6.4, leading=6.6,
-        spaceAfter=0, spaceBefore=0
+        fontSize=7.0, leading=7.3
     )
 
+    # logo path robusto
     if 'LOGO_PATH' in globals() and LOGO_PATH:
         logo_path = Path(LOGO_PATH)
     else:
@@ -9328,46 +9323,32 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
     def build_qr_flowable(value):
         try:
-            qr = QrCodeWidget(str(value or "").strip())
+            qr = QrCodeWidget(value)
             bounds = qr.getBounds()
             width = bounds[2] - bounds[0]
             height = bounds[3] - bounds[1]
-
-            side = 16 * mm
-            drawing = Drawing(side, side)
-            qr.transform = [side / width, 0, 0, side / height, 0, 0]
+            side = 12.5 * mm
+            drawing = Drawing(side, side, transform=[side / width, 0, 0, side / height, 0, 0])
             drawing.add(qr)
             return drawing
         except Exception:
-            return Spacer(16 * mm, 16 * mm)
+            return Spacer(12.5 * mm, 12.5 * mm)
 
     def build_code128_flowable(value):
         try:
-            # barcode più corto in larghezza ma più alto
-            bc = createBarcodeDrawing(
+            return createBarcodeDrawing(
                 'Code128',
-                value=str(value or "").strip(),
-                barHeight=10 * mm,
-                barWidth=0.22 * mm,
-                humanReadable=False
+                value=value,
+                barHeight=6.2 * mm,
+                humanReadable=False,
+                width=45 * mm,
             )
-
-            target_w = 44 * mm
-            target_h = 10 * mm
-
-            try:
-                sx = target_w / float(bc.width) if getattr(bc, "width", 0) else 1
-                sy = target_h / float(bc.height) if getattr(bc, "height", 0) else 1
-                bc.scale(sx, sy)
-            except Exception:
-                pass
-
-            return bc
         except Exception:
-            return Spacer(44 * mm, 10 * mm)
+            return Spacer(45 * mm, 6.2 * mm)
 
     story = []
 
+    # calcola pagine totali (per evitare PageBreak finale)
     total_pages = 0
     colli_per_art = []
     for art in articoli:
@@ -9384,28 +9365,27 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     for art, tot in zip(articoli, colli_per_art):
         for i in range(1, tot + 1):
             page_counter += 1
+
             blocco = []
 
             if logo_path.exists():
                 try:
-                    img = RLImage(str(logo_path), width=32 * mm, height=8 * mm)
+                    img = RLImage(str(logo_path), width=35 * mm, height=9 * mm)
                     img.hAlign = "LEFT"
                     blocco.append(img)
-                    blocco.append(Spacer(1, 0.4 * mm))
+                    blocco.append(Spacer(1, 0.7 * mm))
                 except Exception:
                     pass
 
             arr_base = (getattr(art, "n_arrivo", "") or "").strip()
             arr_str = f"{arr_base} N.{i}" if arr_base else f"N.{i}"
             collo_str = f"{i}/{tot}"
-
             codice_entrata = ensure_codice_entrata(
                 getattr(art, 'codice_entrata', None),
                 n_arrivo=getattr(art, 'n_arrivo', None),
                 n_ddt=getattr(art, 'n_ddt_ingresso', None),
                 data_ingresso=getattr(art, 'data_ingresso', None)
             )
-
             dettaglio_url = build_entry_public_url(codice_entrata)
 
             dati = [
@@ -9421,7 +9401,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 [Paragraph("POSIZIONE:", s_lbl), Paragraph((getattr(art, "posizione", "") or ""), s_val)],
             ]
 
-            t = Table(dati, colWidths=[25 * mm, 71 * mm])
+            t = Table(dati, colWidths=[26 * mm, 70 * mm])
             t.setStyle(TableStyle([
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('LEFTPADDING', (0, 0), (-1, -1), 0),
@@ -9430,24 +9410,23 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
             ]))
             blocco.append(t)
-            blocco.append(Spacer(1, 0.6 * mm))
+
+            blocco.append(Spacer(1, 0.7 * mm))
 
             qr_flow = build_qr_flowable(dettaglio_url or codice_entrata)
             barcode_flow = build_code128_flowable(codice_entrata)
-
-            right_side = [
+            barcode_text = [
                 Paragraph("CODICE ENTRATA", s_bar_label),
                 Paragraph(codice_entrata, s_bar_value),
-                Spacer(1, 0.3 * mm),
+                Spacer(1, 0.35 * mm),
                 barcode_flow,
             ]
-
             barcode_tbl = Table(
-                [[qr_flow, right_side]],
-                colWidths=[16 * mm, 78 * mm]
+                [[qr_flow, barcode_text]],
+                colWidths=[14 * mm, 82 * mm]
             )
             barcode_tbl.setStyle(TableStyle([
-                ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('LEFTPADDING', (0, 0), (-1, -1), 0),
                 ('RIGHTPADDING', (0, 0), (-1, -1), 0),
                 ('TOPPADDING', (0, 0), (-1, -1), 0),
@@ -9463,6 +9442,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     doc.build(story)
     bio.seek(0)
     return bio
+
 
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
