@@ -9233,6 +9233,7 @@ def labels_pdf():
 
 # --- FUNZIONE ETICHETTE COMPATTA (100x62) ---
 
+
 def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     import io
     from pathlib import Path
@@ -9268,31 +9269,36 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
     styles = getSampleStyleSheet()
 
-    # Font compatti ma leggibili
+    # Font compatti
     s_lbl = ParagraphStyle(
         'LBL', parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=8.2, leading=8.7
+        fontSize=8.0, leading=8.2,
+        spaceAfter=0, spaceBefore=0
     )
     s_val = ParagraphStyle(
         'VAL', parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=8.1, leading=8.6
+        fontSize=7.9, leading=8.1,
+        spaceAfter=0, spaceBefore=0
     )
     s_hi = ParagraphStyle(
         'HI', parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=9.4, leading=9.8
+        fontSize=8.9, leading=9.1,
+        spaceAfter=0, spaceBefore=0
     )
     s_bar_label = ParagraphStyle(
         'BARLBL', parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=6.8, leading=7.2
+        fontSize=5.8, leading=6.0,
+        spaceAfter=0, spaceBefore=0
     )
     s_bar_value = ParagraphStyle(
         'BARVAL', parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=7.2, leading=7.6
+        fontSize=6.2, leading=6.4,
+        spaceAfter=0, spaceBefore=0
     )
 
     # logo path robusto
@@ -9328,7 +9334,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             width = bounds[2] - bounds[0]
             height = bounds[3] - bounds[1]
 
-            side = 22 * mm   # prima era troppo piccolo
+            side = 16 * mm   # abbastanza leggibile ma resta in una pagina
             scale_x = side / width if width else 1
             scale_y = side / height if height else 1
 
@@ -9337,23 +9343,22 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             drawing.add(qr)
             return drawing
         except Exception:
-            return Spacer(22 * mm, 22 * mm)
+            return Spacer(16 * mm, 16 * mm)
 
     def build_code128_flowable(value):
         try:
             return createBarcodeDrawing(
                 'Code128',
                 value=str(value or "").strip(),
-                barHeight=12 * mm,
-                barWidth=0.45 * mm,
+                barHeight=7.2 * mm,
+                barWidth=0.32 * mm,
                 humanReadable=False
             )
         except Exception:
-            return Spacer(55 * mm, 12 * mm)
+            return Spacer(46 * mm, 7.2 * mm)
 
     story = []
 
-    # calcola pagine totali
     total_pages = 0
     colli_per_art = []
     for art in articoli:
@@ -9370,15 +9375,14 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     for art, tot in zip(articoli, colli_per_art):
         for i in range(1, tot + 1):
             page_counter += 1
-
             blocco = []
 
             if logo_path.exists():
                 try:
-                    img = RLImage(str(logo_path), width=35 * mm, height=9 * mm)
+                    img = RLImage(str(logo_path), width=32 * mm, height=8 * mm)
                     img.hAlign = "LEFT"
                     blocco.append(img)
-                    blocco.append(Spacer(1, 0.7 * mm))
+                    blocco.append(Spacer(1, 0.4 * mm))
                 except Exception:
                     pass
 
@@ -9408,7 +9412,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 [Paragraph("POSIZIONE:", s_lbl), Paragraph((getattr(art, "posizione", "") or ""), s_val)],
             ]
 
-            t = Table(dati, colWidths=[26 * mm, 70 * mm])
+            t = Table(dati, colWidths=[25 * mm, 71 * mm])
             t.setStyle(TableStyle([
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('LEFTPADDING', (0, 0), (-1, -1), 0),
@@ -9418,21 +9422,21 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             ]))
             blocco.append(t)
 
-            blocco.append(Spacer(1, 1.0 * mm))
+            blocco.append(Spacer(1, 0.5 * mm))
 
             qr_flow = build_qr_flowable(dettaglio_url or codice_entrata)
             barcode_flow = build_code128_flowable(codice_entrata)
 
-            barcode_text = [
+            right_col = [
                 Paragraph("CODICE ENTRATA", s_bar_label),
                 Paragraph(codice_entrata, s_bar_value),
-                Spacer(1, 0.8 * mm),
+                Spacer(1, 0.3 * mm),
                 barcode_flow,
             ]
 
             barcode_tbl = Table(
-                [[qr_flow, barcode_text]],
-                colWidths=[24 * mm, 70 * mm]
+                [[qr_flow, right_col]],
+                colWidths=[17 * mm, 77 * mm]
             )
             barcode_tbl.setStyle(TableStyle([
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
@@ -9451,6 +9455,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     doc.build(story)
     bio.seek(0)
     return bio
+    
 # --- CONFIGURAZIONE FINALE E AVVIO ---
 app.jinja_loader = DictLoader(templates)
 app.jinja_env.globals['getattr'] = getattr
