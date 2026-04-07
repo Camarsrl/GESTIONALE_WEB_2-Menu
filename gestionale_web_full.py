@@ -36,7 +36,7 @@ from email.mime.application import MIMEApplication
 from email import encoders
 
 # Flask
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, session, jsonify, render_template_string, abort
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, session, jsonify, render_template_string, abort, has_request_context
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_mail import Mail
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -136,6 +136,77 @@ def match_numeric_filter(value, parsed_filter, tol=0.0005):
     if parsed_filter[0] == 'range':
         return parsed_filter[1] <= num <= parsed_filter[2]
     return abs(num - parsed_filter[1]) <= tol
+
+
+# ========================================================
+#  BARCODE / QR ENTRATA
+# ========================================================
+def _norm_token(val):
+    return re.sub(r'[^A-Z0-9]+', '', (val or '').upper())
+
+
+def genera_codice_entrata(n_arrivo=None, n_ddt=None, data_ingresso=None):
+    dt = to_date_db(data_ingresso) if 'to_date_db' in globals() else None
+    if not dt:
+        dt = date.today()
+    arr = _norm_token(n_arrivo)[:10]
+    ddt = _norm_token(n_ddt)[:10]
+    suffix = uuid.uuid4().hex[:6].upper()
+    parts = ["ENT", dt.strftime("%Y%m%d")]
+    if arr:
+        parts.append(arr)
+    elif ddt:
+        parts.append(ddt)
+    parts.append(suffix)
+    return "-".join(parts)
+
+
+def ensure_codice_entrata(value=None, n_arrivo=None, n_ddt=None, data_ingresso=None):
+    v = (value or '').strip()
+    return v or genera_codice_entrata(n_arrivo=n_arrivo, n_ddt=n_ddt, data_ingresso=data_ingresso)
+
+
+def build_public_base_url():
+    env_url = (os.environ.get('PUBLIC_BASE_URL') or '').strip().rstrip('/')
+    if env_url:
+        return env_url
+    if has_request_context():
+        return request.url_root.rstrip('/')
+    return 'http://localhost:5000'
+
+
+def build_entry_public_url(codice_entrata):
+    codice_entrata = (codice_entrata or '').strip()
+    if not codice_entrata:
+        return ''
+    from urllib.parse import quote
+    return f"{build_public_base_url()}/entrata/{quote(codice_entrata, safe='')}"
+
+
+def _collect_entrata_attachments(rows):
+    docs, photos = [], []
+    seen_docs, seen_photos = set(), set()
+    for r in rows or []:
+        for a in getattr(r, 'attachments', []) or []:
+            key = (a.kind or '', a.filename or '')
+            if a.kind == 'doc' and a.filename and key not in seen_docs:
+                docs.append(a)
+                seen_docs.add(key)
+            elif a.kind == 'photo' and a.filename and key not in seen_photos:
+                photos.append(a)
+                seen_photos.add(key)
+    return docs, photos
+
+
+def _row_att_counts(row):
+    docs = 0
+    photos = 0
+    for a in getattr(row, 'attachments', []) or []:
+        if a.kind == 'doc':
+            docs += 1
+        elif a.kind == 'photo':
+            photos += 1
+    return docs, photos
 
 
 # ========================================================
@@ -243,6 +314,7 @@ def api_giacenze():
                 Articolo.lotto.ilike(like),
                 Articolo.serial_number.ilike(like),
                 Articolo.ns_rif.ilike(like),
+                Articolo.codice_entrata.ilike(like),
             ))
 
         total = qry.count()
@@ -266,6 +338,7 @@ def api_giacenze():
                 "stato": a.stato,
                 "data_ingresso": a.data_ingresso,
                 "ddt_ingresso": a.n_ddt_ingresso,
+                "codice_entrata": (getattr(a, 'codice_entrata', '') or ''),
             })
 
         return jsonify({
@@ -862,6 +935,7 @@ class Articolo(Base):
     stato = Column(String(255)); note = Column(Text); mezzi_in_uscita = Column(String(255))
     data_ingresso = Column(String(32)); n_ddt_ingresso = Column(Text)
     data_uscita = Column(String(32)); n_ddt_uscita = Column(Text)
+    codice_entrata = Column(String(255))
     attachments = relationship("Attachment", back_populates="articolo", cascade="all, delete-orphan", passive_deletes=True)
     lotto = Column(Text) # <--- AGGIUNGI QUESTA
 
@@ -873,6 +947,26 @@ class Attachment(Base):
     articolo = relationship("Articolo", back_populates="attachments")
 
 Base.metadata.create_all(engine)
+
+
+def ensure_barcode_entry_schema(engine):
+    try:
+        insp = inspect(engine)
+        cols = {c.get('name') for c in insp.get_columns('articoli')}
+    except Exception as e:
+        print(f"[WARN] impossibile ispezionare schema articoli: {e}")
+        cols = set()
+
+    if 'codice_entrata' not in cols:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE articoli ADD COLUMN codice_entrata TEXT"))
+            print('[OK] aggiunta colonna codice_entrata ad articoli')
+        except Exception as e:
+            print(f"[WARN] impossibile aggiungere codice_entrata: {e}")
+
+
+ensure_barcode_entry_schema(engine)
 
 
 # ========================================================
@@ -893,6 +987,7 @@ def ensure_db_indexes(engine):
         idx_specs.append(('ix_articoli_posizione', [Articolo.posizione], {}))
         idx_specs.append(('ix_articoli_serial_number', [Articolo.serial_number], {}))
         idx_specs.append(('ix_articoli_ns_rif', [Articolo.ns_rif], {}))
+        idx_specs.append(('ix_articoli_codice_entrata', [Articolo.codice_entrata], {}))
 
         # Text: cliente/codice/protocollo/ordine spesso ricercati
         if mysql_len:
@@ -1018,6 +1113,72 @@ def admin_backup_download(filename):
         return redirect(url_for("admin_backups"))
 
     return send_file(p, as_attachment=True, download_name=p.name)
+
+
+@app.route("/admin/genera_codici_entrata", methods=["GET"])
+@login_required
+@require_admin
+def admin_genera_codici_entrata():
+    """Assegna un codice_entrata ai record storici che ne sono privi.
+
+    Raggruppamento priorità:
+    1) n_ddt_ingresso
+    2) n_arrivo
+    3) cliente + data_ingresso
+    4) singola riga
+    """
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(Articolo)
+            .filter(or_(Articolo.codice_entrata == None, Articolo.codice_entrata == ''))
+            .order_by(Articolo.id_articolo.asc())
+            .all()
+        )
+        if not rows:
+            flash("Nessuna entrata storica da aggiornare: tutti i record hanno già il codice entrata.", "info")
+            return redirect(url_for('home'))
+
+        groups = {}
+        for art in rows:
+            ddt = (art.n_ddt_ingresso or '').strip()
+            arr = (art.n_arrivo or '').strip()
+            cli = (art.cliente or '').strip()
+            dt = (art.data_ingresso or '').strip()
+
+            if ddt:
+                key = f"DDT|{_norm_token(ddt)}|{dt or 'ND'}"
+            elif arr:
+                key = f"ARR|{_norm_token(arr)}|{dt or 'ND'}"
+            elif cli or dt:
+                key = f"CLI|{_norm_token(cli)}|{dt or 'ND'}"
+            else:
+                key = f"ROW|{art.id_articolo}"
+
+            groups.setdefault(key, []).append(art)
+
+        updated_rows = 0
+        for arts in groups.values():
+            first = arts[0]
+            code = ensure_codice_entrata(
+                None,
+                n_arrivo=first.n_arrivo,
+                n_ddt=first.n_ddt_ingresso,
+                data_ingresso=first.data_ingresso
+            )
+            for art in arts:
+                art.codice_entrata = code
+                updated_rows += 1
+
+        db.commit()
+        flash(f"Codici entrata generati per {len(groups)} gruppi storici ({updated_rows} righe aggiornate).", "success")
+        return redirect(url_for('home'))
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore generazione codici entrata: {e}", "danger")
+        return redirect(url_for('home'))
+    finally:
+        db.close()
 
 def current_cliente():
     """Cliente associato all'utente corrente (per i client è bloccato)."""
@@ -2217,16 +2378,31 @@ HOME_HTML = """
                 {% endif %}
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_client') }}"><i class="bi bi-people"></i> Export per Cliente</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>
+                <a class="btn btn-outline-primary btn-sm" href="{{ url_for('scan_entrata') }}"><i class="bi bi-upc-scan"></i> Scan / Ricerca Entrata</a>
             </div>
         </div>
     </div>
     <div class="col-lg-9">
         <div class="card p-4">
-            <div class="d-flex align-items-center gap-3">
+            <div class="row g-3 align-items-center">
+                <div class="col-lg-7">
+                    <div class="d-flex align-items-center gap-3">
                 {% if logo_url %}<img src="{{ logo_url }}" style="height:48px">{% endif %}
                 <div>
                     <h4 class="m-0">Benvenuto nel Gestionale Camar</h4>
                     <p class="text-muted m-0">Gestione completa di giacenze, DDT, buoni di prelievo e stampa PDF.</p>
+                </div>
+                </div>
+                <div class="col-lg-5">
+                    <div class="border rounded p-3 bg-light">
+                        <h6 class="mb-2"><i class="bi bi-upc-scan"></i> Ricerca veloce entrata</h6>
+                        <form action="{{ url_for('go_scan_entrata') }}" method="post" class="d-flex gap-2">
+                            <input name="codice_entrata" class="form-control" placeholder="Scansiona o inserisci codice entrata">
+                            <button class="btn btn-primary">Apri</button>
+                        </form>
+                        <div class="form-text">Funziona da PC con lettore barcode e da smartphone con QR.</div>
+                        {% if session.get('role') == 'admin' %}<div class="mt-2"><a href="{{ url_for('admin_genera_codici_entrata') }}" class="btn btn-outline-dark btn-sm"><i class="bi bi-arrow-repeat"></i> Genera codici entrata storici</a></div>{% endif %}
+                    </div>
                 </div>
             </div>
         </div>
@@ -2234,6 +2410,123 @@ HOME_HTML = """
 </div>
 {% endblock %}
 """
+SCAN_ENTRATA_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-7">
+        <div class="card p-4">
+            <h4 class="mb-3"><i class="bi bi-upc-scan"></i> Scan / Ricerca Entrata</h4>
+            <p class="text-muted">Scansiona il barcode/QR dell'entrata oppure inserisci manualmente il codice entrata.</p>
+            <form method="post" action="{{ url_for('go_scan_entrata') }}" class="d-grid gap-3">
+                <input id="codiceEntrataInput" name="codice_entrata" class="form-control form-control-lg" placeholder="Es. ENT-20260407-ABC123" autofocus>
+                <div class="d-flex gap-2 flex-wrap">
+                    <button class="btn btn-primary"><i class="bi bi-search"></i> Apri dettaglio</button>
+                    <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">Home</a>
+                </div>
+            </form>
+            <div class="alert alert-info mt-3 mb-0">
+                Da smartphone puoi aprire direttamente il QR dell'etichetta.
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+  window.addEventListener('load', function(){
+    var el = document.getElementById('codiceEntrataInput');
+    if (el) { el.focus(); }
+  });
+</script>
+{% endblock %}
+"""
+
+DETTAGLIO_ENTRATA_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h4 class="mb-0"><i class="bi bi-qr-code-scan"></i> Dettaglio Entrata</h4>
+        <div class="text-muted">Codice entrata: <strong>{{ codice_entrata }}</strong></div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="{{ url_for('scan_entrata') }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-upc-scan"></i> Nuova scansione</a>
+        <a href="{{ url_for('giacenze', codice_entrata=codice_entrata) }}" class="btn btn-outline-secondary btn-sm">Vedi in giacenze</a>
+        {% if session.get('role') == 'admin' %}
+        <a href="{{ url_for('invia_email') }}?selected_ids={{ ids_csv }}" class="btn btn-success btn-sm"><i class="bi bi-envelope"></i> Email</a>
+        <form action="{{ url_for('labels_pdf') }}" method="post" target="_blank" class="d-inline">
+            {% for r in rows %}<input type="hidden" name="ids" value="{{ r.id_articolo }}">{% endfor %}
+            <button class="btn btn-warning btn-sm"><i class="bi bi-tag"></i> Etichetta</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-3"><div class="card p-3"><div class="text-muted small">Righe</div><div class="fs-4 fw-bold">{{ rows|length }}</div></div></div>
+    <div class="col-md-3"><div class="card p-3"><div class="text-muted small">Colli</div><div class="fs-4 fw-bold">{{ total_colli }}</div></div></div>
+    <div class="col-md-3"><div class="card p-3"><div class="text-muted small">Peso Totale</div><div class="fs-4 fw-bold">{{ total_peso|it_num(2) }}</div></div></div>
+    <div class="col-md-3"><div class="card p-3"><div class="text-muted small">M2 / M3</div><div class="fw-bold">{{ total_m2|it_num(3) }} / {{ total_m3|it_num(3) }}</div></div></div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-lg-7">
+        <div class="card p-3 h-100">
+            <h6 class="mb-3">Riepilogo</h6>
+            <div><b>Clienti:</b> {{ clienti|join(', ') }}</div>
+            <div><b>Fornitori:</b> {{ fornitori|join(', ') }}</div>
+            <div><b>DDT ingresso:</b> {{ ddt_ingresso|join(', ') if ddt_ingresso else '-' }}</div>
+            <div><b>DDT uscita collegati:</b> {{ ddt_uscita|join(', ') if ddt_uscita else '-' }}</div>
+            <div><b>Link diretto:</b> <a href="{{ detail_url }}" target="_blank">{{ detail_url }}</a></div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card p-3 h-100">
+            <h6 class="mb-3">Allegati entrata</h6>
+            <div class="mb-2"><b>Documenti:</b> {{ docs|length }}</div>
+            <div class="mb-2"><b>Foto:</b> {{ photos|length }}</div>
+            {% if docs or photos %}
+            <div class="small">
+                {% for a in docs %}<div><a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank">📄 {{ a.filename }}</a></div>{% endfor %}
+                {% for a in photos %}<div><a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank">📷 {{ a.filename }}</a></div>{% endfor %}
+            </div>
+            {% else %}<div class="text-muted">Nessun allegato collegato.</div>{% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="card p-3">
+    <h6 class="mb-3">Righe dell'entrata</h6>
+    <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>ID</th><th>Codice</th><th>Descrizione</th><th>Colli</th><th>Peso</th><th>Lotto</th><th>Serial</th><th>DDT Ing</th><th>DDT Usc</th><th>Doc</th><th>Foto</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in rows %}
+                {% set docs_count, photos_count = _row_att_counts(r) %}
+                <tr>
+                    <td>{{ r.id_articolo }}</td>
+                    <td>{{ r.codice_articolo or '' }}</td>
+                    <td>{{ r.descrizione or '' }}</td>
+                    <td>{{ r.n_colli or '' }}</td>
+                    <td>{{ r.peso|it_num(2) if r.peso else '' }}</td>
+                    <td>{{ r.lotto or '' }}</td>
+                    <td>{{ r.serial_number or '' }}</td>
+                    <td>{{ r.n_ddt_ingresso or '' }}</td>
+                    <td>{{ r.n_ddt_uscita or '' }}</td>
+                    <td>{{ docs_count }}</td>
+                    <td>{{ photos_count }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+"""
+
 IMPORT_PDF_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -2555,6 +2848,7 @@ GIACENZE_HTML = """
                     <div class="col-md-2"><input name="m2_a" class="form-control form-control-sm" placeholder="M2 a" value="{{ request.args.get('m2_a','') }}"></div>
                     <div class="col-md-2"><input name="buono_n" class="form-control form-control-sm" placeholder="N. Buono" value="{{ request.args.get('buono_n','') }}"></div>
                     <div class="col-md-2"><input name="n_arrivo" class="form-control form-control-sm" placeholder="N. Arrivo" value="{{ request.args.get('n_arrivo','') }}"></div>
+                    <div class="col-md-2"><input name="codice_entrata" class="form-control form-control-sm" placeholder="Cod. Entrata" value="{{ request.args.get('codice_entrata','') }}"></div>
                     <div class="col-md-2"><input name="mezzi_in_uscita" class="form-control form-control-sm" placeholder="Mezzo Uscita" value="{{ request.args.get('mezzi_in_uscita','') }}"></div>
                     <div class="col-md-2"><input name="stato" class="form-control form-control-sm" placeholder="Stato" value="{{ request.args.get('stato','') }}"></div>
                 </div>
@@ -2596,6 +2890,7 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare SELEZIONATI?')">Elimina</button>
         <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-primary btn-sm" onclick="return confirm('Duplicare?')">Duplica</button>
         {% endif %}
+        <a href="{{ url_for('scan_entrata') }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-upc-scan"></i> Scan Entrata</a>
     </div>
 
     <div class="table-responsive shadow-sm" style="max-height: 65vh;">
@@ -2606,7 +2901,7 @@ GIACENZE_HTML = """
                     <th>ID</th> <th>Codice</th> <th>Pz</th> <th>Larg</th> <th>Lung</th> <th>Alt</th> <th>M2</th> <th>M3</th>
                     <th>Descrizione</th> <th>Protocollo</th> <th>Commessa</th> <th>Ordine</th> <th>Colli</th> <th>Fornitore</th> <th>Magazzino</th>
                     <th>Data Ing</th> <th>DDT Ing</th> <th>DDT Usc</th> <th>Data Usc</th> <th>Mezzo Usc</th>
-                    <th>Cliente</th> <th>Kg</th> <th>Posiz</th> <th>N.Arr</th> <th>N.Buono</th> <th>Note</th> 
+                    <th>Cliente</th> <th>Kg</th> <th>Posiz</th> <th>N.Arr</th> <th>Entrata</th> <th>N.Buono</th> <th>Note</th> 
                     <th>Lotto</th> <th>Ns.Rif</th> <th>Serial</th> <th>Stato</th>
                     <th>Doc</th> <th>Foto</th> <th>Act</th>
                 </tr>
@@ -2630,7 +2925,7 @@ GIACENZE_HTML = """
                     <td>{{ r.n_ddt_ingresso or '' }}</td> <td>{{ r.n_ddt_uscita or '' }}</td>
                     <td>{{ r.data_uscita or '' }}</td>
                     <td>{{ r.mezzi_in_uscita or '' }}</td> <td>{{ r.cliente or '' }}</td> <td>{{ r.peso|it_num(2) if r.peso else '' }}</td>
-                    <td>{{ r.posizione or '' }}</td> <td>{{ r.n_arrivo or '' }}</td> <td class="fw-buono">{{ r.buono_n or '' }}</td>
+                    <td>{{ r.posizione or '' }}</td> <td>{{ r.n_arrivo or '' }}</td> <td>{% if r.codice_entrata %}<a href="{{ url_for('dettaglio_entrata', codice_entrata=r.codice_entrata) }}" class="text-decoration-none">{{ r.codice_entrata }}</a>{% endif %}</td> <td class="fw-buono">{{ r.buono_n or '' }}</td>
                     <td title="{{ r.note }}">{{ (r.note or '')[:15] }}...</td>
                     <td>{{ r.lotto or '' }}</td> <td>{{ r.ns_rif or '' }}</td> <td>{{ r.serial_number or '' }}</td>
                     <td>{{ r.stato or '' }}</td>
@@ -2652,7 +2947,7 @@ GIACENZE_HTML = """
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="34" class="text-center p-3 text-muted">Nessun articolo trovato.</td></tr>
+                <tr><td colspan="35" class="text-center p-3 text-muted">Nessun articolo trovato.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -4560,6 +4855,8 @@ templates = {
         'base.html': BASE_HTML,
         'login.html': LOGIN_HTML,
         'home.html': HOME_HTML,
+        'scan_entrata.html': SCAN_ENTRATA_HTML,
+        'dettaglio_entrata.html': DETTAGLIO_ENTRATA_HTML,
         'giacenze.html': GIACENZE_HTML,
         
         
@@ -4617,7 +4914,7 @@ def logo_url():
 
 @app.context_processor
 def inject_globals():
-    return dict(logo_url=logo_url())
+    return dict(logo_url=logo_url(), _row_att_counts=_row_att_counts)
 
 
 
@@ -6072,6 +6369,12 @@ def import_excel():
                 except Exception:
                     pass
 
+                new_art.codice_entrata = ensure_codice_entrata(
+                    getattr(new_art, 'codice_entrata', None),
+                    n_arrivo=getattr(new_art, 'n_arrivo', None),
+                    n_ddt=getattr(new_art, 'n_ddt_ingresso', None),
+                    data_ingresso=getattr(new_art, 'data_ingresso', None)
+                )
                 db.add(new_art)
                 imported_count += 1
 
@@ -6093,7 +6396,7 @@ def get_all_fields_map():
         'descrizione': 'Descrizione', 'cliente': 'Cliente','ordine':'Ordine',
         'protocollo': 'Protocollo', 'peso': 'Peso (Kg)',
         'n_colli': 'N° Colli', 'posizione': 'Posizione', 'stato': 'Stato',
-        'n_arrivo': 'N° Arrivo', 'buono_n': 'Buono N°',
+        'n_arrivo': 'N° Arrivo', 'codice_entrata': 'Codice Entrata', 'buono_n': 'Buono N°',
         'fornitore': 'Fornitore', 'magazzino': 'Magazzino',
         'data_ingresso': 'Data Ingresso', 'data_uscita': 'Data Uscita',
         'n_ddt_ingresso': 'N° DDT Ingresso', 'n_ddt_uscita': 'N° DDT Uscita',
@@ -6138,6 +6441,12 @@ def save_pdf_import():
 
     db = SessionLocal()
     try:
+        codice_entrata_shared = ensure_codice_entrata(
+            request.form.get('codice_entrata'),
+            n_arrivo=request.form.get('n_arrivo'),
+            n_ddt=request.form.get('n_ddt'),
+            data_ingresso=request.form.get('data_ingresso')
+        )
         codici = request.form.getlist('codice[]')
         descrizioni = request.form.getlist('descrizione[]')
         colli_list = request.form.getlist('colli[]')
@@ -6162,6 +6471,8 @@ def save_pdf_import():
             art.commessa = request.form.get('commessa')
             art.n_ddt_ingresso = request.form.get('n_ddt')
             art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
+            art.n_arrivo = request.form.get('n_arrivo')
+            art.codice_entrata = codice_entrata_shared
             art.stato = "NAZIONALE"
 
             # riga
@@ -6241,7 +6552,7 @@ def export_excel():
         text_filters = [
             'commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo', 'lotto',
             'fornitore', 'ordine', 'magazzino', 'mezzi_in_uscita', 'stato',
-            'n_ddt_ingresso', 'n_ddt_uscita', 'codice_articolo', 'serial_number', 'n_arrivo'
+            'n_ddt_ingresso', 'n_ddt_uscita', 'codice_articolo', 'serial_number', 'n_arrivo', 'codice_entrata'
         ]
         for field in text_filters:
             val = args.get(field)
@@ -6840,6 +7151,60 @@ def serve_uploaded_file(filename):
     # Se arriviamo qui, il file non c'è. Stampa debug nei log di Render.
     print(f"DEBUG: File '{filename}' non trovato. Cercato candidati: {candidates}")
     return f"File '{decoded_name}' non trovato sul server (potrebbe essere stato cancellato dal riavvio di Render).", 404
+
+
+@app.route('/scan_entrata', methods=['GET'])
+@login_required
+def scan_entrata():
+    codice = (request.args.get('codice_entrata') or '').strip()
+    if codice:
+        return redirect(url_for('dettaglio_entrata', codice_entrata=codice))
+    return render_template('scan_entrata.html')
+
+
+@app.route('/go_scan_entrata', methods=['POST'])
+@login_required
+def go_scan_entrata():
+    codice = (request.form.get('codice_entrata') or '').strip()
+    if not codice:
+        flash('Inserisci o scansiona un codice entrata.', 'warning')
+        return redirect(url_for('scan_entrata'))
+    return redirect(url_for('dettaglio_entrata', codice_entrata=codice))
+
+
+@app.route('/entrata/<path:codice_entrata>')
+@login_required
+def dettaglio_entrata(codice_entrata):
+    db = SessionLocal()
+    try:
+        qs = (
+            db.query(Articolo)
+            .options(selectinload(Articolo.attachments))
+            .filter(Articolo.codice_entrata == codice_entrata)
+            .order_by(Articolo.id_articolo.desc())
+        )
+        if session.get('role') == 'client':
+            user_key_norm = normalize_text_key(current_user.id or '')
+            qs = qs.filter(normalized_sql_text(Articolo.cliente) == user_key_norm)
+        rows = qs.all()
+        if not rows:
+            flash(f'Entrata {codice_entrata} non trovata.', 'warning')
+            return redirect(url_for('scan_entrata'))
+
+        total_colli = sum(int(r.n_colli or 0) for r in rows)
+        total_peso = round(sum(float(r.peso or 0) for r in rows), 2)
+        total_m2 = round(sum(float(r.m2 or 0) for r in rows), 3)
+        total_m3 = round(sum(float(r.m3 or 0) for r in rows), 3)
+        ids_csv = ','.join(str(r.id_articolo) for r in rows)
+        docs, photos = _collect_entrata_attachments(rows)
+        ddt_ingresso = sorted({(r.n_ddt_ingresso or '').strip() for r in rows if (r.n_ddt_ingresso or '').strip()})
+        ddt_uscita = sorted({(r.n_ddt_uscita or '').strip() for r in rows if (r.n_ddt_uscita or '').strip()})
+        clienti = sorted({(r.cliente or '').strip() for r in rows if (r.cliente or '').strip()})
+        fornitori = sorted({(r.fornitore or '').strip() for r in rows if (r.fornitore or '').strip()})
+        detail_url = build_entry_public_url(codice_entrata)
+        return render_template('dettaglio_entrata.html', rows=rows, codice_entrata=codice_entrata, ids_csv=ids_csv, docs=docs, photos=photos, ddt_ingresso=ddt_ingresso, ddt_uscita=ddt_uscita, clienti=clienti, fornitori=fornitori, total_colli=total_colli, total_peso=total_peso, total_m2=total_m2, total_m3=total_m3, detail_url=detail_url)
+    finally:
+        db.close()
     
 # --- GESTIONE ARTICOLI (CRUD) ---
 # ========================================================
@@ -6865,6 +7230,12 @@ def nuovo_articolo():
             
             created_articles = []
             cliente_form = validate_cliente_or_raise(request.form.get('cliente'))
+            codice_entrata_shared = ensure_codice_entrata(
+                request.form.get('codice_entrata'),
+                n_arrivo=request.form.get('n_arrivo'),
+                n_ddt=request.form.get('n_ddt_ingresso'),
+                data_ingresso=request.form.get('data_ingresso')
+            )
 
             # --- CICLO DI CREAZIONE (Crea N righe identiche) ---
             for _ in range(n_colli_input):
@@ -6884,6 +7255,7 @@ def nuovo_articolo():
                 art.protocollo = request.form.get('protocollo')
                 art.buono_n = request.form.get('buono_n')
                 art.n_arrivo = request.form.get('n_arrivo')
+                art.codice_entrata = codice_entrata_shared
                 art.magazzino = request.form.get('magazzino')
                 art.posizione = request.form.get('posizione')
                 art.stato = request.form.get('stato')
@@ -8819,6 +9191,14 @@ def labels_pdf():
         db = SessionLocal()
         try:
             articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+            changed = False
+            for art in articoli:
+                codice = ensure_codice_entrata(getattr(art, 'codice_entrata', None), n_arrivo=art.n_arrivo, n_ddt=art.n_ddt_ingresso, data_ingresso=art.data_ingresso)
+                if getattr(art, 'codice_entrata', None) != codice:
+                    art.codice_entrata = codice
+                    changed = True
+            if changed:
+                db.commit()
         finally:
             db.close()
     else:
@@ -8831,6 +9211,7 @@ def labels_pdf():
         a.n_ddt_ingresso = request.form.get('ddt_ingresso')  # nome campo HTML
         a.data_ingresso = request.form.get('data_ingresso')
         a.n_arrivo = request.form.get('arrivo')  # arrivo (manuale) -> n_arrivo
+        a.codice_entrata = ensure_codice_entrata(request.form.get('codice_entrata'), n_arrivo=a.n_arrivo, n_ddt=a.n_ddt_ingresso, data_ingresso=a.data_ingresso)
         a.n_colli = to_int_eu(request.form.get('n_colli'))
         a.posizione = request.form.get('posizione')
         articoli = [a]
@@ -8861,6 +9242,9 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak,
         Image as RLImage, KeepTogether
     )
+    from reportlab.graphics.barcode import code128
+    from reportlab.graphics.barcode.qr import QrCodeWidget
+    from reportlab.graphics.shapes import Drawing
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import mm
     from reportlab.lib.pagesizes import A4
@@ -8962,6 +9346,8 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             arr_base = (getattr(art, "n_arrivo", "") or "").strip()
             arr_str = f"{arr_base} N.{i}" if arr_base else f"N.{i}"
             collo_str = f"{i}/{tot}"
+            codice_entrata = ensure_codice_entrata(getattr(art, 'codice_entrata', None), n_arrivo=getattr(art, 'n_arrivo', None), n_ddt=getattr(art, 'n_ddt_ingresso', None), data_ingresso=getattr(art, 'data_ingresso', None))
+            dettaglio_url = build_entry_public_url(codice_entrata)
 
             dati = [
                 [Paragraph("CLIENTE:", s_lbl),   Paragraph((getattr(art, "cliente", "") or ""), s_val)],
@@ -9026,7 +9412,8 @@ def fix_db_schema():
         cols_art = [
             ("lotto", "TEXT"), ("peso", "FLOAT"), ("m2", "FLOAT"), ("m3", "FLOAT"), 
             ("n_arrivo", "TEXT"), ("data_uscita", "DATE"), ("serial_number", "TEXT"),
-            ("lunghezza", "FLOAT"), ("larghezza", "FLOAT"), ("altezza", "FLOAT")
+            ("lunghezza", "FLOAT"), ("larghezza", "FLOAT"), ("altezza", "FLOAT"),
+            ("codice_entrata", "TEXT")
         ]
         for c, t in cols_art:
             try: 
