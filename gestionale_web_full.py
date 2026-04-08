@@ -1061,7 +1061,8 @@ DEFAULT_USERS = {
     'SIEMGROUP': 'Struppa13','RF-DE WAVE': 'Struppa03',
     'SGDP': 'Struppa04', 'WINGECO': 'Struppa05', 'AMICO': 'Struppa06', 'DUFERCO': 'Struppa07',
     'SCORZA': 'Struppa08', 'MARINE INTERIORS': 'Struppa09', 'GALVANO TECNICA': 'Struppa10', 'DE WAVE SAMA': 'Struppa11','OPS': '271214',
-    'CUSTOMS': 'Balleydier01', 'TAZIO': 'Balleydier02', 'DIEGO': 'Balleydier03', 'ADMIN': 'admin123'
+    'CUSTOMS': 'Balleydier01', 'TAZIO': 'Balleydier02', 'DIEGO': 'Balleydier03', 'ADMIN': 'admin123',
+    'MAGAZZINO': 'Magazzino01', 'WAREHOUSE': 'Magazzino01', 'MAG1': 'Magazzino01'
 }
 ADMIN_USERS = {'ADMIN', 'OPS', 'CUSTOMS', 'TAZIO', 'DIEGO'}
 WAREHOUSE_USERS = {'MAGAZZINO', 'WAREHOUSE', 'MAG1'}
@@ -9303,11 +9304,11 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
     styles = getSampleStyleSheet()
 
-    s_lbl = ParagraphStyle('LBL', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8.0, leading=8.2)
+    s_lbl = ParagraphStyle('LBL', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8.0, leading=8.1)
     s_val = ParagraphStyle('VAL', parent=styles['Normal'], fontName='Helvetica', fontSize=7.7, leading=7.9)
     s_hi = ParagraphStyle('HI', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8.7, leading=8.9)
     s_scan_title = ParagraphStyle('SCANTITLE', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9.0, leading=9.2, alignment=1)
-    s_bar_label = ParagraphStyle('BARLBL', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.3, leading=6.5, alignment=1)
+    s_bar_label = ParagraphStyle('BARLBL', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.2, leading=6.4, alignment=1)
     s_bar_value = ParagraphStyle('BARVAL', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7.0, leading=7.2, alignment=1)
 
     if 'LOGO_PATH' in globals() and LOGO_PATH:
@@ -9335,7 +9336,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
         except Exception:
             return str(v)
 
-    def build_qr_flowable(value, side_mm=30):
+    def build_qr_flowable(value, side_mm=24):
         try:
             value = str(value or '').strip()
             if not value:
@@ -9345,14 +9346,14 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             width = bounds[2] - bounds[0]
             height = bounds[3] - bounds[1]
             side = side_mm * mm
-            drawing = Drawing(side, side)
-            qr.transform = [side / width, 0, 0, side / height, 0, 0]
+            drawing = Drawing(side, side, transform=[side / width, 0, 0, side / height, 0, 0])
             drawing.add(qr)
             return drawing
-        except Exception:
+        except Exception as e:
+            print(f"[WARN] QR non generato: {e}")
             return Spacer(side_mm * mm, side_mm * mm)
 
-    def build_code128_flowable(value, target_w_mm=78, target_h_mm=14):
+    def build_code128_flowable(value, target_w_mm=72, target_h_mm=12):
         try:
             value = str(value or '').strip()
             if not value:
@@ -9371,7 +9372,8 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             except Exception:
                 pass
             return bc
-        except Exception:
+        except Exception as e:
+            print(f"[WARN] Barcode non generato: {e}")
             return Spacer(target_w_mm * mm, target_h_mm * mm)
 
     story = []
@@ -9402,12 +9404,13 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             )
             dettaglio_url = build_entry_public_url(codice_entrata)
 
+            # Pagina 1: etichetta principale
             if logo_path.exists():
                 try:
                     img = RLImage(str(logo_path), width=34 * mm, height=8.5 * mm)
                     img.hAlign = 'LEFT'
                     story.append(img)
-                    story.append(Spacer(1, 0.6 * mm))
+                    story.append(Spacer(1, 0.5 * mm))
                 except Exception:
                     pass
 
@@ -9436,9 +9439,10 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             if page_counter < total_pages:
                 story.append(PageBreak())
 
+            # Pagina 2: mini etichetta scansione (solo QR + barcode)
             if logo_path.exists():
                 try:
-                    img2 = RLImage(str(logo_path), width=26 * mm, height=6.5 * mm)
+                    img2 = RLImage(str(logo_path), width=22 * mm, height=5.5 * mm)
                     img2.hAlign = 'CENTER'
                     story.append(img2)
                     story.append(Spacer(1, 0.8 * mm))
@@ -9447,26 +9451,13 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
             story.append(Paragraph('SCANSIONE ENTRATA', s_scan_title))
             story.append(Spacer(1, 1.0 * mm))
-
-            qr_tbl = Table([[build_qr_flowable(dettaglio_url or codice_entrata, side_mm=30)]], colWidths=[96 * mm])
-            qr_tbl.setStyle(TableStyle([
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-                ('TOPPADDING', (0, 0), (-1, -1), 0),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-            ]))
-            story.append(qr_tbl)
+            story.append(build_qr_flowable(dettaglio_url or codice_entrata, side_mm=24))
             story.append(Spacer(1, 1.0 * mm))
             story.append(Paragraph('CODICE ENTRATA', s_bar_label))
             story.append(Paragraph(codice_entrata, s_bar_value))
             story.append(Spacer(1, 0.8 * mm))
-
-            barcode_tbl = Table(
-                [[build_code128_flowable(codice_entrata, target_w_mm=78, target_h_mm=14)]],
-                colWidths=[96 * mm]
-            )
+            bc = build_code128_flowable(codice_entrata, target_w_mm=72, target_h_mm=12)
+            barcode_tbl = Table([[bc]], colWidths=[96 * mm])
             barcode_tbl.setStyle(TableStyle([
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
