@@ -1064,6 +1064,7 @@ DEFAULT_USERS = {
     'CUSTOMS': 'Balleydier01', 'TAZIO': 'Balleydier02', 'DIEGO': 'Balleydier03', 'ADMIN': 'admin123'
 }
 ADMIN_USERS = {'ADMIN', 'OPS', 'CUSTOMS', 'TAZIO', 'DIEGO'}
+WAREHOUSE_USERS = {'MAGAZZINO', 'WAREHOUSE', 'MAG1'}
 
 
 def require_admin(view_func):
@@ -1212,7 +1213,7 @@ def get_clienti_utenti():
         if not n:
             continue
         up = n.upper()
-        if up in ADMIN_USERS:
+        if up in ADMIN_USERS or up in WAREHOUSE_USERS:
             continue
         norm = normalize_text_key(n)
         if not norm or norm in seen:
@@ -1274,7 +1275,12 @@ class User(UserMixin):
 def load_user(user_id):
     users_db = get_users() 
     if user_id in users_db:
-        role = 'admin' if user_id in ADMIN_USERS else 'client'
+        if user_id in ADMIN_USERS:
+            role = 'admin'
+        elif user_id in WAREHOUSE_USERS:
+            role = 'magazzino'
+        else:
+            role = 'client'
         return User(user_id, role)
     return None
 
@@ -5185,7 +5191,12 @@ def login():
         
         if username in users_db and verify_password(users_db[username], password):
             # 1. Crea l'oggetto utente
-            role = 'admin' if username in ADMIN_USERS else 'client'
+            if username in ADMIN_USERS:
+                role = 'admin'
+            elif username in WAREHOUSE_USERS:
+                role = 'magazzino'
+            else:
+                role = 'client'
             user = User(username, role)
             
             # 2. PUNTO FONDAMENTALE: Effettua il login formale con Flask-Login
@@ -5211,6 +5222,29 @@ def logout():
     flash("Logout effettuato con successo", "success")
     return redirect(url_for('login'))
 
+
+
+READONLY_WAREHOUSE_ENDPOINTS = {
+    'nuovo_articolo', 'save_articolo', 'delete_rows', 'bulk_edit', 'save_bulk_edit',
+    'bulk_duplicate', 'ddt_preview', 'genera_pdf_ddt', 'finalizza_ddt', 'ddt_finale_pdf',
+    'buono_preview', 'genera_pdf_buono', 'invia_email', 'import_pdf', 'save_pdf_import',
+    'import_excel', 'trasporti', 'lavorazioni', 'fix_db_schema', 'admin_backups',
+    'admin_backup_download', 'admin_genera_codici_entrata', 'delete_attachment',
+    'delete_row', 'delete_trasporto', 'delete_lavorazione', 'modifica_articolo'
+}
+
+@app.before_request
+def _warehouse_readonly_guard():
+    try:
+        if session.get('role') != 'magazzino':
+            return None
+        ep = request.endpoint or ''
+        if ep in READONLY_WAREHOUSE_ENDPOINTS:
+            flash('Profilo magazzino in sola lettura: modifica non consentita.', 'warning')
+            return redirect(url_for('giacenze'))
+    except Exception:
+        return None
+    return None
 
 @app.route('/')
 @app.route('/home')
@@ -9240,7 +9274,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak,
-        Image as RLImage, KeepTogether
+        Image as RLImage
     )
     from reportlab.graphics.barcode import createBarcodeDrawing
     from reportlab.graphics.barcode.qr import QrCodeWidget
@@ -9251,7 +9285,6 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
     bio = io.BytesIO()
 
-    # Etichetta Brother QL-800: 100 x 62 mm orizzontale
     if formato == '62x100':
         pagesize = (100 * mm, 62 * mm)
         margin = 1.2 * mm
@@ -9270,48 +9303,12 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
     styles = getSampleStyleSheet()
 
-    # Etichetta principale
-    s_lbl = ParagraphStyle(
-        'LBL', parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=8.0, leading=8.2,
-        spaceAfter=0, spaceBefore=0
-    )
-    s_val = ParagraphStyle(
-        'VAL', parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=7.8, leading=8.0,
-        spaceAfter=0, spaceBefore=0
-    )
-    s_hi = ParagraphStyle(
-        'HI', parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=8.7, leading=8.9,
-        spaceAfter=0, spaceBefore=0
-    )
-
-    # Etichetta barcode/QR separata
-    s_scan_title = ParagraphStyle(
-        'SCANTITLE', parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=8.8, leading=9.1,
-        alignment=1,
-        spaceAfter=0, spaceBefore=0
-    )
-    s_bar_label = ParagraphStyle(
-        'BARLBL', parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=6.3, leading=6.6,
-        alignment=1,
-        spaceAfter=0, spaceBefore=0
-    )
-    s_bar_value = ParagraphStyle(
-        'BARVAL', parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=7.0, leading=7.2,
-        alignment=1,
-        spaceAfter=0, spaceBefore=0
-    )
+    s_lbl = ParagraphStyle('LBL', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8.0, leading=8.2)
+    s_val = ParagraphStyle('VAL', parent=styles['Normal'], fontName='Helvetica', fontSize=7.7, leading=7.9)
+    s_hi = ParagraphStyle('HI', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8.7, leading=8.9)
+    s_scan_title = ParagraphStyle('SCANTITLE', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9.0, leading=9.2, alignment=1)
+    s_bar_label = ParagraphStyle('BARLBL', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.3, leading=6.5, alignment=1)
+    s_bar_value = ParagraphStyle('BARVAL', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7.0, leading=7.2, alignment=1)
 
     if 'LOGO_PATH' in globals() and LOGO_PATH:
         logo_path = Path(LOGO_PATH)
@@ -9338,7 +9335,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
         except Exception:
             return str(v)
 
-    def build_qr_flowable(value, side_mm=28):
+    def build_qr_flowable(value, side_mm=30):
         try:
             value = str(value or '').strip()
             if not value:
@@ -9355,7 +9352,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
         except Exception:
             return Spacer(side_mm * mm, side_mm * mm)
 
-    def build_code128_flowable(value, target_w_mm=72, target_h_mm=13):
+    def build_code128_flowable(value, target_w_mm=78, target_h_mm=14):
         try:
             value = str(value or '').strip()
             if not value:
@@ -9379,7 +9376,6 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
     story = []
 
-    # Due pagine per collo: 1) etichetta principale  2) mini etichetta scansione
     total_pages = 0
     colli_per_art = []
     for art in articoli:
@@ -9406,14 +9402,12 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             )
             dettaglio_url = build_entry_public_url(codice_entrata)
 
-            # PAGINA 1 - ETICHETTA PRINCIPALE
-            blocco_main = []
             if logo_path.exists():
                 try:
                     img = RLImage(str(logo_path), width=34 * mm, height=8.5 * mm)
                     img.hAlign = 'LEFT'
-                    blocco_main.append(img)
-                    blocco_main.append(Spacer(1, 0.6 * mm))
+                    story.append(img)
+                    story.append(Spacer(1, 0.6 * mm))
                 except Exception:
                     pass
 
@@ -9437,33 +9431,40 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 ('TOPPADDING', (0, 0), (-1, -1), 0),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
             ]))
-            blocco_main.append(t)
-            story.append(KeepTogether(blocco_main))
+            story.append(t)
             page_counter += 1
             if page_counter < total_pages:
                 story.append(PageBreak())
 
-            # PAGINA 2 - ETICHETTA SCANSIONE
-            blocco_scan = []
             if logo_path.exists():
                 try:
                     img2 = RLImage(str(logo_path), width=26 * mm, height=6.5 * mm)
                     img2.hAlign = 'CENTER'
-                    blocco_scan.append(img2)
-                    blocco_scan.append(Spacer(1, 1.0 * mm))
+                    story.append(img2)
+                    story.append(Spacer(1, 0.8 * mm))
                 except Exception:
                     pass
 
-            blocco_scan.append(Paragraph('SCANSIONE ENTRATA', s_scan_title))
-            blocco_scan.append(Spacer(1, 1.4 * mm))
-            blocco_scan.append(build_qr_flowable(dettaglio_url or codice_entrata, side_mm=27))
-            blocco_scan.append(Spacer(1, 1.2 * mm))
-            blocco_scan.append(Paragraph('CODICE ENTRATA', s_bar_label))
-            blocco_scan.append(Paragraph(codice_entrata, s_bar_value))
-            blocco_scan.append(Spacer(1, 1.0 * mm))
+            story.append(Paragraph('SCANSIONE ENTRATA', s_scan_title))
+            story.append(Spacer(1, 1.0 * mm))
+
+            qr_tbl = Table([[build_qr_flowable(dettaglio_url or codice_entrata, side_mm=30)]], colWidths=[96 * mm])
+            qr_tbl.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                ('TOPPADDING', (0, 0), (-1, -1), 0),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+            ]))
+            story.append(qr_tbl)
+            story.append(Spacer(1, 1.0 * mm))
+            story.append(Paragraph('CODICE ENTRATA', s_bar_label))
+            story.append(Paragraph(codice_entrata, s_bar_value))
+            story.append(Spacer(1, 0.8 * mm))
 
             barcode_tbl = Table(
-                [[build_code128_flowable(codice_entrata, target_w_mm=76, target_h_mm=13)]],
+                [[build_code128_flowable(codice_entrata, target_w_mm=78, target_h_mm=14)]],
                 colWidths=[96 * mm]
             )
             barcode_tbl.setStyle(TableStyle([
@@ -9474,9 +9475,8 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 ('TOPPADDING', (0, 0), (-1, -1), 0),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
             ]))
-            blocco_scan.append(barcode_tbl)
+            story.append(barcode_tbl)
 
-            story.append(KeepTogether(blocco_scan))
             page_counter += 1
             if page_counter < total_pages:
                 story.append(PageBreak())
