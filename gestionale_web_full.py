@@ -9251,7 +9251,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
     bio = io.BytesIO()
 
-    # Formato Brother QL-800: 100mm x 62mm ORIZZONTALE
+    # Etichetta Brother QL-800: 100 x 62 mm orizzontale
     if formato == '62x100':
         pagesize = (100 * mm, 62 * mm)
         margin = 1.2 * mm
@@ -9262,122 +9262,140 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     doc = SimpleDocTemplate(
         bio,
         pagesize=pagesize,
-        leftMargin=margin, rightMargin=margin,
-        topMargin=margin, bottomMargin=margin
+        leftMargin=margin,
+        rightMargin=margin,
+        topMargin=margin,
+        bottomMargin=margin
     )
 
     styles = getSampleStyleSheet()
 
-    # Font compatti per lasciare spazio al barcode
+    # Etichetta principale
     s_lbl = ParagraphStyle(
         'LBL', parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=8.2, leading=8.7
+        fontSize=8.0, leading=8.2,
+        spaceAfter=0, spaceBefore=0
     )
     s_val = ParagraphStyle(
         'VAL', parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=8.1, leading=8.6
+        fontSize=7.8, leading=8.0,
+        spaceAfter=0, spaceBefore=0
     )
     s_hi = ParagraphStyle(
         'HI', parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=9.4, leading=9.8
+        fontSize=8.7, leading=8.9,
+        spaceAfter=0, spaceBefore=0
+    )
+
+    # Etichetta barcode/QR separata
+    s_scan_title = ParagraphStyle(
+        'SCANTITLE', parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=8.8, leading=9.1,
+        alignment=1,
+        spaceAfter=0, spaceBefore=0
     )
     s_bar_label = ParagraphStyle(
         'BARLBL', parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=6.3, leading=6.8
+        fontSize=6.3, leading=6.6,
+        alignment=1,
+        spaceAfter=0, spaceBefore=0
     )
     s_bar_value = ParagraphStyle(
         'BARVAL', parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=7.0, leading=7.3
+        fontSize=7.0, leading=7.2,
+        alignment=1,
+        spaceAfter=0, spaceBefore=0
     )
 
-    # logo path robusto
     if 'LOGO_PATH' in globals() and LOGO_PATH:
         logo_path = Path(LOGO_PATH)
     else:
-        logo_path = Path(app.root_path) / "static" / "logo camar.jpg"
+        logo_path = Path(app.root_path) / 'static' / 'logo camar.jpg'
 
     def fmt_date(v):
         if not v:
-            return ""
+            return ''
         try:
             if isinstance(v, (datetime, date)):
-                return v.strftime("%d/%m/%Y")
+                return v.strftime('%d/%m/%Y')
             s = str(v).strip()
             if not s:
-                return ""
+                return ''
             try:
-                return datetime.strptime(s[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+                return datetime.strptime(s[:10], '%Y-%m-%d').strftime('%d/%m/%Y')
             except Exception:
                 pass
             try:
-                return datetime.strptime(s[:10], "%d/%m/%Y").strftime("%d/%m/%Y")
+                return datetime.strptime(s[:10], '%d/%m/%Y').strftime('%d/%m/%Y')
             except Exception:
                 return s[:10]
         except Exception:
             return str(v)
 
-    def build_qr_flowable(value):
+    def build_qr_flowable(value, side_mm=28):
         try:
+            value = str(value or '').strip()
+            if not value:
+                return Spacer(side_mm * mm, side_mm * mm)
             qr = QrCodeWidget(value)
             bounds = qr.getBounds()
             width = bounds[2] - bounds[0]
             height = bounds[3] - bounds[1]
-            side = 12.5 * mm
-            drawing = Drawing(side, side, transform=[side / width, 0, 0, side / height, 0, 0])
+            side = side_mm * mm
+            drawing = Drawing(side, side)
+            qr.transform = [side / width, 0, 0, side / height, 0, 0]
             drawing.add(qr)
             return drawing
         except Exception:
-            return Spacer(12.5 * mm, 12.5 * mm)
+            return Spacer(side_mm * mm, side_mm * mm)
 
-    def build_code128_flowable(value):
+    def build_code128_flowable(value, target_w_mm=72, target_h_mm=13):
         try:
-            return createBarcodeDrawing(
+            value = str(value or '').strip()
+            if not value:
+                return Spacer(target_w_mm * mm, target_h_mm * mm)
+            bc = createBarcodeDrawing(
                 'Code128',
                 value=value,
-                barHeight=6.2 * mm,
+                barHeight=target_h_mm * mm,
+                barWidth=0.24 * mm,
                 humanReadable=False,
-                width=45 * mm,
             )
+            try:
+                sx = (target_w_mm * mm) / float(bc.width) if getattr(bc, 'width', 0) else 1
+                sy = (target_h_mm * mm) / float(bc.height) if getattr(bc, 'height', 0) else 1
+                bc.scale(sx, sy)
+            except Exception:
+                pass
+            return bc
         except Exception:
-            return Spacer(45 * mm, 6.2 * mm)
+            return Spacer(target_w_mm * mm, target_h_mm * mm)
 
     story = []
 
-    # calcola pagine totali (per evitare PageBreak finale)
+    # Due pagine per collo: 1) etichetta principale  2) mini etichetta scansione
     total_pages = 0
     colli_per_art = []
     for art in articoli:
         try:
-            tot = int(getattr(art, "n_colli", None) or 1)
+            tot = int(getattr(art, 'n_colli', None) or 1)
         except Exception:
             tot = 1
         tot = max(1, tot)
         colli_per_art.append(tot)
-        total_pages += tot
+        total_pages += tot * 2
 
     page_counter = 0
 
     for art, tot in zip(articoli, colli_per_art):
         for i in range(1, tot + 1):
-            page_counter += 1
-
-            blocco = []
-
-            if logo_path.exists():
-                try:
-                    img = RLImage(str(logo_path), width=35 * mm, height=9 * mm)
-                    img.hAlign = "LEFT"
-                    blocco.append(img)
-                    blocco.append(Spacer(1, 0.7 * mm))
-                except Exception:
-                    pass
-
-            arr_base = (getattr(art, "n_arrivo", "") or "").strip()
+            arr_base = (getattr(art, 'n_arrivo', '') or '').strip()
             arr_str = f"{arr_base} N.{i}" if arr_base else f"N.{i}"
             collo_str = f"{i}/{tot}"
             codice_entrata = ensure_codice_entrata(
@@ -9388,20 +9406,30 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             )
             dettaglio_url = build_entry_public_url(codice_entrata)
 
-            dati = [
-                [Paragraph("CLIENTE:", s_lbl),   Paragraph((getattr(art, "cliente", "") or ""), s_val)],
-                [Paragraph("FORNITORE:", s_lbl), Paragraph((getattr(art, "fornitore", "") or ""), s_val)],
-                [Paragraph("ORDINE:", s_lbl),    Paragraph((getattr(art, "ordine", "") or ""), s_val)],
-                [Paragraph("COMMESSA:", s_lbl),  Paragraph((getattr(art, "commessa", "") or ""), s_val)],
-                [Paragraph("DDT ING.:", s_lbl),  Paragraph((getattr(art, "n_ddt_ingresso", "") or ""), s_val)],
-                [Paragraph("DATA ING.:", s_lbl), Paragraph(fmt_date(getattr(art, "data_ingresso", "")), s_val)],
-                [Paragraph("ARRIVO:", s_lbl),    Paragraph(arr_str, s_hi)],
-                [Paragraph("N. COLLO:", s_lbl),  Paragraph(collo_str, s_hi)],
-                [Paragraph("COLLI:", s_lbl),     Paragraph(str(tot), s_hi)],
-                [Paragraph("POSIZIONE:", s_lbl), Paragraph((getattr(art, "posizione", "") or ""), s_val)],
-            ]
+            # PAGINA 1 - ETICHETTA PRINCIPALE
+            blocco_main = []
+            if logo_path.exists():
+                try:
+                    img = RLImage(str(logo_path), width=34 * mm, height=8.5 * mm)
+                    img.hAlign = 'LEFT'
+                    blocco_main.append(img)
+                    blocco_main.append(Spacer(1, 0.6 * mm))
+                except Exception:
+                    pass
 
-            t = Table(dati, colWidths=[26 * mm, 70 * mm])
+            dati = [
+                [Paragraph('CLIENTE:', s_lbl),   Paragraph((getattr(art, 'cliente', '') or ''), s_val)],
+                [Paragraph('FORNITORE:', s_lbl), Paragraph((getattr(art, 'fornitore', '') or ''), s_val)],
+                [Paragraph('ORDINE:', s_lbl),    Paragraph((getattr(art, 'ordine', '') or ''), s_val)],
+                [Paragraph('COMMESSA:', s_lbl),  Paragraph((getattr(art, 'commessa', '') or ''), s_val)],
+                [Paragraph('DDT ING.:', s_lbl),  Paragraph((getattr(art, 'n_ddt_ingresso', '') or ''), s_val)],
+                [Paragraph('DATA ING.:', s_lbl), Paragraph(fmt_date(getattr(art, 'data_ingresso', '')), s_val)],
+                [Paragraph('ARRIVO:', s_lbl),    Paragraph(arr_str, s_hi)],
+                [Paragraph('N. COLLO:', s_lbl),  Paragraph(collo_str, s_hi)],
+                [Paragraph('COLLI:', s_lbl),     Paragraph(str(tot), s_hi)],
+                [Paragraph('POSIZIONE:', s_lbl), Paragraph((getattr(art, 'posizione', '') or ''), s_val)],
+            ]
+            t = Table(dati, colWidths=[25 * mm, 71 * mm])
             t.setStyle(TableStyle([
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('LEFTPADDING', (0, 0), (-1, -1), 0),
@@ -9409,33 +9437,47 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 ('TOPPADDING', (0, 0), (-1, -1), 0),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
             ]))
-            blocco.append(t)
+            blocco_main.append(t)
+            story.append(KeepTogether(blocco_main))
+            page_counter += 1
+            if page_counter < total_pages:
+                story.append(PageBreak())
 
-            blocco.append(Spacer(1, 0.7 * mm))
+            # PAGINA 2 - ETICHETTA SCANSIONE
+            blocco_scan = []
+            if logo_path.exists():
+                try:
+                    img2 = RLImage(str(logo_path), width=26 * mm, height=6.5 * mm)
+                    img2.hAlign = 'CENTER'
+                    blocco_scan.append(img2)
+                    blocco_scan.append(Spacer(1, 1.0 * mm))
+                except Exception:
+                    pass
 
-            qr_flow = build_qr_flowable(dettaglio_url or codice_entrata)
-            barcode_flow = build_code128_flowable(codice_entrata)
-            barcode_text = [
-                Paragraph("CODICE ENTRATA", s_bar_label),
-                Paragraph(codice_entrata, s_bar_value),
-                Spacer(1, 0.35 * mm),
-                barcode_flow,
-            ]
+            blocco_scan.append(Paragraph('SCANSIONE ENTRATA', s_scan_title))
+            blocco_scan.append(Spacer(1, 1.4 * mm))
+            blocco_scan.append(build_qr_flowable(dettaglio_url or codice_entrata, side_mm=27))
+            blocco_scan.append(Spacer(1, 1.2 * mm))
+            blocco_scan.append(Paragraph('CODICE ENTRATA', s_bar_label))
+            blocco_scan.append(Paragraph(codice_entrata, s_bar_value))
+            blocco_scan.append(Spacer(1, 1.0 * mm))
+
             barcode_tbl = Table(
-                [[qr_flow, barcode_text]],
-                colWidths=[14 * mm, 82 * mm]
+                [[build_code128_flowable(codice_entrata, target_w_mm=76, target_h_mm=13)]],
+                colWidths=[96 * mm]
             )
             barcode_tbl.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('LEFTPADDING', (0, 0), (-1, -1), 0),
                 ('RIGHTPADDING', (0, 0), (-1, -1), 0),
                 ('TOPPADDING', (0, 0), (-1, -1), 0),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
             ]))
-            blocco.append(barcode_tbl)
+            blocco_scan.append(barcode_tbl)
 
-            story.append(KeepTogether(blocco))
-
+            story.append(KeepTogether(blocco_scan))
+            page_counter += 1
             if page_counter < total_pages:
                 story.append(PageBreak())
 
