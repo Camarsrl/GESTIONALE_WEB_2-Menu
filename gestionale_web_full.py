@@ -9482,6 +9482,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
     total_pages = 0
     colli_per_art = []
+    total_colli_global = 0
     for art in articoli:
         try:
             tot = int(getattr(art, 'n_colli', None) or 1)
@@ -9489,15 +9490,18 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             tot = 1
         tot = max(1, tot)
         colli_per_art.append(tot)
+        total_colli_global += tot
         total_pages += tot * 2
 
     page_counter = 0
+    global_collo_index = 0
 
     for art, tot in zip(articoli, colli_per_art):
         for i in range(1, tot + 1):
+            global_collo_index += 1
             arr_base = clean_arrivo_base(getattr(art, 'n_arrivo', '') or '')
-            arr_str = f"{arr_base} N.{i}" if arr_base else f"N.{i}"
-            collo_str = f"{i}/{tot}"
+            arr_str = f"{arr_base} N.{global_collo_index}" if arr_base else f"N.{global_collo_index}"
+            collo_str = f"{global_collo_index}/{total_colli_global}"
             codice_entrata = ensure_codice_entrata(
                 getattr(art, 'codice_entrata', None),
                 n_arrivo=getattr(art, 'n_arrivo', None),
@@ -9525,7 +9529,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 [Paragraph('DATA ING.:', s_lbl), Paragraph(fmt_date(getattr(art, 'data_ingresso', '')), s_val)],
                 [Paragraph('ARRIVO:', s_lbl),    Paragraph(arr_str, s_hi)],
                 [Paragraph('N. COLLO:', s_lbl),  Paragraph(collo_str, s_hi)],
-                [Paragraph('COLLI:', s_lbl),     Paragraph(str(tot), s_hi)],
+                [Paragraph('COLLI:', s_lbl),     Paragraph(str(total_colli_global), s_hi)],
                 [Paragraph('POSIZIONE:', s_lbl), Paragraph((getattr(art, 'posizione', '') or ''), s_val)],
             ]
             t = Table(dati, colWidths=[25 * mm, 71 * mm])
