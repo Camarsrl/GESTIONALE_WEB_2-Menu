@@ -176,6 +176,26 @@ def ensure_codice_entrata(value=None, n_arrivo=None, n_ddt=None, data_ingresso=N
     return v or genera_codice_entrata(n_arrivo=n_arrivo, n_ddt=n_ddt, data_ingresso=data_ingresso)
 
 
+def ensure_stable_codice_entrata_for_articolo(articolo):
+    """Mantiene il barcode stabile una volta creato.
+
+    Regola:
+    - se l'articolo ha già un codice_entrata, non lo cambia mai
+    - se manca, lo genera una sola volta con i dati correnti
+    """
+    current = (getattr(articolo, 'codice_entrata', None) or '').strip()
+    if current:
+        return current
+    codice = ensure_codice_entrata(
+        None,
+        n_arrivo=getattr(articolo, 'n_arrivo', None),
+        n_ddt=getattr(articolo, 'n_ddt_ingresso', None),
+        data_ingresso=getattr(articolo, 'data_ingresso', None),
+    )
+    articolo.codice_entrata = codice
+    return codice
+
+
 def build_public_base_url():
     env_url = (os.environ.get('PUBLIC_BASE_URL') or '').strip().rstrip('/')
     if env_url:
@@ -6942,6 +6962,10 @@ def invia_email():
     # =========================
     if request.method == 'GET':
         selected_ids = request.args.getlist('ids')
+        if not selected_ids:
+            selected_ids_csv = (request.args.get('selected_ids') or '').strip()
+            if selected_ids_csv:
+                selected_ids = [p.strip() for p in selected_ids_csv.split(',') if p.strip().isdigit()]
         return render_template('invia_email.html', selected_ids=",".join(selected_ids), email_groups=load_rubrica_email().get('gruppi', {}))
 
     # =========================
@@ -7453,6 +7477,7 @@ def duplica_articolo(id_articolo):
             data_copy[col.name] = getattr(originale, col.name)
 
         nuovo = Articolo(**data_copy)
+        ensure_stable_codice_entrata_for_articolo(nuovo)
 
         # ✅ Modifiche volute sulla copia
         nuovo.note = f"Copia di ID {originale.id_articolo}"
@@ -7500,6 +7525,13 @@ def edit_articolo(id):
                 abort(403)
 
         if request.method == 'POST':
+            old_ingresso_signature = (
+                (art.n_arrivo or '').strip(),
+                (art.n_ddt_ingresso or '').strip(),
+                str(art.data_ingresso or '').strip(),
+            )
+            had_codice_entrata = bool((art.codice_entrata or '').strip())
+
             # 1. Recupera Colli (per eventuale split)
             colli_input = to_int_eu(request.form.get('n_colli'))
             if colli_input < 0: colli_input = 0
@@ -7550,6 +7582,13 @@ def edit_articolo(id):
             m3_man = request.form.get('m3')
             art.m3 = to_float_eu(m3_man) if m3_man and to_float_eu(m3_man) > 0 else m3_calc
 
+            ensure_stable_codice_entrata_for_articolo(art)
+            ingresso_changed = old_ingresso_signature != (
+                (art.n_arrivo or '').strip(),
+                (art.n_ddt_ingresso or '').strip(),
+                str(art.data_ingresso or '').strip(),
+            )
+
             # 3. LOGICA SPLIT (Se colli > 1, crea copie)
             if colli_input > 1:
                 import shutil
@@ -7586,6 +7625,9 @@ def edit_articolo(id):
             else:
                 flash("Articolo aggiornato con successo.", "success")
 
+            if ingresso_changed and had_codice_entrata:
+                flash("Hai modificato Arrivo/DDT/Data ingresso: il barcode è rimasto invariato per non invalidare le etichette già stampate.", "info")
+
             db.commit()
             return redirect(url_for('giacenze'))
 
@@ -7611,6 +7653,13 @@ def edit_record(id_articolo):
             return redirect(url_for('giacenze'))
 
         if request.method == 'POST':
+            old_ingresso_signature = (
+                (art.n_arrivo or '').strip(),
+                (art.n_ddt_ingresso or '').strip(),
+                str(art.data_ingresso or '').strip(),
+            )
+            had_codice_entrata = bool((art.codice_entrata or '').strip())
+
             # --- SALVATAGGIO MODIFICHE ---
             colli_input = to_int_eu(request.form.get('n_colli'))
             if colli_input < 0: colli_input = 0
@@ -7655,6 +7704,13 @@ def edit_record(id_articolo):
             m3_man = request.form.get('m3')
             art.m3 = to_float_eu(m3_man) if m3_man and to_float_eu(m3_man) > 0 else m3_calc
 
+            ensure_stable_codice_entrata_for_articolo(art)
+            ingresso_changed = old_ingresso_signature != (
+                (art.n_arrivo or '').strip(),
+                (art.n_ddt_ingresso or '').strip(),
+                str(art.data_ingresso or '').strip(),
+            )
+
             # --- DUPLICAZIONE SE COLLI > 1 ---
             if colli_input > 1:
                 for _ in range(colli_input - 1):
@@ -7666,6 +7722,9 @@ def edit_record(id_articolo):
                 flash(f"Salvataggio OK. Generate {colli_input - 1} copie aggiuntive.", "success")
             else:
                 flash("Modifiche salvate.", "success")
+
+            if ingresso_changed and had_codice_entrata:
+                flash("Hai modificato Arrivo/DDT/Data ingresso: il barcode è rimasto invariato per non invalidare le etichette già stampate.", "info")
 
             db.commit()
             return redirect(url_for('giacenze'))
@@ -7687,6 +7746,13 @@ def edit_row(id):
         abort(404)
 
     if request.method == 'POST':
+        old_ingresso_signature = (
+            (row.n_arrivo or '').strip(),
+            (row.n_ddt_ingresso or '').strip(),
+            str(row.data_ingresso or '').strip(),
+        )
+        had_codice_entrata = bool((row.codice_entrata or '').strip())
+
         for f, label in get_all_fields_map().items():
             v = request.form.get(f)
             if v is not None:
@@ -7700,6 +7766,12 @@ def edit_row(id):
                     v = validate_cliente_or_raise(v, allow_blank=True)
                 setattr(row, f, v if v != '' else None)
         row.m2, row.m3 = calc_m2_m3(row.lunghezza, row.larghezza, row.altezza, row.n_colli)
+        ensure_stable_codice_entrata_for_articolo(row)
+        ingresso_changed = old_ingresso_signature != (
+            (row.n_arrivo or '').strip(),
+            (row.n_ddt_ingresso or '').strip(),
+            str(row.data_ingresso or '').strip(),
+        )
         if 'files' in request.files:
             for f in request.files.getlist('files'):
                 if not f or not f.filename: continue
@@ -7711,6 +7783,8 @@ def edit_row(id):
                 db.add(Attachment(articolo_id=id, kind=kind, filename=safe_name))
         db.commit()
         flash('Riga salvata', 'success')
+        if ingresso_changed and had_codice_entrata:
+            flash('Hai modificato Arrivo/DDT/Data ingresso: il barcode è rimasto invariato per non invalidare le etichette già stampate.', 'info')
         return redirect(url_for('giacenze'))
 
     return render_template('edit.html', row=row, fields=get_all_fields_map().items(), clienti_validi=get_clienti_utenti())
@@ -8305,6 +8379,7 @@ def bulk_duplicate():
                     posizione=original.posizione,
                     note=original.note
                 )
+                ensure_stable_codice_entrata_for_articolo(new_art)
                 db.add(new_art)
                 count += 1
         db.commit()
@@ -9394,6 +9469,15 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             print(f"[WARN] Barcode non generato: {e}")
             return Spacer(target_w_mm * mm, target_h_mm * mm)
 
+    def clean_arrivo_base(value):
+        s = str(value or '').strip()
+        if not s:
+            return ''
+        s = re.sub(r'\s+', ' ', s).strip()
+        s = re.sub(r'\s+(?:N\.?|COLLO)\s*\d+(?:\s*/\s*\d+)?\s*$', '', s, flags=re.IGNORECASE).strip()
+        s = re.sub(r'\s+\d+\s*/\s*\d+\s*$', '', s).strip()
+        return s
+
     story = []
 
     total_pages = 0
@@ -9411,7 +9495,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
     for art, tot in zip(articoli, colli_per_art):
         for i in range(1, tot + 1):
-            arr_base = (getattr(art, 'n_arrivo', '') or '').strip()
+            arr_base = clean_arrivo_base(getattr(art, 'n_arrivo', '') or '')
             arr_str = f"{arr_base} N.{i}" if arr_base else f"N.{i}"
             collo_str = f"{i}/{tot}"
             codice_entrata = ensure_codice_entrata(
