@@ -146,18 +146,28 @@ def _norm_token(val):
 
 
 def genera_codice_entrata(n_arrivo=None, n_ddt=None, data_ingresso=None):
+    """Genera un codice entrata STABILE.
+
+    Regola importante:
+    - se esistono data + n_arrivo o n_ddt, il codice deve essere sempre lo stesso
+      anche se l'etichetta viene stampata prima del caricamento in giacenza;
+    - se manca tutto, usa un fallback casuale.
+    """
     dt = to_date_db(data_ingresso) if 'to_date_db' in globals() else None
     if not dt:
         dt = date.today()
-    arr = _norm_token(n_arrivo)[:10]
-    ddt = _norm_token(n_ddt)[:10]
-    suffix = uuid.uuid4().hex[:6].upper()
+
+    arr = _norm_token(n_arrivo)[:20]
+    ddt = _norm_token(n_ddt)[:20]
+    base = arr or ddt
+
     parts = ["ENT", dt.strftime("%Y%m%d")]
-    if arr:
-        parts.append(arr)
-    elif ddt:
-        parts.append(ddt)
-    parts.append(suffix)
+    if base:
+        parts.append(base)
+        return "-".join(parts)
+
+    # fallback solo se non abbiamo riferimenti utili per rigenerare lo stesso codice
+    parts.append(uuid.uuid4().hex[:6].upper())
     return "-".join(parts)
 
 
@@ -3080,6 +3090,7 @@ EDIT_HTML = """
         <div class="col-md-2"><label class="form-label">Peso (Kg)</label><input type="number" step="0.01" name="peso" class="form-control" value="{{ row.peso or '' }}"></div>
         <div class="col-md-2"><label class="form-label">M³</label><input type="number" step="0.001" name="m3" class="form-control" value="{{ row.m3 or '' }}"></div>
         <div class="col-md-2"><label class="form-label">N. Arrivo</label><input type="text" name="n_arrivo" class="form-control" value="{{ row.n_arrivo or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">Codice Entrata / Barcode</label><input type="text" name="codice_entrata" class="form-control" value="{{ row.codice_entrata or request.args.get('codice_entrata','') }}" placeholder="Viene riutilizzato uguale tra etichetta e giacenze"></div>
         
         <div class="col-md-4">
             <label class="form-label">Dimensioni (LxPxH)</label>
@@ -3773,9 +3784,12 @@ LABELS_FORM_HTML = """
             <div class="col-md-4"><label class="form-label">DDT Ingresso</label><input name="ddt_ingresso" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Data Ingresso</label><input name="data_ingresso" class="form-control" placeholder="gg/mm/aaaa"></div>
             <div class="col-md-4"><label class="form-label">Arrivo (es. 01/25)</label><input name="arrivo" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">Codice Entrata / Barcode (facoltativo)</label><input name="codice_entrata" class="form-control" placeholder="Se vuoto, viene creato in modo stabile da data + arrivo/DDT"></div>
             <div class="col-md-4"><label class="form-label">N. Colli</label><input name="n_colli" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Posizione</label><input name="posizione" class="form-control"></div>
         </div>
+
+        <div class="mt-3 alert alert-warning py-2 small"><b>Importante:</b> se crei prima l'etichetta e poi carichi l'entrata, usa la stessa Data Ingresso e lo stesso Arrivo o DDT Ingresso: il barcode verrà rigenerato uguale anche sulle giacenze.</div>
 
         <div class="mt-4 d-flex gap-2">
             <button type="submit" class="btn btn-primary">
@@ -7382,7 +7396,10 @@ def nuovo_articolo():
 
     # GET: Mostra form vuoto
     dummy_art = Articolo() 
-    dummy_art.data_ingresso = date.today().strftime("%d/%m/%Y")
+    dummy_art.data_ingresso = date.today().strftime("%Y-%m-%d")
+    dummy_art.codice_entrata = (request.args.get('codice_entrata') or '').strip()
+    dummy_art.n_arrivo = (request.args.get('n_arrivo') or '').strip()
+    dummy_art.n_ddt_ingresso = (request.args.get('n_ddt_ingresso') or '').strip()
     return render_template('edit.html', row=dummy_art, clienti_validi=get_clienti_utenti())
     
 # 1. ELIMINA ARTICOLO (Per la pagina Magazzino)
@@ -8282,6 +8299,7 @@ def bulk_duplicate():
                     m2=original.m2,
                     m3=original.m3,
                     n_arrivo=original.n_arrivo,
+                    codice_entrata=original.codice_entrata,
                     stato=original.stato,
                     magazzino=original.magazzino,
                     posizione=original.posizione,
