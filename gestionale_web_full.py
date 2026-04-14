@@ -176,24 +176,21 @@ def ensure_codice_entrata(value=None, n_arrivo=None, n_ddt=None, data_ingresso=N
     return v or genera_codice_entrata(n_arrivo=n_arrivo, n_ddt=n_ddt, data_ingresso=data_ingresso)
 
 
-def ensure_stable_codice_entrata_for_articolo(articolo):
-    """Mantiene il barcode stabile una volta creato.
+def strip_arrivo_progressivo(value):
+    """Rimuove un eventuale progressivo finale tipo N.1 / N 1 / COLLO 1 / 1/3 dal n.arrivo."""
+    s = (value or '').strip()
+    if not s:
+        return ''
+    s = re.sub(r'\s+N\.?\s*\d+\s*$', '', s, flags=re.I)
+    s = re.sub(r'\s+COLLO\s*\d+\s*$', '', s, flags=re.I)
+    s = re.sub(r'\s+\d+\s*/\s*\d+\s*$', '', s, flags=re.I)
+    return re.sub(r'\s{2,}', ' ', s).strip(' -')
 
-    Regola:
-    - se l'articolo ha già un codice_entrata, non lo cambia mai
-    - se manca, lo genera una sola volta con i dati correnti
-    """
-    current = (getattr(articolo, 'codice_entrata', None) or '').strip()
-    if current:
-        return current
-    codice = ensure_codice_entrata(
-        None,
-        n_arrivo=getattr(articolo, 'n_arrivo', None),
-        n_ddt=getattr(articolo, 'n_ddt_ingresso', None),
-        data_ingresso=getattr(articolo, 'data_ingresso', None),
-    )
-    articolo.codice_entrata = codice
-    return codice
+
+def build_arrivo_progressivo(base_value, index):
+    base = strip_arrivo_progressivo(base_value)
+    idx = max(1, int(index or 1))
+    return f"{base} N.{idx}" if base else f"N.{idx}"
 
 
 def build_public_base_url():
@@ -6962,10 +6959,6 @@ def invia_email():
     # =========================
     if request.method == 'GET':
         selected_ids = request.args.getlist('ids')
-        if not selected_ids:
-            selected_ids_csv = (request.args.get('selected_ids') or '').strip()
-            if selected_ids_csv:
-                selected_ids = [p.strip() for p in selected_ids_csv.split(',') if p.strip().isdigit()]
         return render_template('invia_email.html', selected_ids=",".join(selected_ids), email_groups=load_rubrica_email().get('gruppi', {}))
 
     # =========================
@@ -7296,39 +7289,36 @@ def nuovo_articolo():
     if request.method == 'POST':
         db = SessionLocal()
         try:
-            # --- RECUPERO DATI FORM ---
             # Determina quante righe creare in base al numero di colli
             n_colli_input = to_int_eu(request.form.get('n_colli'))
-            if n_colli_input < 1: n_colli_input = 1
-            
+            if n_colli_input < 1:
+                n_colli_input = 1
+
             created_articles = []
             cliente_form = validate_cliente_or_raise(request.form.get('cliente'))
-            codice_entrata_shared = ensure_codice_entrata(
-                request.form.get('codice_entrata'),
-                n_arrivo=request.form.get('n_arrivo'),
-                n_ddt=request.form.get('n_ddt_ingresso'),
-                data_ingresso=request.form.get('data_ingresso')
-            )
+            arrivo_base = strip_arrivo_progressivo(request.form.get('n_arrivo'))
+            data_ingresso_form = request.form.get('data_ingresso')
+            ddt_ingresso_form = request.form.get('n_ddt_ingresso')
+            codice_entrata_form = request.form.get('codice_entrata')
 
-            # --- CICLO DI CREAZIONE (Crea N righe identiche) ---
-            for _ in range(n_colli_input):
+            # Crea una riga per collo, con N.Arrivo progressivo per riga
+            for idx in range(1, n_colli_input + 1):
                 art = Articolo()
-                
-                # Popola i campi testuali
                 art.codice_articolo = request.form.get('codice_articolo')
                 art.descrizione = request.form.get('descrizione')
-                # Cliente: per i client e' bloccato sul proprio utente
-            if session.get('role') == 'client':
-                art.cliente = current_user.id
-            else:
-                art.cliente = cliente_form
+                art.cliente = current_user.id if session.get('role') == 'client' else cliente_form
                 art.fornitore = request.form.get('fornitore')
                 art.commessa = request.form.get('commessa')
                 art.ordine = request.form.get('ordine')
                 art.protocollo = request.form.get('protocollo')
                 art.buono_n = request.form.get('buono_n')
-                art.n_arrivo = request.form.get('n_arrivo')
-                art.codice_entrata = codice_entrata_shared
+                art.n_arrivo = build_arrivo_progressivo(arrivo_base or request.form.get('n_arrivo'), idx)
+                art.codice_entrata = ensure_codice_entrata(
+                    codice_entrata_form,
+                    n_arrivo=art.n_arrivo,
+                    n_ddt=ddt_ingresso_form,
+                    data_ingresso=data_ingresso_form,
+                )
                 art.magazzino = request.form.get('magazzino')
                 art.posizione = request.form.get('posizione')
                 art.stato = request.form.get('stato')
@@ -7336,81 +7326,61 @@ def nuovo_articolo():
                 art.serial_number = request.form.get('serial_number')
                 art.mezzi_in_uscita = request.form.get('mezzi_in_uscita')
                 art.lotto = request.form.get('lotto')
+                art.ns_rif = request.form.get('ns_rif')
 
-                # Date
-                art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
+                art.data_ingresso = parse_date_ui(data_ingresso_form)
                 art.data_uscita = parse_date_ui(request.form.get('data_uscita'))
-                art.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
+                art.n_ddt_ingresso = ddt_ingresso_form
                 art.n_ddt_uscita = request.form.get('n_ddt_uscita')
-                
-                # Numeri
+
                 art.pezzo = request.form.get('pezzo')
-                art.n_colli = 1  # FORZA 1 COLLO PER OGNI RIGA CREATA
+                art.n_colli = 1
                 art.peso = to_float_eu(request.form.get('peso'))
                 art.lunghezza = to_float_eu(request.form.get('lunghezza'))
                 art.larghezza = to_float_eu(request.form.get('larghezza'))
                 art.altezza = to_float_eu(request.form.get('altezza'))
-                
-                # Calcolo M2/M3 (su 1 collo)
                 art.m2, art.m3 = calc_m2_m3(art.lunghezza, art.larghezza, art.altezza, 1)
 
                 db.add(art)
                 created_articles.append(art)
 
-            # Salva tutto per ottenere gli ID
-            db.commit() 
-            
-            # --- GESTIONE ALLEGATI (Duplicazione su tutte le righe) ---
-            # getlist permette di prendere PIÙ file selezionati
-            files = request.files.getlist('new_files') 
+            db.commit()
+
+            files = request.files.getlist('new_files')
             valid_files = [f for f in files if f and f.filename]
-            
             if valid_files:
                 import shutil
                 from werkzeug.utils import secure_filename
-                
+
                 for file in valid_files:
                     fname = secure_filename(file.filename)
                     ext = fname.rsplit('.', 1)[-1].lower()
                     kind = 'photo' if ext in ['jpg', 'jpeg', 'png', 'webp'] else 'doc'
                     folder = PHOTOS_DIR if kind == 'photo' else DOCS_DIR
-                    
-                    # 1. Salva il file fisico per il PRIMO articolo
+
                     first_art = created_articles[0]
                     first_final_name = f"{first_art.id_articolo}_{fname}"
                     src_path = folder / first_final_name
-                    
-                    # Importante: seek(0) se il file è stato letto parzialmente
-                    file.seek(0) 
+
+                    file.seek(0)
                     file.save(str(src_path))
-                    
-                    # Collega al primo articolo nel DB
                     db.add(Attachment(articolo_id=first_art.id_articolo, filename=first_final_name, kind=kind))
-                    
-                    # 2. Copia il file fisico e il record DB per gli ALTRI articoli
+
                     for other_art in created_articles[1:]:
                         other_final_name = f"{other_art.id_articolo}_{fname}"
                         dst_path = folder / other_final_name
-                        
                         try:
-                            # Copia fisica del file
                             shutil.copy2(src_path, dst_path)
-                            # Nuovo record nel DB
                             db.add(Attachment(articolo_id=other_art.id_articolo, filename=other_final_name, kind=kind))
                         except Exception as e:
                             print(f"Errore copia file per ID {other_art.id_articolo}: {e}")
-
                 db.commit()
 
-            flash(f"Operazione completata: Creati {len(created_articles)} articoli distinti con allegati.", "success")
-            
-            # Se ne abbiamo creato uno solo, vai alla modifica, altrimenti torna alla lista
+            flash(f"Operazione completata: creati {len(created_articles)} articoli distinti con N. Arrivo sequenziale per riga.", "success")
             if len(created_articles) == 1:
-                # Reindirizza alla funzione edit_articolo corretta
                 return redirect(url_for('edit_articolo', id=created_articles[0].id_articolo))
-            else:
-                return redirect(url_for('giacenze'))
-            
+            return redirect(url_for('giacenze'))
+
         except Exception as e:
             db.rollback()
             flash(f"Errore creazione: {e}", "danger")
@@ -7419,13 +7389,13 @@ def nuovo_articolo():
             db.close()
 
     # GET: Mostra form vuoto
-    dummy_art = Articolo() 
+    dummy_art = Articolo()
     dummy_art.data_ingresso = date.today().strftime("%Y-%m-%d")
     dummy_art.codice_entrata = (request.args.get('codice_entrata') or '').strip()
-    dummy_art.n_arrivo = (request.args.get('n_arrivo') or '').strip()
+    dummy_art.n_arrivo = strip_arrivo_progressivo(request.args.get('n_arrivo') or '')
     dummy_art.n_ddt_ingresso = (request.args.get('n_ddt_ingresso') or '').strip()
     return render_template('edit.html', row=dummy_art, clienti_validi=get_clienti_utenti())
-    
+
 # 1. ELIMINA ARTICOLO (Per la pagina Magazzino)
 @app.route('/delete_articolo/<int:id>')
 @login_required
@@ -7477,7 +7447,6 @@ def duplica_articolo(id_articolo):
             data_copy[col.name] = getattr(originale, col.name)
 
         nuovo = Articolo(**data_copy)
-        ensure_stable_codice_entrata_for_articolo(nuovo)
 
         # ✅ Modifiche volute sulla copia
         nuovo.note = f"Copia di ID {originale.id_articolo}"
@@ -7525,13 +7494,6 @@ def edit_articolo(id):
                 abort(403)
 
         if request.method == 'POST':
-            old_ingresso_signature = (
-                (art.n_arrivo or '').strip(),
-                (art.n_ddt_ingresso or '').strip(),
-                str(art.data_ingresso or '').strip(),
-            )
-            had_codice_entrata = bool((art.codice_entrata or '').strip())
-
             # 1. Recupera Colli (per eventuale split)
             colli_input = to_int_eu(request.form.get('n_colli'))
             if colli_input < 0: colli_input = 0
@@ -7582,13 +7544,6 @@ def edit_articolo(id):
             m3_man = request.form.get('m3')
             art.m3 = to_float_eu(m3_man) if m3_man and to_float_eu(m3_man) > 0 else m3_calc
 
-            ensure_stable_codice_entrata_for_articolo(art)
-            ingresso_changed = old_ingresso_signature != (
-                (art.n_arrivo or '').strip(),
-                (art.n_ddt_ingresso or '').strip(),
-                str(art.data_ingresso or '').strip(),
-            )
-
             # 3. LOGICA SPLIT (Se colli > 1, crea copie)
             if colli_input > 1:
                 import shutil
@@ -7625,9 +7580,6 @@ def edit_articolo(id):
             else:
                 flash("Articolo aggiornato con successo.", "success")
 
-            if ingresso_changed and had_codice_entrata:
-                flash("Hai modificato Arrivo/DDT/Data ingresso: il barcode è rimasto invariato per non invalidare le etichette già stampate.", "info")
-
             db.commit()
             return redirect(url_for('giacenze'))
 
@@ -7653,13 +7605,6 @@ def edit_record(id_articolo):
             return redirect(url_for('giacenze'))
 
         if request.method == 'POST':
-            old_ingresso_signature = (
-                (art.n_arrivo or '').strip(),
-                (art.n_ddt_ingresso or '').strip(),
-                str(art.data_ingresso or '').strip(),
-            )
-            had_codice_entrata = bool((art.codice_entrata or '').strip())
-
             # --- SALVATAGGIO MODIFICHE ---
             colli_input = to_int_eu(request.form.get('n_colli'))
             if colli_input < 0: colli_input = 0
@@ -7704,13 +7649,6 @@ def edit_record(id_articolo):
             m3_man = request.form.get('m3')
             art.m3 = to_float_eu(m3_man) if m3_man and to_float_eu(m3_man) > 0 else m3_calc
 
-            ensure_stable_codice_entrata_for_articolo(art)
-            ingresso_changed = old_ingresso_signature != (
-                (art.n_arrivo or '').strip(),
-                (art.n_ddt_ingresso or '').strip(),
-                str(art.data_ingresso or '').strip(),
-            )
-
             # --- DUPLICAZIONE SE COLLI > 1 ---
             if colli_input > 1:
                 for _ in range(colli_input - 1):
@@ -7722,9 +7660,6 @@ def edit_record(id_articolo):
                 flash(f"Salvataggio OK. Generate {colli_input - 1} copie aggiuntive.", "success")
             else:
                 flash("Modifiche salvate.", "success")
-
-            if ingresso_changed and had_codice_entrata:
-                flash("Hai modificato Arrivo/DDT/Data ingresso: il barcode è rimasto invariato per non invalidare le etichette già stampate.", "info")
 
             db.commit()
             return redirect(url_for('giacenze'))
@@ -7746,13 +7681,6 @@ def edit_row(id):
         abort(404)
 
     if request.method == 'POST':
-        old_ingresso_signature = (
-            (row.n_arrivo or '').strip(),
-            (row.n_ddt_ingresso or '').strip(),
-            str(row.data_ingresso or '').strip(),
-        )
-        had_codice_entrata = bool((row.codice_entrata or '').strip())
-
         for f, label in get_all_fields_map().items():
             v = request.form.get(f)
             if v is not None:
@@ -7766,12 +7694,6 @@ def edit_row(id):
                     v = validate_cliente_or_raise(v, allow_blank=True)
                 setattr(row, f, v if v != '' else None)
         row.m2, row.m3 = calc_m2_m3(row.lunghezza, row.larghezza, row.altezza, row.n_colli)
-        ensure_stable_codice_entrata_for_articolo(row)
-        ingresso_changed = old_ingresso_signature != (
-            (row.n_arrivo or '').strip(),
-            (row.n_ddt_ingresso or '').strip(),
-            str(row.data_ingresso or '').strip(),
-        )
         if 'files' in request.files:
             for f in request.files.getlist('files'):
                 if not f or not f.filename: continue
@@ -7783,8 +7705,6 @@ def edit_row(id):
                 db.add(Attachment(articolo_id=id, kind=kind, filename=safe_name))
         db.commit()
         flash('Riga salvata', 'success')
-        if ingresso_changed and had_codice_entrata:
-            flash('Hai modificato Arrivo/DDT/Data ingresso: il barcode è rimasto invariato per non invalidare le etichette già stampate.', 'info')
         return redirect(url_for('giacenze'))
 
     return render_template('edit.html', row=row, fields=get_all_fields_map().items(), clienti_validi=get_clienti_utenti())
@@ -8379,7 +8299,6 @@ def bulk_duplicate():
                     posizione=original.posizione,
                     note=original.note
                 )
-                ensure_stable_codice_entrata_for_articolo(new_art)
                 db.add(new_art)
                 count += 1
         db.commit()
@@ -9469,20 +9388,10 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             print(f"[WARN] Barcode non generato: {e}")
             return Spacer(target_w_mm * mm, target_h_mm * mm)
 
-    def clean_arrivo_base(value):
-        s = str(value or '').strip()
-        if not s:
-            return ''
-        s = re.sub(r'\s+', ' ', s).strip()
-        s = re.sub(r'\s+(?:N\.?|COLLO)\s*\d+(?:\s*/\s*\d+)?\s*$', '', s, flags=re.IGNORECASE).strip()
-        s = re.sub(r'\s+\d+\s*/\s*\d+\s*$', '', s).strip()
-        return s
-
     story = []
 
     total_pages = 0
     colli_per_art = []
-    total_colli_global = 0
     for art in articoli:
         try:
             tot = int(getattr(art, 'n_colli', None) or 1)
@@ -9490,18 +9399,19 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             tot = 1
         tot = max(1, tot)
         colli_per_art.append(tot)
-        total_colli_global += tot
         total_pages += tot * 2
 
     page_counter = 0
-    global_collo_index = 0
 
     for art, tot in zip(articoli, colli_per_art):
         for i in range(1, tot + 1):
-            global_collo_index += 1
-            arr_base = clean_arrivo_base(getattr(art, 'n_arrivo', '') or '')
-            arr_str = f"{arr_base} N.{global_collo_index}" if arr_base else f"N.{global_collo_index}"
-            collo_str = f"{global_collo_index}/{total_colli_global}"
+            saved_arrivo = (getattr(art, 'n_arrivo', '') or '').strip()
+            if tot <= 1:
+                arr_str = saved_arrivo or build_arrivo_progressivo(saved_arrivo, 1)
+                collo_str = "1/1"
+            else:
+                arr_str = build_arrivo_progressivo(saved_arrivo, i)
+                collo_str = f"{i}/{tot}"
             codice_entrata = ensure_codice_entrata(
                 getattr(art, 'codice_entrata', None),
                 n_arrivo=getattr(art, 'n_arrivo', None),
@@ -9529,7 +9439,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 [Paragraph('DATA ING.:', s_lbl), Paragraph(fmt_date(getattr(art, 'data_ingresso', '')), s_val)],
                 [Paragraph('ARRIVO:', s_lbl),    Paragraph(arr_str, s_hi)],
                 [Paragraph('N. COLLO:', s_lbl),  Paragraph(collo_str, s_hi)],
-                [Paragraph('COLLI:', s_lbl),     Paragraph(str(total_colli_global), s_hi)],
+                [Paragraph('COLLI:', s_lbl),     Paragraph(str(tot), s_hi)],
                 [Paragraph('POSIZIONE:', s_lbl), Paragraph((getattr(art, 'posizione', '') or ''), s_val)],
             ]
             t = Table(dati, colWidths=[25 * mm, 71 * mm])
