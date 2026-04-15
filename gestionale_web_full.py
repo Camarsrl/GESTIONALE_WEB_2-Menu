@@ -146,9 +146,11 @@ def _norm_token(val):
 
 
 def genera_codice_entrata(n_arrivo=None, n_ddt=None, data_ingresso=None):
-    """Genera un codice entrata STABILE.
+    """Genera un codice entrata STABILE e CONDIVISO per tutta l'entrata.
 
     Regola importante:
+    - il barcode/QR NON deve includere il progressivo collo/riga (N.1, N.2, ...)
+      perché deve identificare l'intera entrata;
     - se esistono data + n_arrivo o n_ddt, il codice deve essere sempre lo stesso
       anche se l'etichetta viene stampata prima del caricamento in giacenza;
     - se manca tutto, usa un fallback casuale.
@@ -157,7 +159,8 @@ def genera_codice_entrata(n_arrivo=None, n_ddt=None, data_ingresso=None):
     if not dt:
         dt = date.today()
 
-    arr = _norm_token(n_arrivo)[:20]
+    arr_base = strip_arrivo_progressivo(n_arrivo)
+    arr = _norm_token(arr_base)[:20]
     ddt = _norm_token(n_ddt)[:20]
     base = arr or ddt
 
@@ -1171,7 +1174,7 @@ def admin_genera_codici_entrata():
         groups = {}
         for art in rows:
             ddt = (art.n_ddt_ingresso or '').strip()
-            arr = (art.n_arrivo or '').strip()
+            arr = strip_arrivo_progressivo((art.n_arrivo or '').strip())
             cli = (art.cliente or '').strip()
             dt = (art.data_ingresso or '').strip()
 
@@ -1191,7 +1194,7 @@ def admin_genera_codici_entrata():
             first = arts[0]
             code = ensure_codice_entrata(
                 None,
-                n_arrivo=first.n_arrivo,
+                n_arrivo=strip_arrivo_progressivo(first.n_arrivo),
                 n_ddt=first.n_ddt_ingresso,
                 data_ingresso=first.data_ingresso
             )
@@ -7315,7 +7318,7 @@ def nuovo_articolo():
                 art.n_arrivo = build_arrivo_progressivo(arrivo_base or request.form.get('n_arrivo'), idx)
                 art.codice_entrata = ensure_codice_entrata(
                     codice_entrata_form,
-                    n_arrivo=art.n_arrivo,
+                    n_arrivo=arrivo_base or art.n_arrivo,
                     n_ddt=ddt_ingresso_form,
                     data_ingresso=data_ingresso_form,
                 )
@@ -9240,7 +9243,7 @@ def labels_pdf():
             articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
             changed = False
             for art in articoli:
-                codice = ensure_codice_entrata(getattr(art, 'codice_entrata', None), n_arrivo=art.n_arrivo, n_ddt=art.n_ddt_ingresso, data_ingresso=art.data_ingresso)
+                codice = ensure_codice_entrata(getattr(art, 'codice_entrata', None), n_arrivo=strip_arrivo_progressivo(art.n_arrivo), n_ddt=art.n_ddt_ingresso, data_ingresso=art.data_ingresso)
                 if getattr(art, 'codice_entrata', None) != codice:
                     art.codice_entrata = codice
                     changed = True
@@ -9260,7 +9263,7 @@ def labels_pdf():
         a.n_arrivo = build_arrivo_progressivo(request.form.get('arrivo'), 1)  # arrivo manuale sempre con N.1
         a.codice_entrata = ensure_codice_entrata(
             request.form.get('codice_entrata'),
-            n_arrivo=a.n_arrivo,
+            n_arrivo=strip_arrivo_progressivo(a.n_arrivo),
             n_ddt=a.n_ddt_ingresso,
             data_ingresso=a.data_ingresso
         )
@@ -9419,7 +9422,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 collo_str = f"{i}/{tot}"
             codice_entrata = ensure_codice_entrata(
                 getattr(art, 'codice_entrata', None),
-                n_arrivo=getattr(art, 'n_arrivo', None),
+                n_arrivo=strip_arrivo_progressivo(getattr(art, 'n_arrivo', None)),
                 n_ddt=getattr(art, 'n_ddt_ingresso', None),
                 data_ingresso=getattr(art, 'data_ingresso', None)
             )
