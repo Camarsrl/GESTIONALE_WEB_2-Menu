@@ -9257,8 +9257,13 @@ def labels_pdf():
         a.commessa = request.form.get('commessa')
         a.n_ddt_ingresso = request.form.get('ddt_ingresso')  # nome campo HTML
         a.data_ingresso = request.form.get('data_ingresso')
-        a.n_arrivo = request.form.get('arrivo')  # arrivo (manuale) -> n_arrivo
-        a.codice_entrata = ensure_codice_entrata(request.form.get('codice_entrata'), n_arrivo=a.n_arrivo, n_ddt=a.n_ddt_ingresso, data_ingresso=a.data_ingresso)
+        a.n_arrivo = build_arrivo_progressivo(request.form.get('arrivo'), 1)  # arrivo manuale sempre con N.1
+        a.codice_entrata = ensure_codice_entrata(
+            request.form.get('codice_entrata'),
+            n_arrivo=a.n_arrivo,
+            n_ddt=a.n_ddt_ingresso,
+            data_ingresso=a.data_ingresso
+        )
         a.n_colli = to_int_eu(request.form.get('n_colli'))
         a.posizione = request.form.get('posizione')
         articoli = [a]
