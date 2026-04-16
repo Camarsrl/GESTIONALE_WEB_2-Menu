@@ -7385,7 +7385,7 @@ def correggi_entrata_auto(codice_entrata):
             art.codice_entrata = nuovo
             fixed += 1
         db.commit()
-        flash(f'Correzione completata: sganciate {fixed} righe anomale. Il QR/barcode dell'entrata corretta è rimasto invariato.', 'success')
+        flash(f"Correzione completata: sganciate {fixed} righe anomale. Il QR/barcode dell'entrata corretta è rimasto invariato.", "success")
         return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata))
     except Exception as e:
         db.rollback()
