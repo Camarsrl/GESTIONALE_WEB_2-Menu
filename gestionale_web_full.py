@@ -146,11 +146,9 @@ def _norm_token(val):
 
 
 def genera_codice_entrata(n_arrivo=None, n_ddt=None, data_ingresso=None):
-    """Genera un codice entrata STABILE e CONDIVISO per tutta l'entrata.
+    """Genera un codice entrata STABILE.
 
     Regola importante:
-    - il barcode/QR NON deve includere il progressivo collo/riga (N.1, N.2, ...)
-      perché deve identificare l'intera entrata;
     - se esistono data + n_arrivo o n_ddt, il codice deve essere sempre lo stesso
       anche se l'etichetta viene stampata prima del caricamento in giacenza;
     - se manca tutto, usa un fallback casuale.
@@ -159,8 +157,7 @@ def genera_codice_entrata(n_arrivo=None, n_ddt=None, data_ingresso=None):
     if not dt:
         dt = date.today()
 
-    arr_base = strip_arrivo_progressivo(n_arrivo)
-    arr = _norm_token(arr_base)[:20]
+    arr = _norm_token(n_arrivo)[:20]
     ddt = _norm_token(n_ddt)[:20]
     base = arr or ddt
 
@@ -237,48 +234,6 @@ def _row_att_counts(row):
         elif a.kind == 'photo':
             photos += 1
     return docs, photos
-
-
-def _dominant_nonempty(values):
-    counts = {}
-    for v in values:
-        vv = (v or '').strip()
-        if not vv:
-            continue
-        counts[vv] = counts.get(vv, 0) + 1
-    if not counts:
-        return ''
-    return max(counts.items(), key=lambda kv: (kv[1], len(kv[0])))[0]
-
-
-def analyze_entrata_rows(rows):
-    """Analizza una entrata e individua eventuali righe sospette senza cambiare il barcode."""
-    rows = rows or []
-    dominant_ddt = _dominant_nonempty([(getattr(r, 'n_ddt_ingresso', '') or '') for r in rows])
-    dominant_arrivo = _dominant_nonempty([strip_arrivo_progressivo(getattr(r, 'n_arrivo', '') or '') for r in rows])
-    dominant_cliente = _dominant_nonempty([(getattr(r, 'cliente', '') or '') for r in rows])
-    anomalies = []
-    for r in rows:
-        reasons = []
-        row_ddt = (getattr(r, 'n_ddt_ingresso', '') or '').strip()
-        row_arrivo = strip_arrivo_progressivo(getattr(r, 'n_arrivo', '') or '')
-        row_cliente = (getattr(r, 'cliente', '') or '').strip()
-        if dominant_ddt and row_ddt != dominant_ddt:
-            reasons.append(f"DDT ingresso diverso ({row_ddt or '-'})")
-        if dominant_arrivo and row_arrivo and row_arrivo != dominant_arrivo:
-            reasons.append(f"Arrivo diverso ({row_arrivo})")
-        if dominant_cliente and row_cliente and normalize_text_key(row_cliente) != normalize_text_key(dominant_cliente):
-            reasons.append(f"Cliente diverso ({row_cliente})")
-        if dominant_ddt and not row_ddt and not row_arrivo:
-            reasons.append('Riga senza DDT/arrivo collegata a una entrata con riferimenti')
-        if reasons:
-            anomalies.append({'row': r, 'reasons': reasons})
-    return {
-        'dominant_ddt': dominant_ddt,
-        'dominant_arrivo': dominant_arrivo,
-        'dominant_cliente': dominant_cliente,
-        'anomalies': anomalies,
-    }
 
 
 # ========================================================
@@ -1216,7 +1171,7 @@ def admin_genera_codici_entrata():
         groups = {}
         for art in rows:
             ddt = (art.n_ddt_ingresso or '').strip()
-            arr = strip_arrivo_progressivo((art.n_arrivo or '').strip())
+            arr = (art.n_arrivo or '').strip()
             cli = (art.cliente or '').strip()
             dt = (art.data_ingresso or '').strip()
 
@@ -1236,7 +1191,7 @@ def admin_genera_codici_entrata():
             first = arts[0]
             code = ensure_codice_entrata(
                 None,
-                n_arrivo=strip_arrivo_progressivo(first.n_arrivo),
+                n_arrivo=first.n_arrivo,
                 n_ddt=first.n_ddt_ingresso,
                 data_ingresso=first.data_ingresso
             )
@@ -2536,24 +2491,13 @@ DETTAGLIO_ENTRATA_HTML = """
             {% for r in rows %}<input type="hidden" name="ids" value="{{ r.id_articolo }}">{% endfor %}
             <button class="btn btn-warning btn-sm"><i class="bi bi-tag"></i> Etichetta</button>
         </form>
-        <a href="{{ url_for('verifica_entrata', codice_entrata=codice_entrata) }}" class="btn btn-outline-info btn-sm"><i class="bi bi-shield-check"></i> Verifica</a>
-        {% if anomaly_count > 0 %}
-        <form action="{{ url_for('correggi_entrata_auto', codice_entrata=codice_entrata) }}" method="post" class="d-inline" onsubmit="return confirm('Correggere automaticamente l'entrata rimuovendo le righe anomale dal barcode?');">
-            <button class="btn btn-outline-danger btn-sm"><i class="bi bi-wrench-adjustable-circle"></i> Correggi entrata</button>
+        <form action="{{ url_for('bulk_edit') }}" method="get" class="d-inline">
+            {% for r in rows %}<input type="hidden" name="ids" value="{{ r.id_articolo }}">{% endfor %}
+            <button class="btn btn-primary btn-sm"><i class="bi bi-pencil-square"></i> Completa entrata</button>
         </form>
-        {% endif %}
         {% endif %}
     </div>
 </div>
-
-{% if anomaly_count > 0 %}
-<div class="alert alert-warning">
-    <b>Verifica entrata:</b> trovate {{ anomaly_count }} righe anomale collegate a questo barcode.
-    {% for item in anomalies %}
-        <div>- ID {{ item.row.id_articolo }}: {{ item.reasons|join(', ') }}</div>
-    {% endfor %}
-</div>
-{% endif %}
 
 <div class="row g-3 mb-3">
     <div class="col-md-3"><div class="card p-3"><div class="text-muted small">Righe</div><div class="fs-4 fw-bold">{{ rows|length }}</div></div></div>
@@ -2566,6 +2510,7 @@ DETTAGLIO_ENTRATA_HTML = """
     <div class="col-lg-7">
         <div class="card p-3 h-100">
             <h6 class="mb-3">Riepilogo</h6>
+            {% if session.get('role') == 'admin' %}<div class="alert alert-info py-2 small"><b>Completa entrata:</b> usa il bottone in alto per aprire direttamente la modifica delle righe già create dall'etichetta e inserire i dati mancanti mantenendo lo stesso QR/barcode.</div>{% endif %}
             <div><b>Clienti:</b> {{ clienti|join(', ') }}</div>
             <div><b>Fornitori:</b> {{ fornitori|join(', ') }}</div>
             <div><b>DDT ingresso:</b> {{ ddt_ingresso|join(', ') if ddt_ingresso else '-' }}</div>
@@ -3866,11 +3811,12 @@ LABELS_FORM_HTML = """
             <div class="col-md-4"><label class="form-label">Posizione</label><input name="posizione" class="form-control"></div>
         </div>
 
-        <div class="mt-3 alert alert-warning py-2 small"><b>Importante:</b> se crei prima l'etichetta e poi carichi l'entrata, usa la stessa Data Ingresso e lo stesso Arrivo o DDT Ingresso: il barcode verrà rigenerato uguale anche sulle giacenze.</div>
+        <div class="mt-3 alert alert-warning py-2 small"><b>Importante:</b> quando crei l'etichetta il gestionale inserisce automaticamente l'entrata nelle giacenze con gli stessi dati presenti sull'etichetta e con lo stesso QR/barcode. I campi mancanti potranno essere completati dopo riaprendo l'entrata.</div>
+        <input type="hidden" name="auto_create_entry" value="1">
 
         <div class="mt-4 d-flex gap-2">
             <button type="submit" class="btn btn-primary">
-                <i class="bi bi-printer"></i> Scarica PDF Etichetta
+                <i class="bi bi-printer"></i> Crea Etichetta + Inserisci Entrata
             </button>
         </div>
     </form>
@@ -7327,70 +7273,8 @@ def dettaglio_entrata(codice_entrata):
         ddt_uscita = sorted({(r.n_ddt_uscita or '').strip() for r in rows if (r.n_ddt_uscita or '').strip()})
         clienti = sorted({(r.cliente or '').strip() for r in rows if (r.cliente or '').strip()})
         fornitori = sorted({(r.fornitore or '').strip() for r in rows if (r.fornitore or '').strip()})
-        analysis = analyze_entrata_rows(rows)
-        anomalies = analysis.get('anomalies', [])
         detail_url = build_entry_public_url(codice_entrata)
-        return render_template('dettaglio_entrata.html', rows=rows, codice_entrata=codice_entrata, ids_csv=ids_csv, docs=docs, photos=photos, ddt_ingresso=ddt_ingresso, ddt_uscita=ddt_uscita, clienti=clienti, fornitori=fornitori, total_colli=total_colli, total_peso=total_peso, total_m2=total_m2, total_m3=total_m3, detail_url=detail_url, anomalies=anomalies, anomaly_count=len(anomalies))
-    finally:
-        db.close()
-
-
-@app.route('/entrata/<path:codice_entrata>/verifica')
-@login_required
-@require_admin
-def verifica_entrata(codice_entrata):
-    db = SessionLocal()
-    try:
-        rows = db.query(Articolo).filter(Articolo.codice_entrata == codice_entrata).order_by(Articolo.id_articolo.desc()).all()
-        if not rows:
-            flash(f'Entrata {codice_entrata} non trovata.', 'warning')
-            return redirect(url_for('scan_entrata'))
-        analysis = analyze_entrata_rows(rows)
-        anomalies = analysis.get('anomalies', [])
-        if anomalies:
-            flash(f"Verifica completata: trovate {len(anomalies)} righe anomale collegate a {codice_entrata}.", 'warning')
-        else:
-            flash(f"Verifica completata: nessuna anomalia trovata per {codice_entrata}.", 'success')
-        return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata))
-    finally:
-        db.close()
-
-
-@app.route('/entrata/<path:codice_entrata>/correggi_auto', methods=['POST'])
-@login_required
-@require_admin
-def correggi_entrata_auto(codice_entrata):
-    db = SessionLocal()
-    try:
-        rows = db.query(Articolo).filter(Articolo.codice_entrata == codice_entrata).order_by(Articolo.id_articolo.desc()).all()
-        if not rows:
-            flash(f'Entrata {codice_entrata} non trovata.', 'warning')
-            return redirect(url_for('scan_entrata'))
-        analysis = analyze_entrata_rows(rows)
-        anomalies = analysis.get('anomalies', [])
-        if not anomalies:
-            flash('Nessuna riga anomala da correggere.', 'info')
-            return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata))
-        fixed = 0
-        for item in anomalies:
-            art = item['row']
-            nuovo = genera_codice_entrata(
-                n_arrivo=strip_arrivo_progressivo(getattr(art, 'n_arrivo', None)),
-                n_ddt=getattr(art, 'n_ddt_ingresso', None),
-                data_ingresso=getattr(art, 'data_ingresso', None),
-            )
-            if nuovo == codice_entrata or not nuovo:
-                # fallback per evitare che resti agganciata allo stesso barcode errato
-                nuovo = f"{codice_entrata}-FIX-{art.id_articolo}"
-            art.codice_entrata = nuovo
-            fixed += 1
-        db.commit()
-        flash(f"Correzione completata: sganciate {fixed} righe anomale. Il QR/barcode dell'entrata corretta è rimasto invariato.", "success")
-        return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata))
-    except Exception as e:
-        db.rollback()
-        flash(f'Errore correzione entrata: {e}', 'danger')
-        return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata))
+        return render_template('dettaglio_entrata.html', rows=rows, codice_entrata=codice_entrata, ids_csv=ids_csv, docs=docs, photos=photos, ddt_ingresso=ddt_ingresso, ddt_uscita=ddt_uscita, clienti=clienti, fornitori=fornitori, total_colli=total_colli, total_peso=total_peso, total_m2=total_m2, total_m3=total_m3, detail_url=detail_url)
     finally:
         db.close()
     
@@ -7437,7 +7321,7 @@ def nuovo_articolo():
                 art.n_arrivo = build_arrivo_progressivo(arrivo_base or request.form.get('n_arrivo'), idx)
                 art.codice_entrata = ensure_codice_entrata(
                     codice_entrata_form,
-                    n_arrivo=arrivo_base or art.n_arrivo,
+                    n_arrivo=art.n_arrivo,
                     n_ddt=ddt_ingresso_form,
                     data_ingresso=data_ingresso_form,
                 )
@@ -9348,6 +9232,79 @@ def labels_form():
 #  GESTIONE ETICHETTE (PDF) - ROUTE E GENERAZIONE
 # ==============================================================================
 
+
+def _auto_create_entry_from_label(db, form, codice_entrata):
+    """Crea automaticamente le righe giacenza partendo dai dati dell'etichetta manuale.
+    Mantiene lo stesso codice_entrata / barcode / QR dell'etichetta già creata.
+    Se l'entrata esiste già, non duplica le righe."""
+    codice_entrata = (codice_entrata or '').strip()
+    if not codice_entrata:
+        return []
+
+    existing = (
+        db.query(Articolo)
+          .filter(Articolo.codice_entrata == codice_entrata)
+          .order_by(Articolo.id_articolo.asc())
+          .all()
+    )
+    if existing:
+        return existing
+
+    try:
+        totale_colli = int(to_int_eu(form.get('n_colli')) or 1)
+    except Exception:
+        totale_colli = 1
+    totale_colli = max(1, totale_colli)
+
+    arrivo_base = strip_arrivo_progressivo(form.get('arrivo'))
+    created = []
+    cliente_value = form.get('cliente')
+    try:
+        cliente_value = validate_cliente_or_raise(cliente_value)
+    except Exception:
+        cliente_value = (cliente_value or '').strip().upper()
+
+    for idx in range(1, totale_colli + 1):
+        art = Articolo()
+        art.codice_articolo = form.get('codice_articolo') or ''
+        art.descrizione = form.get('descrizione') or ''
+        art.cliente = cliente_value
+        art.fornitore = form.get('fornitore') or ''
+        art.magazzino = form.get('magazzino') or ''
+        art.protocollo = form.get('protocollo') or ''
+        art.ordine = form.get('ordine') or ''
+        art.commessa = form.get('commessa') or ''
+        art.buono_n = form.get('buono_n') or ''
+        art.n_arrivo = build_arrivo_progressivo(arrivo_base or form.get('arrivo'), idx)
+        art.ns_rif = form.get('ns_rif') or ''
+        art.serial_number = form.get('serial_number') or ''
+        art.pezzo = form.get('pezzo') or ''
+        art.n_colli = 1
+        art.peso = to_float_eu(form.get('peso')) or 0.0
+        art.larghezza = to_float_eu(form.get('larghezza')) or 0.0
+        art.lunghezza = to_float_eu(form.get('lunghezza')) or 0.0
+        art.altezza = to_float_eu(form.get('altezza')) or 0.0
+        art.m2 = to_float_eu(form.get('m2')) or 0.0
+        art.m3 = to_float_eu(form.get('m3')) or 0.0
+        art.posizione = form.get('posizione') or ''
+        art.stato = form.get('stato') or ''
+        art.note = form.get('note') or ''
+        art.mezzi_in_uscita = ''
+        art.data_ingresso = form.get('data_ingresso') or ''
+        art.n_ddt_ingresso = form.get('ddt_ingresso') or ''
+        art.data_uscita = ''
+        art.n_ddt_uscita = ''
+        art.codice_entrata = codice_entrata
+        art.lotto = form.get('lotto') or ''
+        db.add(art)
+        created.append(art)
+
+    db.commit()
+    for art in created:
+        db.refresh(art)
+    return created
+
+
 @app.route('/labels_pdf', methods=['POST'])
 @login_required
 @require_admin
@@ -9362,7 +9319,7 @@ def labels_pdf():
             articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
             changed = False
             for art in articoli:
-                codice = ensure_codice_entrata(getattr(art, 'codice_entrata', None), n_arrivo=strip_arrivo_progressivo(art.n_arrivo), n_ddt=art.n_ddt_ingresso, data_ingresso=art.data_ingresso)
+                codice = ensure_codice_entrata(getattr(art, 'codice_entrata', None), n_arrivo=art.n_arrivo, n_ddt=art.n_ddt_ingresso, data_ingresso=art.data_ingresso)
                 if getattr(art, 'codice_entrata', None) != codice:
                     art.codice_entrata = codice
                     changed = True
@@ -9371,24 +9328,41 @@ def labels_pdf():
         finally:
             db.close()
     else:
-        # Etichetta Manuale: Crea oggetto al volo con i dati del form
+        # Etichetta Manuale: crea l'etichetta e inserisce automaticamente l'entrata nelle giacenze
+        arrivo_base = strip_arrivo_progressivo(request.form.get('arrivo'))
+        ddt_ingresso = request.form.get('ddt_ingresso')
+        data_ingresso = request.form.get('data_ingresso')
+        codice_entrata = ensure_codice_entrata(
+            request.form.get('codice_entrata'),
+            n_arrivo=arrivo_base or request.form.get('arrivo'),
+            n_ddt=ddt_ingresso,
+            data_ingresso=data_ingresso
+        )
+
         a = Articolo()
         a.cliente = request.form.get('cliente')
         a.fornitore = request.form.get('fornitore')
         a.ordine = request.form.get('ordine')
         a.commessa = request.form.get('commessa')
-        a.n_ddt_ingresso = request.form.get('ddt_ingresso')  # nome campo HTML
-        a.data_ingresso = request.form.get('data_ingresso')
-        a.n_arrivo = build_arrivo_progressivo(request.form.get('arrivo'), 1)  # arrivo manuale sempre con N.1
-        a.codice_entrata = ensure_codice_entrata(
-            request.form.get('codice_entrata'),
-            n_arrivo=strip_arrivo_progressivo(a.n_arrivo),
-            n_ddt=a.n_ddt_ingresso,
-            data_ingresso=a.data_ingresso
-        )
+        a.n_ddt_ingresso = ddt_ingresso  # nome campo HTML
+        a.data_ingresso = data_ingresso
+        a.n_arrivo = build_arrivo_progressivo(arrivo_base or request.form.get('arrivo'), 1)
+        a.codice_entrata = codice_entrata
         a.n_colli = to_int_eu(request.form.get('n_colli'))
         a.posizione = request.form.get('posizione')
         articoli = [a]
+
+        if str(request.form.get('auto_create_entry', '1')).strip() not in ('0', 'false', 'False', 'off', 'no'):
+            db = SessionLocal()
+            try:
+                created_rows = _auto_create_entry_from_label(db, request.form, codice_entrata)
+                if created_rows:
+                    flash(f"Entrata creata automaticamente in giacenza con {len(created_rows)} righe. Potrai completare i dati mancanti riaprendo il barcode {codice_entrata}.", 'success')
+            except Exception as e:
+                db.rollback()
+                flash(f"Etichetta creata ma inserimento automatico in giacenza non completato: {e}", 'warning')
+            finally:
+                db.close()
 
     # Genera PDF
     formato = request.form.get('formato', '62x100')
@@ -9515,49 +9489,6 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             print(f"[WARN] Barcode non generato: {e}")
             return Spacer(target_w_mm * mm, target_h_mm * mm)
 
-    def parse_arrivo_progressivo(value):
-        s = str(value or '').strip()
-        if not s:
-            return None
-        m = re.search(r'\bN\.?\s*(\d+)\b', s, flags=re.I)
-        if not m:
-            return None
-        try:
-            return max(1, int(m.group(1)))
-        except Exception:
-            return None
-
-    def count_colli_entrata_for_label(articolo, codice_entrata):
-        progressivo = parse_arrivo_progressivo(getattr(articolo, 'n_arrivo', None))
-        if codice_entrata:
-            db2 = SessionLocal()
-            try:
-                rows = db2.query(Articolo.n_arrivo).filter(Articolo.codice_entrata == codice_entrata).all()
-                nums = []
-                for row in rows:
-                    try:
-                        raw = row[0] if isinstance(row, tuple) else getattr(row, 'n_arrivo', None)
-                    except Exception:
-                        raw = None
-                    n = parse_arrivo_progressivo(raw)
-                    if n is not None:
-                        nums.append(n)
-                if nums:
-                    return max(nums)
-                cnt = len(rows)
-                if cnt > 0:
-                    return cnt
-            except Exception:
-                pass
-            finally:
-                db2.close()
-        if progressivo is not None:
-            return progressivo
-        try:
-            return max(1, int(getattr(articolo, 'n_colli', None) or 1))
-        except Exception:
-            return 1
-
     story = []
 
     total_pages = 0
@@ -9571,29 +9502,26 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
         colli_per_art.append(tot)
         total_pages += tot * 2
 
+    totale_entrata = sum(colli_per_art) if colli_per_art else 1
+    totale_entrata = max(1, int(totale_entrata or 1))
+
     page_counter = 0
 
     for art, tot in zip(articoli, colli_per_art):
-        codice_entrata = ensure_codice_entrata(
-            getattr(art, 'codice_entrata', None),
-            n_arrivo=strip_arrivo_progressivo(getattr(art, 'n_arrivo', None)),
-            n_ddt=getattr(art, 'n_ddt_ingresso', None),
-            data_ingresso=getattr(art, 'data_ingresso', None)
-        )
-        totale_entrata = count_colli_entrata_for_label(art, codice_entrata)
-
         for i in range(1, tot + 1):
             saved_arrivo = (getattr(art, 'n_arrivo', '') or '').strip()
-            progressivo_salvato = parse_arrivo_progressivo(saved_arrivo)
-            if progressivo_salvato is not None and tot <= 1:
-                arr_str = saved_arrivo
-                collo_str = f"{progressivo_salvato}/{totale_entrata}"
-            elif tot <= 1:
+            if tot <= 1:
                 arr_str = saved_arrivo or build_arrivo_progressivo(saved_arrivo, 1)
-                collo_str = f"1/{totale_entrata}"
+                collo_str = "1/1"
             else:
                 arr_str = build_arrivo_progressivo(saved_arrivo, i)
-                collo_str = f"{i}/{max(totale_entrata, tot)}"
+                collo_str = f"{i}/{tot}"
+            codice_entrata = ensure_codice_entrata(
+                getattr(art, 'codice_entrata', None),
+                n_arrivo=getattr(art, 'n_arrivo', None),
+                n_ddt=getattr(art, 'n_ddt_ingresso', None),
+                data_ingresso=getattr(art, 'data_ingresso', None)
+            )
             dettaglio_url = build_entry_public_url(codice_entrata)
 
             # Pagina 1: etichetta principale
@@ -9615,7 +9543,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 [Paragraph('DATA ING.:', s_lbl), Paragraph(fmt_date(getattr(art, 'data_ingresso', '')), s_val)],
                 [Paragraph('ARRIVO:', s_lbl),    Paragraph(arr_str, s_hi)],
                 [Paragraph('N. COLLO:', s_lbl),  Paragraph(collo_str, s_hi)],
-                [Paragraph('COLLI:', s_lbl),     Paragraph(str(tot), s_hi)],
+                [Paragraph('COLLI:', s_lbl),     Paragraph(str(max(totale_entrata, tot)), s_hi)],
                 [Paragraph('POSIZIONE:', s_lbl), Paragraph((getattr(art, 'posizione', '') or ''), s_val)],
             ]
             t = Table(dati, colWidths=[25 * mm, 71 * mm])
