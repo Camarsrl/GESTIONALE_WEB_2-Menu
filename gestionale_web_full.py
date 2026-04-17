@@ -598,6 +598,44 @@ def to_date_db(val):
         
     return None
 
+
+
+def _safe_date_ymd(value):
+    s = (value or '').strip()
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, '%Y-%m-%d').date()
+    except Exception:
+        return None
+
+
+def _safe_int(value):
+    s = str(value or '').strip()
+    if not s:
+        return None
+    try:
+        return int(float(s.replace(',', '.')))
+    except Exception:
+        return None
+
+
+def _safe_float_it(value):
+    s = str(value or '').strip()
+    if not s:
+        return None
+    try:
+        return float(s.replace(',', '.'))
+    except Exception:
+        return None
+
+
+def _apply_ilike_filter(query, column, value):
+    s = (value or '').strip()
+    if not s:
+        return query
+    return query.filter(column.ilike(f"%{s}%"))
+
 def _file_digest(p: Path) -> str:
     """MD5 del file (per capire se su Render stai usando davvero la versione corretta)."""
     try:
@@ -5560,34 +5598,26 @@ def trasporti():
 
         q = db.query(Trasporto)
 
-        try:
-            if filtri['data_da']:
-                q = q.filter(Trasporto.data >= datetime.strptime(filtri['data_da'], '%Y-%m-%d').date())
-            if filtri['data_a']:
-                q = q.filter(Trasporto.data <= datetime.strptime(filtri['data_a'], '%Y-%m-%d').date())
-        except:
-            pass
+        data_da = _safe_date_ymd(filtri['data_da'])
+        data_a = _safe_date_ymd(filtri['data_a'])
+        if data_da:
+            q = q.filter(Trasporto.data >= data_da)
+        if data_a:
+            q = q.filter(Trasporto.data <= data_a)
 
-        if filtri['cliente']:
-            q = q.filter(Trasporto.cliente.ilike(f"%{filtri['cliente']}%"))
-        if filtri['tipo_mezzo']:
-            q = q.filter(Trasporto.tipo_mezzo.ilike(f"%{filtri['tipo_mezzo']}%"))
-        if filtri['trasportatore']:
-            q = q.filter(Trasporto.trasportatore.ilike(f"%{filtri['trasportatore']}%"))
-        if filtri['ddt_uscita']:
-            q = q.filter(Trasporto.ddt_uscita.ilike(f"%{filtri['ddt_uscita']}%"))
-        if filtri['magazzino']:
-            q = q.filter(Trasporto.magazzino.ilike(f"%{filtri['magazzino']}%"))
-        if filtri['consolidato']:
-            q = q.filter(Trasporto.consolidato.ilike(f"%{filtri['consolidato']}%"))
+        q = _apply_ilike_filter(q, Trasporto.cliente, filtri['cliente'])
+        q = _apply_ilike_filter(q, Trasporto.tipo_mezzo, filtri['tipo_mezzo'])
+        q = _apply_ilike_filter(q, Trasporto.trasportatore, filtri['trasportatore'])
+        q = _apply_ilike_filter(q, Trasporto.ddt_uscita, filtri['ddt_uscita'])
+        q = _apply_ilike_filter(q, Trasporto.magazzino, filtri['magazzino'])
+        q = _apply_ilike_filter(q, Trasporto.consolidato, filtri['consolidato'])
 
-        try:
-            if filtri['costo_da']:
-                q = q.filter(Trasporto.costo >= float(filtri['costo_da'].replace(',', '.')))
-            if filtri['costo_a']:
-                q = q.filter(Trasporto.costo <= float(filtri['costo_a'].replace(',', '.')))
-        except:
-            pass
+        costo_da = _safe_float_it(filtri['costo_da'])
+        costo_a = _safe_float_it(filtri['costo_a'])
+        if costo_da is not None:
+            q = q.filter(Trasporto.costo >= costo_da)
+        if costo_a is not None:
+            q = q.filter(Trasporto.costo <= costo_a)
 
         dati = q.order_by(
             Trasporto.data.desc().nullslast(),
@@ -5843,46 +5873,49 @@ def lavorazioni():
 
     q = db.query(Lavorazione)
 
-    try:
-        if filtri['data_da']:
-            q = q.filter(Lavorazione.data >= datetime.strptime(filtri['data_da'], '%Y-%m-%d').date())
-        if filtri['data_a']:
-            q = q.filter(Lavorazione.data <= datetime.strptime(filtri['data_a'], '%Y-%m-%d').date())
-    except:
-        pass
+    data_da = _safe_date_ymd(filtri['data_da'])
+    data_a = _safe_date_ymd(filtri['data_a'])
+    if data_da:
+        q = q.filter(Lavorazione.data >= data_da)
+    if data_a:
+        q = q.filter(Lavorazione.data <= data_a)
 
-    if filtri['cliente']:
-        q = q.filter(Lavorazione.cliente.ilike(f"%{filtri['cliente']}%"))
-    if filtri['descrizione']:
-        q = q.filter(Lavorazione.descrizione.ilike(f"%{filtri['descrizione']}%"))
-    if filtri['richiesta_di']:
-        q = q.filter(Lavorazione.richiesta_di.ilike(f"%{filtri['richiesta_di']}%"))
-    if filtri['seriali']:
-        q = q.filter(Lavorazione.seriali.ilike(f"%{filtri['seriali']}%"))
+    q = _apply_ilike_filter(q, Lavorazione.cliente, filtri['cliente'])
+    q = _apply_ilike_filter(q, Lavorazione.descrizione, filtri['descrizione'])
+    q = _apply_ilike_filter(q, Lavorazione.richiesta_di, filtri['richiesta_di'])
+    q = _apply_ilike_filter(q, Lavorazione.seriali, filtri['seriali'])
 
-    try:
-        if filtri['colli_da']:
-            q = q.filter(Lavorazione.colli >= int(filtri['colli_da']))
-        if filtri['colli_a']:
-            q = q.filter(Lavorazione.colli <= int(filtri['colli_a']))
-        if filtri['pallet_forniti_da']:
-            q = q.filter(Lavorazione.pallet_forniti >= int(filtri['pallet_forniti_da']))
-        if filtri['pallet_forniti_a']:
-            q = q.filter(Lavorazione.pallet_forniti <= int(filtri['pallet_forniti_a']))
-        if filtri['pallet_uscita_da']:
-            q = q.filter(Lavorazione.pallet_uscita >= int(filtri['pallet_uscita_da']))
-        if filtri['pallet_uscita_a']:
-            q = q.filter(Lavorazione.pallet_uscita <= int(filtri['pallet_uscita_a']))
-        if filtri['ore_blue_da']:
-            q = q.filter(Lavorazione.ore_blue_collar >= float(filtri['ore_blue_da'].replace(',', '.')))
-        if filtri['ore_blue_a']:
-            q = q.filter(Lavorazione.ore_blue_collar <= float(filtri['ore_blue_a'].replace(',', '.')))
-        if filtri['ore_white_da']:
-            q = q.filter(Lavorazione.ore_white_collar >= float(filtri['ore_white_da'].replace(',', '.')))
-        if filtri['ore_white_a']:
-            q = q.filter(Lavorazione.ore_white_collar <= float(filtri['ore_white_a'].replace(',', '.')))
-    except:
-        pass
+    colli_da = _safe_int(filtri['colli_da'])
+    colli_a = _safe_int(filtri['colli_a'])
+    pallet_forniti_da = _safe_int(filtri['pallet_forniti_da'])
+    pallet_forniti_a = _safe_int(filtri['pallet_forniti_a'])
+    pallet_uscita_da = _safe_int(filtri['pallet_uscita_da'])
+    pallet_uscita_a = _safe_int(filtri['pallet_uscita_a'])
+    ore_blue_da = _safe_float_it(filtri['ore_blue_da'])
+    ore_blue_a = _safe_float_it(filtri['ore_blue_a'])
+    ore_white_da = _safe_float_it(filtri['ore_white_da'])
+    ore_white_a = _safe_float_it(filtri['ore_white_a'])
+
+    if colli_da is not None:
+        q = q.filter(Lavorazione.colli >= colli_da)
+    if colli_a is not None:
+        q = q.filter(Lavorazione.colli <= colli_a)
+    if pallet_forniti_da is not None:
+        q = q.filter(Lavorazione.pallet_forniti >= pallet_forniti_da)
+    if pallet_forniti_a is not None:
+        q = q.filter(Lavorazione.pallet_forniti <= pallet_forniti_a)
+    if pallet_uscita_da is not None:
+        q = q.filter(Lavorazione.pallet_uscita >= pallet_uscita_da)
+    if pallet_uscita_a is not None:
+        q = q.filter(Lavorazione.pallet_uscita <= pallet_uscita_a)
+    if ore_blue_da is not None:
+        q = q.filter(Lavorazione.ore_blue_collar >= ore_blue_da)
+    if ore_blue_a is not None:
+        q = q.filter(Lavorazione.ore_blue_collar <= ore_blue_a)
+    if ore_white_da is not None:
+        q = q.filter(Lavorazione.ore_white_collar >= ore_white_da)
+    if ore_white_a is not None:
+        q = q.filter(Lavorazione.ore_white_collar <= ore_white_a)
 
     dati = q.order_by(Lavorazione.data.desc(), Lavorazione.id.desc()).all()
     db.close()
