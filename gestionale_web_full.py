@@ -3842,11 +3842,13 @@ LABELS_FORM_HTML = """
             <div class="col-md-4"><label class="form-label">Ordine</label><input name="ordine" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Commessa</label><input name="commessa" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">DDT Ingresso</label><input name="ddt_ingresso" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Data Ingresso</label><input name="data_ingresso" class="form-control" placeholder="gg/mm/aaaa"></div>
+            <div class="col-md-4"><label class="form-label">Data Ingresso</label><input name="data_ingresso" class="form-control" placeholder="gg/mm/aaaa" value="{{ today_ita }}"></div>
             <div class="col-md-4"><label class="form-label">Arrivo (es. 01/25)</label><input name="arrivo" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Codice Entrata / Barcode (facoltativo)</label><input name="codice_entrata" class="form-control" placeholder="Se vuoto, viene creato in modo stabile da data + arrivo/DDT"></div>
             <div class="col-md-4"><label class="form-label">N. Colli</label><input name="n_colli" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Posizione</label><input name="posizione" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">Magazzino</label><input name="magazzino" class="form-control" value="Struppa"></div>
+            <div class="col-md-4"><label class="form-label">Stato</label><input name="stato" class="form-control" value="Nazionale"></div>
         </div>
 
         <div class="mt-3 alert alert-warning py-2 small"><b>Importante:</b> quando crei l'etichetta il gestionale inserisce automaticamente l'entrata nelle giacenze con gli stessi dati presenti sull'etichetta e con lo stesso QR/barcode. I campi mancanti potranno essere completati dopo riaprendo l'entrata.</div>
@@ -9256,7 +9258,7 @@ def labels_form():
               .all()
         )
         clienti = [c[0] for c in clienti_query]
-        return render_template('labels_form.html', clienti=clienti)
+        return render_template('labels_form.html', clienti=clienti, today_ita=date.today().strftime('%d/%m/%Y'))
     finally:
         db.close()
 
@@ -9303,7 +9305,7 @@ def _auto_create_entry_from_label(db, form, codice_entrata):
         art.descrizione = form.get('descrizione') or ''
         art.cliente = cliente_value
         art.fornitore = form.get('fornitore') or ''
-        art.magazzino = form.get('magazzino') or ''
+        art.magazzino = (form.get('magazzino') or 'Struppa').strip()
         art.protocollo = form.get('protocollo') or ''
         art.ordine = form.get('ordine') or ''
         art.commessa = form.get('commessa') or ''
@@ -9320,10 +9322,10 @@ def _auto_create_entry_from_label(db, form, codice_entrata):
         art.m2 = to_float_eu(form.get('m2')) or 0.0
         art.m3 = to_float_eu(form.get('m3')) or 0.0
         art.posizione = form.get('posizione') or ''
-        art.stato = form.get('stato') or ''
+        art.stato = (form.get('stato') or 'Nazionale').strip()
         art.note = form.get('note') or ''
         art.mezzi_in_uscita = ''
-        art.data_ingresso = form.get('data_ingresso') or ''
+        art.data_ingresso = (form.get('data_ingresso') or date.today().strftime('%d/%m/%Y')).strip()
         art.n_ddt_ingresso = form.get('ddt_ingresso') or ''
         art.data_uscita = ''
         art.n_ddt_uscita = ''
@@ -9524,8 +9526,14 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
     story = []
 
+    def extract_arrivo_progressivo(value):
+        s = (value or '').strip()
+        m = re.search(r'N\.?\s*(\d+)', s, flags=re.I)
+        return int(m.group(1)) if m else None
+
     total_pages = 0
     colli_per_art = []
+    saved_progressivi = []
     for art in articoli:
         try:
             tot = int(getattr(art, 'n_colli', None) or 1)
@@ -9533,22 +9541,38 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
             tot = 1
         tot = max(1, tot)
         colli_per_art.append(tot)
+        saved_progressivi.append(extract_arrivo_progressivo(getattr(art, 'n_arrivo', '') or ''))
         total_pages += tot * 2
 
     totale_entrata = sum(colli_per_art) if colli_per_art else 1
     totale_entrata = max(1, int(totale_entrata or 1))
+
+    # Se le righe arrivano già numerate come N.1, N.2, ... (tipico dalla ristampa dell'entrata),
+    # usa quella sequenza per mostrare sempre X/TOTALE e non 1/1 sulla singola riga.
+    progressivi_presenti = [p for p in saved_progressivi if p]
+    use_saved_progressivi = len(progressivi_presenti) == len(articoli) and len(articoli) > 0
+    if use_saved_progressivi:
+        totale_entrata = max(totale_entrata, max(progressivi_presenti))
 
     page_counter = 0
 
     for art, tot in zip(articoli, colli_per_art):
         for i in range(1, tot + 1):
             saved_arrivo = (getattr(art, 'n_arrivo', '') or '').strip()
+            saved_prog = extract_arrivo_progressivo(saved_arrivo)
             if tot <= 1:
                 arr_str = saved_arrivo or build_arrivo_progressivo(saved_arrivo, 1)
-                collo_str = "1/1"
+                if saved_prog and totale_entrata > 1:
+                    collo_str = f"{saved_prog}/{totale_entrata}"
+                else:
+                    collo_str = f"1/{max(1, totale_entrata)}"
             else:
                 arr_str = build_arrivo_progressivo(saved_arrivo, i)
-                collo_str = f"{i}/{tot}"
+                # Se la riga ha già un progressivo salvato, trattalo come base per i colli successivi.
+                start_prog = saved_prog if saved_prog else i
+                current_prog = start_prog + (i - 1 if saved_prog else 0)
+                denom = max(totale_entrata, current_prog)
+                collo_str = f"{current_prog}/{denom}"
             codice_entrata = ensure_codice_entrata(
                 getattr(art, 'codice_entrata', None),
                 n_arrivo=getattr(art, 'n_arrivo', None),
