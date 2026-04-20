@@ -236,6 +236,49 @@ def _row_att_counts(row):
     return docs, photos
 
 
+def analyze_entrata_rows(rows):
+    """Analizza le righe di una stessa entrata e segnala eventuali anomalie leggere.
+    Non modifica nulla: serve per mostrare Verifica/Correggi nel dettaglio entrata.
+    """
+    anomalies = []
+    rows = rows or []
+    if not rows:
+        return {"has_anomalies": False, "anomalies": anomalies}
+
+    clienti = {(getattr(r, 'cliente', '') or '').strip().upper() for r in rows if (getattr(r, 'cliente', '') or '').strip()}
+    if len(clienti) > 1:
+        for r in rows:
+            anomalies.append({"row": r, "reason": "Cliente diverso dalle altre righe della stessa entrata"})
+
+    seen_arrivi = {}
+    for r in rows:
+        arr = (getattr(r, 'n_arrivo', '') or '').strip().upper()
+        desc = (getattr(r, 'descrizione', '') or '').strip().upper()
+        code = (getattr(r, 'codice_articolo', '') or '').strip().upper()
+
+        if arr:
+            seen_arrivi.setdefault(arr, []).append(r)
+
+        if len(rows) > 1 and (not code or desc in {"MERCE VARIA", "VARIE", "MATERIALE VARIO"}):
+            anomalies.append({"row": r, "reason": "Riga generica o senza codice articolo in un'entrata multipla"})
+
+    for arr, group in seen_arrivi.items():
+        if len(group) > 1:
+            for r in group:
+                anomalies.append({"row": r, "reason": f"N. arrivo duplicato nell'entrata: {arr}"})
+
+    # dedup per id_articolo + motivo
+    dedup = []
+    seen = set()
+    for a in anomalies:
+        key = (getattr(a["row"], "id_articolo", None), a["reason"])
+        if key not in seen:
+            seen.add(key)
+            dedup.append(a)
+
+    return {"has_anomalies": bool(dedup), "anomalies": dedup}
+
+
 # ========================================================
 #  API INTEGRAZIONE (multi-cliente, 1 API KEY = 1 cliente)
 #  - NIENTE accesso DB esterno
@@ -1229,7 +1272,7 @@ def admin_genera_codici_entrata():
             first = arts[0]
             code = ensure_codice_entrata(
                 None,
-                n_arrivo=first.n_arrivo,
+                n_arrivo=strip_arrivo_progressivo(first.n_arrivo),
                 n_ddt=first.n_ddt_ingresso,
                 data_ingresso=first.data_ingresso
             )
@@ -2529,6 +2572,12 @@ DETTAGLIO_ENTRATA_HTML = """
             {% for r in rows %}<input type="hidden" name="ids" value="{{ r.id_articolo }}">{% endfor %}
             <button class="btn btn-warning btn-sm"><i class="bi bi-tag"></i> Etichetta</button>
         </form>
+        <a href="{{ url_for('verifica_entrata', codice_entrata=codice_entrata) }}" class="btn btn-outline-info btn-sm"><i class="bi bi-search"></i> Verifica Entrata</a>
+        {% if anomalies %}
+        <form action="{{ url_for('correggi_entrata', codice_entrata=codice_entrata) }}" method="post" class="d-inline" onsubmit="return confirm('Correggere l\'entrata sganciando le righe anomale?')">
+            <button class="btn btn-danger btn-sm"><i class="bi bi-wrench-adjustable"></i> Correggi Entrata</button>
+        </form>
+        {% endif %}
         <form action="{{ url_for('bulk_edit') }}" method="get" class="d-inline">
             {% for r in rows %}<input type="hidden" name="ids" value="{{ r.id_articolo }}">{% endfor %}
             <button class="btn btn-primary btn-sm"><i class="bi bi-pencil-square"></i> Completa entrata</button>
@@ -2549,6 +2598,11 @@ DETTAGLIO_ENTRATA_HTML = """
         <div class="card p-3 h-100">
             <h6 class="mb-3">Riepilogo</h6>
             {% if session.get('role') == 'admin' %}<div class="alert alert-info py-2 small"><b>Completa entrata:</b> usa il bottone in alto per aprire direttamente la modifica delle righe già create dall'etichetta e inserire i dati mancanti mantenendo lo stesso QR/barcode.</div>{% endif %}
+            {% if anomalies %}
+            <div class="alert alert-danger py-2 small mb-2"><b>⚠ Entrata da controllare:</b> sono state trovate {{ anomalies|length }} anomalie. Usa <b>Verifica Entrata</b> per il dettaglio oppure <b>Correggi Entrata</b> per sganciare solo le righe anomale dal barcode.</div>
+            {% else %}
+            <div class="alert alert-success py-2 small mb-2"><b>✓ Entrata verificata:</b> nessuna anomalia rilevata.</div>
+            {% endif %}
             <div><b>Clienti:</b> {{ clienti|join(', ') }}</div>
             <div><b>Fornitori:</b> {{ fornitori|join(', ') }}</div>
             <div><b>DDT ingresso:</b> {{ ddt_ingresso|join(', ') if ddt_ingresso else '-' }}</div>
@@ -2583,7 +2637,8 @@ DETTAGLIO_ENTRATA_HTML = """
             <tbody>
                 {% for r in rows %}
                 {% set docs_count, photos_count = _row_att_counts(r) %}
-                <tr>
+                {% set row_has_anomaly = anomalies_ids and (r.id_articolo in anomalies_ids) %}
+                <tr{% if row_has_anomaly %} class="table-danger"{% endif %}>
                     <td>{{ r.id_articolo }}</td>
                     <td>{{ r.codice_articolo or '' }}</td>
                     <td>{{ r.descrizione or '' }}</td>
@@ -6478,7 +6533,7 @@ def import_excel():
 
                 new_art.codice_entrata = ensure_codice_entrata(
                     getattr(new_art, 'codice_entrata', None),
-                    n_arrivo=getattr(new_art, 'n_arrivo', None),
+                    n_arrivo=strip_arrivo_progressivo(getattr(new_art, 'n_arrivo', None)),
                     n_ddt=getattr(new_art, 'n_ddt_ingresso', None),
                     data_ingresso=getattr(new_art, 'data_ingresso', None)
                 )
@@ -6550,7 +6605,7 @@ def save_pdf_import():
     try:
         codice_entrata_shared = ensure_codice_entrata(
             request.form.get('codice_entrata'),
-            n_arrivo=request.form.get('n_arrivo'),
+            n_arrivo=strip_arrivo_progressivo(request.form.get('n_arrivo')),
             n_ddt=request.form.get('n_ddt'),
             data_ingresso=request.form.get('data_ingresso')
         )
@@ -7309,10 +7364,70 @@ def dettaglio_entrata(codice_entrata):
         clienti = sorted({(r.cliente or '').strip() for r in rows if (r.cliente or '').strip()})
         fornitori = sorted({(r.fornitore or '').strip() for r in rows if (r.fornitore or '').strip()})
         detail_url = build_entry_public_url(codice_entrata)
-        return render_template('dettaglio_entrata.html', rows=rows, codice_entrata=codice_entrata, ids_csv=ids_csv, docs=docs, photos=photos, ddt_ingresso=ddt_ingresso, ddt_uscita=ddt_uscita, clienti=clienti, fornitori=fornitori, total_colli=total_colli, total_peso=total_peso, total_m2=total_m2, total_m3=total_m3, detail_url=detail_url)
+        analysis = analyze_entrata_rows(rows)
+        anomalies = analysis.get('anomalies', [])
+        anomalies_ids = {getattr(a.get('row'), 'id_articolo', None) for a in anomalies if a.get('row') is not None}
+        return render_template('dettaglio_entrata.html', rows=rows, codice_entrata=codice_entrata, ids_csv=ids_csv, docs=docs, photos=photos, ddt_ingresso=ddt_ingresso, ddt_uscita=ddt_uscita, clienti=clienti, fornitori=fornitori, total_colli=total_colli, total_peso=total_peso, total_m2=total_m2, total_m3=total_m3, detail_url=detail_url, anomalies=anomalies, anomalies_ids=anomalies_ids)
     finally:
         db.close()
-    
+
+@app.route('/entrata/<path:codice_entrata>/verifica')
+@login_required
+def verifica_entrata(codice_entrata):
+    db = SessionLocal()
+    try:
+        qs = db.query(Articolo).filter(Articolo.codice_entrata == codice_entrata).order_by(Articolo.id_articolo.desc())
+        if session.get('role') == 'client':
+            user_key_norm = normalize_text_key(current_user.id or '')
+            qs = qs.filter(normalized_sql_text(Articolo.cliente) == user_key_norm)
+        rows = qs.all()
+        if not rows:
+            flash(f'Entrata {codice_entrata} non trovata.', 'warning')
+            return redirect(url_for('scan_entrata'))
+        analysis = analyze_entrata_rows(rows)
+        anomalies = analysis.get('anomalies', [])
+        if anomalies:
+            msg = " ; ".join([f"ID {getattr(a['row'], 'id_articolo', '?')}: {a['reason']}" for a in anomalies[:8]])
+            if len(anomalies) > 8:
+                msg += f" ; +{len(anomalies)-8} altre anomalie"
+            flash(f"Verifica Entrata: trovate {len(anomalies)} anomalie. {msg}", "warning")
+        else:
+            flash("Verifica Entrata: nessuna anomalia rilevata.", "success")
+        return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata))
+    finally:
+        db.close()
+
+@app.route('/entrata/<path:codice_entrata>/correggi', methods=['POST'])
+@login_required
+@require_admin
+def correggi_entrata(codice_entrata):
+    db = SessionLocal()
+    try:
+        rows = db.query(Articolo).filter(Articolo.codice_entrata == codice_entrata).order_by(Articolo.id_articolo.desc()).all()
+        if not rows:
+            flash(f'Entrata {codice_entrata} non trovata.', 'warning')
+            return redirect(url_for('scan_entrata'))
+        analysis = analyze_entrata_rows(rows)
+        anomalies = analysis.get('anomalies', [])
+        bad_ids = {getattr(a.get('row'), 'id_articolo', None) for a in anomalies if a.get('row') is not None}
+        fixed = 0
+        for art in rows:
+            if art.id_articolo in bad_ids:
+                art.codice_entrata = None
+                fixed += 1
+        db.commit()
+        if fixed:
+            flash(f"Correzione completata: sganciate {fixed} righe anomale. Il QR/barcode dell'entrata corretta è rimasto invariato.", "success")
+        else:
+            flash("Nessuna riga anomala da correggere.", "info")
+        return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata))
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore durante la correzione dell'entrata: {e}", "danger")
+        return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata))
+    finally:
+        db.close()
+
 # --- GESTIONE ARTICOLI (CRUD) ---
 # ========================================================
 # 8. CRUD (NUOVO / MODIFICA)
@@ -7356,7 +7471,7 @@ def nuovo_articolo():
                 art.n_arrivo = build_arrivo_progressivo(arrivo_base or request.form.get('n_arrivo'), idx)
                 art.codice_entrata = ensure_codice_entrata(
                     codice_entrata_form,
-                    n_arrivo=art.n_arrivo,
+                    n_arrivo=arrivo_base or strip_arrivo_progressivo(art.n_arrivo),
                     n_ddt=ddt_ingresso_form,
                     data_ingresso=data_ingresso_form,
                 )
@@ -8333,7 +8448,7 @@ def bulk_duplicate():
                     altezza=original.altezza,
                     m2=original.m2,
                     m3=original.m3,
-                    n_arrivo=original.n_arrivo,
+                    n_arrivo=strip_arrivo_progressivo(original.n_arrivo),
                     codice_entrata=original.codice_entrata,
                     stato=original.stato,
                     magazzino=original.magazzino,
@@ -9354,7 +9469,7 @@ def labels_pdf():
             articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
             changed = False
             for art in articoli:
-                codice = ensure_codice_entrata(getattr(art, 'codice_entrata', None), n_arrivo=art.n_arrivo, n_ddt=art.n_ddt_ingresso, data_ingresso=art.data_ingresso)
+                codice = ensure_codice_entrata(getattr(art, 'codice_entrata', None), n_arrivo=arrivo_base or strip_arrivo_progressivo(art.n_arrivo), n_ddt=art.n_ddt_ingresso, data_ingresso=art.data_ingresso)
                 if getattr(art, 'codice_entrata', None) != codice:
                     art.codice_entrata = codice
                     changed = True
@@ -9575,7 +9690,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 collo_str = f"{current_prog}/{denom}"
             codice_entrata = ensure_codice_entrata(
                 getattr(art, 'codice_entrata', None),
-                n_arrivo=getattr(art, 'n_arrivo', None),
+                n_arrivo=strip_arrivo_progressivo(getattr(art, 'n_arrivo', None)),
                 n_ddt=getattr(art, 'n_ddt_ingresso', None),
                 data_ingresso=getattr(art, 'data_ingresso', None)
             )
