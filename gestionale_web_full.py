@@ -2574,7 +2574,7 @@ DETTAGLIO_ENTRATA_HTML = """
         </form>
         <a href="{{ url_for('verifica_entrata', codice_entrata=codice_entrata) }}" class="btn btn-outline-info btn-sm"><i class="bi bi-search"></i> Verifica Entrata</a>
         {% if anomalies %}
-        <form action="{{ url_for('correggi_entrata', codice_entrata=codice_entrata) }}" method="post" class="d-inline" onsubmit="return confirm('Correggere l\'entrata sganciando le righe anomale?')">
+        <form action="{{ url_for('correggi_entrata', codice_entrata=codice_entrata) }}" method="post" class="d-inline" onsubmit="return confirm('Correggere l\'entrata ricalcolando barcode e QR delle righe anomale?')">
             <button class="btn btn-danger btn-sm"><i class="bi bi-wrench-adjustable"></i> Correggi Entrata</button>
         </form>
         {% endif %}
@@ -7407,19 +7407,43 @@ def correggi_entrata(codice_entrata):
         if not rows:
             flash(f'Entrata {codice_entrata} non trovata.', 'warning')
             return redirect(url_for('scan_entrata'))
+
         analysis = analyze_entrata_rows(rows)
         anomalies = analysis.get('anomalies', [])
         bad_ids = {getattr(a.get('row'), 'id_articolo', None) for a in anomalies if a.get('row') is not None}
+
         fixed = 0
+        moved = 0
+        unchanged = 0
+
         for art in rows:
-            if art.id_articolo in bad_ids:
-                art.codice_entrata = None
-                fixed += 1
+            if art.id_articolo not in bad_ids:
+                continue
+
+            new_code = ensure_codice_entrata(
+                None,
+                n_arrivo=strip_arrivo_progressivo(art.n_arrivo),
+                n_ddt=art.n_ddt_ingresso,
+                data_ingresso=art.data_ingresso
+            )
+
+            if (art.codice_entrata or '') != (new_code or ''):
+                art.codice_entrata = new_code
+                moved += 1
+            else:
+                unchanged += 1
+            fixed += 1
+
         db.commit()
+
         if fixed:
-            flash(f"Correzione completata: sganciate {fixed} righe anomale. Il QR/barcode dell'entrata corretta è rimasto invariato.", "success")
+            flash(
+                f"Correzione completata: ricalcolate {fixed} righe anomale. Barcode e QR sono stati mantenuti o rigenerati correttamente senza eliminarli.",
+                "success"
+            )
         else:
             flash("Nessuna riga anomala da correggere.", "info")
+
         return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata))
     except Exception as e:
         db.rollback()
@@ -9440,7 +9464,7 @@ def _auto_create_entry_from_label(db, form, codice_entrata):
         art.stato = (form.get('stato') or 'Nazionale').strip()
         art.note = form.get('note') or ''
         art.mezzi_in_uscita = ''
-        art.data_ingresso = (form.get('data_ingresso') or date.today().strftime('%d/%m/%Y')).strip()
+        art.data_ingresso = fmt_date(parse_date_ui(form.get('data_ingresso')) or date.today())
         art.n_ddt_ingresso = form.get('ddt_ingresso') or ''
         art.data_uscita = ''
         art.n_ddt_uscita = ''
@@ -9495,7 +9519,7 @@ def labels_pdf():
         a.ordine = request.form.get('ordine')
         a.commessa = request.form.get('commessa')
         a.n_ddt_ingresso = ddt_ingresso  # nome campo HTML
-        a.data_ingresso = data_ingresso
+        a.data_ingresso = fmt_date(parse_date_ui(data_ingresso) or date.today())
         a.n_arrivo = build_arrivo_progressivo(arrivo_base or request.form.get('arrivo'), 1)
         a.codice_entrata = codice_entrata
         a.n_colli = to_int_eu(request.form.get('n_colli'))
