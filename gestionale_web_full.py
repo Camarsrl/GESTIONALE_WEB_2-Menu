@@ -9493,7 +9493,7 @@ def labels_pdf():
             articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
             changed = False
             for art in articoli:
-                codice = ensure_codice_entrata(getattr(art, 'codice_entrata', None), n_arrivo=arrivo_base or strip_arrivo_progressivo(art.n_arrivo), n_ddt=art.n_ddt_ingresso, data_ingresso=art.data_ingresso)
+                codice = ensure_codice_entrata(getattr(art, 'codice_entrata', None), n_arrivo=strip_arrivo_progressivo(art.n_arrivo), n_ddt=art.n_ddt_ingresso, data_ingresso=art.data_ingresso)
                 if getattr(art, 'codice_entrata', None) != codice:
                     art.codice_entrata = codice
                     changed = True
