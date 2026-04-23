@@ -3902,8 +3902,8 @@ LABELS_FORM_HTML = """
             <div class="col-md-4"><label class="form-label">Codice Entrata / Barcode (facoltativo)</label><input name="codice_entrata" class="form-control" placeholder="Se vuoto, viene creato in modo stabile da data + arrivo/DDT"></div>
             <div class="col-md-4"><label class="form-label">N. Colli</label><input name="n_colli" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Posizione</label><input name="posizione" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Magazzino</label><input name="magazzino" class="form-control" value="Struppa"></div>
-            <div class="col-md-4"><label class="form-label">Stato</label><input name="stato" class="form-control" value="Nazionale"></div>
+            <div class="col-md-4"><label class="form-label">Magazzino</label><input name="magazzino" class="form-control" value="STRUPPA"></div>
+            <div class="col-md-4"><label class="form-label">Stato</label><input name="stato" class="form-control" value="NAZIONALE"></div>
         </div>
 
         <div class="mt-3 alert alert-warning py-2 small"><b>Importante:</b> quando crei l'etichetta il gestionale inserisce automaticamente l'entrata nelle giacenze con gli stessi dati presenti sull'etichetta e con lo stesso QR/barcode. I campi mancanti potranno essere completati dopo riaprendo l'entrata.</div>
@@ -5653,33 +5653,51 @@ def trasporti():
             'costo_a': (request.args.get('costo_a') or '').strip(),
         }
 
-        q = db.query(Trasporto)
-
         data_da = _safe_date_ymd(filtri['data_da'])
         data_a = _safe_date_ymd(filtri['data_a'])
-        if data_da:
-            q = q.filter(Trasporto.data >= data_da)
-        if data_a:
-            q = q.filter(Trasporto.data <= data_a)
-
-        q = _apply_ilike_filter(q, Trasporto.cliente, filtri['cliente'])
-        q = _apply_ilike_filter(q, Trasporto.tipo_mezzo, filtri['tipo_mezzo'])
-        q = _apply_ilike_filter(q, Trasporto.trasportatore, filtri['trasportatore'])
-        q = _apply_ilike_filter(q, Trasporto.ddt_uscita, filtri['ddt_uscita'])
-        q = _apply_ilike_filter(q, Trasporto.magazzino, filtri['magazzino'])
-        q = _apply_ilike_filter(q, Trasporto.consolidato, filtri['consolidato'])
-
         costo_da = _safe_float_it(filtri['costo_da'])
         costo_a = _safe_float_it(filtri['costo_a'])
-        if costo_da is not None:
-            q = q.filter(Trasporto.costo >= costo_da)
-        if costo_a is not None:
-            q = q.filter(Trasporto.costo <= costo_a)
 
-        dati = q.order_by(
-            Trasporto.data.desc().nullslast(),
-            Trasporto.id.desc()
-        ).all()
+        def _match_txt(value, filtro):
+            filtro = (filtro or '').strip()
+            if not filtro:
+                return True
+            v = str(value or '')
+            return filtro.lower() in v.lower() or normalize_text_key(filtro) in normalize_text_key(v)
+
+        dati = (
+            db.query(Trasporto)
+            .order_by(Trasporto.data.desc().nullslast(), Trasporto.id.desc())
+            .all()
+        )
+
+        filtered = []
+        for rec in dati:
+            rec_date = parse_any_date(getattr(rec, 'data', None))
+            if data_da and (not rec_date or rec_date < data_da):
+                continue
+            if data_a and (not rec_date or rec_date > data_a):
+                continue
+            if not _match_txt(rec.cliente, filtri['cliente']):
+                continue
+            if not _match_txt(rec.tipo_mezzo, filtri['tipo_mezzo']):
+                continue
+            if not _match_txt(rec.trasportatore, filtri['trasportatore']):
+                continue
+            if not _match_txt(rec.ddt_uscita, filtri['ddt_uscita']):
+                continue
+            if not _match_txt(rec.magazzino, filtri['magazzino']):
+                continue
+            if not _match_txt(rec.consolidato, filtri['consolidato']):
+                continue
+            costo_val = _safe_float_it(rec.costo)
+            if costo_da is not None and (costo_val is None or costo_val < costo_da):
+                continue
+            if costo_a is not None and (costo_val is None or costo_val > costo_a):
+                continue
+            filtered.append(rec)
+
+        dati = filtered
 
         return render_template(
             'trasporti.html',
@@ -5928,20 +5946,8 @@ def lavorazioni():
         'ore_white_a': (request.args.get('ore_white_a') or '').strip(),
     }
 
-    q = db.query(Lavorazione)
-
     data_da = _safe_date_ymd(filtri['data_da'])
     data_a = _safe_date_ymd(filtri['data_a'])
-    if data_da:
-        q = q.filter(Lavorazione.data >= data_da)
-    if data_a:
-        q = q.filter(Lavorazione.data <= data_a)
-
-    q = _apply_ilike_filter(q, Lavorazione.cliente, filtri['cliente'])
-    q = _apply_ilike_filter(q, Lavorazione.descrizione, filtri['descrizione'])
-    q = _apply_ilike_filter(q, Lavorazione.richiesta_di, filtri['richiesta_di'])
-    q = _apply_ilike_filter(q, Lavorazione.seriali, filtri['seriali'])
-
     colli_da = _safe_int(filtri['colli_da'])
     colli_a = _safe_int(filtri['colli_a'])
     pallet_forniti_da = _safe_int(filtri['pallet_forniti_da'])
@@ -5953,28 +5959,57 @@ def lavorazioni():
     ore_white_da = _safe_float_it(filtri['ore_white_da'])
     ore_white_a = _safe_float_it(filtri['ore_white_a'])
 
-    if colli_da is not None:
-        q = q.filter(Lavorazione.colli >= colli_da)
-    if colli_a is not None:
-        q = q.filter(Lavorazione.colli <= colli_a)
-    if pallet_forniti_da is not None:
-        q = q.filter(Lavorazione.pallet_forniti >= pallet_forniti_da)
-    if pallet_forniti_a is not None:
-        q = q.filter(Lavorazione.pallet_forniti <= pallet_forniti_a)
-    if pallet_uscita_da is not None:
-        q = q.filter(Lavorazione.pallet_uscita >= pallet_uscita_da)
-    if pallet_uscita_a is not None:
-        q = q.filter(Lavorazione.pallet_uscita <= pallet_uscita_a)
-    if ore_blue_da is not None:
-        q = q.filter(Lavorazione.ore_blue_collar >= ore_blue_da)
-    if ore_blue_a is not None:
-        q = q.filter(Lavorazione.ore_blue_collar <= ore_blue_a)
-    if ore_white_da is not None:
-        q = q.filter(Lavorazione.ore_white_collar >= ore_white_da)
-    if ore_white_a is not None:
-        q = q.filter(Lavorazione.ore_white_collar <= ore_white_a)
+    def _match_txt(value, filtro):
+        filtro = (filtro or '').strip()
+        if not filtro:
+            return True
+        v = str(value or '')
+        return filtro.lower() in v.lower() or normalize_text_key(filtro) in normalize_text_key(v)
 
-    dati = q.order_by(Lavorazione.data.desc(), Lavorazione.id.desc()).all()
+    dati = (
+        db.query(Lavorazione)
+        .order_by(Lavorazione.data.desc(), Lavorazione.id.desc())
+        .all()
+    )
+
+    filtered = []
+    for rec in dati:
+        rec_date = parse_any_date(getattr(rec, 'data', None))
+        if data_da and (not rec_date or rec_date < data_da):
+            continue
+        if data_a and (not rec_date or rec_date > data_a):
+            continue
+        if not _match_txt(rec.cliente, filtri['cliente']):
+            continue
+        if not _match_txt(rec.descrizione, filtri['descrizione']):
+            continue
+        if not _match_txt(rec.richiesta_di, filtri['richiesta_di']):
+            continue
+        if not _match_txt(rec.seriali, filtri['seriali']):
+            continue
+        if colli_da is not None and (rec.colli is None or int(rec.colli or 0) < colli_da):
+            continue
+        if colli_a is not None and (rec.colli is None or int(rec.colli or 0) > colli_a):
+            continue
+        if pallet_forniti_da is not None and int(rec.pallet_forniti or 0) < pallet_forniti_da:
+            continue
+        if pallet_forniti_a is not None and int(rec.pallet_forniti or 0) > pallet_forniti_a:
+            continue
+        if pallet_uscita_da is not None and int(rec.pallet_uscita or 0) < pallet_uscita_da:
+            continue
+        if pallet_uscita_a is not None and int(rec.pallet_uscita or 0) > pallet_uscita_a:
+            continue
+        if ore_blue_da is not None and float(rec.ore_blue_collar or 0) < ore_blue_da:
+            continue
+        if ore_blue_a is not None and float(rec.ore_blue_collar or 0) > ore_blue_a:
+            continue
+        if ore_white_da is not None and float(rec.ore_white_collar or 0) < ore_white_da:
+            continue
+        if ore_white_a is not None and float(rec.ore_white_collar or 0) > ore_white_a:
+            continue
+        filtered.append(rec)
+
+    dati = filtered
     db.close()
 
     return render_template('lavorazioni.html', lavorazioni=dati, today=date.today(), edit_row=edit_row, filtri=filtri, clienti_validi=get_clienti_utenti())
@@ -9444,7 +9479,7 @@ def _auto_create_entry_from_label(db, form, codice_entrata):
         art.descrizione = form.get('descrizione') or ''
         art.cliente = cliente_value
         art.fornitore = form.get('fornitore') or ''
-        art.magazzino = (form.get('magazzino') or 'Struppa').strip()
+        art.magazzino = (form.get('magazzino') or 'STRUPPA').strip().upper()
         art.protocollo = form.get('protocollo') or ''
         art.ordine = form.get('ordine') or ''
         art.commessa = form.get('commessa') or ''
@@ -9461,10 +9496,10 @@ def _auto_create_entry_from_label(db, form, codice_entrata):
         art.m2 = to_float_eu(form.get('m2')) or 0.0
         art.m3 = to_float_eu(form.get('m3')) or 0.0
         art.posizione = form.get('posizione') or ''
-        art.stato = (form.get('stato') or 'Nazionale').strip()
+        art.stato = (form.get('stato') or 'NAZIONALE').strip().upper()
         art.note = form.get('note') or ''
         art.mezzi_in_uscita = ''
-        art.data_ingresso = fmt_date(parse_date_ui(form.get('data_ingresso')) or date.today())
+        art.data_ingresso = (parse_date_ui(form.get('data_ingresso')) or date.today()).strftime('%Y-%m-%d')
         art.n_ddt_ingresso = form.get('ddt_ingresso') or ''
         art.data_uscita = ''
         art.n_ddt_uscita = ''
@@ -9519,7 +9554,7 @@ def labels_pdf():
         a.ordine = request.form.get('ordine')
         a.commessa = request.form.get('commessa')
         a.n_ddt_ingresso = ddt_ingresso  # nome campo HTML
-        a.data_ingresso = fmt_date(parse_date_ui(data_ingresso) or date.today())
+        a.data_ingresso = (parse_date_ui(data_ingresso) or date.today()).strftime('%Y-%m-%d')
         a.n_arrivo = build_arrivo_progressivo(arrivo_base or request.form.get('arrivo'), 1)
         a.codice_entrata = codice_entrata
         a.n_colli = to_int_eu(request.form.get('n_colli'))
@@ -9531,7 +9566,9 @@ def labels_pdf():
             try:
                 created_rows = _auto_create_entry_from_label(db, request.form, codice_entrata)
                 if created_rows:
-                    flash(f"Entrata creata automaticamente in giacenza con {len(created_rows)} righe. Potrai completare i dati mancanti riaprendo il barcode {codice_entrata}.", 'success')
+                    flash(f"Entrata pronta in giacenza con {len(created_rows)} righe. Potrai completare i dati mancanti riaprendo il barcode {codice_entrata}.", 'success')
+                else:
+                    flash(f"Attenzione: etichetta creata ma nessuna riga è stata inserita per il barcode {codice_entrata}.", 'warning')
             except Exception as e:
                 db.rollback()
                 flash(f"Etichetta creata ma inserimento automatico in giacenza non completato: {e}", 'warning')
