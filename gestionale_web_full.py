@@ -3906,12 +3906,18 @@ LABELS_FORM_HTML = """
             <div class="col-md-4"><label class="form-label">Stato</label><input name="stato" class="form-control" value="NAZIONALE"></div>
         </div>
 
-        <div class="mt-3 alert alert-warning py-2 small"><b>Importante:</b> quando crei l'etichetta il gestionale inserisce automaticamente l'entrata nelle giacenze con gli stessi dati presenti sull'etichetta e con lo stesso QR/barcode. I campi mancanti potranno essere completati dopo riaprendo l'entrata.</div>
-        <input type="hidden" name="auto_create_entry" value="1">
+        <div class="mt-3 alert alert-warning py-2 small">
+            <b>Importante:</b> ora i passaggi sono separati:
+            <b>Crea Etichetta</b> scarica solo il PDF, mentre <b>Inserisci Entrata</b> crea le righe in giacenza con lo stesso QR/barcode dell'etichetta.
+            I campi mancanti potranno essere completati dopo riaprendo l'entrata.
+        </div>
 
-        <div class="mt-4 d-flex gap-2">
-            <button type="submit" class="btn btn-primary">
-                <i class="bi bi-printer"></i> Crea Etichetta + Inserisci Entrata
+        <div class="mt-4 d-flex gap-2 flex-wrap">
+            <button type="submit" name="azione_etichetta" value="solo_etichetta" class="btn btn-primary">
+                <i class="bi bi-printer"></i> Crea Etichetta
+            </button>
+            <button type="submit" name="azione_etichetta" value="inserisci_entrata" class="btn btn-success">
+                <i class="bi bi-box-arrow-in-down"></i> Inserisci Entrata
             </button>
         </div>
     </form>
@@ -6667,10 +6673,11 @@ def save_pdf_import():
             art.fornitore = request.form.get('fornitore')
             art.commessa = request.form.get('commessa')
             art.n_ddt_ingresso = request.form.get('n_ddt')
-            art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
+            art.data_ingresso = (parse_date_ui(request.form.get('data_ingresso')) or date.today()).strftime('%Y-%m-%d')
             art.n_arrivo = request.form.get('n_arrivo')
             art.codice_entrata = codice_entrata_shared
-            art.stato = "NAZIONALE"
+            art.magazzino = (request.form.get('magazzino') or 'STRUPPA').strip().upper()
+            art.stato = (request.form.get('stato') or 'NAZIONALE').strip().upper()
 
             # riga
             art.codice_articolo = codice
@@ -7737,7 +7744,7 @@ def edit_articolo(id):
             art.ns_rif = request.form.get('ns_rif')
 
             # Date
-            art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
+            art.data_ingresso = (parse_date_ui(request.form.get('data_ingresso')) or date.today()).strftime('%Y-%m-%d')
             art.data_uscita = parse_date_ui(request.form.get('data_uscita'))
             art.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
             art.n_ddt_uscita = request.form.get('n_ddt_uscita')
@@ -7845,7 +7852,7 @@ def edit_record(id_articolo):
             art.serial_number = request.form.get('serial_number')
             art.mezzi_in_uscita = request.form.get('mezzi_in_uscita')
             
-            art.data_ingresso = parse_date_ui(request.form.get('data_ingresso'))
+            art.data_ingresso = (parse_date_ui(request.form.get('data_ingresso')) or date.today()).strftime('%Y-%m-%d')
             art.data_uscita = parse_date_ui(request.form.get('data_uscita'))
             art.n_ddt_ingresso = request.form.get('n_ddt_ingresso')
             art.n_ddt_uscita = request.form.get('n_ddt_uscita')
@@ -9561,17 +9568,20 @@ def labels_pdf():
         a.posizione = request.form.get('posizione')
         articoli = [a]
 
-        if str(request.form.get('auto_create_entry', '1')).strip() not in ('0', 'false', 'False', 'off', 'no'):
+        azione_etichetta = (request.form.get('azione_etichetta') or 'solo_etichetta').strip()
+        if azione_etichetta == 'inserisci_entrata':
             db = SessionLocal()
             try:
                 created_rows = _auto_create_entry_from_label(db, request.form, codice_entrata)
                 if created_rows:
-                    flash(f"Entrata pronta in giacenza con {len(created_rows)} righe. Potrai completare i dati mancanti riaprendo il barcode {codice_entrata}.", 'success')
+                    flash(f"Entrata inserita in giacenza con {len(created_rows)} righe. Ora puoi completare i dati mancanti.", 'success')
                 else:
-                    flash(f"Attenzione: etichetta creata ma nessuna riga è stata inserita per il barcode {codice_entrata}.", 'warning')
+                    flash(f"Attenzione: nessuna riga è stata inserita per il barcode {codice_entrata}.", 'warning')
+                return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata))
             except Exception as e:
                 db.rollback()
-                flash(f"Etichetta creata ma inserimento automatico in giacenza non completato: {e}", 'warning')
+                flash(f"Inserimento entrata non completato: {e}", 'danger')
+                return redirect(url_for('labels_form'))
             finally:
                 db.close()
 
