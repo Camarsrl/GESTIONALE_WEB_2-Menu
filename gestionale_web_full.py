@@ -1451,6 +1451,8 @@ def extract_data_from_ddt_pdf(path):
             r"\b[A-Z]{1,4}/\d{4,8}\b",
             r"\b\d{4}\.\d{3}\b",
             r"\b[0-9A-Z]{3,}(?:[-/.][0-9A-Z]{2,}){1,}\b",
+            r"\bW\d{8,}[A-Z0-9]*\b",
+            r"\b\d{7,12}\b",
         ]
         for pat in patterns:
             m = re.search(pat, line)
@@ -1529,6 +1531,8 @@ def extract_data_from_ddt_pdf(path):
             r'FINCANTIERI\s+S\.P\.A\.?',
             r'AMICO\s*&\s*CO\.\s*S\.P\.A\.?',
             r'AMICO\s*&\s*CO',
+            r'ATENA\s+S\.?R\.?L\.?',
+            r'FERTUBI\s+FRIULI(?:\s+S\.?R\.?L\.?)?',
         ]
         head = lines[:80]
         joined_head = "\n".join(head)
@@ -1820,17 +1824,133 @@ def extract_data_from_ddt_pdf(path):
             last_row = row
         return extracted_rows
 
+    def _profile_fix_meta(meta, lines, full_text):
+        txt = "\n".join(lines)
+        up = (txt + "\n" + (full_text or '')).upper()
+        meta = dict(meta or {})
+
+        if re.search(r"COTUGNO\s+GALVANOTECNICA|GALVANO\s*TECNICA", up):
+            meta['cliente'] = 'GALVANO TECNICA'
+        if re.search(r"MARINE\s+INTERIORS", up):
+            meta['cliente'] = 'MARINE INTERIORS'
+        if re.search(r"DE\s+WAVE", up):
+            meta['cliente'] = 'DE WAVE'
+
+        if re.search(r"ATOTECH|MKS", up):
+            meta['fornitore'] = 'ATOTECH ITALIA S.R.L.'
+        if re.search(r"\bATENA\b", up):
+            meta['fornitore'] = 'ATENA S.R.L.'
+        if re.search(r"FERTUBI\s+FRIULI", up):
+            meta['fornitore'] = 'FERTUBI FRIULI S.R.L.'
+
+        if not meta.get('n_ddt'):
+            for pat in [
+                r"NUMERO\s+BOLLA\s+(?:DATA\s+BOLLA\s+)?([A-Z0-9./-]{3,})",
+                r"\b(AT\d{5,})\b",
+                r"NUMERO\s+DOCUMENTO\s+(\d{3,})",
+                r"DOCUMENTO\s+DI\s+TRASPORTO.*?NUMERO\s+(\d{3,})",
+                r"\bNUMERO\b\s*\n?\s*(\d{3,})\s+\d{1,2}/\d{1,2}/\d{4}",
+            ]:
+                m = re.search(pat, txt, re.I | re.S)
+                if m:
+                    meta['n_ddt'] = m.group(1).strip(); break
+
+        if not meta.get('commessa'):
+            for pat in [
+                r"ORDINE\s+INTERNO\s+(\d{5,})",
+                r"RIF\.?\s*\(OR\)\s*N\.?\s*(\d+)",
+                r"FUORI\s+ORDINE\s+(REF/?\d+)",
+                r"(REGENT\s+VOYAGER[-\s]*\d*)",
+            ]:
+                m = re.search(pat, txt, re.I)
+                if m:
+                    meta['commessa'] = _clean_spaces(m.group(1)); break
+
+        if not meta.get('data_ingresso') or meta.get('data_ingresso') == date.today().strftime('%Y-%m-%d'):
+            m = re.search(r"\b(\d{1,2}/\d{1,2}/\d{4})\b", txt)
+            if m:
+                try:
+                    meta['data_ingresso'] = datetime.strptime(m.group(1), '%d/%m/%Y').strftime('%Y-%m-%d')
+                except Exception:
+                    pass
+
+        meta.setdefault('magazzino', 'STRUPPA')
+        meta.setdefault('stato', 'NAZIONALE')
+        return meta
+
+    def _parse_marine_interiors(lines):
+        rows = []
+        for idx, ln in enumerate(lines):
+            m = re.search(r"\b(W\d{8,}[A-Z0-9]*)\b", ln, re.I)
+            if not m:
+                continue
+            codice = m.group(1).strip()
+            block = [ln.replace(codice, ' ')]
+            j = idx + 1
+            while j < len(lines) and len(block) < 5:
+                nxt = lines[j]
+                if re.search(r"\bW\d{8,}[A-Z0-9]*\b", nxt, re.I):
+                    break
+                block.append(nxt)
+                # in queste bolle la quantità è spesso sul finale della descrizione, es. PZ 2,000
+                if re.search(r"\bPZ\b\s+\d+(?:[.,]\d+)?", nxt, re.I):
+                    break
+                j += 1
+            joined = _clean_spaces(' '.join(block))
+            m_qta = re.search(r"\b(PZ|KG|MT|NR)\b\s+(\d+(?:[.,]\d+)?)", joined, re.I)
+            um = m_qta.group(1).upper() if m_qta else 'PZ'
+            qta = _to_float_it(m_qta.group(2)) if m_qta else 0
+            descr = re.sub(r"\b(PZ|KG|MT|NR)\b\s+\d+(?:[.,]\d+)?", ' ', joined, flags=re.I)
+            descr = _clean_spaces(descr)
+            rows.append(_base_row(codice, descr, 1, qta or 0, um, str(_to_int(qta) or '') if qta else ''))
+        return rows
+
+    def _parse_fertubi_dewave(lines):
+        rows = []
+        txt = "\n".join(lines)
+        if not re.search(r"FERTUBI\s+FRIULI|TUBI\s+SALD", txt, re.I):
+            return rows
+        for idx, ln in enumerate(lines):
+            m = re.search(r"\b(\d{7,12})\b", ln)
+            if not m:
+                continue
+            codice = m.group(1)
+            block = [ln.replace(codice, ' ')]
+            j = idx + 1
+            while j < len(lines) and len(block) < 7:
+                nxt = lines[j]
+                if re.search(r"\b\d{7,12}\b", nxt) and block:
+                    break
+                block.append(nxt)
+                if re.search(r"\b(MT|KG|PZ)\b\s+\d+(?:[.,]\d+)?", nxt, re.I):
+                    break
+                j += 1
+            joined = _clean_spaces(' '.join(block))
+            # esempio Fertubi: dimensioni 30 15 1.5 MT 66,00 62,00
+            m_tail = re.search(r"(.*?)(?:\b\d+(?:[.,]\d+)?\s+\d+(?:[.,]\d+)?\s+\d+(?:[.,]\d+)?\s+)?\b(MT|KG|PZ)\b\s+(\d+(?:[.,]\d+)?)(?:\s+(\d+(?:[.,]\d+)?))?", joined, re.I)
+            if m_tail:
+                descr = _clean_spaces(m_tail.group(1))
+                um = m_tail.group(2).upper()
+                qta = _to_float_it(m_tail.group(3)) or 0
+                peso = _to_float_it(m_tail.group(4)) if m_tail.group(4) else qta
+            else:
+                descr, um, qta, peso = joined, '', 0, 0
+            rows.append(_base_row(codice, descr, 1, peso or qta or 0, um, str(_to_int(qta) or '')))
+        return rows
+
     with pdfplumber.open(path) as pdf:
         full_text = _extract_text(pdf)
 
     lines = [_clean_spaces(l) for l in full_text.splitlines() if _clean_spaces(l)]
-    meta = _extract_meta(lines, full_text)
+    meta = _profile_fix_meta(_extract_meta(lines, full_text), lines, full_text)
 
     rows = []
     rows.extend(_parse_atotech(lines))
     rows.extend(_parse_comefri(lines))
     rows.extend(_parse_amico(lines))
     rows.extend(_parse_halton(lines))
+    rows.extend(_parse_marine_interiors(lines))
+    rows.extend(_parse_fertubi_dewave(lines))
     rows.extend(_parse_fincantieri_generic(lines))
     rows.extend(_parse_generic(lines))
 
@@ -1851,6 +1971,10 @@ def extract_data_from_ddt_pdf(path):
         seen.add(sig)
         r['descrizione'] = descr
         cleaned.append(r)
+
+    if not cleaned:
+        # Fallback controllato: permette comunque la conferma manuale anche con PDF scansiti difficili.
+        cleaned.append(_base_row('', 'MERCE VARIA', 1, 0, '', '', '', ''))
 
     return meta, _merge_rows(cleaned)
 
@@ -1969,17 +2093,75 @@ def _rubrica_email_path() -> Path:
 
 def load_rubrica_email():
     fp = _rubrica_email_path()
+
+    def _normalizza_rubrica(data):
+        """Rende la rubrica compatibile con vecchi e nuovi formati.
+        Formato nuovo:
+            {"contatti": {"Nome": {"email": "a@b.it"}}, "gruppi": {"Gruppo": ["a@b.it"]}}
+        Accetta anche vecchi formati con contatti come stringhe o liste.
+        """
+        if not isinstance(data, dict):
+            data = {}
+        data.setdefault("contatti", {})
+        data.setdefault("gruppi", {})
+
+        contatti_norm = {}
+        raw_contatti = data.get("contatti", {}) or {}
+
+        if isinstance(raw_contatti, dict):
+            for nome, info in raw_contatti.items():
+                nome = (str(nome) or '').strip()
+                if not nome:
+                    continue
+                if isinstance(info, dict):
+                    email = (info.get('email') or info.get('mail') or info.get('indirizzo') or '').strip()
+                else:
+                    email = str(info or '').strip()
+                if email:
+                    contatti_norm[nome] = {"email": email}
+        elif isinstance(raw_contatti, list):
+            for item in raw_contatti:
+                if isinstance(item, dict):
+                    nome = (item.get('nome') or item.get('name') or item.get('ragione_sociale') or item.get('email') or '').strip()
+                    email = (item.get('email') or item.get('mail') or '').strip()
+                    if nome and email:
+                        contatti_norm[nome] = {"email": email}
+
+        gruppi_norm = {}
+        raw_gruppi = data.get("gruppi", {}) or {}
+        if isinstance(raw_gruppi, dict):
+            for gruppo, emails in raw_gruppi.items():
+                gruppo = (str(gruppo) or '').strip()
+                if not gruppo:
+                    continue
+                if isinstance(emails, str):
+                    gruppi_norm[gruppo] = _parse_emails(emails)
+                elif isinstance(emails, list):
+                    tmp = []
+                    for e in emails:
+                        if isinstance(e, dict):
+                            val = (e.get('email') or e.get('mail') or '').strip()
+                        else:
+                            val = str(e or '').strip()
+                        # se nel gruppo è stato salvato il NOME del contatto, lo trasformo in email
+                        if val in contatti_norm:
+                            val = contatti_norm[val].get('email', val)
+                        if val:
+                            tmp.extend(_parse_emails(val))
+                    # de-dup
+                    seen = set(); out = []
+                    for e in tmp:
+                        if e.lower() not in seen:
+                            seen.add(e.lower()); out.append(e)
+                    gruppi_norm[gruppo] = out
+
+        return {"contatti": contatti_norm, "gruppi": gruppi_norm}
+
     if fp.exists():
         try:
-            data = json.loads(fp.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                # Normalizza struttura
-                data.setdefault("contatti", {})
-                data.setdefault("gruppi", {})
-                return data
+            return _normalizza_rubrica(json.loads(fp.read_text(encoding="utf-8")))
         except Exception:
             pass
-    # default
     return {"contatti": {}, "gruppi": {}}
 
 def save_rubrica_email(data: dict):
@@ -2707,6 +2889,18 @@ IMPORT_PDF_HTML = """
                 <label>Data Ingresso</label>
                 <input type="date" name="data_ingresso" class="form-control" value="{{ meta.data_ingresso or '' }}">
             </div>
+            <div class="col-md-2">
+                <label>N. Arrivo</label>
+                <input name="n_arrivo" class="form-control" value="{{ meta.n_arrivo or '' }}" placeholder="es. 83/26">
+            </div>
+            <div class="col-md-2">
+                <label>Magazzino</label>
+                <input name="magazzino" class="form-control" value="{{ meta.magazzino or 'STRUPPA' }}">
+            </div>
+            <div class="col-md-2">
+                <label>Stato</label>
+                <input name="stato" class="form-control" value="{{ meta.stato or 'NAZIONALE' }}">
+            </div>
         </div>
 
         <div class="table-responsive">
@@ -2784,6 +2978,7 @@ IMPORT_PDF_HTML = """
             <td><input name="um[]" class="form-control form-control-sm" value="" readonly></td>
             <td><input name="pezzi_articolo[]" type="number" min="0" class="form-control form-control-sm" value=""></td>
             <td><input name="lotto[]" class="form-control form-control-sm" value=""></td>
+            <td><input name="serial_number[]" class="form-control form-control-sm" value=""></td>
         `;
         tbody.appendChild(tr);
     }
@@ -4894,16 +5089,27 @@ INVIA_EMAIL_HTML = """
                 <input type="hidden" name="selected_ids" value="{{ selected_ids }}">
 
                 <div class="mb-3">
-                    <label class="form-label">Destinatari</label>
-                    <div class="mb-2">
-                        <label class="form-label">Gruppo (rubrica)</label>
-                        <select id="gruppo_email" class="form-select form-select-sm">
-                            <option value="">-- Seleziona un gruppo --</option>
-                            {% for g, emails in (email_groups or {}).items() %}
-                                <option value="{{ emails|join('; ') }}">{{ g }} ({{ emails|length }})</option>
-                            {% endfor %}
-                        </select>
-                        <div class="form-text">Se scegli un gruppo, le email verranno inserite automaticamente qui sotto.</div>
+                    <label class="form-label fw-bold">Destinatari</label>
+
+                    <div class="row g-2 mb-2">
+                        <div class="col-md-6">
+                            <label class="form-label">Contatto singolo (rubrica)</label>
+                            <select id="contatto_email" class="form-select form-select-sm">
+                                <option value="">-- Seleziona un contatto --</option>
+                                {% for nome, info in (email_contacts or {}).items() %}
+                                    <option value="{{ info.email if info.email is defined else info['email'] }}">{{ nome }} - {{ info.email if info.email is defined else info['email'] }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Gruppo (rubrica)</label>
+                            <select id="gruppo_email" class="form-select form-select-sm">
+                                <option value="">-- Seleziona un gruppo --</option>
+                                {% for g, emails in (email_groups or {}).items() %}
+                                    <option value="{{ emails|join('; ') }}">{{ g }} ({{ emails|length }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
                     </div>
 
                     <input
@@ -4911,10 +5117,16 @@ INVIA_EMAIL_HTML = """
                         name="destinatario"
                         class="form-control"
                         placeholder="email1@dominio.it; email2@dominio.it"
+                        list="rubricaEmailList"
                         required
                     >
+                    <datalist id="rubricaEmailList">
+                        {% for nome, info in (email_contacts or {}).items() %}
+                            <option value="{{ info.email if info.email is defined else info['email'] }}">{{ nome }}</option>
+                        {% endfor %}
+                    </datalist>
                     <div class="form-text">
-                        Puoi inserire più destinatari separandoli con <b>;</b> oppure <b>,</b>
+                        Puoi scegliere un contatto singolo, un gruppo, oppure scrivere più destinatari separati con <b>;</b> o <b>,</b>.
                     </div>
                 </div>
 
@@ -4981,13 +5193,29 @@ Cordiali saluti,</textarea>
 
 <script>
 document.addEventListener('DOMContentLoaded', function(){
-  const sel = document.getElementById('gruppo_email');
+  const gruppo = document.getElementById('gruppo_email');
+  const contatto = document.getElementById('contatto_email');
   const inp = document.querySelector('input[name="destinatario"]');
-  if(sel && inp){
-    sel.addEventListener('change', function(){
-      if(this.value){
-        inp.value = this.value;
-      }
+
+  function addEmails(value, replace){
+    if(!inp || !value){ return; }
+    if(replace || !inp.value.trim()){
+      inp.value = value;
+      return;
+    }
+    const current = inp.value.trim();
+    inp.value = current.replace(/[;,]\s*$/, '') + '; ' + value;
+  }
+
+  if(gruppo && inp){
+    gruppo.addEventListener('change', function(){
+      addEmails(this.value, true);
+    });
+  }
+  if(contatto && inp){
+    contatto.addEventListener('change', function(){
+      addEmails(this.value, false);
+      this.value = '';
     });
   }
 });
@@ -7097,7 +7325,13 @@ def invia_email():
     # =========================
     if request.method == 'GET':
         selected_ids = request.args.getlist('ids')
-        return render_template('invia_email.html', selected_ids=",".join(selected_ids), email_groups=load_rubrica_email().get('gruppi', {}))
+        rubrica_email = load_rubrica_email()
+        return render_template(
+            'invia_email.html',
+            selected_ids=",".join(selected_ids),
+            email_groups=rubrica_email.get('gruppi', {}),
+            email_contacts=rubrica_email.get('contatti', {})
+        )
 
     # =========================
     # POST
