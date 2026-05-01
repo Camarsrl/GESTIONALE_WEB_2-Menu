@@ -1055,6 +1055,9 @@ class Articolo(Base):
     data_ingresso = Column(String(32)); n_ddt_ingresso = Column(Text)
     data_uscita = Column(String(32)); n_ddt_uscita = Column(Text)
     codice_entrata = Column(String(255))
+    created_by = Column(String(64))
+    updated_by = Column(String(64))
+    updated_at = Column(String(32))
     attachments = relationship("Attachment", back_populates="articolo", cascade="all, delete-orphan", passive_deletes=True)
     lotto = Column(Text) # <--- AGGIUNGI QUESTA
 
@@ -1086,6 +1089,63 @@ def ensure_barcode_entry_schema(engine):
 
 
 ensure_barcode_entry_schema(engine)
+
+
+def ensure_audit_schema(engine):
+    """Aggiunge colonne audit se il database è già esistente."""
+    try:
+        insp = inspect(engine)
+        cols = {c.get('name') for c in insp.get_columns('articoli')}
+    except Exception as e:
+        print(f"[WARN] impossibile ispezionare schema audit articoli: {e}")
+        cols = set()
+
+    audit_cols = {
+        'created_by': 'TEXT',
+        'updated_by': 'TEXT',
+        'updated_at': 'TEXT',
+    }
+    for col, typ in audit_cols.items():
+        if col not in cols:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE articoli ADD COLUMN {col} {typ}"))
+                print(f"[OK] aggiunta colonna audit {col} ad articoli")
+            except Exception as e:
+                print(f"[WARN] impossibile aggiungere colonna audit {col}: {e}")
+
+
+ensure_audit_schema(engine)
+
+
+def _current_username_for_audit():
+    try:
+        if has_request_context() and getattr(current_user, 'is_authenticated', False):
+            return (getattr(current_user, 'id', '') or session.get('username') or '').strip().upper()
+    except Exception:
+        pass
+    return ''
+
+
+from sqlalchemy import event
+
+@event.listens_for(SessionLocal.session_factory, 'before_flush')
+def _audit_articoli_before_flush(session_db, flush_context, instances):
+    """Compila automaticamente creato/modificato da per Articolo."""
+    user = _current_username_for_audit()
+    if not user:
+        return
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    for obj in list(session_db.new):
+        if isinstance(obj, Articolo):
+            if not getattr(obj, 'created_by', None):
+                obj.created_by = user
+            obj.updated_by = user
+            obj.updated_at = now
+    for obj in list(session_db.dirty):
+        if isinstance(obj, Articolo) and session_db.is_modified(obj, include_collections=False):
+            obj.updated_by = user
+            obj.updated_at = now
 
 
 # ========================================================
@@ -3162,13 +3222,22 @@ GIACENZE_HTML = """
                     <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial" value="{{ request.args.get('serial_number','') }}"></div>
                     <div class="col-md-2"><input name="ordine" class="form-control form-control-sm" placeholder="Ordine" value="{{ request.args.get('ordine','') }}"></div>
 
-                    <!-- ✅ NUOVO FILTRO: SOLO IN GIACENZA -->
+                    <!-- FILTRO: SOLO IN GIACENZA / SOLO USCITE -->
                     <div class="col-md-2 d-flex align-items-center">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" value="1" id="solo_giacenza" name="solo_giacenza"
                                    {% if request.args.get('solo_giacenza') == '1' %}checked{% endif %}>
                             <label class="form-check-label" for="solo_giacenza">
                                 Solo in giacenza
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-center">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="1" id="solo_uscite" name="solo_uscite"
+                                   {% if request.args.get('solo_uscite') == '1' %}checked{% endif %}>
+                            <label class="form-check-label" for="solo_uscite">
+                                Solo uscite
                             </label>
                         </div>
                     </div>
@@ -3241,6 +3310,7 @@ GIACENZE_HTML = """
                     <th>Data Ing</th> <th>DDT Ing</th> <th>DDT Usc</th> <th>Data Usc</th> <th>Mezzo Usc</th>
                     <th>Cliente</th> <th>Kg</th> <th>Posiz</th> <th>N.Arr</th> <th>Entrata</th> <th>N.Buono</th> <th>Note</th> 
                     <th>Lotto</th> <th>Ns.Rif</th> <th>Serial</th> <th>Stato</th>
+                    {% if session.get('role') == 'admin' %}<th>Creato da</th> <th>Modificato da</th> <th>Ultima mod.</th>{% endif %}
                     <th>Doc</th> <th>Foto</th> <th>Act</th>
                 </tr>
             </thead>
@@ -3267,6 +3337,11 @@ GIACENZE_HTML = """
                     <td title="{{ r.note }}">{{ (r.note or '')[:15] }}...</td>
                     <td>{{ r.lotto or '' }}</td> <td>{{ r.ns_rif or '' }}</td> <td>{{ r.serial_number or '' }}</td>
                     <td>{{ r.stato or '' }}</td>
+                    {% if session.get('role') == 'admin' %}
+                    <td>{{ r.created_by or '' }}</td>
+                    <td>{{ r.updated_by or '' }}</td>
+                    <td>{{ r.updated_at or '' }}</td>
+                    {% endif %}
                     <td class="text-center">
                         {% for a in r.attachments if a.kind=='doc' %}
                         <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link">📄</a>
@@ -3285,7 +3360,7 @@ GIACENZE_HTML = """
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="35" class="text-center p-3 text-muted">Nessun articolo trovato.</td></tr>
+                <tr><td colspan="38" class="text-center p-3 text-muted">Nessun articolo trovato.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -3343,6 +3418,27 @@ GIACENZE_HTML = """
         document.addEventListener("change", function(e) {
             if (e.target && e.target.matches('input[name="ids"]')) saveSelection();
         });
+
+        const soloGiacenza = document.getElementById('solo_giacenza');
+        const soloUscite = document.getElementById('solo_uscite');
+        if (soloGiacenza && soloUscite) {
+            soloGiacenza.addEventListener('change', function(){ if (this.checked) soloUscite.checked = false; });
+            soloUscite.addEventListener('change', function(){ if (this.checked) soloGiacenza.checked = false; });
+        }
+
+        const mainForm = document.querySelector('form[method="POST"]');
+        if (mainForm) {
+            mainForm.addEventListener('submit', function(e) {
+                const btn = e.submitter;
+                const action = (btn && (btn.getAttribute('formaction') || '')) || '';
+                if (action.includes('buono_preview') || action.includes('ddt_preview') || action.includes('ddt_finalize') || action.includes('buono_finalize')) {
+                    localStorage.removeItem(STORAGE_KEY);
+                    setTimeout(function(){
+                        document.querySelectorAll('input[name="ids"]').forEach(cb => cb.checked = false);
+                    }, 100);
+                }
+            });
+        }
     });
 </script>
 {% endblock %}
@@ -8500,14 +8596,23 @@ def giacenze():
         else:
             filtered_rows = all_rows
 
-        # ✅ 7) NUOVO FILTRO: SOLO IN GIACENZA
+        # ✅ 7) FILTRO: SOLO IN GIACENZA / SOLO USCITE
         # In giacenza = NON ha data_uscita e NON ha n_ddt_uscita
-        if args.get("solo_giacenza") == "1":
+        # Uscite = ha data_uscita oppure n_ddt_uscita
+        if args.get("solo_giacenza") == "1" and args.get("solo_uscite") != "1":
             tmp = []
             for r in filtered_rows:
                 has_data_usc = parse_d(r.data_uscita) is not None
                 has_ddt_usc = bool((r.n_ddt_uscita or "").strip())
                 if (not has_data_usc) and (not has_ddt_usc):
+                    tmp.append(r)
+            filtered_rows = tmp
+        elif args.get("solo_uscite") == "1":
+            tmp = []
+            for r in filtered_rows:
+                has_data_usc = parse_d(r.data_uscita) is not None
+                has_ddt_usc = bool((r.n_ddt_uscita or "").strip())
+                if has_data_usc or has_ddt_usc:
                     tmp.append(r)
             filtered_rows = tmp
 
