@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Camar • Gestionale Web – build aggiornata (Ottobre 2025)
+Camar - Gestionale Web – build aggiornata (Ottobre 2025)
 © Copyright Alessia Moncalvo
 Tutti i diritti riservati.
 """
@@ -68,6 +68,17 @@ app.secret_key = os.environ.get("SECRET_KEY", "chiave_segreta_super_sicura")
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
+@app.after_request
+def _force_utf8_html_response(response):
+    """Evita caratteri strani tipo â€¢ su alcuni browser/mobile."""
+    try:
+        content_type = (response.headers.get('Content-Type') or '').lower()
+        if content_type.startswith('text/html'):
+            response.headers['Content-Type'] = 'text/html; charset=utf-8'
+    except Exception:
+        pass
+    return response
 
 # =========================
 # Formattazione numeri ITA
@@ -2374,7 +2385,7 @@ BASE_HTML = """
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ title or "Camar • Gestionale Web" }}</title>
+    <title>{{ title or "Camar - Gestionale Web" }}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
@@ -2402,7 +2413,7 @@ BASE_HTML = """
     <div class="container-fluid">
         <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('home') }}">
             {% if logo_url %}<img src="{{ logo_url }}" class="logo" alt="logo">{% endif %}
-            Camar • Gestionale
+            Camar - Gestionale
         </a>
 
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -4442,9 +4453,9 @@ LAVORAZIONI_HTML = """
             </div>
 
             <div class="col-md-2"><label class="small fw-bold">Cliente</label>
-                <input type="text" name="cliente" class="form-control" list="clientiUtentiListTrasporti"
+                <input type="text" name="cliente" class="form-control" list="clientiUtentiListPicking"
                        value="{{ edit_row.cliente if edit_row else '' }}" required>
-                <datalist id="clientiUtentiListTrasporti">
+                <datalist id="clientiUtentiListPicking">
                     {% for c in clienti_validi %}<option value="{{ c }}">{% endfor %}
                 </datalist>
             </div>
@@ -4891,9 +4902,9 @@ TRASPORTI_HTML = """
             </div>
 
             <div class="col-md-2"><label class="small fw-bold">Cliente</label>
-                <input type="text" name="cliente" class="form-control" list="clientiUtentiListTrasporti"
+                <input type="text" name="cliente" class="form-control" list="clientiUtentiListPicking"
                        value="{{ edit_row.cliente if edit_row else '' }}" required>
-                <datalist id="clientiUtentiListTrasporti">
+                <datalist id="clientiUtentiListPicking">
                     {% for c in clienti_validi %}<option value="{{ c }}">{% endfor %}
                 </datalist>
             </div>
@@ -6085,6 +6096,29 @@ def report_trasporti():
         db.close()
 
 # --- GESTIONE LAVORAZIONI (ADMIN) ---
+def canonical_cliente_picking(value):
+    """Normalizza il cliente nel Picking senza perdere GALVANO TECNICA.
+    Accetta anche varianti scritte a mano: Galvano tecnica, Galvanotecnica, Cotugno Galvanotecnica.
+    """
+    raw = (value or '').strip()
+    if not raw:
+        raise ValueError("Cliente obbligatorio.")
+    norm = normalize_text_key(raw)
+    alias = {
+        'GALVANOTECNICA': 'GALVANO TECNICA',
+        'COTUGNOGALVANOTECNICA': 'GALVANO TECNICA',
+        'GALVANO': 'GALVANO TECNICA',
+    }
+    if norm in alias:
+        return alias[norm]
+    try:
+        return validate_cliente_or_raise(raw)
+    except Exception:
+        for c in get_clienti_utenti():
+            if normalize_text_key(c) == norm:
+                return c
+        raise
+
 @app.route('/lavorazioni', methods=['GET', 'POST'])
 @login_required
 def lavorazioni():
@@ -6105,7 +6139,7 @@ def lavorazioni():
 
             d_val = datetime.strptime(request.form.get('data'), '%Y-%m-%d').date()
             rec.data = d_val
-            rec.cliente = validate_cliente_or_raise(request.form.get('cliente'))
+            rec.cliente = canonical_cliente_picking(request.form.get('cliente'))
             rec.descrizione = request.form.get('descrizione')
             rec.richiesta_di = request.form.get('richiesta_di')
             rec.seriali = request.form.get('seriali')
@@ -6133,7 +6167,7 @@ def lavorazioni():
             d_val = datetime.strptime(request.form.get('data'), '%Y-%m-%d').date()
             nuovo = Lavorazione(
                 data=d_val,
-                cliente=validate_cliente_or_raise(request.form.get('cliente')),
+                cliente=canonical_cliente_picking(request.form.get('cliente')),
                 descrizione=request.form.get('descrizione'),
                 richiesta_di=request.form.get('richiesta_di'),
                 seriali=request.form.get('seriali'),
@@ -6145,7 +6179,7 @@ def lavorazioni():
             )
             db.add(nuovo)
             db.commit()
-            flash("Picking aggiunto!", "success")
+            flash(f"Picking aggiunto per {nuovo.cliente} in data {nuovo.data}.", "success")
         except Exception as e:
             db.rollback()
             flash(f"Errore inserimento: {e}", "danger")
@@ -6198,7 +6232,13 @@ def lavorazioni():
         if not filtro:
             return True
         v = str(value or '')
-        return filtro.lower() in v.lower() or normalize_text_key(filtro) in normalize_text_key(v)
+        nf = normalize_text_key(filtro)
+        nv = normalize_text_key(v)
+        if filtro.lower() in v.lower() or nf in nv:
+            return True
+        if nf in {'GALVANOTECNICA', 'COTUGNOGALVANOTECNICA', 'GALVANO'} and nv == 'GALVANOTECNICA':
+            return True
+        return False
 
     dati = (
         db.query(Lavorazione)
