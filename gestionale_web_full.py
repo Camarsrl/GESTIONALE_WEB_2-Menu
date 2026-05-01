@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Camar â€¢ Gestionale Web â€“ build aggiornata (Ottobre 2025)
-Â© Copyright Alessia Moncalvo
+Camar • Gestionale Web – build aggiornata (Ottobre 2025)
+© Copyright Alessia Moncalvo
 Tutti i diritti riservati.
 """
 import os
@@ -282,14 +282,14 @@ def analyze_entrata_rows(rows):
 # ========================================================
 #  API INTEGRAZIONE (multi-cliente, 1 API KEY = 1 cliente)
 #  - NIENTE accesso DB esterno
-#  - Il cliente NON si passa nei parametri: Ã¨ determinato dalla API key
+#  - Il cliente NON si passa nei parametri: è determinato dalla API key
 #  - Header richiesto: X-API-KEY
 # ========================================================
 
 def _load_api_clients_from_env() -> dict:
     """Carica mappa API_KEY -> CLIENTE.
 
-    PrioritÃ :
+    Priorità:
     1) API_KEYS_JSON='{"key1":"GALVANO TECNICA","key2":"DUFERCO"}'
     2) CORES_API_KEY + CORES_API_CLIENTE (setup semplice per 1 cliente)
     """
@@ -494,7 +494,7 @@ def api_inventario():
 @app.route("/api/v1/movimenti", methods=["GET"])
 def api_movimenti():
     """Movimenti (ingresso/uscita) ricostruiti dai campi dell'articolo.
-    Nota: non Ã¨ un registro movimenti dedicato; ogni articolo genera al massimo 1 ingresso e 1 uscita.
+    Nota: non è un registro movimenti dedicato; ogni articolo genera al massimo 1 ingresso e 1 uscita.
     """
     cliente = _api_get_cliente_from_key()
     if not cliente:
@@ -712,11 +712,11 @@ persistent_path = "/var/data/app"
 if os.path.exists(persistent_path):
     # Se la cartella del disco esiste fisicamente, usala!
     MEDIA_DIR = Path(persistent_path)
-    print(f"âœ… USO DISCO PERSISTENTE RENDER: {MEDIA_DIR}")
+    print(f"✅ USO DISCO PERSISTENTE RENDER: {MEDIA_DIR}")
 else:
     # Altrimenti usa cartella locale
     MEDIA_DIR = APP_DIR / "media"
-    print(f"âš ï¸ USO DISCO LOCALE (Temporaneo): {MEDIA_DIR}")
+    print(f"⚠️ USO DISCO LOCALE (Temporaneo): {MEDIA_DIR}")
 
 DOCS_DIR = MEDIA_DIR / "docs"
 PHOTOS_DIR = MEDIA_DIR / "photos"
@@ -787,7 +787,7 @@ def auto_backup_if_due():
     """
     Backup automatico:
     - controllo max ogni 10 minuti
-    - crea backup se ultimo Ã¨ piÃ¹ vecchio di 2 ore
+    - crea backup se ultimo è più vecchio di 2 ore
     - mantiene solo gli ultimi 50 backup
     """
 
@@ -796,21 +796,21 @@ def auto_backup_if_due():
     try:
         now = time.time()
 
-        # âœ… evita controllo continuo: max ogni 10 minuti
+        # ✅ evita controllo continuo: max ogni 10 minuti
         if _AUTO_BACKUP_LAST_CHECK and (now - _AUTO_BACKUP_LAST_CHECK) < 600:
             return
 
         _AUTO_BACKUP_LAST_CHECK = now
 
-        # âœ… possibilitÃ  di disattivare via ENV
+        # ✅ possibilità di disattivare via ENV
         if str(os.environ.get("AUTO_BACKUP", "1")).lower() in ("0", "false", "no", "off"):
             app.logger.info("[AUTO_BACKUP] disabilitato via AUTO_BACKUP=0")
             return
 
-        # âœ… crea cartella backup se manca
+        # ✅ crea cartella backup se manca
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
-        # âœ… trova ultimo backup
+        # ✅ trova ultimo backup
         backups = sorted(
             BACKUP_DIR.glob("backup_camar_*.zip"),
             key=lambda p: p.stat().st_mtime,
@@ -825,7 +825,7 @@ def auto_backup_if_due():
         else:
             app.logger.info("[AUTO_BACKUP] nessun backup trovato, ne creo uno ora")
 
-        # âœ… intervallo BACKUP: ogni 2 ore
+        # ✅ intervallo BACKUP: ogni 2 ore
         INTERVALLO = 2 * 3600  # 2 ore
 
         if (latest is None) or ((now - latest.stat().st_mtime) > INTERVALLO):
@@ -835,7 +835,7 @@ def auto_backup_if_due():
 
             app.logger.warning(f"[AUTO_BACKUP] OK creato: {zip_path}")
 
-            # âœ… mantiene solo ultimi 50 backup
+            # ✅ mantiene solo ultimi 50 backup
             MAX_FILES = 50
             if len(backups) > MAX_FILES:
                 for old in backups[MAX_FILES:]:
@@ -852,7 +852,7 @@ def auto_backup_if_due():
         app.logger.warning(f"[AUTO_BACKUP] fallito: {e}")
 
 
-# âœ… Hook automatico su ogni request (non blocca mai)
+# ✅ Hook automatico su ogni request (non blocca mai)
 @app.before_request
 def _auto_backup_hook():
     try:
@@ -876,13 +876,13 @@ import tempfile
 import shutil
 from datetime import datetime
 
-# Assumo che tu abbia giÃ :
+# Assumo che tu abbia già:
 # BACKUP_DIR = Path("/var/data/app/backups")
 # MEDIA_DIR = Path("/var/data/app")
 # e che magazzino.db stia in MEDIA_DIR
 
 def _get_db_path():
-    # Percorso DB (modifica qui se nel tuo progetto Ã¨ diverso)
+    # Percorso DB (modifica qui se nel tuo progetto è diverso)
     return (MEDIA_DIR / "magazzino.db")
 
 def list_backups():
@@ -907,7 +907,7 @@ def restore_from_backup_zip(zip_filename: str, restore_media: bool = False):
     - ripristina magazzino.db + JSON
     - opzionale: ripristina cartelle docs/photos
     """
-    # âœ… sicurezza: niente path traversal
+    # ✅ sicurezza: niente path traversal
     zip_path = (BACKUP_DIR / zip_filename).resolve()
     if not str(zip_path).startswith(str(BACKUP_DIR.resolve())):
         raise Exception("Backup non valido (path non consentito).")
@@ -917,13 +917,13 @@ def restore_from_backup_zip(zip_filename: str, restore_media: bool = False):
     db_path = _get_db_path()
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
-    # âœ… copia emergenza DB attuale
+    # ✅ copia emergenza DB attuale
     if db_path.exists():
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         emergency = db_path.with_suffix(f".pre_restore_{ts}.bak")
         shutil.copy2(db_path, emergency)
 
-    # âœ… estrai in temp e ripristina
+    # ✅ estrai in temp e ripristina
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
 
@@ -935,7 +935,7 @@ def restore_from_backup_zip(zip_filename: str, restore_media: bool = False):
         if extracted_db.exists():
             shutil.copy2(extracted_db, db_path)
         else:
-            raise Exception("Nel backup non c'Ã¨ magazzino.db")
+            raise Exception("Nel backup non c'è magazzino.db")
 
         # --- ripristina JSON (se presenti) ---
         for json_name in ["mappe_excel.json", "destinatari_saved.json", "rubrica_email.json"]:
@@ -958,7 +958,7 @@ def restore_from_backup_zip(zip_filename: str, restore_media: bool = False):
 def _discover_logo_path():
     # Lista aggiornata con il nome corretto del tuo file
     possible_names = [
-        "logo camar.jpg",  # <--- Questo Ã¨ quello che hai su GitHub
+        "logo camar.jpg",  # <--- Questo è quello che hai su GitHub
         "logo.png", 
         "logo.jpg", 
         "logo.jpeg", 
@@ -987,12 +987,12 @@ from sqlalchemy.orm import sessionmaker, scoped_session, declarative_base
 
 DB_URL = os.environ.get("DATABASE_URL", "").strip()
 
-# âœ… In produzione: MAI fallback silenzioso a sqlite
+# ✅ In produzione: MAI fallback silenzioso a sqlite
 IS_RENDER = bool(os.environ.get("RENDER")) or bool(os.environ.get("RENDER_SERVICE_ID"))
 
 if not DB_URL:
     if IS_RENDER:
-        raise RuntimeError("DATABASE_URL non Ã¨ impostata su Render! Controlla le Environment Variables del service.")
+        raise RuntimeError("DATABASE_URL non è impostata su Render! Controlla le Environment Variables del service.")
     DB_URL = f"sqlite:///{APP_DIR / 'magazzino.db'}"
 
 # Render a volte usa postgres:// -> SQLAlchemy vuole postgresql://
@@ -1007,7 +1007,7 @@ def _normalize_db_url(u: str) -> str:
 
 DB_URL = _normalize_db_url(DB_URL)
 
-# âœ… pool_pre_ping evita connessioni "morte" (tipico su hosting)
+# ✅ pool_pre_ping evita connessioni "morte" (tipico su hosting)
 engine = create_engine(
     DB_URL,
     future=True,
@@ -1021,7 +1021,7 @@ SessionLocal = scoped_session(
 
 Base = declarative_base()
 
-# âœ… IMPORTANTISSIMO: rimuove la sessione a fine request (evita problemi con piÃ¹ utenti/worker)
+# ✅ IMPORTANTISSIMO: rimuove la sessione a fine request (evita problemi con più utenti/worker)
 @app.teardown_appcontext
 def remove_scoped_session(exception=None):
     SessionLocal.remove()
@@ -1199,7 +1199,7 @@ def admin_backups():
         try:
             if action == "restore":
                 restore_from_backup_zip(filename, restore_media=restore_media)
-                flash("âœ… Ripristino completato!", "success")
+                flash("✅ Ripristino completato!", "success")
             else:
                 flash("Azione non valida.", "warning")
 
@@ -1216,7 +1216,7 @@ def admin_backups():
 @login_required
 @require_admin
 def admin_backup_download(filename):
-    # âœ… sicurezza path
+    # ✅ sicurezza path
     p = (BACKUP_DIR / filename).resolve()
     if not str(p).startswith(str(BACKUP_DIR.resolve())) or not p.exists():
         flash("Backup non trovato.", "danger")
@@ -1231,7 +1231,7 @@ def admin_backup_download(filename):
 def admin_genera_codici_entrata():
     """Assegna un codice_entrata ai record storici che ne sono privi.
 
-    Raggruppamento prioritÃ :
+    Raggruppamento priorità:
     1) n_ddt_ingresso
     2) n_arrivo
     3) cliente + data_ingresso
@@ -1246,7 +1246,7 @@ def admin_genera_codici_entrata():
             .all()
         )
         if not rows:
-            flash("Nessuna entrata storica da aggiornare: tutti i record hanno giÃ  il codice entrata.", "info")
+            flash("Nessuna entrata storica da aggiornare: tutti i record hanno già il codice entrata.", "info")
             return redirect(url_for('home'))
 
         groups = {}
@@ -1291,7 +1291,7 @@ def admin_genera_codici_entrata():
         db.close()
 
 def current_cliente():
-    """Cliente associato all'utente corrente (per i client Ã¨ bloccato)."""
+    """Cliente associato all'utente corrente (per i client è bloccato)."""
     if session.get('role') == 'client':
         return (current_user.id or '').strip()
     return None
@@ -1309,7 +1309,7 @@ def get_users():
         print(f"Errore lettura file utenti: {e}")
     return DEFAULT_USERS
 
-# ORA possiamo chiamarla, perchÃ© Ã¨ stata definita sopra
+# ORA possiamo chiamarla, perché è stata definita sopra
 USERS_DB = get_users()
 
 def get_clienti_utenti():
@@ -1565,7 +1565,7 @@ def extract_data_from_ddt_pdf(path):
         for ln in lines:
             if not meta['n_ddt']:
                 for pat in [
-                    r"(?:DDT\s*N[Â°Âº.]?|N[Â°Âº.]?\s*DDT|NUMERO\s*BOLLA|DELIVERY\s*NOTE|DOCUMENTO\s*DI\s*TRASPORTO)\s*[:\-]?\s*([A-Z0-9./\-]{4,})",
+                    r"(?:DDT\s*N[°º.]?|N[°º.]?\s*DDT|NUMERO\s*BOLLA|DELIVERY\s*NOTE|DOCUMENTO\s*DI\s*TRASPORTO)\s*[:\-]?\s*([A-Z0-9./\-]{4,})",
                     r"\b(DN\d{5,})\b",
                     r"\b([A-Z]{1,3}\d{5,})\b",
                 ]:
@@ -1892,7 +1892,7 @@ def extract_data_from_ddt_pdf(path):
                 if re.search(r"\bW\d{8,}[A-Z0-9]*\b", nxt, re.I):
                     break
                 block.append(nxt)
-                # in queste bolle la quantitÃ  Ã¨ spesso sul finale della descrizione, es. PZ 2,000
+                # in queste bolle la quantità è spesso sul finale della descrizione, es. PZ 2,000
                 if re.search(r"\bPZ\b\s+\d+(?:[.,]\d+)?", nxt, re.I):
                     break
                 j += 1
@@ -2056,7 +2056,7 @@ def load_destinatari():
             content = DESTINATARI_JSON.read_text(encoding="utf-8")
             raw_data = json.loads(content)
             
-            # Se il JSON Ã¨ una lista (vecchio formato), lo convertiamo in dizionario
+            # Se il JSON è una lista (vecchio formato), lo convertiamo in dizionario
             if isinstance(raw_data, list):
                 for item in raw_data:
                     # Usa il campo 'Cliente' come chiave, o genera un nome se manca
@@ -2072,7 +2072,7 @@ def load_destinatari():
             data = {}
             
     if not data:
-        # Dati di default se il file Ã¨ vuoto o corrotto
+        # Dati di default se il file è vuoto o corrotto
         data = {
             "Sede Cliente": {
                 "ragione_sociale": "Cliente S.p.A.", 
@@ -2143,7 +2143,7 @@ def load_rubrica_email():
                             val = (e.get('email') or e.get('mail') or '').strip()
                         else:
                             val = str(e or '').strip()
-                        # se nel gruppo Ã¨ stato salvato il NOME del contatto, lo trasformo in email
+                        # se nel gruppo è stato salvato il NOME del contatto, lo trasformo in email
                         if val in contatti_norm:
                             val = contatti_norm[val].get('email', val)
                         if val:
@@ -2188,7 +2188,7 @@ def _parse_emails(raw: str):
 
 def _ensure_progressivi_ddt_table(db):
     """Crea (se necessario) la tabella progressivi_ddt nel DB.
-    Usiamo il DB invece di un file JSON cosÃ¬ il progressivo resta memorizzato anche su server (Render/VPS).
+    Usiamo il DB invece di un file JSON così il progressivo resta memorizzato anche su server (Render/VPS).
     """
     try:
         db.execute(text("""
@@ -2199,7 +2199,7 @@ def _ensure_progressivi_ddt_table(db):
         """))
         db.commit()
     except Exception:
-        # su alcuni DB/permessi, puÃ² fallire ma non blocchiamo l'app
+        # su alcuni DB/permessi, può fallire ma non blocchiamo l'app
         try:
             db.rollback()
         except Exception:
@@ -2222,7 +2222,7 @@ def peek_next_ddt_number():
     except Exception:
         pass
 
-    # 2) fallback file (compatibilitÃ )
+    # 2) fallback file (compatibilità)
     PROG_FILE = APP_DIR / "progressivi_ddt.json"
     prog = {}
     if PROG_FILE.exists():
@@ -2278,7 +2278,7 @@ def next_ddt_number():
         finally:
             db.close()
     except Exception:
-        # 2) fallback file (compatibilitÃ )
+        # 2) fallback file (compatibilità)
         PROG_FILE = APP_DIR / "progressivi_ddt.json"
         prog = {}
         if PROG_FILE.exists():
@@ -2351,7 +2351,7 @@ def consume_specific_ddt_number(n_ddt: str) -> None:
     except Exception:
         pass
 
-    # 2) fallback file (compatibilitÃ )
+    # 2) fallback file (compatibilità)
     try:
         PROG_FILE = APP_DIR / "progressivi_ddt.json"
         prog = {}
@@ -2374,7 +2374,7 @@ BASE_HTML = """
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ title or "Camar â€¢ Gestionale Web" }}</title>
+    <title>{{ title or "Camar • Gestionale Web" }}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
@@ -2402,7 +2402,7 @@ BASE_HTML = """
     <div class="container-fluid">
         <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('home') }}">
             {% if logo_url %}<img src="{{ logo_url }}" class="logo" alt="logo">{% endif %}
-            Camar â€¢ Gestionale
+            Camar • Gestionale
         </a>
 
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -2412,9 +2412,9 @@ BASE_HTML = """
         <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav ms-auto align-items-center gap-2">
                 
-                <li class="nav-item"><a class="nav-link" href="{{ url_for('giacenze') }}">ðŸ“¦ Magazzino</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('giacenze') }}">📦 Magazzino</a></li>
                 {% if session.get('role') == 'admin' %}
-                <li class="nav-item"><a class="nav-link" href="{{ url_for('import_excel') }}">ðŸ“¥ Import Excel</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('import_excel') }}">📥 Import Excel</a></li>
                 {% endif %}
 
                 {% if session.get('role') == 'admin' %}
@@ -2476,7 +2476,7 @@ BASE_HTML = """
 </main>
 
 <footer class="text-center text-white py-3 small no-print" style="background-color: #1f6fb2; margin-top: auto;">
-    Â© Alessia Moncalvo â€“ Gestionale Camar Web Edition â€¢ Tutti i diritti riservati.
+    © Alessia Moncalvo – Gestionale Camar Web Edition • Tutti i diritti riservati.
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -2602,7 +2602,7 @@ REPORT_TRASPORTI_HTML = """
                     <td>{{ t.ddt_uscita or '' }}</td>
                     <td>{{ t.magazzino or '' }}</td>
                     <td>{{ t.consolidato or '' }}</td>
-                    <td class="text-end">â‚¬ {{ '%.2f'|format(t.costo) if t.costo else '0.00' }}</td>
+                    <td class="text-end">€ {{ '%.2f'|format(t.costo) if t.costo else '0.00' }}</td>
                 </tr>
                 {% else %}
                 <tr>
@@ -2613,7 +2613,7 @@ REPORT_TRASPORTI_HTML = """
             <tfoot>
                 <tr class="table-dark fw-bold">
                     <td colspan="7" class="text-end">TOTALE COMPLESSIVO</td>
-                    <td class="text-end">â‚¬ {{ totale }}</td>
+                    <td class="text-end">€ {{ totale }}</td>
                 </tr>
             </tfoot>
         </table>
@@ -2779,11 +2779,11 @@ DETTAGLIO_ENTRATA_HTML = """
     <div class="col-lg-7">
         <div class="card p-3 h-100">
             <h6 class="mb-3">Riepilogo</h6>
-            {% if session.get('role') == 'admin' %}<div class="alert alert-info py-2 small"><b>Completa entrata:</b> usa il bottone in alto per aprire direttamente la modifica delle righe giÃ  create dall'etichetta e inserire i dati mancanti mantenendo lo stesso QR/barcode.</div>{% endif %}
+            {% if session.get('role') == 'admin' %}<div class="alert alert-info py-2 small"><b>Completa entrata:</b> usa il bottone in alto per aprire direttamente la modifica delle righe già create dall'etichetta e inserire i dati mancanti mantenendo lo stesso QR/barcode.</div>{% endif %}
             {% if anomalies %}
-            <div class="alert alert-danger py-2 small mb-2"><b>âš  Entrata da controllare:</b> sono state trovate {{ anomalies|length }} anomalie. Usa <b>Verifica Entrata</b> per il dettaglio oppure <b>Correggi Entrata</b> per sganciare solo le righe anomale dal barcode.</div>
+            <div class="alert alert-danger py-2 small mb-2"><b>⚠ Entrata da controllare:</b> sono state trovate {{ anomalies|length }} anomalie. Usa <b>Verifica Entrata</b> per il dettaglio oppure <b>Correggi Entrata</b> per sganciare solo le righe anomale dal barcode.</div>
             {% else %}
-            <div class="alert alert-success py-2 small mb-2"><b>âœ“ Entrata verificata:</b> nessuna anomalia rilevata.</div>
+            <div class="alert alert-success py-2 small mb-2"><b>✓ Entrata verificata:</b> nessuna anomalia rilevata.</div>
             {% endif %}
             <div><b>Clienti:</b> {{ clienti|join(', ') }}</div>
             <div><b>Fornitori:</b> {{ fornitori|join(', ') }}</div>
@@ -2799,8 +2799,8 @@ DETTAGLIO_ENTRATA_HTML = """
             <div class="mb-2"><b>Foto:</b> {{ photos|length }}</div>
             {% if docs or photos %}
             <div class="small">
-                {% for a in docs %}<div><a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank">ðŸ“„ {{ a.filename }}</a></div>{% endfor %}
-                {% for a in photos %}<div><a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank">ðŸ“· {{ a.filename }}</a></div>{% endfor %}
+                {% for a in docs %}<div><a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank">📄 {{ a.filename }}</a></div>{% endfor %}
+                {% for a in photos %}<div><a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank">📷 {{ a.filename }}</a></div>{% endfor %}
             </div>
             {% else %}<div class="text-muted">Nessun allegato collegato.</div>{% endif %}
         </div>
@@ -2849,7 +2849,7 @@ IMPORT_PDF_HTML = """
     
     {% if not rows %}
     <div class="alert alert-info">
-        Carica un DDT in formato PDF digitale. Il sistema tenterÃ  di leggere codici e quantitÃ .<br>
+        Carica un DDT in formato PDF digitale. Il sistema tenterà di leggere codici e quantità.<br>
         <b>Nota:</b> Funziona meglio con PDF generati da computer, non scansioni.
     </div>
     <form method="post" enctype="multipart/form-data" class="mt-4">
@@ -2911,7 +2911,7 @@ IMPORT_PDF_HTML = """
                         <th>Codice Articolo</th>
                         <th>Descrizione</th>
                         <th style="width:120px">Colli</th>
-                        <th style="width:160px">Peso / Q.tÃ </th>
+                        <th style="width:160px">Peso / Q.tà</th>
                         <th style="width:80px">UM</th>
                         <th style="width:120px">Pezzi</th>
                         <th style="width:160px">Lotto</th>
@@ -2994,7 +2994,7 @@ CALCOLI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
 <div class="container-fluid">
-    <h3><i class="bi bi-calculator"></i> Report Costi Magazzino (MÂ² per cliente)</h3>
+    <h3><i class="bi bi-calculator"></i> Report Costi Magazzino (M² per cliente)</h3>
     
     <div class="card mb-4" style="background-color: #f0f0f0; border: 1px solid #ccc;">
         <div class="card-body py-3">
@@ -3068,8 +3068,8 @@ CALCOLI_HTML = """
                 <tr class="text-center align-middle">
                     <th>Mese/Giorno</th>
                     <th>Cliente</th>
-                    <th>MÂ² * giorni</th>
-                    <th>MÂ² effettivi</th>
+                    <th>M² * giorni</th>
+                    <th>M² effettivi</th>
                     <th>Giorni</th>
                 </tr>
             </thead>
@@ -3130,7 +3130,7 @@ GIACENZE_HTML = """
                 {% else %}
                     <input type="hidden" name="cliente_inventario" value="{{ session.get('user') }}">
                 {% endif %}
-                <button class="btn btn-success" type="submit" title="Scarica Excel">ðŸ“¥ Excel</button>
+                <button class="btn btn-success" type="submit" title="Scarica Excel">📥 Excel</button>
             </div>
         </form>
     </div>
@@ -3151,7 +3151,7 @@ GIACENZE_HTML = """
                     <div class="col-md-2"><input name="serial_number" class="form-control form-control-sm" placeholder="Serial" value="{{ request.args.get('serial_number','') }}"></div>
                     <div class="col-md-2"><input name="ordine" class="form-control form-control-sm" placeholder="Ordine" value="{{ request.args.get('ordine','') }}"></div>
 
-                    <!-- âœ… NUOVO FILTRO: SOLO IN GIACENZA -->
+                    <!-- ✅ NUOVO FILTRO: SOLO IN GIACENZA -->
                     <div class="col-md-2 d-flex align-items-center">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" value="1" id="solo_giacenza" name="solo_giacenza"
@@ -3258,18 +3258,18 @@ GIACENZE_HTML = """
                     <td>{{ r.stato or '' }}</td>
                     <td class="text-center">
                         {% for a in r.attachments if a.kind=='doc' %}
-                        <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link">ðŸ“„</a>
+                        <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link">📄</a>
                         {% endfor %}
                     </td>
                     <td class="text-center">
                         {% for a in r.attachments if a.kind=='photo' %}
-                        <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link">ðŸ“·</a>
+                        <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="att-link">📷</a>
                         {% endfor %}
                     </td>
                     <td class="text-center">
                         {% if session.get('role') == 'admin' %}
-                        <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" class="text-decoration-none">âœï¸</a>
-                        <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" class="text-decoration-none text-danger" onclick="return confirm('Eliminare?')">ðŸ—‘ï¸</a>
+                        <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" class="text-decoration-none">✏️</a>
+                        <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" class="text-decoration-none text-danger" onclick="return confirm('Eliminare?')">🗑️</a>
                         {% else %}-{% endif %}
                     </td>
                 </tr>
@@ -3393,12 +3393,12 @@ EDIT_HTML = """
         
         <div class="col-md-2"><label class="form-label">Pezzi</label><input type="number" name="pezzo" class="form-control" value="{{ row.pezzo or '' }}"></div>
         <div class="col-md-2 bg-warning bg-opacity-10 rounded border border-warning">
-            <label class="form-label fw-bold text-dark">NÂ° Colli</label>
+            <label class="form-label fw-bold text-dark">N° Colli</label>
             <input type="number" name="n_colli" min="0" class="form-control fw-bold" value="{{ row.n_colli if row.n_colli is not none else 1 }}">
             <small class="text-muted" style="font-size:10px">Se > 1, crea N righe separate!</small>
         </div>
         <div class="col-md-2"><label class="form-label">Peso (Kg)</label><input type="number" step="0.01" name="peso" class="form-control" value="{{ row.peso or '' }}"></div>
-        <div class="col-md-2"><label class="form-label">MÂ³</label><input type="number" step="0.001" name="m3" class="form-control" value="{{ row.m3 or '' }}"></div>
+        <div class="col-md-2"><label class="form-label">M³</label><input type="number" step="0.001" name="m3" class="form-control" value="{{ row.m3 or '' }}"></div>
         <div class="col-md-2"><label class="form-label">N. Arrivo</label><input type="text" name="n_arrivo" class="form-control" value="{{ row.n_arrivo or '' }}"></div>
         <div class="col-md-4"><label class="form-label">Codice Entrata / Barcode</label><input type="text" name="codice_entrata" class="form-control" value="{{ row.codice_entrata or request.args.get('codice_entrata','') }}" placeholder="Viene riutilizzato uguale tra etichetta e giacenze"></div>
         
@@ -3429,7 +3429,7 @@ EDIT_HTML = """
                  
                  <div class="alert alert-info mt-2 mb-0 py-2 small">
                     <i class="bi bi-info-circle-fill"></i> 
-                    Puoi selezionare <strong>piÃ¹ file contemporaneamente</strong> (es. il PDF del documento e la FOTO del pacco).<br>
+                    Puoi selezionare <strong>più file contemporaneamente</strong> (es. il PDF del documento e la FOTO del pacco).<br>
                     Tieni premuto il tasto <b>CTRL</b> (o CMD su Mac) mentre clicchi sui file nella finestra di selezione.
                  </div>
             </div>
@@ -3525,7 +3525,7 @@ REPORT_FATTURAZIONE_HTML = """
             </div>
         </form>
         <div class="mt-3 small text-muted">
-            Per i clienti standard il report mostra M2 presenti nel mese, giacenza a fine mese, M2 usciti, M2 entrate doganali e il picco M2 occupati nel mese. Per Galvano Tecnica viene mostrato il totale pallet in giacenza usando la colonna NÂ° Colli.
+            Per i clienti standard il report mostra M2 presenti nel mese, giacenza a fine mese, M2 usciti, M2 entrate doganali e il picco M2 occupati nel mese. Per Galvano Tecnica viene mostrato il totale pallet in giacenza usando la colonna N° Colli.
         </div>
     </div>
 </div>
@@ -3593,7 +3593,7 @@ BULK_EDIT_HTML = """
     <div class="alert alert-warning shadow-sm">
         <i class="bi bi-exclamation-triangle-fill me-2"></i>
         <strong>Attenzione:</strong> Attiva la spunta accanto ai campi che vuoi modificare. 
-        Il valore inserito verrÃ  applicato a <b>TUTTI</b> gli articoli selezionati.
+        Il valore inserito verrà applicato a <b>TUTTI</b> gli articoli selezionati.
     </div>
 
     <form method="POST" enctype="multipart/form-data">
@@ -3605,7 +3605,7 @@ BULK_EDIT_HTML = """
         <div class="card p-4 mb-4 bg-light border-dashed shadow-sm">
             <h5 class="text-primary"><i class="bi bi-cloud-upload"></i> Caricamento Allegati Massivo</h5>
             <div class="d-flex gap-2">
-                <!-- âœ… CORRETTO: name="bulk_files" -->
+                <!-- ✅ CORRETTO: name="bulk_files" -->
                 <input type="file" name="bulk_files" class="form-control" multiple>
             </div>
             <small class="text-muted">I file selezionati verranno allegati a ciascuno degli articoli.</small>
@@ -3722,7 +3722,7 @@ BUONO_PREVIEW_HTML = """
                         <th style="width:10%">Ordine Orig.</th>
                         <th style="width:15%">Codice</th>
                         <th style="width:35%">Descrizione</th>
-                        <th style="width:10%">Q.tÃ </th>
+                        <th style="width:10%">Q.tà</th>
                         <th style="width:10%">N.Arr</th>
                     </tr>
                 </thead>
@@ -3733,7 +3733,7 @@ BUONO_PREVIEW_HTML = """
                         <td class="fw-bold">{{ r.codice_articolo or '' }}</td>
                         <td class="small">{{ r.descrizione or '' }}</td>
                         <td>
-                            <!-- âœ… Q.tÃ  prende PEZZI -->
+                            <!-- ✅ Q.tà prende PEZZI -->
                             <input name="q_{{ r.id_articolo }}" type="number"
                                    class="form-control form-control-sm text-center fw-bold"
                                    value="{{ r.pezzo or 1 }}">
@@ -3795,7 +3795,7 @@ DDT_PREVIEW_HTML = """
 {% block content %}
 <div class="card p-3">
 
-    <!-- âœ… HEADER -->
+    <!-- ✅ HEADER -->
     <div class="d-flex align-items-center gap-3 mb-4" style="padding-bottom:10px;">
         {% if logo_url %}
             <img src="{{ logo_url }}" style="height:70px; margin-bottom:10px;">
@@ -3841,19 +3841,19 @@ DDT_PREVIEW_HTML = """
             <div class="col-md-3">
                 <label class="form-label">N. DDT</label>
                 <div class="input-group">
-                    <!-- âœ… PREV -->
+                    <!-- ✅ PREV -->
                     <button class="btn btn-outline-secondary" type="button" id="get-prev-ddt" title="Numero precedente">
                         <i class="bi bi-arrow-left"></i>
                     </button>
 
                     <input name="n_ddt" id="n_ddt_input" class="form-control text-center" value="{{ n_ddt }}" required>
 
-                    <!-- âœ… NEXT -->
+                    <!-- ✅ NEXT -->
                     <button class="btn btn-outline-secondary" type="button" id="get-next-ddt" title="Numero successivo">
                         <i class="bi bi-arrow-right"></i>
                     </button>
                 </div>
-                <div class="form-text">Usa â¬…ï¸/âž¡ï¸ per cambiare progressivo.</div>
+                <div class="form-text">Usa ⬅️/➡️ per cambiare progressivo.</div>
             </div>
 
             <div class="col-md-2">
@@ -3881,7 +3881,7 @@ DDT_PREVIEW_HTML = """
                 <input name="aspetto" class="form-control" value="A VISTA">
             </div>
 
-            <!-- âœ… MEZZO IN USCITA -->
+            <!-- ✅ MEZZO IN USCITA -->
             <div class="col-md-4">
                 <label class="form-label">Mezzo in uscita *</label>
                 <select name="mezzi_in_uscita" id="mezzi_in_uscita" class="form-select">
@@ -3890,7 +3890,7 @@ DDT_PREVIEW_HTML = """
                     <option value="BILICO">Bilico</option>
                     <option value="FURGONE">Furgone</option>
                 </select>
-                <div class="form-text">Obbligatorio quando fai â€œFinalizzaâ€.</div>
+                <div class="form-text">Obbligatorio quando fai “Finalizza”.</div>
             </div>
         </div>
 
@@ -3963,7 +3963,7 @@ function submitDdt(actionType) {
     const form = document.getElementById('ddt-form');
     document.getElementById('action_field').value = actionType;
 
-    // âœ… obbligatorio SOLO in finalize
+    // ✅ obbligatorio SOLO in finalize
     if (actionType === 'finalize') {
         const mezzo = (document.getElementById('mezzi_in_uscita').value || '').trim();
         if (!mezzo) {
@@ -4074,7 +4074,7 @@ LABELS_FORM_HTML = """
 
     <div class="alert alert-info py-2">
         <i class="bi bi-info-circle"></i>
-        Il PDF verrÃ  <b>scaricato</b> automaticamente: aprilo e stampa dal file scaricato per mantenere il formato <b>100x62mm</b>.
+        Il PDF verrà <b>scaricato</b> automaticamente: aprilo e stampa dal file scaricato per mantenere il formato <b>100x62mm</b>.
     </div>
 
     <form method="post" action="{{ url_for('labels_pdf') }}">
@@ -4120,7 +4120,7 @@ LABELS_FORM_HTML = """
 {% endblock %}
 """
 
-LABELS_PREVIEW_HTML = " " # Non piÃ¹ utilizzato
+LABELS_PREVIEW_HTML = " " # Non più utilizzato
 
 IMPORT_EXCEL_HTML = """
 {% extends 'base.html' %}
@@ -4275,7 +4275,7 @@ DESTINATARI_HTML = """
             </small>
           </div>
 
-          <!-- âœ… ELIMINAZIONE CORRETTA: POST alla stessa pagina -->
+          <!-- ✅ ELIMINAZIONE CORRETTA: POST alla stessa pagina -->
           <form method="post" class="m-0">
             <input type="hidden" name="delete_key" value="{{ key }}">
             <button type="submit"
@@ -4442,9 +4442,9 @@ LAVORAZIONI_HTML = """
             </div>
 
             <div class="col-md-2"><label class="small fw-bold">Cliente</label>
-                <input type="text" name="cliente" class="form-control" list="clientiUtentiListPicking"
+                <input type="text" name="cliente" class="form-control" list="clientiUtentiListTrasporti"
                        value="{{ edit_row.cliente if edit_row else '' }}" required>
-                <datalist id="clientiUtentiListPicking">
+                <datalist id="clientiUtentiListTrasporti">
                     {% for c in clienti_validi %}<option value="{{ c }}">{% endfor %}
                 </datalist>
             </div>
@@ -4643,7 +4643,7 @@ LAVORAZIONI_HTML = """
                         </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="11" class="text-center text-muted">Nessuna attivitÃ  registrata.</td></tr>
+                    <tr><td colspan="11" class="text-center text-muted">Nessuna attività registrata.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -4761,7 +4761,7 @@ CALCOLA_COSTI_HTML = """
     {% if metric == 'colli' %}
       Report Costi Magazzino (Colli in giacenza)
     {% else %}
-      Report Costi Magazzino (MÂ² per cliente)
+      Report Costi Magazzino (M² per cliente)
     {% endif %}
   </h2>
 
@@ -4816,8 +4816,8 @@ CALCOLA_COSTI_HTML = """
                 <th class="text-end">Colli Tot</th>
                 <th class="text-end">Colli Medio</th>
               {% else %}
-                <th class="text-end">MÂ² Tot</th>
-                <th class="text-end">MÂ² Medio</th>
+                <th class="text-end">M² Tot</th>
+                <th class="text-end">M² Medio</th>
               {% endif %}
 
               <th class="text-center">Giorni</th>
@@ -4891,9 +4891,9 @@ TRASPORTI_HTML = """
             </div>
 
             <div class="col-md-2"><label class="small fw-bold">Cliente</label>
-                <input type="text" name="cliente" class="form-control" list="clientiUtentiListPicking"
+                <input type="text" name="cliente" class="form-control" list="clientiUtentiListTrasporti"
                        value="{{ edit_row.cliente if edit_row else '' }}" required>
-                <datalist id="clientiUtentiListPicking">
+                <datalist id="clientiUtentiListTrasporti">
                     {% for c in clienti_validi %}<option value="{{ c }}">{% endfor %}
                 </datalist>
             </div>
@@ -4918,7 +4918,7 @@ TRASPORTI_HTML = """
                        value="{{ edit_row.consolidato if edit_row else '' }}">
             </div>
 
-            <div class="col-md-1"><label class="small fw-bold">Costo â‚¬</label>
+            <div class="col-md-1"><label class="small fw-bold">Costo €</label>
                 <input type="text" name="costo" class="form-control" placeholder="0,00"
                        value="{% if edit_row and edit_row.costo is not none %}{{ '%.2f'|format(edit_row.costo) }}{% endif %}">
             </div>
@@ -5040,7 +5040,7 @@ TRASPORTI_HTML = """
                         <td>{{ t.ddt_uscita or '' }}</td>
                         <td>{{ t.magazzino or '' }}</td>
                         <td>{{ t.consolidato or '' }}</td>
-                        <td>â‚¬ {{ '%.2f'|format(t.costo) if t.costo is not none else '' }}</td>
+                        <td>€ {{ '%.2f'|format(t.costo) if t.costo is not none else '' }}</td>
                         <td class="d-flex gap-1">
                             {% if session.get('role') == 'admin' %}
                             <a href="{{ url_for('trasporti', edit_id=t.id) }}"
@@ -5126,7 +5126,7 @@ INVIA_EMAIL_HTML = """
                         {% endfor %}
                     </datalist>
                     <div class="form-text">
-                        Puoi scegliere un contatto singolo, un gruppo, oppure scrivere piÃ¹ destinatari separati con <b>;</b> o <b>,</b>.
+                        Puoi scegliere un contatto singolo, un gruppo, oppure scrivere più destinatari separati con <b>;</b> o <b>,</b>.
                     </div>
                 </div>
 
@@ -5149,12 +5149,12 @@ Cordiali saluti,</textarea>
 
                 <div class="card bg-light mb-3 border-0">
                     <div class="card-body opacity-75">
-                        <small class="text-uppercase fw-bold text-muted mb-2 d-block">Anteprima piÃ¨ di pagina automatico:</small>
+                        <small class="text-uppercase fw-bold text-muted mb-2 d-block">Anteprima piè di pagina automatico:</small>
                         <div class="d-flex align-items-center gap-3 mb-2">
                             <img src="{{ url_for('static', filename='logo camar.jpg') }}" alt="Logo" style="height:50px;">
                             <div>
                                 <strong>Camar S.r.l.</strong><br>
-                                <span class="text-muted" style="font-size: 0.8rem;">Via Balleydier 52r â€“ 16149 GENOVA</span>
+                                <span class="text-muted" style="font-size: 0.8rem;">Via Balleydier 52r – 16149 GENOVA</span>
                             </div>
                         </div>
                         <div style="font-size: 0.7rem; color: #666; max-height: 60px; overflow: hidden; text-overflow: ellipsis;">
@@ -5249,7 +5249,7 @@ templates = {
         'trasporti.html': TRASPORTI_HTML,
         'lavorazioni.html': LAVORAZIONI_HTML,
 
-        # âš ï¸ MANCAVANO QUESTI DUE PER LE STAMPE:
+        # ⚠️ MANCAVANO QUESTI DUE PER LE STAMPE:
         'report_trasporti_print.html': REPORT_TRASPORTI_HTML,
         'report_inventario_print.html': REPORT_INVENTARIO_HTML,
 
@@ -5618,7 +5618,7 @@ def _warehouse_readonly_guard():
 @login_required
 def home():
     try:
-        # Recupera dati per la dashboard (con gestione errori se il DB Ã¨ vuoto)
+        # Recupera dati per la dashboard (con gestione errori se il DB è vuoto)
         tot_articoli = 0
         tot_m2 = 0.0
         
@@ -5642,7 +5642,7 @@ def home():
                                today=date.today())
                                
     except Exception as e:
-        # Se c'Ã¨ un errore grave nel template o altro
+        # Se c'è un errore grave nel template o altro
         print(f"CRITICAL ERROR HOME: {e}")
         import traceback
         traceback.print_exc()
@@ -5760,16 +5760,16 @@ def upload_mappe_json():
     try:
         raw = f.read()
 
-        # âœ… UTF-8 con BOM (capita spesso con file creati da Windows/Excel)
+        # ✅ UTF-8 con BOM (capita spesso con file creati da Windows/Excel)
         try:
             content = raw.decode("utf-8-sig")
         except Exception:
             content = raw.decode("utf-8")
 
-        # âœ… validazione JSON (se non Ã¨ JSON valido -> eccezione)
+        # ✅ validazione JSON (se non è JSON valido -> eccezione)
         json.loads(content)
 
-        # âœ… assicura cartella esista
+        # ✅ assicura cartella esista
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
         except Exception:
@@ -5969,7 +5969,7 @@ def report_trasporti():
     try:
         query = db.query(Trasporto)
 
-        # âœ… FILTRO MESE (compatibile se Trasporto.data Ã¨ TEXT)
+        # ✅ FILTRO MESE (compatibile se Trasporto.data è TEXT)
         if mese:
             try:
                 year, month = mese.split("-")
@@ -6017,7 +6017,7 @@ def report_trasporti():
         ws["B3"] = f"Mese={mese or 'Tutti'} | Cliente={cliente or 'Tutti'} | Mezzo={mezzo or 'Tutti'} | DDT={ddt_uscita or 'Tutti'} | Consolidato={consolidato or 'Tutti'}"
         ws.merge_cells("B3:H3")
 
-        headers = ["Data", "Mezzo", "Cliente", "Trasportatore", "DDT", "Magazzino", "Consolidato", "Costo (â‚¬)"]
+        headers = ["Data", "Mezzo", "Cliente", "Trasportatore", "DDT", "Magazzino", "Consolidato", "Costo (€)"]
         start_row = 5
         for col, h in enumerate(headers, start=1):
             cell = ws.cell(row=start_row, column=col, value=h)
@@ -6085,29 +6085,6 @@ def report_trasporti():
         db.close()
 
 # --- GESTIONE LAVORAZIONI (ADMIN) ---
-def canonical_cliente_picking(value):
-    """Normalizza il cliente nel Picking senza perdere GALVANO TECNICA.
-    Accetta anche varianti scritte a mano: Galvano tecnica, Galvanotecnica, Cotugno Galvanotecnica.
-    """
-    raw = (value or '').strip()
-    if not raw:
-        raise ValueError("Cliente obbligatorio.")
-    norm = normalize_text_key(raw)
-    alias = {
-        'GALVANOTECNICA': 'GALVANO TECNICA',
-        'COTUGNOGALVANOTECNICA': 'GALVANO TECNICA',
-        'GALVANO': 'GALVANO TECNICA',
-    }
-    if norm in alias:
-        return alias[norm]
-    try:
-        return validate_cliente_or_raise(raw)
-    except Exception:
-        for c in get_clienti_utenti():
-            if normalize_text_key(c) == norm:
-                return c
-        raise
-
 @app.route('/lavorazioni', methods=['GET', 'POST'])
 @login_required
 def lavorazioni():
@@ -6128,7 +6105,7 @@ def lavorazioni():
 
             d_val = datetime.strptime(request.form.get('data'), '%Y-%m-%d').date()
             rec.data = d_val
-            rec.cliente = canonical_cliente_picking(request.form.get('cliente'))
+            rec.cliente = validate_cliente_or_raise(request.form.get('cliente'))
             rec.descrizione = request.form.get('descrizione')
             rec.richiesta_di = request.form.get('richiesta_di')
             rec.seriali = request.form.get('seriali')
@@ -6156,7 +6133,7 @@ def lavorazioni():
             d_val = datetime.strptime(request.form.get('data'), '%Y-%m-%d').date()
             nuovo = Lavorazione(
                 data=d_val,
-                cliente=canonical_cliente_picking(request.form.get('cliente')),
+                cliente=validate_cliente_or_raise(request.form.get('cliente')),
                 descrizione=request.form.get('descrizione'),
                 richiesta_di=request.form.get('richiesta_di'),
                 seriali=request.form.get('seriali'),
@@ -6168,7 +6145,7 @@ def lavorazioni():
             )
             db.add(nuovo)
             db.commit()
-            flash(f"Picking aggiunto per {nuovo.cliente} in data {nuovo.data}.", "success")
+            flash("Picking aggiunto!", "success")
         except Exception as e:
             db.rollback()
             flash(f"Errore inserimento: {e}", "danger")
@@ -6221,13 +6198,7 @@ def lavorazioni():
         if not filtro:
             return True
         v = str(value or '')
-        nf = normalize_text_key(filtro)
-        nv = normalize_text_key(v)
-        if filtro.lower() in v.lower() or nf in nv:
-            return True
-        if nf in {'GALVANOTECNICA', 'COTUGNOGALVANOTECNICA', 'GALVANO'} and nv == 'GALVANOTECNICA':
-            return True
-        return False
+        return filtro.lower() in v.lower() or normalize_text_key(filtro) in normalize_text_key(v)
 
     dati = (
         db.query(Lavorazione)
@@ -6298,10 +6269,10 @@ def stampa_picking_pdf():
     try:
         query = db.query(Lavorazione)
 
-        # âœ… Qui trattiamo lavorazioni.data come TEXT -> la convertiamo in DATE (Postgres)
+        # ✅ Qui trattiamo lavorazioni.data come TEXT -> la convertiamo in DATE (Postgres)
         data_as_date = func.to_date(func.left(Lavorazione.data, 10), 'YYYY-MM-DD')
 
-        # âœ… FILTRO MESE (con range corretto)
+        # ✅ FILTRO MESE (con range corretto)
         if mese:
             try:
                 year, month = mese.split("-")
@@ -6319,14 +6290,14 @@ def stampa_picking_pdf():
                     data_as_date < func.to_date(end_str, 'YYYY-MM-DD')
                 )
             except Exception:
-                # fallback se mese non Ã¨ valido
+                # fallback se mese non è valido
                 pass
 
-        # âœ… FILTRO CLIENTE
+        # ✅ FILTRO CLIENTE
         if cliente:
             query = query.filter(Lavorazione.cliente.ilike(f"%{cliente}%"))
 
-        # âœ… ORDINAMENTO SICURO (per data convertita)
+        # ✅ ORDINAMENTO SICURO (per data convertita)
         rows = query.order_by(data_as_date.asc().nullslast(), Lavorazione.id.asc()).all()
 
         # --- CREA EXCEL ---
@@ -6699,7 +6670,7 @@ def import_excel():
         # Mappa colonne (case-insensitive)
         df_cols_upper = {str(c).strip().upper(): c for c in df.columns}
 
-        # âœ… HELPER DATA SUPER-ROBUSTO
+        # ✅ HELPER DATA SUPER-ROBUSTO
         def to_date_db(val):
             """
             Ritorna data in formato YYYY-MM-DD oppure None.
@@ -6805,7 +6776,7 @@ def import_excel():
                         val = 1
 
                 elif db_field in ['data_ingresso', 'data_uscita']:
-                    val = to_date_db(val)  # âœ… QUI ORA PRENDE ANCHE SERIALI EXCEL
+                    val = to_date_db(val)  # ✅ QUI ORA PRENDE ANCHE SERIALI EXCEL
 
                 else:
                     val = str(val).strip()
@@ -6855,11 +6826,11 @@ def get_all_fields_map():
         'codice_articolo': 'Codice Articolo', 'pezzo': 'Pezzi','lotto':'Lotto',
         'descrizione': 'Descrizione', 'cliente': 'Cliente','ordine':'Ordine',
         'protocollo': 'Protocollo', 'peso': 'Peso (Kg)',
-        'n_colli': 'NÂ° Colli', 'posizione': 'Posizione', 'stato': 'Stato',
-        'n_arrivo': 'NÂ° Arrivo', 'codice_entrata': 'Codice Entrata', 'buono_n': 'Buono NÂ°',
+        'n_colli': 'N° Colli', 'posizione': 'Posizione', 'stato': 'Stato',
+        'n_arrivo': 'N° Arrivo', 'codice_entrata': 'Codice Entrata', 'buono_n': 'Buono N°',
         'fornitore': 'Fornitore', 'magazzino': 'Magazzino',
         'data_ingresso': 'Data Ingresso', 'data_uscita': 'Data Uscita',
-        'n_ddt_ingresso': 'NÂ° DDT Ingresso', 'n_ddt_uscita': 'NÂ° DDT Uscita',
+        'n_ddt_ingresso': 'N° DDT Ingresso', 'n_ddt_uscita': 'N° DDT Uscita',
         'larghezza': 'Larghezza (m)', 'lunghezza': 'Lunghezza (m)',
         'altezza': 'Altezza (m)', 'serial_number': 'Serial Number',
         'ns_rif': 'NS Rif', 'mezzi_in_uscita': 'Mezzi in Uscita', 'note': 'Note'
@@ -6910,7 +6881,7 @@ def save_pdf_import():
         codici = request.form.getlist('codice[]')
         descrizioni = request.form.getlist('descrizione[]')
         colli_list = request.form.getlist('colli[]')
-        qta_list = request.form.getlist('pezzi[]')  # peso / quantitÃ 
+        qta_list = request.form.getlist('pezzi[]')  # peso / quantità
         um_list = request.form.getlist('um[]')
         pezzi_articolo_list = request.form.getlist('pezzi_articolo[]')  # pezzi (separati dal peso)
         lotto_list = request.form.getlist('lotto[]')
@@ -6946,7 +6917,7 @@ def save_pdf_import():
             sr = serial_list[i] if i < len(serial_list) else ""
             art.serial_number = (sr or "").strip()
 
-            # QuantitÃ /Peso: il campo 'pezzi[]' in tabella Ã¨ usato come Peso/Q.tÃ .
+            # Quantità/Peso: il campo 'pezzi[]' in tabella è usato come Peso/Q.tà.
             qta = qta_list[i] if i < len(qta_list) else ""
             um = (um_list[i] if i < len(um_list) else "").strip().upper()
 
@@ -6960,7 +6931,7 @@ def save_pdf_import():
                 # salva anche i pezzi se presenti
                 art.pezzo = pz_art
             else:
-                # qta = pezzi/quantitÃ  (non Kg)
+                # qta = pezzi/quantità (non Kg)
                 art.pezzo = str(pz_art or qta).strip()
                 art.peso = to_float_eu(qta) if str(qta).strip() else None
 
@@ -7021,7 +6992,7 @@ def export_excel():
                 qs = qs.filter(getattr(Articolo, field).ilike(f"%{val.strip()}%"))
         m2_da = args.get('m2_da')
         m2_a = args.get('m2_a')
-        m2_legacy = args.get('m2')  # compatibilitÃ : vecchio filtro singolo (es. "1,25" o "1-2")
+        m2_legacy = args.get('m2')  # compatibilità: vecchio filtro singolo (es. "1,25" o "1-2")
 
         def _to_float_it(v):
             if v is None:
@@ -7263,7 +7234,7 @@ def invia_email():
             except:
                 pass
 
-            misure = f"{fnum(r.larghezza,2)} Ã— {fnum(r.lunghezza,2)} Ã— {fnum(r.altezza,2)}"
+            misure = f"{fnum(r.larghezza,2)} × {fnum(r.lunghezza,2)} × {fnum(r.altezza,2)}"
 
             trs.append(f"""
             <tr>
@@ -7289,7 +7260,7 @@ def invia_email():
               <tr style="background:#f2f2f2;">
                 <th style="border:1px solid #ddd;padding:6px;">Commessa</th>
                 <th style="border:1px solid #ddd;padding:6px;">Ordine</th>
-                <th style="border:1px solid #ddd;padding:6px;">Misure pallet (LÃ—PÃ—H)</th>
+                <th style="border:1px solid #ddd;padding:6px;">Misure pallet (L×P×H)</th>
                 <th style="border:1px solid #ddd;padding:6px;">Cliente</th>
                 <th style="border:1px solid #ddd;padding:6px;">Fornitore</th>
                 <th style="border:1px solid #ddd;padding:6px;text-align:right;">Peso (kg)</th>
@@ -7326,14 +7297,14 @@ def invia_email():
         Sig.  Hugo Esviza&nbsp&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; +39 327 4573767<br><br>
         Sig.ra vanessa Roberto&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; +39 351 5105697<br><br>
 
-        <i>a simple but ingenious company Â®</i><br><br>
+        <i>a simple but ingenious company ®</i><br><br>
 
         <b>INDIRIZZO CONTABILITA':</b> <a href="mailto:contabilita@camarsrl.net">contabilita@camarsrl.net</a><br><br>
 
-        HEAD OFFICE: Via Balleydier 52r â€“ 16149 GENOVA<br>
+        HEAD OFFICE: Via Balleydier 52r – 16149 GENOVA<br>
         BRANCH OFFICE: La Spezia - Savona - Vado Ligure - Civitavecchia - Marina Di Carrara - Venezia<br><br>
 
-        Tutte le parti accettano il presente documento e stabiliscono che per ogni eventuale e futura controversia derivante dal presente accordo, o connesse allo stesso, Ã¨ competente il Tribunale di Roma .<br><br>
+        Tutte le parti accettano il presente documento e stabiliscono che per ogni eventuale e futura controversia derivante dal presente accordo, o connesse allo stesso, è competente il Tribunale di Roma .<br><br>
 
         Si ritiene accettato con la conferma del trasporto o la conferma della vendita .<br><br>
 
@@ -7344,7 +7315,7 @@ def invia_email():
       <hr style="border:0;border-top:1px solid #ccc;margin:15px 0;">
 
       <p style="font-size:10px;color:#777;text-align:justify;margin-top:10px;">
-      <b>AVVISO IMPORTANTE.</b>Le informazioni contenute nella presente comunicazione e i relativi allegati possono essere riservate e sono, comunque, destinate esclusivamente alle persone o alla SocietÃ  sopraindicati. La comunicazione, diffusione, distribuzione e/o copiatura del documento trasmesso nonchÃ© qualsiasi forma di trattamento dei dati ivi contenuti da parte di qualsiasi soggetto diverso dal destinatario Ã¨ proibita, sia ai sensi dellâ€™art. 616 c.p., che ai sensi del D. Lgs. n. 196/2003, ed in ogni caso espressamente inibita. Le informazioni e tutte le indicazioni, dati, contenuti in questo messaggio hanno una scadenza decennale. Se avete ricevuto questo messaggio per errore, vi preghiamo di distruggerlo e di informarci immediatamente per telefono allo 010 265995 o inviando un messaggio. Lâ€™operazione eseguita per vostro conto, segue lâ€™accordo/le tariffe stabilite appositamente, fa parte di un appalto di servizi in esclusiva per le operazioni marittime della vostra azienda. La sopracitata operazione, che sarÃ  effettuata con il massimo dellâ€™attenzione e piÃ¹ velocemente possibile, viene eseguita tramite Autorizzazione Doganale, di Polizia ,o di Capitaneria, ed Ã¨ riconducibile e discrezionale solo da parte dellâ€™AutoritÃ  Ministeriale/Statale, pertanto la nostra azienda si manleva da qualsiasi responsabilitÃ  relativa allâ€™esito della stessa. Le disposizioni di cui sopra si ritengono accettate dalle controparti, dal momento dellâ€™incarico e dello svolgimento del lavoro sopra menzionato nella email. Questo messaggio, con gli eventuali allegati e informazioni contiene documentazione, dati, notizie, nomi, riservate esclusivamente per fini lavorativi al destinatario inteso come azienda, e alla sua direzione. La nostra azienda non accetta nessun tipo di addebito per ritardi o errori, deficienze o negligenze, nella compilazione o nellâ€™esecuzione, assistenza della documentazione richiesta o fornita.La scrivente agisce come intermediario tra IMPORTANTE. Mandato di trasporto e assicurativo: eseguiamo lâ€™ordine di trasporto e assicuriamo la merce al valore dichiarato. La risposta a questa email Ã¨ da considerare come mandato assicurativo( quello assicurativo se esplicitamente manifestato dal cliente) e di trasporto a tutti gli effetti.Vi preghiamo di avvisarci nel caso di imprevisti.Comunichiamo che il cambio della data di consegna da noi indicata, non deve essere soggetta a richieste danni o spese. Comunichiamo, inoltre, che dallâ€™uscita dei varchi doganali sino a Vs destinazione, le spese e i costi derivanti da eventuali blocchi traffico, soste, verbali, sanzioni, incidenti non sono a noi imputabili.Se il valore della merce trasportata non Ã¨ stato dichiarato, il cliente anche per conto dei propri mandatari rinuncia a far valere nei confronti della societÃ  e del vettore qualsiasi credito per danni o perdita delle merci in misura superiore al valore indicato dal decreto riportato. Si obbliga a tenere indenne e manlevare la societÃ  e il vettore a fronte di qualsiasi richiesta di risarcimento da parte di terzi a fronte di perdite delle merci in misura superiore al valore indicato dal decreto sotto riportato.Il trasporto oggetto della presente prenotazione Ã¨ disciplinato dalle disposizioni del decreto legislativo 21.11.2005 n.286. Tali disposizioni, tra lâ€™altro, prevedono a carico del committente, caricatore, e proprietario delle merci responsabilitÃ  e sanzioni in relazione a violazione delle disposizioni in materia di sicurezza della circolazione quali quelle relative alla massa limite e alla sistemazione del carico sui veicoli. Il cliente garantisce lâ€™esattezza e la completezza delle informazioni fornite alla societÃ  in merito alle merci oggetto della prenotazione, nonchÃ©, laddove vi preveda lâ€™accuratezza e lâ€™idoneitÃ  della sistemazione del carico sui veicoli nel rispetto delle norme descritte si terrÃ  indenne e manleverÃ  la societÃ  e il vettore da questâ€™ultima incaricato per suo conto a fronte di qualsiasi sanzione e responsabilitÃ  che dovesse derivare dallâ€™inesattezza incompletezza o inidoneitÃ  delle predette informazioni e sistemazioni.Ãˆ a conoscenza e quindi manleva da qualsiasi danno o addebito la scrivente, nel caso che lâ€™ordine di trasporto venga disdetto da questâ€™ultima per motivi logistici.La nostra azienda si occupa dâ€™intermediazione nel campo della logistica e trasporti.Eseguiamo operazioni solo ed esclusivamente per Vs conto senza alcuna responsabilitÃ  civile, economica, legale.Le disposizioni di cui sopra si ritengono accettate dal momento dellâ€™incarico.
+      <b>AVVISO IMPORTANTE.</b>Le informazioni contenute nella presente comunicazione e i relativi allegati possono essere riservate e sono, comunque, destinate esclusivamente alle persone o alla Società sopraindicati. La comunicazione, diffusione, distribuzione e/o copiatura del documento trasmesso nonché qualsiasi forma di trattamento dei dati ivi contenuti da parte di qualsiasi soggetto diverso dal destinatario è proibita, sia ai sensi dell’art. 616 c.p., che ai sensi del D. Lgs. n. 196/2003, ed in ogni caso espressamente inibita. Le informazioni e tutte le indicazioni, dati, contenuti in questo messaggio hanno una scadenza decennale. Se avete ricevuto questo messaggio per errore, vi preghiamo di distruggerlo e di informarci immediatamente per telefono allo 010 265995 o inviando un messaggio. L’operazione eseguita per vostro conto, segue l’accordo/le tariffe stabilite appositamente, fa parte di un appalto di servizi in esclusiva per le operazioni marittime della vostra azienda. La sopracitata operazione, che sarà effettuata con il massimo dell’attenzione e più velocemente possibile, viene eseguita tramite Autorizzazione Doganale, di Polizia ,o di Capitaneria, ed è riconducibile e discrezionale solo da parte dell’Autorità Ministeriale/Statale, pertanto la nostra azienda si manleva da qualsiasi responsabilità relativa all’esito della stessa. Le disposizioni di cui sopra si ritengono accettate dalle controparti, dal momento dell’incarico e dello svolgimento del lavoro sopra menzionato nella email. Questo messaggio, con gli eventuali allegati e informazioni contiene documentazione, dati, notizie, nomi, riservate esclusivamente per fini lavorativi al destinatario inteso come azienda, e alla sua direzione. La nostra azienda non accetta nessun tipo di addebito per ritardi o errori, deficienze o negligenze, nella compilazione o nell’esecuzione, assistenza della documentazione richiesta o fornita.La scrivente agisce come intermediario tra IMPORTANTE. Mandato di trasporto e assicurativo: eseguiamo l’ordine di trasporto e assicuriamo la merce al valore dichiarato. La risposta a questa email è da considerare come mandato assicurativo( quello assicurativo se esplicitamente manifestato dal cliente) e di trasporto a tutti gli effetti.Vi preghiamo di avvisarci nel caso di imprevisti.Comunichiamo che il cambio della data di consegna da noi indicata, non deve essere soggetta a richieste danni o spese. Comunichiamo, inoltre, che dall’uscita dei varchi doganali sino a Vs destinazione, le spese e i costi derivanti da eventuali blocchi traffico, soste, verbali, sanzioni, incidenti non sono a noi imputabili.Se il valore della merce trasportata non è stato dichiarato, il cliente anche per conto dei propri mandatari rinuncia a far valere nei confronti della società e del vettore qualsiasi credito per danni o perdita delle merci in misura superiore al valore indicato dal decreto riportato. Si obbliga a tenere indenne e manlevare la società e il vettore a fronte di qualsiasi richiesta di risarcimento da parte di terzi a fronte di perdite delle merci in misura superiore al valore indicato dal decreto sotto riportato.Il trasporto oggetto della presente prenotazione è disciplinato dalle disposizioni del decreto legislativo 21.11.2005 n.286. Tali disposizioni, tra l’altro, prevedono a carico del committente, caricatore, e proprietario delle merci responsabilità e sanzioni in relazione a violazione delle disposizioni in materia di sicurezza della circolazione quali quelle relative alla massa limite e alla sistemazione del carico sui veicoli. Il cliente garantisce l’esattezza e la completezza delle informazioni fornite alla società in merito alle merci oggetto della prenotazione, nonché, laddove vi preveda l’accuratezza e l’idoneità della sistemazione del carico sui veicoli nel rispetto delle norme descritte si terrà indenne e manleverà la società e il vettore da quest’ultima incaricato per suo conto a fronte di qualsiasi sanzione e responsabilità che dovesse derivare dall’inesattezza incompletezza o inidoneità delle predette informazioni e sistemazioni.È a conoscenza e quindi manleva da qualsiasi danno o addebito la scrivente, nel caso che l’ordine di trasporto venga disdetto da quest’ultima per motivi logistici.La nostra azienda si occupa d’intermediazione nel campo della logistica e trasporti.Eseguiamo operazioni solo ed esclusivamente per Vs conto senza alcuna responsabilità civile, economica, legale.Le disposizioni di cui sopra si ritengono accettate dal momento dell’incarico.
       </p>
     </div>
     """
@@ -7429,7 +7400,7 @@ def invia_email():
         """
         msg_alt.attach(MIMEText(html_body, 'html', 'utf-8'))
 
-        # âœ… Allega LOGO inline (CID)
+        # ✅ Allega LOGO inline (CID)
         possible_logos = ["logo camar.jpg", "logo_camar.jpg", "logo.jpg"]
         logo_found = False
         for name in possible_logos:
@@ -7444,9 +7415,9 @@ def invia_email():
                 break
 
         if not logo_found:
-            print("âš ï¸ Logo non trovato in static: l'email partirÃ  senza logo.")
+            print("⚠️ Logo non trovato in static: l'email partirà senza logo.")
 
-        # âœ… Allegati esistenti (foto/pdf articoli)
+        # ✅ Allegati esistenti (foto/pdf articoli)
         if allega_file and ids_list:
             db = SessionLocal()
             try:
@@ -7469,7 +7440,7 @@ def invia_email():
             finally:
                 db.close()
 
-        # âœ… Allegati extra
+        # ✅ Allegati extra
         for file in allegati_extra:
             if file and file.filename:
                 part = MIMEBase('application', "octet-stream")
@@ -7478,7 +7449,7 @@ def invia_email():
                 part.add_header('Content-Disposition', f'attachment; filename="{secure_filename(file.filename)}"')
                 msg_root.attach(part)
 
-        # âœ… Invio SMTP
+        # ✅ Invio SMTP
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
@@ -7502,7 +7473,7 @@ def invia_email():
 def upload_file(id_articolo):
     # 1. Controllo Permessi
     if session.get('role') != 'admin':
-        flash("Solo Admin puÃ² caricare file", "danger")
+        flash("Solo Admin può caricare file", "danger")
         return redirect(url_for('edit_record', id_articolo=id_articolo))
 
     # 2. Recupera LISTA di file
@@ -7615,7 +7586,7 @@ def serve_uploaded_file(filename):
                         return send_file(folder / existing_file)
             except: pass
 
-    # Se arriviamo qui, il file non c'Ã¨. Stampa debug nei log di Render.
+    # Se arriviamo qui, il file non c'è. Stampa debug nei log di Render.
     print(f"DEBUG: File '{filename}' non trovato. Cercato candidati: {candidates}")
     return f"File '{decoded_name}' non trovato sul server (potrebbe essere stato cancellato dal riavvio di Render).", 404
 
@@ -7887,7 +7858,7 @@ def nuovo_articolo():
 @require_admin
 def delete_articolo(id):
     if session.get('role') != 'admin':
-        flash("Accesso Negato: Solo Admin puÃ² eliminare.", "danger")
+        flash("Accesso Negato: Solo Admin può eliminare.", "danger")
         return redirect(url_for('giacenze'))
         
     db = SessionLocal()
@@ -7924,7 +7895,7 @@ def duplica_articolo(id_articolo):
             flash("Articolo non trovato", "danger")
             return redirect(url_for('giacenze'))
 
-        # âœ… Copia tutti i campi della tabella Articolo eccetto la PK
+        # ✅ Copia tutti i campi della tabella Articolo eccetto la PK
         data_copy = {}
         for col in Articolo.__table__.columns:
             if col.name == 'id_articolo':
@@ -7933,7 +7904,7 @@ def duplica_articolo(id_articolo):
 
         nuovo = Articolo(**data_copy)
 
-        # âœ… Modifiche volute sulla copia
+        # ✅ Modifiche volute sulla copia
         nuovo.note = f"Copia di ID {originale.id_articolo}"
         nuovo.data_ingresso = date.today()
 
@@ -8317,7 +8288,7 @@ def giacenze():
             if val and val.strip():
                 qs = qs.filter(getattr(Articolo, field).ilike(f"%{val.strip()}%"))
 
-        # 5) Filtro M2 (range DA/A + compatibilitÃ  col vecchio campo singolo)
+        # 5) Filtro M2 (range DA/A + compatibilità col vecchio campo singolo)
         m2_da = args.get('m2_da')
         m2_a = args.get('m2_a')
         m2_legacy = args.get('m2')
@@ -8410,7 +8381,7 @@ def giacenze():
         else:
             filtered_rows = all_rows
 
-        # âœ… 7) NUOVO FILTRO: SOLO IN GIACENZA
+        # ✅ 7) NUOVO FILTRO: SOLO IN GIACENZA
         # In giacenza = NON ha data_uscita e NON ha n_ddt_uscita
         if args.get("solo_giacenza") == "1":
             tmp = []
@@ -8453,7 +8424,7 @@ def giacenze():
         end = start + PER_PAGE
         current_page_rows = filtered_rows[start:end]
 
-        # âœ… FIX: parametri senza "page"
+        # ✅ FIX: parametri senza "page"
         search_params = request.args.copy()
         if 'page' in search_params:
             del search_params['page']
@@ -8484,9 +8455,9 @@ def giacenze():
 @app.route('/elimina_record/<table>/<int:id>')
 @login_required
 def elimina_record(table, id):
-    # Solo Admin puÃ² eliminare
+    # Solo Admin può eliminare
     if session.get('role') != 'admin':
-        flash("Accesso Negato: Solo Admin puÃ² eliminare.", "danger")
+        flash("Accesso Negato: Solo Admin può eliminare.", "danger")
         return redirect(url_for('giacenze'))
 
     db = SessionLocal()
@@ -8613,7 +8584,7 @@ def bulk_edit():
                         C = updates.get('n_colli', art.n_colli)
                         art.m2, art.m3 = calc_m2_m3(L, W, H, C)
 
-            # 2) UPLOAD MASSIVO MULTIPLO (piÃ¹ file) âœ… CORRETTO
+            # 2) UPLOAD MASSIVO MULTIPLO (più file) ✅ CORRETTO
             files = request.files.getlist('bulk_files')
             count_uploaded = 0
 
@@ -8683,7 +8654,7 @@ def bulk_edit():
 @login_required
 @require_admin
 def delete_rows():
-    # Controllo Permessi: Solo Admin puÃ² cancellare
+    # Controllo Permessi: Solo Admin può cancellare
     if session.get('role') != 'admin':
         flash("Non hai i permessi per eliminare le righe.", "danger")
         return redirect(url_for('giacenze'))
@@ -8842,7 +8813,7 @@ def buono_preview():
             "commessa": commessa_auto, 
             "fornitore": fornitore_auto,
             "protocollo": protocollo_auto,
-            "ordine": ordine_auto, # âœ… CAMPO AGGIUNTO
+            "ordine": ordine_auto, # ✅ CAMPO AGGIUNTO
         }
         
         return render_template('buono_preview.html', rows=rows, meta=meta, ids=",".join(map(str, ids)))
@@ -8861,7 +8832,7 @@ def ddt_preview():
         flash('Accesso negato.', 'danger')
         return redirect(url_for('giacenze'))
 
-    # âš ï¸ ids puÃ² arrivare in due modi:
+    # ⚠️ ids può arrivare in due modi:
     # - lista di checkbox: ids=1 ids=2 ids=3
     # - stringa csv in un campo hidden: ids="1,2,3"
     ids = []
@@ -9025,7 +8996,7 @@ def manage_destinatari():
             key_name = (request.form.get('key_name') or '').strip()
 
             if not key_name:
-                flash("Il Nome Chiave Ã¨ obbligatorio.", "warning")
+                flash("Il Nome Chiave è obbligatorio.", "warning")
             else:
                 destinatari[key_name] = {
                     "ragione_sociale": (request.form.get('ragione_sociale') or '').strip(),
@@ -9145,7 +9116,7 @@ def _pdf_table(data, col_widths=None, header=True, hAlign='LEFT', style=None):
 def _copyright_para():
     tiny_style = _styles['Normal'].clone('copyright')
     tiny_style.fontSize = 7; tiny_style.textColor = colors.grey; tiny_style.alignment = TA_CENTER
-    return Paragraph("Camar S.r.l. - Gestionale Web - Â© Alessia Moncalvo", tiny_style)
+    return Paragraph("Camar S.r.l. - Gestionale Web - © Alessia Moncalvo", tiny_style)
 
 def _generate_buono_pdf(form_data, rows):
     import io
@@ -9219,13 +9190,13 @@ def _generate_buono_pdf(form_data, rows):
     header = [
         Paragraph('<b>Codice</b>', s_bold),
         Paragraph('<b>Descrizione</b>', s_bold),
-        Paragraph('<b>Q.tÃ </b>', s_bold),
+        Paragraph('<b>Q.tà</b>', s_bold),
         Paragraph('<b>N.Arr</b>', s_bold)
     ]
     table_data = [header]
 
     for r in rows:
-        # âœ… Q.tÃ : prende il valore inserito nel form (q_ID), altrimenti usa PEZZI (r.pezzo)
+        # ✅ Q.tà: prende il valore inserito nel form (q_ID), altrimenti usa PEZZI (r.pezzo)
         q_form = form_data.get(f"q_{r.id_articolo}")
         if q_form is not None and str(q_form).strip() != "":
             q = _to_int_safe(q_form, default=0)
@@ -9378,7 +9349,7 @@ def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
         nota = r.get('note')
         if nota and str(nota).strip():
             # Prima era: f"NOTE ARTICOLO ({r.get('codice_articolo')}): {nota}"
-            # Ora Ã¨ solo: f"NOTE: {nota}"
+            # Ora è solo: f"NOTE: {nota}"
             note_da_stampare.append(f"NOTE: {nota}")
 
         data.append([
@@ -9446,8 +9417,8 @@ def buono_finalize_and_get_pdf():
         action = req_data.get('action')
         
         # AGGIORNAMENTO DATI (Sia per anteprima che per salvataggio)
-        # Ãˆ importante salvare le note temporaneamente o definitivamente
-        # Qui le salviamo nel DB se l'azione Ã¨ 'save'
+        # È importante salvare le note temporaneamente o definitivamente
+        # Qui le salviamo nel DB se l'azione è 'save'
         
         bn = req_data.get('buono_n')
         
@@ -9456,7 +9427,7 @@ def buono_finalize_and_get_pdf():
             if action == 'save' and bn:
                 r.buono_n = bn
             
-            # SALVA LE NOTE! (CosÃ¬ il DDT le troverÃ  dopo)
+            # SALVA LE NOTE! (Così il DDT le troverà dopo)
             note_inserite = req_data.get(f"note_{r.id_articolo}")
             if note_inserite is not None:
                 r.note = note_inserite
@@ -9495,10 +9466,10 @@ def ddt_finalize():
         ids = [int(i) for i in ids_str.split(',') if i.strip().isdigit()]
         action = request.form.get('action', 'preview')
 
-        # âœ… MEZZO IN USCITA (colonna: Mezzo Usc / campo DB: mezzi_in_uscita)
+        # ✅ MEZZO IN USCITA (colonna: Mezzo Usc / campo DB: mezzi_in_uscita)
         mezzo_uscita = (request.form.get('mezzi_in_uscita') or '').strip()
 
-        # âœ… obbligatorio SOLO quando finalizzi
+        # ✅ obbligatorio SOLO quando finalizzi
         if action == 'finalize' and not mezzo_uscita:
             flash("Seleziona il Mezzo in uscita (Motrice / Bilico / Furgone) prima di finalizzare.", "danger")
             return redirect(url_for('giacenze'))
@@ -9507,7 +9478,7 @@ def ddt_finalize():
         n_ddt = request.form.get('n_ddt', '').strip()
         data_ddt_str = request.form.get('data_ddt')
 
-        # âœ… Progressivo DDT: viene salvato SOLO quando si preme "Finalizza"
+        # ✅ Progressivo DDT: viene salvato SOLO quando si preme "Finalizza"
         # In anteprima mostriamo il prossimo numero senza consumarlo.
         if action == 'finalize':
             try:
@@ -9518,7 +9489,7 @@ def ddt_finalize():
                 if not n_ddt:
                     n_ddt = next_ddt_number()
 
-        # âœ… Se l'utente ha scelto un numero diverso (con le frecce),
+        # ✅ Se l'utente ha scelto un numero diverso (con le frecce),
         # aggiorniamo comunque il progressivo per evitare riutilizzi futuri.
         if action == 'finalize':
             consume_specific_ddt_number(n_ddt)
@@ -9563,11 +9534,11 @@ def ddt_finalize():
             nuovi_colli = to_int_eu(raw_colli) if raw_colli is not None else art.n_colli
             nuovo_peso = to_float_eu(raw_peso) if raw_peso is not None else art.peso
 
-            # âœ… Se Finalizza -> Salva su DB
+            # ✅ Se Finalizza -> Salva su DB
             if action == 'finalize':
                 art.data_uscita = data_ddt_obj
                 art.n_ddt_uscita = n_ddt
-                art.mezzi_in_uscita = mezzo_uscita  # âœ… QUI COMPILIAMO "MEZZO USC"
+                art.mezzi_in_uscita = mezzo_uscita  # ✅ QUI COMPILIAMO "MEZZO USC"
                 if nuove_note is not None:
                     art.note = nuove_note
 
@@ -9650,7 +9621,7 @@ def ddt_mezzo_uscita():
     if not ids:
         return "ERRORE: nessun articolo selezionato.", 400
 
-    # âœ… obbligatorio e solo valori ammessi
+    # ✅ obbligatorio e solo valori ammessi
     allowed = {"Motrice", "Bilico", "Furgone"}
     if mezzo not in allowed:
         flash("Seleziona un Mezzo valido (Motrice / Bilico / Furgone).", "danger")
@@ -9714,8 +9685,8 @@ def labels_form():
 
 def _auto_create_entry_from_label(db, form, codice_entrata):
     """Crea automaticamente le righe giacenza partendo dai dati dell'etichetta manuale.
-    Mantiene lo stesso codice_entrata / barcode / QR dell'etichetta giÃ  creata.
-    Se l'entrata esiste giÃ , non duplica le righe."""
+    Mantiene lo stesso codice_entrata / barcode / QR dell'etichetta già creata.
+    Se l'entrata esiste già, non duplica le righe."""
     codice_entrata = (codice_entrata or '').strip()
     if not codice_entrata:
         return []
@@ -9839,7 +9810,7 @@ def labels_pdf():
                 if created_rows:
                     flash(f"Entrata inserita in giacenza con {len(created_rows)} righe. Ora puoi completare i dati mancanti.", 'success')
                 else:
-                    flash(f"Attenzione: nessuna riga Ã¨ stata inserita per il barcode {codice_entrata}.", 'warning')
+                    flash(f"Attenzione: nessuna riga è stata inserita per il barcode {codice_entrata}.", 'warning')
                 return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata))
             except Exception as e:
                 db.rollback()
@@ -9852,7 +9823,7 @@ def labels_pdf():
     formato = request.form.get('formato', '62x100')
     pdf_bio = _genera_pdf_etichetta(articoli, formato)
 
-    # âœ… FORZA DOWNLOAD (cosÃ¬ poi stampi dal file scaricato con formato corretto)
+    # ✅ FORZA DOWNLOAD (così poi stampi dal file scaricato con formato corretto)
     filename = f"Etichetta_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     pdf_bio.seek(0)
     return send_file(
@@ -9996,7 +9967,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
     totale_entrata = sum(colli_per_art) if colli_per_art else 1
     totale_entrata = max(1, int(totale_entrata or 1))
 
-    # Se le righe arrivano giÃ  numerate come N.1, N.2, ... (tipico dalla ristampa dell'entrata),
+    # Se le righe arrivano già numerate come N.1, N.2, ... (tipico dalla ristampa dell'entrata),
     # usa quella sequenza per mostrare sempre X/TOTALE e non 1/1 sulla singola riga.
     progressivi_presenti = [p for p in saved_progressivi if p]
     use_saved_progressivi = len(progressivi_presenti) == len(articoli) and len(articoli) > 0
@@ -10017,7 +9988,7 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                     collo_str = f"1/{max(1, totale_entrata)}"
             else:
                 arr_str = build_arrivo_progressivo(saved_arrivo, i)
-                # Se la riga ha giÃ  un progressivo salvato, trattalo come base per i colli successivi.
+                # Se la riga ha già un progressivo salvato, trattalo come base per i colli successivi.
                 start_prog = saved_prog if saved_prog else i
                 current_prog = start_prog + (i - 1 if saved_prog else 0)
                 denom = max(totale_entrata, current_prog)
@@ -10112,7 +10083,7 @@ app.jinja_env.filters['fmt_date'] = fmt_date
     
 # --- FIX DATABASE SCHEMA (Esegui all'avvio per correggere tipi colonne) ---
 # ========================================================
-# ðŸš‘ PULSANTE DI EMERGENZA PER FIX DATABASE
+# 🚑 PULSANTE DI EMERGENZA PER FIX DATABASE
 # ========================================================
 @app.route('/fix_db_schema')
 @login_required
@@ -10216,7 +10187,7 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento, m2_multipli
       - "m2"    => usa art.m2
       - "colli" => usa art.n_colli
       - "pezzi" => usa art.pezzi / art.pezzo
-    Ritorna SEMPRE anche m2_tot/m2_medio per compatibilitÃ  template.
+    Ritorna SEMPRE anche m2_tot/m2_medio per compatibilità template.
     """
     from collections import defaultdict
     from datetime import timedelta, date, datetime
@@ -10248,7 +10219,7 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento, m2_multipli
     metric = (metric or "m2").strip().lower()
 
     def get_qty(art):
-        # âœ… M2
+        # ✅ M2
         if metric == "m2":
             try:
                 val_m2 = str(getattr(art, "m2", "") or "").replace(",", ".")
@@ -10266,14 +10237,14 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento, m2_multipli
 
             return float(m2)
 
-        # âœ… COLLI
+        # ✅ COLLI
         if metric == "colli":
             try:
                 return float(int(getattr(art, "n_colli", 0) or 0))
             except:
                 return 0.0
 
-        # âœ… PEZZI
+        # ✅ PEZZI
         if metric == "pezzi":
             raw = getattr(art, "pezzi", None)
             if raw is None:
@@ -10316,8 +10287,8 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento, m2_multipli
     risultati_finali = []
 
     def pack_row(periodo, cliente, tot, medio, giorni):
-        # âœ… compatibilitÃ : restituisco SEMPRE anche m2_tot/m2_medio
-        # cosÃ¬ il template admin che stampa r.m2_tot / r.m2_medio funziona sempre.
+        # ✅ compatibilità: restituisco SEMPRE anche m2_tot/m2_medio
+        # così il template admin che stampa r.m2_tot / r.m2_medio funziona sempre.
         tot_s = f"{tot:.3f}" if isinstance(tot, (int, float)) else str(tot)
         med_s = f"{medio:.3f}" if isinstance(medio, (int, float)) else str(medio)
 
@@ -10353,7 +10324,7 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento, m2_multipli
             n_days = len(dati["days"])
             tot = dati["sum"]
 
-            # âœ… MÂ² EFFETTIVI (non medi): valore reale sull'ULTIMO giorno del periodo considerato per quel mese
+            # ✅ M² EFFETTIVI (non medi): valore reale sull'ULTIMO giorno del periodo considerato per quel mese
             if n_days > 0:
                 last_day = max(dati["days"])
                 eff = float(val_per_giorno.get((cli, last_day), 0.0))
@@ -10370,10 +10341,10 @@ def _calcola_logica_costi(articoli, data_da, data_a, raggruppamento, m2_multipli
 def _calcola_logica_colli_giacenza(articoli, data_da, data_a, raggruppamento):
     """
     Calcola i COLLI in GIACENZA nel periodo (fotografia giornaliera o mensile),
-    togliendo quelli giÃ  usciti.
+    togliendo quelli già usciti.
 
     - Per ogni giorno: somma n_colli degli articoli che risultano "presenti" quel giorno.
-    - Presente = data_ingresso <= giorno AND (data_uscita Ã¨ vuota oppure data_uscita > giorno)
+    - Presente = data_ingresso <= giorno AND (data_uscita è vuota oppure data_uscita > giorno)
     """
     from collections import defaultdict
     from datetime import timedelta, date, datetime
@@ -10477,7 +10448,7 @@ def calcola_costi():
     data_da_val = (oggi.replace(day=1)).strftime("%Y-%m-%d")
     data_a_val = oggi.strftime("%Y-%m-%d")
 
-    # Admin: puÃ² filtrare + area manovra
+    # Admin: può filtrare + area manovra
     # Client: solo il proprio cliente e niente area manovra
     is_admin = (session.get('role') == 'admin')
     cliente_lock = current_cliente()  # stringa se role=client, altrimenti None
@@ -10517,7 +10488,7 @@ def calcola_costi():
             db = SessionLocal()
             query = db.query(Articolo)
 
-            # âœ… filtro sicuro
+            # ✅ filtro sicuro
             if cliente_val:
                 cliente_norm = normalize_text_key(cliente_val)
                 if cliente_norm:
@@ -10526,7 +10497,7 @@ def calcola_costi():
             articoli = query.all()
             db.close()
 
-            # âœ… calcolo in base a metrica
+            # ✅ calcolo in base a metrica
             if metric == "colli":
                 risultati = _calcola_logica_colli_giacenza(
                     articoli,
@@ -10547,7 +10518,7 @@ def calcola_costi():
             data_a_val = data_a_str
             area_manovra_val = bool(is_admin and area_manovra and metric == "m2")
 
-            # âœ… Export Excel
+            # ✅ Export Excel
             if export_excel:
                 try:
                     df = pd.DataFrame(risultati)
@@ -10593,7 +10564,7 @@ def calcola_costi():
         except Exception as e:
             flash(f"Errore: {e}", "danger")
 
-    # âœ… anche su GET metrica in base al cliente lock
+    # ✅ anche su GET metrica in base al cliente lock
     metric = _metric_for_cliente(cliente_val)
 
     return render_template(
@@ -10613,5 +10584,6 @@ def calcola_costi():
 # --- AVVIO FLASK APP ---
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    print(f"âœ… Avvio Gestionale Camar Web Edition su http://127.0.0.1:{port}")
+    print(f"✅ Avvio Gestionale Camar Web Edition su http://127.0.0.1:{port}")
     app.run(host='0.0.0.0', port=port, debug=True)
+
