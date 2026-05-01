@@ -4104,7 +4104,7 @@ LABELS_FORM_HTML = """
             <div class="col-md-4"><label class="form-label">Commessa</label><input name="commessa" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">DDT Ingresso</label><input name="ddt_ingresso" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Data Ingresso</label><input name="data_ingresso" class="form-control" placeholder="gg/mm/aaaa" value="{{ today_ita }}"></div>
-            <div class="col-md-4"><label class="form-label">Arrivo (es. 01/25)</label><input name="arrivo" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">Arrivo (es. 01/25)</label><input name="arrivo" class="form-control" required></div>
             <div class="col-md-4"><label class="form-label">Codice Entrata / Barcode (facoltativo)</label><input name="codice_entrata" class="form-control" placeholder="Se vuoto, viene creato in modo stabile da data + arrivo/DDT"></div>
             <div class="col-md-4"><label class="form-label">N. Colli</label><input name="n_colli" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Posizione</label><input name="posizione" class="form-control"></div>
@@ -6097,27 +6097,38 @@ def report_trasporti():
 
 # --- GESTIONE LAVORAZIONI (ADMIN) ---
 def canonical_cliente_picking(value):
-    """Normalizza il cliente nel Picking senza perdere GALVANO TECNICA.
-    Accetta anche varianti scritte a mano: Galvano tecnica, Galvanotecnica, Cotugno Galvanotecnica.
+    """Normalizza il cliente nel Picking.
+    Regola importante: tutte le varianti di Galvano devono diventare sempre
+    GALVANO TECNICA, altrimenti il record viene salvato ma poi non compare
+    correttamente nei filtri/lista.
     """
     raw = (value or '').strip()
     if not raw:
         raise ValueError("Cliente obbligatorio.")
+
     norm = normalize_text_key(raw)
-    alias = {
-        'GALVANOTECNICA': 'GALVANO TECNICA',
-        'COTUGNOGALVANOTECNICA': 'GALVANO TECNICA',
-        'GALVANO': 'GALVANO TECNICA',
-    }
-    if norm in alias:
-        return alias[norm]
-    try:
-        return validate_cliente_or_raise(raw)
-    except Exception:
-        for c in get_clienti_utenti():
-            if normalize_text_key(c) == norm:
-                return c
-        raise
+
+    # Varianti reali viste in inserimento/import: Galvano, Galvanotecnica,
+    # Cotugno Galvanotecnica, Galvano Tecnica Spa, ecc.
+    if 'GALVANO' in norm:
+        return 'GALVANO TECNICA'
+
+    for c in get_clienti_utenti():
+        if normalize_text_key(c) == norm:
+            return c
+
+    # Se non è presente negli utenti, salva comunque pulito in maiuscolo
+    # invece di perdere il record dalla visualizzazione.
+    return raw.upper()
+
+
+def _clean_picking_upper_bound(value):
+    """Nei filtri Picking, un valore massimo 0 / 0,0 inserito dal browser
+    viene spesso interpretato come filtro attivo e nasconde le righe.
+    Lo trattiamo come campo vuoto.
+    """
+    s = str(value or '').strip().replace(' ', '')
+    return '' if s in {'0', '0,0', '0.0', '0,00', '0.00'} else (value or '').strip()
 
 @app.route('/lavorazioni', methods=['GET', 'POST'])
 @login_required
@@ -6222,6 +6233,16 @@ def lavorazioni():
     pallet_forniti_a = _safe_int(filtri['pallet_forniti_a'])
     pallet_uscita_da = _safe_int(filtri['pallet_uscita_da'])
     pallet_uscita_a = _safe_int(filtri['pallet_uscita_a'])
+    # Se il browser/telefono lascia 0 o 0,0 nei campi "a", non deve diventare
+    # un filtro massimo attivo: altrimenti i picking con ore/colli > 0 spariscono
+    # (caso riscontrato su GALVANO TECNICA).
+    for _k in ['colli_a', 'pallet_forniti_a', 'pallet_uscita_a', 'ore_blue_a', 'ore_white_a']:
+        filtri[_k] = _clean_picking_upper_bound(filtri.get(_k))
+
+    colli_a = _safe_int(filtri['colli_a'])
+    pallet_forniti_a = _safe_int(filtri['pallet_forniti_a'])
+    pallet_uscita_a = _safe_int(filtri['pallet_uscita_a'])
+
     ore_blue_da = _safe_float_it(filtri['ore_blue_da'])
     ore_blue_a = _safe_float_it(filtri['ore_blue_a'])
     ore_white_da = _safe_float_it(filtri['ore_white_da'])
@@ -6245,6 +6266,23 @@ def lavorazioni():
         .order_by(Lavorazione.data.desc(), Lavorazione.id.desc())
         .all()
     )
+
+    # Corregge al volo i vecchi record salvati con varianti di Galvano
+    # (es. GALVANOTECNICA / COTUGNO GALVANOTECNICA), così tornano visibili.
+    _picking_changed = False
+    for _rec in dati:
+        try:
+            _canon = canonical_cliente_picking(getattr(_rec, 'cliente', '') or '')
+            if _canon and (_rec.cliente or '') != _canon:
+                _rec.cliente = _canon
+                _picking_changed = True
+        except Exception:
+            pass
+    if _picking_changed:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
 
     filtered = []
     for rec in dati:
@@ -8318,8 +8356,15 @@ def giacenze():
                 pass
 
         # 4) Filtri Testuali
+        # Filtro BUONO: esatto. Se scrivi 452 trova solo 452, non 1452 o 452/26.
+        buono_val = (args.get('buono_n') or '').strip()
+        if buono_val:
+            qs = qs.filter(func.upper(func.trim(Articolo.buono_n)) == buono_val.upper())
+
+        # Gli altri campi restano a ricerca parziale. Protocollo compreso:
+        # puoi inserire anche solo le ultime cifre.
         text_filters = [
-            'commessa', 'descrizione', 'posizione', 'buono_n', 'protocollo', 'lotto',
+            'commessa', 'descrizione', 'posizione', 'protocollo', 'lotto',
             'fornitore', 'ordine', 'magazzino', 'mezzi_in_uscita', 'stato',
             'n_ddt_ingresso', 'n_ddt_uscita', 'codice_articolo', 'serial_number', 'n_arrivo'
         ]
@@ -9818,7 +9863,12 @@ def labels_pdf():
         finally:
             db.close()
     else:
-        # Etichetta Manuale: crea l'etichetta e inserisce automaticamente l'entrata nelle giacenze
+        # Etichetta Manuale: il N. Arrivo è obbligatorio.
+        # Senza arrivo il QR/barcode può diventare instabile o prendere riferimenti sbagliati.
+        if not (request.form.get('arrivo') or '').strip():
+            flash("Inserisci il N. Arrivo prima di creare l'etichetta: serve per generare QR e barcode corretti.", "warning")
+            return redirect(url_for('labels_form'))
+
         arrivo_base = strip_arrivo_progressivo(request.form.get('arrivo'))
         ddt_ingresso = request.form.get('ddt_ingresso')
         data_ingresso = request.form.get('data_ingresso')
