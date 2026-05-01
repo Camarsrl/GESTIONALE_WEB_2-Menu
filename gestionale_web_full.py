@@ -6130,6 +6130,41 @@ def _clean_picking_upper_bound(value):
     s = str(value or '').strip().replace(' ', '')
     return '' if s in {'0', '0,0', '0.0', '0,00', '0.00'} else (value or '').strip()
 
+
+def _has_active_picking_filters(filtri):
+    """True solo se l'utente ha inserito un filtro reale.
+    I valori automatici del telefono/browser tipo 0,0 non devono filtrare.
+    """
+    for v in (filtri or {}).values():
+        ss = str(v or '').strip()
+        if not ss:
+            continue
+        if ss.replace(' ', '') in {'0', '0,0', '0.0', '0,00', '0.00'}:
+            continue
+        return True
+    return False
+
+
+def _normalize_existing_galvano_picking(db):
+    """Sistema anche i vecchi record Picking Galvano salvati con varianti."""
+    changed = False
+    try:
+        rows = db.query(Lavorazione).all()
+        for rec in rows:
+            raw = getattr(rec, 'cliente', '') or ''
+            norm = normalize_text_key(raw)
+            if 'GALVANO' in norm and raw != 'GALVANO TECNICA':
+                rec.cliente = 'GALVANO TECNICA'
+                changed = True
+        if changed:
+            db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    return changed
+
 @app.route('/lavorazioni', methods=['GET', 'POST'])
 @login_required
 def lavorazioni():
@@ -6190,7 +6225,13 @@ def lavorazioni():
             )
             db.add(nuovo)
             db.commit()
-            flash(f"Picking aggiunto per {nuovo.cliente} in data {nuovo.data}.", "success")
+            try:
+                totale_cliente = db.query(Lavorazione).filter(
+                    normalized_sql_text(Lavorazione.cliente) == normalize_text_key(nuovo.cliente)
+                ).count()
+                flash(f"Picking aggiunto per {nuovo.cliente} in data {nuovo.data}. Record presenti per questo cliente: {totale_cliente}.", "success")
+            except Exception:
+                flash(f"Picking aggiunto per {nuovo.cliente} in data {nuovo.data}.", "success")
         except Exception as e:
             db.rollback()
             flash(f"Errore inserimento: {e}", "danger")
@@ -6261,65 +6302,58 @@ def lavorazioni():
             return True
         return False
 
+    # Normalizza i vecchi record Galvano e poi ricarica la lista.
+    _normalize_existing_galvano_picking(db)
+
     dati = (
         db.query(Lavorazione)
         .order_by(Lavorazione.data.desc(), Lavorazione.id.desc())
         .all()
     )
 
-    # Corregge al volo i vecchi record salvati con varianti di Galvano
-    # (es. GALVANOTECNICA / COTUGNO GALVANOTECNICA), così tornano visibili.
-    _picking_changed = False
-    for _rec in dati:
-        try:
-            _canon = canonical_cliente_picking(getattr(_rec, 'cliente', '') or '')
-            if _canon and (_rec.cliente or '') != _canon:
-                _rec.cliente = _canon
-                _picking_changed = True
-        except Exception:
-            pass
-    if _picking_changed:
-        try:
-            db.commit()
-        except Exception:
-            db.rollback()
+    # Se non ci sono filtri reali, mostra TUTTO.
+    # Questo evita che valori automatici del telefono/browser tipo 0,0
+    # facciano sparire GALVANO TECNICA dalla tabella.
+    if not _has_active_picking_filters(filtri):
+        filtered = list(dati)
+    else:
+        filtered = []
+        for rec in dati:
+            rec_date = parse_any_date(getattr(rec, 'data', None))
+            if data_da and (not rec_date or rec_date < data_da):
+                continue
+            if data_a and (not rec_date or rec_date > data_a):
+                continue
+            if not _match_txt(rec.cliente, filtri['cliente']):
+                continue
+            if not _match_txt(rec.descrizione, filtri['descrizione']):
+                continue
+            if not _match_txt(rec.richiesta_di, filtri['richiesta_di']):
+                continue
+            if not _match_txt(rec.seriali, filtri['seriali']):
+                continue
+            if colli_da is not None and (rec.colli is None or int(rec.colli or 0) < colli_da):
+                continue
+            if colli_a is not None and (rec.colli is None or int(rec.colli or 0) > colli_a):
+                continue
+            if pallet_forniti_da is not None and int(rec.pallet_forniti or 0) < pallet_forniti_da:
+                continue
+            if pallet_forniti_a is not None and int(rec.pallet_forniti or 0) > pallet_forniti_a:
+                continue
+            if pallet_uscita_da is not None and int(rec.pallet_uscita or 0) < pallet_uscita_da:
+                continue
+            if pallet_uscita_a is not None and int(rec.pallet_uscita or 0) > pallet_uscita_a:
+                continue
+            if ore_blue_da is not None and float(rec.ore_blue_collar or 0) < ore_blue_da:
+                continue
+            if ore_blue_a is not None and float(rec.ore_blue_collar or 0) > ore_blue_a:
+                continue
+            if ore_white_da is not None and float(rec.ore_white_collar or 0) < ore_white_da:
+                continue
+            if ore_white_a is not None and float(rec.ore_white_collar or 0) > ore_white_a:
+                continue
+            filtered.append(rec)
 
-    filtered = []
-    for rec in dati:
-        rec_date = parse_any_date(getattr(rec, 'data', None))
-        if data_da and (not rec_date or rec_date < data_da):
-            continue
-        if data_a and (not rec_date or rec_date > data_a):
-            continue
-        if not _match_txt(rec.cliente, filtri['cliente']):
-            continue
-        if not _match_txt(rec.descrizione, filtri['descrizione']):
-            continue
-        if not _match_txt(rec.richiesta_di, filtri['richiesta_di']):
-            continue
-        if not _match_txt(rec.seriali, filtri['seriali']):
-            continue
-        if colli_da is not None and (rec.colli is None or int(rec.colli or 0) < colli_da):
-            continue
-        if colli_a is not None and (rec.colli is None or int(rec.colli or 0) > colli_a):
-            continue
-        if pallet_forniti_da is not None and int(rec.pallet_forniti or 0) < pallet_forniti_da:
-            continue
-        if pallet_forniti_a is not None and int(rec.pallet_forniti or 0) > pallet_forniti_a:
-            continue
-        if pallet_uscita_da is not None and int(rec.pallet_uscita or 0) < pallet_uscita_da:
-            continue
-        if pallet_uscita_a is not None and int(rec.pallet_uscita or 0) > pallet_uscita_a:
-            continue
-        if ore_blue_da is not None and float(rec.ore_blue_collar or 0) < ore_blue_da:
-            continue
-        if ore_blue_a is not None and float(rec.ore_blue_collar or 0) > ore_blue_a:
-            continue
-        if ore_white_da is not None and float(rec.ore_white_collar or 0) < ore_white_da:
-            continue
-        if ore_white_a is not None and float(rec.ore_white_collar or 0) > ore_white_a:
-            continue
-        filtered.append(rec)
 
     dati = filtered
     db.close()
