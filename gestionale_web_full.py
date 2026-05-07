@@ -156,23 +156,26 @@ def _norm_token(val):
     return re.sub(r'[^A-Z0-9]+', '', (val or '').upper())
 
 
-def genera_codice_entrata(n_arrivo=None, n_ddt=None, data_ingresso=None):
-    """Genera un codice entrata STABILE.
+def genera_codice_entrata(n_arrivo=None, n_ddt=None, data_ingresso=None, cliente=None):
+    """Genera un codice entrata STABILE e separato per cliente.
 
     Regola importante:
-    - se esistono data + n_arrivo o n_ddt, il codice deve essere sempre lo stesso
-      anche se l'etichetta viene stampata prima del caricamento in giacenza;
+    - stesso cliente + stessa data + stesso N. arrivo/DDT = stesso codice;
+    - clienti diversi possono usare lo stesso N. arrivo senza sovrapporsi;
     - se manca tutto, usa un fallback casuale.
     """
     dt = to_date_db(data_ingresso) if 'to_date_db' in globals() else None
     if not dt:
         dt = date.today()
 
+    cli = _norm_token(cliente)[:24]
     arr = _norm_token(n_arrivo)[:20]
     ddt = _norm_token(n_ddt)[:20]
     base = arr or ddt
 
     parts = ["ENT", dt.strftime("%Y%m%d")]
+    if cli:
+        parts.append(cli)
     if base:
         parts.append(base)
         return "-".join(parts)
@@ -182,9 +185,24 @@ def genera_codice_entrata(n_arrivo=None, n_ddt=None, data_ingresso=None):
     return "-".join(parts)
 
 
-def ensure_codice_entrata(value=None, n_arrivo=None, n_ddt=None, data_ingresso=None):
+def ensure_codice_entrata(value=None, n_arrivo=None, n_ddt=None, data_ingresso=None, cliente=None):
     v = (value or '').strip()
-    return v or genera_codice_entrata(n_arrivo=n_arrivo, n_ddt=n_ddt, data_ingresso=data_ingresso)
+    return v or genera_codice_entrata(n_arrivo=n_arrivo, n_ddt=n_ddt, data_ingresso=data_ingresso, cliente=cliente)
+
+
+def cliente_from_form_or_current(form, current_value=None, allow_blank=False):
+    """Legge il cliente dal form in modo robusto e lo normalizza sui clienti validi."""
+    raw = ''
+    for key in ('cliente', 'cliente_edit', 'cliente_form', 'cliente_hidden'):
+        try:
+            raw = (form.get(key) or '').strip()
+        except Exception:
+            raw = ''
+        if raw:
+            break
+    if not raw:
+        raw = (current_value or '').strip()
+    return validate_cliente_or_raise(raw, allow_blank=allow_blank)
 
 
 def strip_arrivo_progressivo(value):
@@ -1236,6 +1254,7 @@ class Lavorazione(Base):
 # 5. GESTIONE UTENTI (Definizione PRIMA dell'uso)
 # ========================================================
 DEFAULT_USERS = {
+    'FINCANTIERI ARMATORE': 'Struppa100',
     'DE WAVE': 'Struppa01', 'FINCANTIERI': 'Struppa02', 'FINCANTIERI SCOPERTO': 'Struppa12',
     'SIEMGROUP': 'Struppa13','RF-DE WAVE': 'Struppa03',
     'SGDP': 'Struppa04', 'WINGECO': 'Struppa05', 'AMICO': 'Struppa06', 'DUFERCO': 'Struppa07',
@@ -1345,7 +1364,8 @@ def admin_genera_codici_entrata():
                 None,
                 n_arrivo=strip_arrivo_progressivo(first.n_arrivo),
                 n_ddt=first.n_ddt_ingresso,
-                data_ingresso=first.data_ingresso
+                data_ingresso=first.data_ingresso,
+                cliente=first.cliente
             )
             for art in arts:
                 art.codice_entrata = code
@@ -7012,7 +7032,8 @@ def import_excel():
                     getattr(new_art, 'codice_entrata', None),
                     n_arrivo=strip_arrivo_progressivo(getattr(new_art, 'n_arrivo', None)),
                     n_ddt=getattr(new_art, 'n_ddt_ingresso', None),
-                    data_ingresso=getattr(new_art, 'data_ingresso', None)
+                    data_ingresso=getattr(new_art, 'data_ingresso', None),
+                    cliente=getattr(new_art, 'cliente', None)
                 )
                 db.add(new_art)
                 imported_count += 1
@@ -7080,11 +7101,13 @@ def save_pdf_import():
 
     db = SessionLocal()
     try:
+        cliente_pdf_import = cliente_from_form_or_current(request.form, request.form.get('cliente'))
         codice_entrata_shared = ensure_codice_entrata(
             request.form.get('codice_entrata'),
             n_arrivo=strip_arrivo_progressivo(request.form.get('n_arrivo')),
             n_ddt=request.form.get('n_ddt'),
-            data_ingresso=request.form.get('data_ingresso')
+            data_ingresso=request.form.get('data_ingresso'),
+            cliente=cliente_pdf_import
         )
         codici = request.form.getlist('codice[]')
         descrizioni = request.form.getlist('descrizione[]')
@@ -7908,7 +7931,8 @@ def correggi_entrata(codice_entrata):
                 None,
                 n_arrivo=strip_arrivo_progressivo(art.n_arrivo),
                 n_ddt=art.n_ddt_ingresso,
-                data_ingresso=art.data_ingresso
+                data_ingresso=art.data_ingresso,
+                cliente=art.cliente
             )
 
             if (art.codice_entrata or '') != (new_code or ''):
@@ -7982,6 +8006,7 @@ def nuovo_articolo():
                     n_arrivo=arrivo_base or strip_arrivo_progressivo(art.n_arrivo),
                     n_ddt=ddt_ingresso_form,
                     data_ingresso=data_ingresso_form,
+                    cliente=art.cliente,
                 )
                 art.magazzino = request.form.get('magazzino')
                 art.posizione = request.form.get('posizione')
@@ -8169,7 +8194,7 @@ def edit_articolo(id):
             if session.get('role') == 'client':
                 art.cliente = current_user.id
             else:
-                art.cliente = validate_cliente_or_raise(request.form.get('cliente'))
+                art.cliente = cliente_from_form_or_current(request.form, art.cliente)
             art.fornitore = request.form.get('fornitore')
             art.commessa = request.form.get('commessa')
             art.ordine = request.form.get('ordine')
@@ -8280,7 +8305,7 @@ def edit_record(id_articolo):
             if session.get('role') == 'client':
                 art.cliente = current_user.id
             else:
-                art.cliente = validate_cliente_or_raise(request.form.get('cliente'))
+                art.cliente = cliente_from_form_or_current(request.form, art.cliente)
             art.fornitore = request.form.get('fornitore')
             art.commessa = request.form.get('commessa')
             art.ordine = request.form.get('ordine')
@@ -9896,7 +9921,8 @@ def labels_form():
               .order_by(Articolo.cliente)
               .all()
         )
-        clienti = [c[0] for c in clienti_query]
+        clienti_db = [c[0] for c in clienti_query]
+        clienti = sorted(set(clienti_db + get_clienti_utenti()))
         return render_template('labels_form.html', clienti=clienti, today_ita=date.today().strftime('%d/%m/%Y'))
     finally:
         db.close()
@@ -9910,14 +9936,23 @@ def labels_form():
 def _auto_create_entry_from_label(db, form, codice_entrata):
     """Crea automaticamente le righe giacenza partendo dai dati dell'etichetta manuale.
     Mantiene lo stesso codice_entrata / barcode / QR dell'etichetta già creata.
-    Se l'entrata esiste già, non duplica le righe."""
+    Se l'entrata esiste già per lo stesso cliente, non duplica le righe.
+    Clienti diversi possono usare lo stesso N. arrivo senza bloccarsi.
+    """
     codice_entrata = (codice_entrata or '').strip()
     if not codice_entrata:
         return []
 
+    cliente_value = form.get('cliente')
+    try:
+        cliente_value = validate_cliente_or_raise(cliente_value)
+    except Exception:
+        cliente_value = (cliente_value or '').strip().upper()
+
     existing = (
         db.query(Articolo)
           .filter(Articolo.codice_entrata == codice_entrata)
+          .filter(normalized_sql_text(Articolo.cliente) == normalize_text_key(cliente_value))
           .order_by(Articolo.id_articolo.asc())
           .all()
     )
@@ -9932,11 +9967,6 @@ def _auto_create_entry_from_label(db, form, codice_entrata):
 
     arrivo_base = strip_arrivo_progressivo(form.get('arrivo'))
     created = []
-    cliente_value = form.get('cliente')
-    try:
-        cliente_value = validate_cliente_or_raise(cliente_value)
-    except Exception:
-        cliente_value = (cliente_value or '').strip().upper()
 
     for idx in range(1, totale_colli + 1):
         art = Articolo()
@@ -9993,7 +10023,7 @@ def labels_pdf():
             articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
             changed = False
             for art in articoli:
-                codice = ensure_codice_entrata(getattr(art, 'codice_entrata', None), n_arrivo=strip_arrivo_progressivo(art.n_arrivo), n_ddt=art.n_ddt_ingresso, data_ingresso=art.data_ingresso)
+                codice = ensure_codice_entrata(getattr(art, 'codice_entrata', None), n_arrivo=strip_arrivo_progressivo(art.n_arrivo), n_ddt=art.n_ddt_ingresso, data_ingresso=art.data_ingresso, cliente=art.cliente)
                 if getattr(art, 'codice_entrata', None) != codice:
                     art.codice_entrata = codice
                     changed = True
@@ -10011,15 +10041,17 @@ def labels_pdf():
         arrivo_base = strip_arrivo_progressivo(request.form.get('arrivo'))
         ddt_ingresso = request.form.get('ddt_ingresso')
         data_ingresso = request.form.get('data_ingresso')
+        cliente_etichetta = cliente_from_form_or_current(request.form, request.form.get('cliente'))
         codice_entrata = ensure_codice_entrata(
             request.form.get('codice_entrata'),
             n_arrivo=arrivo_base or request.form.get('arrivo'),
             n_ddt=ddt_ingresso,
-            data_ingresso=data_ingresso
+            data_ingresso=data_ingresso,
+            cliente=cliente_etichetta
         )
 
         a = Articolo()
-        a.cliente = request.form.get('cliente')
+        a.cliente = cliente_etichetta
         a.fornitore = request.form.get('fornitore')
         a.ordine = request.form.get('ordine')
         a.commessa = request.form.get('commessa')
@@ -10226,7 +10258,8 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
                 getattr(art, 'codice_entrata', None),
                 n_arrivo=strip_arrivo_progressivo(getattr(art, 'n_arrivo', None)),
                 n_ddt=getattr(art, 'n_ddt_ingresso', None),
-                data_ingresso=getattr(art, 'data_ingresso', None)
+                data_ingresso=getattr(art, 'data_ingresso', None),
+                cliente=getattr(art, 'cliente', None)
             )
             dettaglio_url = build_entry_public_url(codice_entrata)
 
