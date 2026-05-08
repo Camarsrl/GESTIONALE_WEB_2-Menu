@@ -3673,7 +3673,7 @@ REPORT_FATTURAZIONE_HTML = """
             </div>
         </form>
         <div class="mt-3 small text-muted">
-            Per i clienti standard il report mostra M2 presenti nel mese, giacenza a fine mese, M2 usciti, M2 entrate doganali e il picco M2 occupati nel mese. Per Galvano Tecnica viene mostrato il totale pallet in giacenza usando la colonna N° Colli.
+            Per i clienti standard il report mostra M2 presenti nel mese, giacenza a fine mese, M2 usciti, M2 entrate doganali e il picco M2 occupati nel mese. Per Galvano Tecnica viene mostrato solo il totale pallet ancora in giacenza a fine mese selezionato, usando la colonna N° Colli.
         </div>
     </div>
 </div>
@@ -5542,10 +5542,21 @@ def _compute_report_fatturazione_data(mese: int, anno: int):
             ingresso_doganale = d_ing is not None and first_day <= d_ing <= last_day and 'DOGAN' in stato_norm
 
             if conf['mode'] == 'pallet':
+                # GALVANO TECNICA:
+                # deve contare SOLO i pallet ancora in giacenza nel mese selezionato,
+                # cioè entrati entro la fine del mese e NON usciti entro la fine del mese.
+                # Se una riga è uscita durante il mese selezionato, non va conteggiata.
+                pallet_ancora_in_giacenza_fine_mese = (
+                    d_ing is not None
+                    and d_ing <= last_day
+                    and (d_usc is None or d_usc > last_day)
+                )
+
                 pallet_qty = _safe_int(getattr(art, 'n_colli', None), default_if_blank=1)
                 if pallet_qty <= 0:
                     pallet_qty = 1
-                if presente_nel_mese:
+
+                if pallet_ancora_in_giacenza_fine_mese:
                     row['pallet_giacenza'] += pallet_qty
             else:
                 if presente_nel_mese:
