@@ -3374,8 +3374,11 @@ GIACENZE_HTML = """
                     </td>
                     <td class="text-center">
                         {% if session.get('role') == 'admin' %}
-                        <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" class="text-decoration-none">✏️</a>
-                        <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" class="text-decoration-none text-danger" onclick="return confirm('Eliminare?')">🗑️</a>
+                        <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" class="text-decoration-none" title="Modifica">✏️</a>
+                        {% if not r.data_uscita and not r.n_ddt_uscita %}
+                        <a href="{{ url_for('scarico_parziale', id_articolo=r.id_articolo) }}" class="text-decoration-none text-warning" title="Scarico parziale pezzi">📤</a>
+                        {% endif %}
+                        <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" class="text-decoration-none text-danger" onclick="return confirm('Eliminare?')" title="Elimina">🗑️</a>
                         {% else %}-{% endif %}
                     </td>
                 </tr>
@@ -8109,6 +8112,201 @@ def delete_articolo(id):
     finally:
         db.close()
     return redirect(url_for('giacenze'))
+
+
+# ==============================================================================
+#  SCARICO PARZIALE PEZZI (valido per tutti i clienti)
+# ==============================================================================
+def _copy_articolo_data(originale):
+    """Copia tutti i campi di Articolo tranne la chiave primaria."""
+    data_copy = {}
+    for col in Articolo.__table__.columns:
+        if col.name == 'id_articolo':
+            continue
+        data_copy[col.name] = getattr(originale, col.name)
+    return data_copy
+
+
+def _scale_value(value, ratio):
+    """Scala valori numerici lasciando vuoti/None invariati."""
+    if value is None or value == '':
+        return value
+    try:
+        return round(float(value) * float(ratio), 3)
+    except Exception:
+        return value
+
+
+SCARICO_PARZIALE_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-3">
+    <div class="card shadow-sm">
+        <div class="card-header bg-warning fw-bold">
+            <i class="bi bi-box-arrow-up-right"></i> Scarico parziale pezzi
+        </div>
+        <div class="card-body">
+            <div class="alert alert-info small mb-3">
+                Questa funzione crea una <b>riga di scarico</b> con data/DDT/buono e lascia una <b>riga residua</b> ancora in giacenza.
+            </div>
+
+            <div class="row g-2 mb-3">
+                <div class="col-md-2"><b>ID:</b><br>{{ art.id_articolo }}</div>
+                <div class="col-md-3"><b>Cliente:</b><br>{{ art.cliente or '' }}</div>
+                <div class="col-md-3"><b>Codice:</b><br>{{ art.codice_articolo or '' }}</div>
+                <div class="col-md-4"><b>Descrizione:</b><br>{{ art.descrizione or '' }}</div>
+            </div>
+            <div class="row g-2 mb-3">
+                <div class="col-md-2"><b>Pezzi disponibili:</b><br><span class="fs-5 fw-bold text-success">{{ pezzi_disponibili }}</span></div>
+                <div class="col-md-2"><b>Colli:</b><br>{{ art.n_colli or '' }}</div>
+                <div class="col-md-2"><b>Peso:</b><br>{{ art.peso|it_num(2) if art.peso else '' }}</div>
+                <div class="col-md-2"><b>M2:</b><br>{{ art.m2|it_num(3) if art.m2 else '' }}</div>
+                <div class="col-md-2"><b>M3:</b><br>{{ art.m3|it_num(3) if art.m3 else '' }}</div>
+                <div class="col-md-2"><b>Buono attuale:</b><br>{{ art.buono_n or '' }}</div>
+            </div>
+
+            <form method="POST" onsubmit="return confirm('Confermi lo scarico parziale? Verranno create/aggiornate le righe in giacenza.');">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Pezzi da scaricare</label>
+                        <input type="number" min="1" max="{{ pezzi_disponibili }}" step="1" name="pezzi_scarico" class="form-control" required autofocus>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Data uscita / Data DDT</label>
+                        <input type="date" name="data_uscita" class="form-control" value="{{ today }}" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Numero DDT uscita</label>
+                        <input type="text" name="n_ddt_uscita" class="form-control" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Numero buono</label>
+                        <input type="text" name="buono_n" class="form-control" value="{{ art.buono_n or '' }}">
+                    </div>
+                    <div class="col-md-12">
+                        <label class="form-label fw-bold">Note scarico</label>
+                        <input type="text" name="note_scarico" class="form-control" placeholder="Opzionale">
+                    </div>
+                </div>
+
+                <div class="mt-4 d-flex gap-2">
+                    <button type="submit" class="btn btn-warning fw-bold">
+                        <i class="bi bi-check2-circle"></i> Conferma scarico
+                    </button>
+                    <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+"""
+
+
+@app.route('/scarico_parziale/<int:id_articolo>', methods=['GET', 'POST'])
+@login_required
+@require_admin
+def scarico_parziale(id_articolo):
+    """Scarico parziale a pezzi: crea riga uscita e mantiene/aggiorna residuo in giacenza."""
+    db = SessionLocal()
+    try:
+        art = db.query(Articolo).get(id_articolo)
+        if not art:
+            flash("Articolo non trovato.", "danger")
+            return redirect(url_for('giacenze'))
+
+        if art.data_uscita or art.n_ddt_uscita:
+            flash("Questa riga risulta già scaricata. Seleziona una riga ancora in giacenza.", "warning")
+            return redirect(url_for('giacenze'))
+
+        pezzi_disponibili = to_int_eu(art.pezzo)
+        if pezzi_disponibili <= 0:
+            flash("Impossibile fare lo scarico parziale: il campo Pezzi è vuoto o non valido.", "danger")
+            return redirect(url_for('giacenze'))
+
+        if request.method == 'POST':
+            pezzi_scarico = to_int_eu(request.form.get('pezzi_scarico'))
+            if pezzi_scarico <= 0:
+                flash("Inserisci un numero di pezzi da scaricare maggiore di zero.", "danger")
+                return redirect(url_for('scarico_parziale', id_articolo=id_articolo))
+            if pezzi_scarico > pezzi_disponibili:
+                flash(f"Non puoi scaricare {pezzi_scarico} pezzi: disponibili {pezzi_disponibili}.", "danger")
+                return redirect(url_for('scarico_parziale', id_articolo=id_articolo))
+
+            data_uscita_val = (parse_date_ui(request.form.get('data_uscita')) or date.today()).strftime('%Y-%m-%d')
+            n_ddt_uscita_val = (request.form.get('n_ddt_uscita') or '').strip()
+            buono_val = (request.form.get('buono_n') or '').strip()
+            note_extra = (request.form.get('note_scarico') or '').strip()
+
+            if not n_ddt_uscita_val:
+                flash("Inserisci il numero DDT uscita.", "danger")
+                return redirect(url_for('scarico_parziale', id_articolo=id_articolo))
+
+            ratio_scarico = pezzi_scarico / float(pezzi_disponibili)
+            pezzi_residui = pezzi_disponibili - pezzi_scarico
+
+            if pezzi_scarico == pezzi_disponibili:
+                # Scarico totale: aggiorna direttamente la riga esistente
+                art.pezzo = str(pezzi_scarico)
+                art.data_uscita = data_uscita_val
+                art.n_ddt_uscita = n_ddt_uscita_val
+                art.buono_n = buono_val
+                base_note = (art.note or '').strip()
+                extra = f"Scarico totale pezzi {pezzi_scarico} - DDT {n_ddt_uscita_val} del {data_uscita_val}"
+                if note_extra:
+                    extra += f" - {note_extra}"
+                art.note = (base_note + " | " + extra).strip(" |")
+                db.commit()
+                flash("Scarico totale salvato correttamente.", "success")
+                return redirect(url_for('giacenze'))
+
+            # Scarico parziale: crea una riga uscita e aggiorna la riga originale come residuo
+            scarico = Articolo(**_copy_articolo_data(art))
+            scarico.pezzo = str(pezzi_scarico)
+            scarico.data_uscita = data_uscita_val
+            scarico.n_ddt_uscita = n_ddt_uscita_val
+            scarico.buono_n = buono_val
+            scarico.n_colli = max(1, int(round((art.n_colli or 0) * ratio_scarico))) if art.n_colli else art.n_colli
+            scarico.peso = _scale_value(art.peso, ratio_scarico)
+            scarico.m2 = _scale_value(art.m2, ratio_scarico)
+            scarico.m3 = _scale_value(art.m3, ratio_scarico)
+            scarico.note = ((art.note or '').strip() + f" | SCARICO PARZIALE da ID {art.id_articolo}: {pezzi_scarico} pezzi - DDT {n_ddt_uscita_val} del {data_uscita_val}" + (f" - {note_extra}" if note_extra else "")).strip(" |")
+
+            # Aggiorna originale come residuo ancora in giacenza
+            art.pezzo = str(pezzi_residui)
+            art.data_uscita = ''
+            art.n_ddt_uscita = ''
+            art.buono_n = ''
+            art.n_colli = max(1, (art.n_colli or 0) - (scarico.n_colli or 0)) if art.n_colli else art.n_colli
+            art.peso = _scale_value(art.peso, 1 - ratio_scarico)
+            art.m2 = _scale_value(art.m2, 1 - ratio_scarico)
+            art.m3 = _scale_value(art.m3, 1 - ratio_scarico)
+            art.note = ((art.note or '').strip() + f" | RESIDUO da scarico parziale: restano {pezzi_residui} pezzi").strip(" |")
+
+            db.add(scarico)
+            db.flush()
+
+            # Collega anche gli stessi allegati alla riga di scarico, senza duplicare i file fisici
+            for att in list(getattr(art, 'attachments', []) or []):
+                db.add(Attachment(articolo_id=scarico.id_articolo, kind=att.kind, filename=att.filename))
+
+            db.commit()
+            flash(f"Scarico parziale creato: {pezzi_scarico} pezzi scaricati, {pezzi_residui} pezzi restano in giacenza.", "success")
+            return redirect(url_for('giacenze'))
+
+        return render_template_string(
+            SCARICO_PARZIALE_HTML,
+            art=art,
+            pezzi_disponibili=pezzi_disponibili,
+            today=date.today().strftime('%Y-%m-%d')
+        )
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore scarico parziale: {e}", "danger")
+        return redirect(url_for('giacenze'))
+    finally:
+        db.close()
+
 
 # --- DUPLICAZIONE SINGOLA (Quella che mancava e dava errore) ---
 
