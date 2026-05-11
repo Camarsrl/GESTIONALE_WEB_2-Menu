@@ -3781,7 +3781,7 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
         <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm"><i class="bi bi-envelope"></i> Email</button>
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Modifica</button>
-        <button type="button" class="btn btn-warning btn-sm fw-bold" onclick="return apriScaricoParzialeSelezionato();" >
+        <button type="button" class="btn btn-warning btn-sm fw-bold" onclick="return apriScaricoParzialeSelezionato();">
             📤 Scarico parziale
         </button>
         <button type="submit" formaction="{{ url_for('labels_pdf') }}" formtarget="_blank" class="btn btn-warning btn-sm"><i class="bi bi-download"></i> Etichette</button>
@@ -3940,12 +3940,17 @@ GIACENZE_HTML = """
 
 <script>
 function apriScaricoParzialeSelezionato() {
-    // Le checkbox della tabella giacenze usano principalmente name="ids".
-    // Mantengo anche .row-checkbox per compatibilità con eventuali versioni precedenti.
-    let checked = Array.from(document.querySelectorAll('input[name="ids"]:checked'));
-    if (checked.length === 0) {
-        checked = Array.from(document.querySelectorAll('input.row-checkbox:checked'));
-    }
+    // Cerca la riga selezionata nella tabella giacenze.
+    // Compatibile con checkbox name="ids", name="selected_ids", class="row-checkbox" e value=id articolo.
+    let checked = Array.from(document.querySelectorAll(
+        'input[name="ids"]:checked, input[name="selected_ids"]:checked, input.row-checkbox:checked, input[type="checkbox"][value]:checked'
+    ));
+
+    // Esclude eventuali checkbox "seleziona tutto"
+    checked = checked.filter(function(cb) {
+        const v = (cb.value || '').trim();
+        return v && v !== 'on' && /^\d+$/.test(v);
+    });
 
     if (checked.length !== 1) {
         alert("Seleziona una sola riga per fare lo scarico parziale.");
@@ -3953,11 +3958,6 @@ function apriScaricoParzialeSelezionato() {
     }
 
     const id = checked[0].value;
-    if (!id) {
-        alert("ID articolo non trovato.");
-        return false;
-    }
-
     window.location.href = "/scarico_parziale/" + encodeURIComponent(id);
     return false;
 }
