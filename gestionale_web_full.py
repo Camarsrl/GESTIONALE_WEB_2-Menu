@@ -3648,7 +3648,7 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
         <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm"><i class="bi bi-envelope"></i> Email</button>
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Modifica</button>
-        <button type="button" class="btn btn-warning btn-sm fw-bold" onclick="apriScaricoParzialeSelezionato()">
+        <button type="button" class="btn btn-warning btn-sm fw-bold" onclick="return apriScaricoParzialeSelezionato();" >
             📤 Scarico parziale
         </button>
         <button type="submit" formaction="{{ url_for('labels_pdf') }}" formtarget="_blank" class="btn btn-warning btn-sm"><i class="bi bi-download"></i> Etichette</button>
@@ -3807,12 +3807,24 @@ GIACENZE_HTML = """
 
 <script>
 function apriScaricoParzialeSelezionato() {
-    const checked = Array.from(document.querySelectorAll('input.row-checkbox:checked'));
+    // Le checkbox della tabella giacenze usano principalmente name="ids".
+    // Mantengo anche .row-checkbox per compatibilità con eventuali versioni precedenti.
+    let checked = Array.from(document.querySelectorAll('input[name="ids"]:checked'));
+    if (checked.length === 0) {
+        checked = Array.from(document.querySelectorAll('input.row-checkbox:checked'));
+    }
+
     if (checked.length !== 1) {
         alert("Seleziona una sola riga per fare lo scarico parziale.");
         return false;
     }
+
     const id = checked[0].value;
+    if (!id) {
+        alert("ID articolo non trovato.");
+        return false;
+    }
+
     window.location.href = "/scarico_parziale/" + encodeURIComponent(id);
     return false;
 }
@@ -11246,7 +11258,8 @@ SCARICO_PARZIALE_HTML = """
             </div>
 
             <div class="alert alert-info">
-                Pezzi disponibili: <strong>{{ pezzi_disponibili }}</strong>
+                Pezzi disponibili: <strong>{{ pezzi_disponibili }}</strong><br>
+                Peso disponibile: <strong>{{ peso_disponibile }}</strong> kg
             </div>
 
             <form method="POST" onsubmit="return confirm('Confermi lo scarico parziale?');">
@@ -11254,6 +11267,10 @@ SCARICO_PARZIALE_HTML = """
                     <div class="col-md-3">
                         <label class="form-label fw-bold">Pezzi da scaricare</label>
                         <input type="text" name="pezzi_scarico" class="form-control" required autofocus>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Peso da scaricare (kg)</label>
+                        <input type="text" name="peso_scarico" class="form-control" required>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label fw-bold">Data uscita / data DDT</label>
@@ -11299,34 +11316,50 @@ def scarico_parziale(id_articolo):
             flash("Questa riga risulta già scaricata: non posso fare uno scarico parziale.", "warning")
             return redirect(url_for('giacenze'))
 
-        def _pezzi_float(v):
+        def _num_float(v):
             try:
                 if v is None:
                     return 0.0
                 s = str(v).strip()
                 if not s:
                     return 0.0
-                return float(s.replace('.', '').replace(',', '.')) if ',' in s else float(s)
+                # Gestione italiana: 1.234,56 -> 1234.56 / 1234,56 -> 1234.56
+                if ',' in s:
+                    s = s.replace('.', '').replace(',', '.')
+                return float(s)
             except Exception:
                 return 0.0
 
-        def _fmt_pezzi(v):
+        def _fmt_num(v, decimals=3):
             try:
-                f = float(v)
+                f = float(v or 0)
                 if abs(f - int(f)) < 0.000001:
                     return str(int(f))
-                return str(round(f, 3)).replace('.', ',')
+                return str(round(f, decimals)).replace('.', ',')
             except Exception:
                 return str(v or '')
 
-        pezzi_disponibili = _pezzi_float(art.pezzo)
+        def _fmt_peso(v):
+            try:
+                f = float(v or 0)
+                return f
+            except Exception:
+                return 0.0
+
+        pezzi_disponibili = _num_float(art.pezzo)
+        peso_disponibile = _num_float(art.peso)
 
         if pezzi_disponibili <= 0:
             flash("Impossibile fare lo scarico parziale: il campo Pezzi è vuoto o non numerico.", "danger")
             return redirect(url_for('giacenze'))
 
+        if peso_disponibile <= 0:
+            flash("Impossibile fare lo scarico parziale: il campo Peso è vuoto o non numerico.", "danger")
+            return redirect(url_for('giacenze'))
+
         if request.method == 'POST':
-            pezzi_scarico = _pezzi_float(request.form.get('pezzi_scarico'))
+            pezzi_scarico = _num_float(request.form.get('pezzi_scarico'))
+            peso_scarico = _num_float(request.form.get('peso_scarico'))
             data_uscita_val = (request.form.get('data_uscita') or '').strip()
             n_ddt_uscita_val = (request.form.get('n_ddt_uscita') or '').strip()
             buono_val = (request.form.get('buono_n') or '').strip()
@@ -11336,26 +11369,45 @@ def scarico_parziale(id_articolo):
                 flash("Inserisci un numero di pezzi da scaricare maggiore di zero.", "danger")
                 return redirect(url_for('scarico_parziale', id_articolo=id_articolo))
 
+            if peso_scarico <= 0:
+                flash("Inserisci un peso da scaricare maggiore di zero.", "danger")
+                return redirect(url_for('scarico_parziale', id_articolo=id_articolo))
+
             if pezzi_scarico > pezzi_disponibili:
                 flash("Non puoi scaricare più pezzi di quelli disponibili.", "danger")
+                return redirect(url_for('scarico_parziale', id_articolo=id_articolo))
+
+            if peso_scarico > peso_disponibile:
+                flash("Non puoi scaricare più peso di quello disponibile.", "danger")
                 return redirect(url_for('scarico_parziale', id_articolo=id_articolo))
 
             if not data_uscita_val or not n_ddt_uscita_val:
                 flash("Data uscita e numero DDT sono obbligatori.", "danger")
                 return redirect(url_for('scarico_parziale', id_articolo=id_articolo))
 
+            scarico_totale = (
+                abs(pezzi_scarico - pezzi_disponibili) < 0.000001
+                and abs(peso_scarico - peso_disponibile) < 0.000001
+            )
+
             # Scarico totale: aggiorno direttamente la riga originale
-            if abs(pezzi_scarico - pezzi_disponibili) < 0.000001:
+            if scarico_totale:
                 art.data_uscita = data_uscita_val
                 art.n_ddt_uscita = n_ddt_uscita_val
                 art.buono_n = buono_val or art.buono_n
-                art.note = ((art.note or '').strip() + f" | SCARICO TOTALE: { _fmt_pezzi(pezzi_scarico) } pezzi - DDT {n_ddt_uscita_val} del {data_uscita_val}" + (f" - {note_extra}" if note_extra else "")).strip(" |")
+                art.peso = _fmt_peso(peso_scarico)
+                art.note = (
+                    (art.note or '').strip()
+                    + f" | SCARICO TOTALE: {_fmt_num(pezzi_scarico)} pezzi / {_fmt_num(peso_scarico, 2)} kg - DDT {n_ddt_uscita_val} del {data_uscita_val}"
+                    + (f" - {note_extra}" if note_extra else "")
+                ).strip(" |")
                 db.commit()
                 flash("Scarico totale salvato sulla riga selezionata.", "success")
                 return redirect(url_for('giacenze'))
 
             # Scarico parziale: creo riga uscita e aggiorno originale come residuo
             pezzi_residui = pezzi_disponibili - pezzi_scarico
+            peso_residuo = peso_disponibile - peso_scarico
 
             scarico = Articolo()
             for col in Articolo.__table__.columns:
@@ -11363,28 +11415,41 @@ def scarico_parziale(id_articolo):
                     continue
                 setattr(scarico, col.name, getattr(art, col.name))
 
-            scarico.pezzo = _fmt_pezzi(pezzi_scarico)
+            scarico.pezzo = _fmt_num(pezzi_scarico)
+            scarico.peso = _fmt_peso(peso_scarico)
             scarico.data_uscita = data_uscita_val
             scarico.n_ddt_uscita = n_ddt_uscita_val
             scarico.buono_n = buono_val
-            scarico.note = ((scarico.note or '').strip() + f" | SCARICO PARZIALE da ID {art.id_articolo}: { _fmt_pezzi(pezzi_scarico) } pezzi - DDT {n_ddt_uscita_val} del {data_uscita_val}" + (f" - {note_extra}" if note_extra else "")).strip(" |")
+            scarico.note = (
+                (scarico.note or '').strip()
+                + f" | SCARICO PARZIALE da ID {art.id_articolo}: {_fmt_num(pezzi_scarico)} pezzi / {_fmt_num(peso_scarico, 2)} kg - DDT {n_ddt_uscita_val} del {data_uscita_val}"
+                + (f" - {note_extra}" if note_extra else "")
+            ).strip(" |")
 
-            art.pezzo = _fmt_pezzi(pezzi_residui)
+            art.pezzo = _fmt_num(pezzi_residui)
+            art.peso = _fmt_peso(peso_residuo)
             art.data_uscita = ''
             art.n_ddt_uscita = ''
-            art.buono_n = art.buono_n
-            art.note = ((art.note or '').strip() + f" | RESIDUO da scarico parziale: restano { _fmt_pezzi(pezzi_residui) } pezzi").strip(" |")
+            art.note = (
+                (art.note or '').strip()
+                + f" | RESIDUO da scarico parziale: restano {_fmt_num(pezzi_residui)} pezzi / {_fmt_num(peso_residuo, 2)} kg"
+            ).strip(" |")
 
             db.add(scarico)
             db.commit()
 
-            flash(f"Scarico parziale creato: {_fmt_pezzi(pezzi_scarico)} pezzi scaricati, {_fmt_pezzi(pezzi_residui)} pezzi restano in giacenza.", "success")
+            flash(
+                f"Scarico parziale creato: {_fmt_num(pezzi_scarico)} pezzi / {_fmt_num(peso_scarico, 2)} kg scaricati; "
+                f"{_fmt_num(pezzi_residui)} pezzi / {_fmt_num(peso_residuo, 2)} kg restano in giacenza.",
+                "success"
+            )
             return redirect(url_for('giacenze'))
 
         return render_template_string(
             SCARICO_PARZIALE_HTML,
             art=art,
-            pezzi_disponibili=_fmt_pezzi(pezzi_disponibili),
+            pezzi_disponibili=_fmt_num(pezzi_disponibili),
+            peso_disponibile=_fmt_num(peso_disponibile, 2),
             oggi=date.today().strftime('%Y-%m-%d')
         )
 
