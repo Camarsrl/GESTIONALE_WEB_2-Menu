@@ -1364,6 +1364,139 @@ def require_admin(view_func):
         return view_func(*args, **kwargs)
     return _wrapped
 
+
+# ========================================================
+#  LOG ERRORI INTERNO - ADMIN
+# ========================================================
+ERROR_LOG_FILE = MEDIA_DIR / "errori_gestionale.log"
+
+def scrivi_log_errore(titolo="", errore=None):
+    """Scrive gli errori applicativi in un file persistente leggibile da admin."""
+    try:
+        ERROR_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+        user = ""
+        path = ""
+        method = ""
+        try:
+            if has_request_context():
+                user = (getattr(current_user, "id", "") or session.get("username") or "").strip()
+                path = request.path
+                method = request.method
+        except Exception:
+            pass
+
+        import traceback
+        dettaglio = ""
+        if errore is not None:
+            dettaglio = "".join(traceback.format_exception(type(errore), errore, errore.__traceback__))
+        else:
+            dettaglio = traceback.format_exc()
+
+        riga = (
+            "\n" + "=" * 90 + "\n"
+            f"DATA: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"UTENTE: {user or '-'}\n"
+            f"ROUTE: {method} {path}\n"
+            f"TITOLO: {titolo or '-'}\n"
+            f"ERRORE:\n{dettaglio}\n"
+        )
+
+        with open(ERROR_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(riga)
+    except Exception:
+        pass
+
+
+@app.errorhandler(Exception)
+def gestisci_errore_generale(e):
+    """Evita schermata generica senza traccia: salva errore e mostra messaggio pulito."""
+    try:
+        # Lascia passare gli errori HTTP noti tipo 404/403 senza trasformarli tutti in 500
+        from werkzeug.exceptions import HTTPException
+        if isinstance(e, HTTPException):
+            return e
+    except Exception:
+        pass
+
+    scrivi_log_errore("Errore generale applicazione", e)
+
+    try:
+        flash("Si è verificato un errore interno. L'errore è stato registrato nei log admin.", "danger")
+        return redirect(url_for("home"))
+    except Exception:
+        return "Internal Server Error - errore registrato nel log admin", 500
+
+
+ADMIN_ERRORI_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3>🧾 Log errori gestionale</h3>
+        <div>
+            <a href="{{ url_for('admin_scarica_log_errori') }}" class="btn btn-outline-primary btn-sm">Scarica log</a>
+            <form method="POST" action="{{ url_for('admin_svuota_log_errori') }}" style="display:inline;" onsubmit="return confirm('Svuotare il log errori?');">
+                <button class="btn btn-outline-danger btn-sm">Svuota log</button>
+            </form>
+            <a href="{{ url_for('home') }}" class="btn btn-secondary btn-sm">Home</a>
+        </div>
+    </div>
+
+    <div class="alert alert-info">
+        Qui trovi gli errori interni salvati automaticamente. Gli ultimi errori sono in fondo al file.
+    </div>
+
+    <pre style="background:#111;color:#eee;padding:15px;border-radius:8px;white-space:pre-wrap;max-height:75vh;overflow:auto;">{{ contenuto }}</pre>
+</div>
+{% endblock %}
+"""
+
+
+@app.route("/admin/errori", methods=["GET"])
+@login_required
+@require_admin
+def admin_errori():
+    try:
+        if ERROR_LOG_FILE.exists():
+            contenuto = ERROR_LOG_FILE.read_text(encoding="utf-8", errors="ignore")
+            # Mostra solo gli ultimi caratteri per non appesantire la pagina
+            if len(contenuto) > 80000:
+                contenuto = "... LOG TRONCATO: mostro solo la parte finale ...\n\n" + contenuto[-80000:]
+        else:
+            contenuto = "Nessun errore registrato."
+    except Exception as e:
+        contenuto = f"Impossibile leggere il file errori: {e}"
+
+    return render_template_string(ADMIN_ERRORI_HTML, contenuto=contenuto)
+
+
+@app.route("/admin/errori/download", methods=["GET"])
+@login_required
+@require_admin
+def admin_scarica_log_errori():
+    try:
+        if not ERROR_LOG_FILE.exists():
+            ERROR_LOG_FILE.write_text("Nessun errore registrato.", encoding="utf-8")
+        return send_file(ERROR_LOG_FILE, as_attachment=True, download_name="errori_gestionale.log")
+    except Exception as e:
+        flash(f"Errore download log: {e}", "danger")
+        return redirect(url_for("admin_errori"))
+
+
+@app.route("/admin/errori/svuota", methods=["POST"])
+@login_required
+@require_admin
+def admin_svuota_log_errori():
+    try:
+        ERROR_LOG_FILE.write_text("", encoding="utf-8")
+        flash("Log errori svuotato.", "success")
+    except Exception as e:
+        flash(f"Errore svuotamento log: {e}", "danger")
+    return redirect(url_for("admin_errori"))
+
+
+
 @app.route("/admin/backups", methods=["GET", "POST"])
 @login_required
 @require_admin
