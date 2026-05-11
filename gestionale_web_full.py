@@ -239,6 +239,88 @@ def build_entry_public_url(codice_entrata):
     return f"{build_public_base_url()}/entrata/{quote(codice_entrata, safe='')}"
 
 
+def _codice_entrata_varianti(codice_entrata):
+    """Restituisce le varianti compatibili del codice entrata.
+    Serve per non perdere il collegamento tra barcode vecchi (senza cliente)
+    e barcode nuovi (con cliente).
+    Esempi:
+    - ENT-20260511-71526
+    - ENT-20260511-RFDEWAVE-71526
+    """
+    codice = (codice_entrata or '').strip()
+    varianti = []
+    if codice:
+        varianti.append(codice)
+
+    parts = codice.split('-') if codice else []
+    if len(parts) >= 4 and parts[0].upper() == 'ENT':
+        data_part = parts[1]
+        cliente_part = parts[2]
+        resto = '-'.join(parts[3:]).strip()
+        # Variante vecchia senza cliente
+        if resto:
+            varianti.append(f"ENT-{data_part}-{resto}")
+    elif len(parts) == 3 and parts[0].upper() == 'ENT':
+        # Variante vecchia: aggiungo possibili versioni con cliente partendo dai clienti validi
+        data_part = parts[1]
+        resto = parts[2]
+        try:
+            for cli in get_clienti_utenti():
+                cli_norm = _norm_token(cli)[:24]
+                if cli_norm:
+                    varianti.append(f"ENT-{data_part}-{cli_norm}-{resto}")
+        except Exception:
+            pass
+
+    # de-dup preservando ordine
+    out, seen = [], set()
+    for v in varianti:
+        if v and v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
+def _codice_entrata_preferito(codice_entrata, rows=None):
+    """Calcola il codice entrata preferito usando il cliente quando possibile.
+    Se il barcode richiesto è vecchio, lo aggiorna al nuovo formato stabile.
+    """
+    codice = (codice_entrata or '').strip()
+    rows = rows or []
+    if not rows:
+        return codice
+    first = rows[0]
+    return ensure_codice_entrata(
+        None,
+        n_arrivo=strip_arrivo_progressivo(getattr(first, 'n_arrivo', None)),
+        n_ddt=getattr(first, 'n_ddt_ingresso', None),
+        data_ingresso=getattr(first, 'data_ingresso', None),
+        cliente=getattr(first, 'cliente', None),
+    ) or codice
+
+
+def _normalizza_codice_entrata_rows(db, codice_entrata, rows):
+    """Uniforma le righe trovate con barcode vecchio/nuovo allo stesso codice entrata.
+    Non cambia QR/barcode se non serve; evita che il dettaglio entrata resti spezzato.
+    """
+    rows = rows or []
+    if not rows:
+        return 0, codice_entrata
+    preferito = _codice_entrata_preferito(codice_entrata, rows)
+    changed = 0
+    for r in rows:
+        if (getattr(r, 'codice_entrata', '') or '') != preferito:
+            r.codice_entrata = preferito
+            changed += 1
+    if changed:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            changed = 0
+    return changed, preferito
+
+
 def _collect_entrata_attachments(rows):
     docs, photos = [], []
     seen_docs, seen_photos = set(), set()
@@ -288,13 +370,19 @@ def analyze_entrata_rows(rows):
         if arr:
             seen_arrivi.setdefault(arr, []).append(r)
 
-        if len(rows) > 1 and (not code or desc in {"MERCE VARIA", "VARIE", "MATERIALE VARIO"}):
-            anomalies.append({"row": r, "reason": "Riga generica o senza codice articolo in un'entrata multipla"})
+        # Non segnaliamo più come errore le righe MERCE VARIA generate da etichetta/scansione:
+        # sono righe provvisorie da completare, ma non devono rompere il collegamento barcode.
+        # Segnaliamo solo vere righe vuote senza codice, descrizione e cliente.
+        if len(rows) > 1 and not code and not desc and not (getattr(r, 'cliente', '') or '').strip():
+            anomalies.append({"row": r, "reason": "Riga vuota o incompleta nell'entrata multipla"})
 
     for arr, group in seen_arrivi.items():
         if len(group) > 1:
-            for r in group:
-                anomalies.append({"row": r, "reason": f"N. arrivo duplicato nell'entrata: {arr}"})
+            codici_entrata = {(getattr(r, 'codice_entrata', '') or '').strip() for r in group}
+            # Se le righe appartengono alla stessa entrata/barcode, il N. arrivo uguale è ammesso.
+            if len(codici_entrata) > 1:
+                for r in group:
+                    anomalies.append({"row": r, "reason": f"N. arrivo duplicato su entrate diverse: {arr}"})
 
     # dedup per id_articolo + motivo
     dedup = []
@@ -2302,28 +2390,73 @@ def calc_m2_m3(L, P, H, colli=1):
     
     return round(m2, 4), round(m3, 4)
 
+def _destinatari_path() -> Path:
+    return (MEDIA_DIR / "destinatari_saved.json") if 'MEDIA_DIR' in globals() else (APP_DIR / "destinatari_saved.json")
+
+
+def _destinatari_fallback_paths():
+    paths = []
+    try:
+        paths.append(MEDIA_DIR / "destinatari_saved.json")
+    except Exception:
+        pass
+    try:
+        paths.append(APP_DIR / "destinatari_saved.json")
+        paths.append(APP_DIR / "config" / "destinatari_saved.json")
+    except Exception:
+        pass
+    out, seen = [], set()
+    for p in paths:
+        s = str(p)
+        if s not in seen:
+            seen.add(s)
+            out.append(p)
+    return out
+
+
+def save_destinatari(data: dict):
+    fp = _destinatari_path()
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    tmp = fp.with_suffix(fp.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=4), encoding="utf-8")
+    tmp.replace(fp)
+    try:
+        local_fp = APP_DIR / "destinatari_saved.json"
+        if local_fp != fp:
+            local_fp.write_text(json.dumps(data, ensure_ascii=False, indent=4), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def load_destinatari():
-    DESTINATARI_JSON = APP_DIR / "destinatari_saved.json"
+    DESTINATARI_JSON = _destinatari_path()
     data = {}
-    if DESTINATARI_JSON.exists():
-        try:
-            content = DESTINATARI_JSON.read_text(encoding="utf-8")
-            raw_data = json.loads(content)
-            
-            # Se il JSON è una lista (vecchio formato), lo convertiamo in dizionario
-            if isinstance(raw_data, list):
-                for item in raw_data:
-                    # Usa il campo 'Cliente' come chiave, o genera un nome se manca
-                    key = item.get("Cliente") or item.get("ragione_sociale") or "Destinatario Sconosciuto"
-                    data[key] = {
-                        "ragione_sociale": item.get("ragione_sociale") or item.get("Cliente", ""),
-                        "indirizzo": item.get("indirizzo", ""),
-                        "piva": item.get("piva", "")
-                    }
-            else:
-                data = raw_data
-        except Exception:
-            data = {}
+    for candidate in _destinatari_fallback_paths():
+        if candidate.exists():
+            try:
+                content = candidate.read_text(encoding="utf-8")
+                raw_data = json.loads(content)
+                
+                # Se il JSON è una lista (vecchio formato), lo convertiamo in dizionario
+                if isinstance(raw_data, list):
+                    for item in raw_data:
+                        # Usa il campo 'Cliente' come chiave, o genera un nome se manca
+                        key = item.get("Cliente") or item.get("ragione_sociale") or "Destinatario Sconosciuto"
+                        data[key] = {
+                            "ragione_sociale": item.get("ragione_sociale") or item.get("Cliente", ""),
+                            "indirizzo": item.get("indirizzo", ""),
+                            "piva": item.get("piva", "")
+                        }
+                else:
+                    data = raw_data
+                if candidate != DESTINATARI_JSON:
+                    try:
+                        save_destinatari(data)
+                    except Exception:
+                        pass
+                break
+            except Exception:
+                data = {}
             
     if not data:
         # Dati di default se il file è vuoto o corrotto
@@ -2342,8 +2475,29 @@ def load_destinatari():
 # ========================================================
 
 def _rubrica_email_path() -> Path:
-    # Su Render MEDIA_DIR punta a /var/data/app (persistente) se esiste
+    # Su Render MEDIA_DIR punta a /var/data/app (persistente) se esiste.
+    # Preferiamo sempre il disco persistente, così gli indirizzi non spariscono ai deploy.
     return (MEDIA_DIR / "rubrica_email.json") if 'MEDIA_DIR' in globals() else (APP_DIR / "rubrica_email.json")
+
+
+def _rubrica_email_fallback_paths():
+    paths = []
+    try:
+        paths.append(MEDIA_DIR / "rubrica_email.json")
+    except Exception:
+        pass
+    try:
+        paths.append(APP_DIR / "rubrica_email.json")
+        paths.append(APP_DIR / "config" / "rubrica_email.json")
+    except Exception:
+        pass
+    out, seen = [], set()
+    for p in paths:
+        s = str(p)
+        if s not in seen:
+            seen.add(s)
+            out.append(p)
+    return out
 
 def load_rubrica_email():
     fp = _rubrica_email_path()
@@ -2411,17 +2565,35 @@ def load_rubrica_email():
 
         return {"contatti": contatti_norm, "gruppi": gruppi_norm}
 
-    if fp.exists():
-        try:
-            return _normalizza_rubrica(json.loads(fp.read_text(encoding="utf-8")))
-        except Exception:
-            pass
+    # Prova prima il file persistente, poi eventuali vecchie posizioni.
+    for candidate in _rubrica_email_fallback_paths():
+        if candidate.exists():
+            try:
+                data_norm = _normalizza_rubrica(json.loads(candidate.read_text(encoding="utf-8")))
+                # Se ho letto da una vecchia posizione, salvo anche sul persistente.
+                if candidate != fp:
+                    try:
+                        save_rubrica_email(data_norm)
+                    except Exception:
+                        pass
+                return data_norm
+            except Exception:
+                pass
     return {"contatti": {}, "gruppi": {}}
 
 def save_rubrica_email(data: dict):
     fp = _rubrica_email_path()
     fp.parent.mkdir(parents=True, exist_ok=True)
-    fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp = fp.with_suffix(fp.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(fp)
+    # Copia di cortesia locale: utile in sviluppo e per backup/diagnosi.
+    try:
+        local_fp = APP_DIR / "rubrica_email.json"
+        if local_fp != fp:
+            local_fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
 
 def _parse_emails(raw: str):
     # accetta ; oppure , e ripulisce
@@ -8041,10 +8213,11 @@ def go_scan_entrata():
 def dettaglio_entrata(codice_entrata):
     db = SessionLocal()
     try:
+        varianti_codice = _codice_entrata_varianti(codice_entrata)
         qs = (
             db.query(Articolo)
             .options(selectinload(Articolo.attachments))
-            .filter(Articolo.codice_entrata == codice_entrata)
+            .filter(Articolo.codice_entrata.in_(varianti_codice))
             .order_by(Articolo.id_articolo.desc())
         )
         if session.get('role') == 'client':
@@ -8054,6 +8227,11 @@ def dettaglio_entrata(codice_entrata):
         if not rows:
             flash(f'Entrata {codice_entrata} non trovata.', 'warning')
             return redirect(url_for('scan_entrata'))
+
+        changed_code, codice_entrata_preferito = _normalizza_codice_entrata_rows(db, codice_entrata, rows)
+        if changed_code:
+            return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata_preferito))
+        codice_entrata = codice_entrata_preferito or codice_entrata
 
         total_colli = sum(int(r.n_colli or 0) for r in rows)
         total_peso = round(sum(float(r.peso or 0) for r in rows), 2)
@@ -8078,7 +8256,8 @@ def dettaglio_entrata(codice_entrata):
 def verifica_entrata(codice_entrata):
     db = SessionLocal()
     try:
-        qs = db.query(Articolo).filter(Articolo.codice_entrata == codice_entrata).order_by(Articolo.id_articolo.desc())
+        varianti_codice = _codice_entrata_varianti(codice_entrata)
+        qs = db.query(Articolo).filter(Articolo.codice_entrata.in_(varianti_codice)).order_by(Articolo.id_articolo.desc())
         if session.get('role') == 'client':
             user_key_norm = normalize_text_key(current_user.id or '')
             qs = qs.filter(normalized_sql_text(Articolo.cliente) == user_key_norm)
@@ -8086,6 +8265,9 @@ def verifica_entrata(codice_entrata):
         if not rows:
             flash(f'Entrata {codice_entrata} non trovata.', 'warning')
             return redirect(url_for('scan_entrata'))
+        changed_code, codice_entrata_preferito = _normalizza_codice_entrata_rows(db, codice_entrata, rows)
+        if changed_code:
+            codice_entrata = codice_entrata_preferito or codice_entrata
         analysis = analyze_entrata_rows(rows)
         anomalies = analysis.get('anomalies', [])
         if anomalies:
@@ -8105,10 +8287,16 @@ def verifica_entrata(codice_entrata):
 def correggi_entrata(codice_entrata):
     db = SessionLocal()
     try:
-        rows = db.query(Articolo).filter(Articolo.codice_entrata == codice_entrata).order_by(Articolo.id_articolo.desc()).all()
+        varianti_codice = _codice_entrata_varianti(codice_entrata)
+        rows = db.query(Articolo).filter(Articolo.codice_entrata.in_(varianti_codice)).order_by(Articolo.id_articolo.desc()).all()
         if not rows:
             flash(f'Entrata {codice_entrata} non trovata.', 'warning')
             return redirect(url_for('scan_entrata'))
+
+        changed_code, codice_entrata_preferito = _normalizza_codice_entrata_rows(db, codice_entrata, rows)
+        if changed_code:
+            codice_entrata = codice_entrata_preferito or codice_entrata
+            rows = db.query(Articolo).filter(Articolo.codice_entrata == codice_entrata).order_by(Articolo.id_articolo.desc()).all()
 
         analysis = analyze_entrata_rows(rows)
         anomalies = analysis.get('anomalies', [])
@@ -9409,7 +9597,7 @@ def get_prev_ddt_number():
 def manage_destinatari():
     import json
 
-    dest_file = APP_DIR / "destinatari_saved.json"
+    dest_file = _destinatari_path()
     destinatari = load_destinatari()
 
     if request.method == 'POST':
@@ -9423,10 +9611,7 @@ def manage_destinatari():
             if key_to_delete and key_to_delete in destinatari:
                 del destinatari[key_to_delete]
                 try:
-                    dest_file.write_text(
-                        json.dumps(destinatari, ensure_ascii=False, indent=4),
-                        encoding="utf-8"
-                    )
+                    save_destinatari(destinatari)
                     flash(f"Destinatario '{key_to_delete}' eliminato.", "success")
                 except Exception as e:
                     flash(f"Errore salvataggio file: {e}", "danger")
@@ -9449,10 +9634,7 @@ def manage_destinatari():
                 }
 
                 try:
-                    dest_file.write_text(
-                        json.dumps(destinatari, ensure_ascii=False, indent=4),
-                        encoding="utf-8"
-                    )
+                    save_destinatari(destinatari)
                     flash(f"Destinatario '{key_name}' salvato.", "success")
                 except Exception as e:
                     flash(f"Errore salvataggio file: {e}", "danger")
@@ -9494,10 +9676,11 @@ def rubrica_email():
         elif action == 'delete_contact':
             nome = (request.form.get('nome') or '').strip()
             if nome in data.get("contatti", {}):
+                email_da_rimuovere = data.get("contatti", {}).get(nome, {}).get("email")
                 del data["contatti"][nome]
                 # rimuovi anche dai gruppi
                 for g, emails in list(data.get("gruppi", {}).items()):
-                    data["gruppi"][g] = [e for e in emails if e != nome and e != data.get("contatti", {}).get(nome, {}).get("email")]
+                    data["gruppi"][g] = [e for e in emails if e != nome and e != email_da_rimuovere]
                 save_rubrica_email(data)
                 flash("Contatto eliminato.", "success")
 
