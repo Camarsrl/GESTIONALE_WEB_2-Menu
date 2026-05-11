@@ -3781,7 +3781,7 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
         <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm"><i class="bi bi-envelope"></i> Email</button>
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Modifica</button>
-        <button type="button" class="btn btn-warning btn-sm fw-bold" onclick="return apriScaricoParzialeSelezionato();">
+        <button type="submit" formaction="{{ url_for('scarico_parziale_selezionato') }}" formmethod="post" class="btn btn-warning btn-sm fw-bold">
             📤 Scarico parziale
         </button>
         <button type="submit" formaction="{{ url_for('labels_pdf') }}" formtarget="_blank" class="btn btn-warning btn-sm"><i class="bi bi-download"></i> Etichette</button>
@@ -11433,6 +11433,22 @@ SCARICO_PARZIALE_HTML = """
 </div>
 {% endblock %}
 """
+
+
+@app.route('/scarico_parziale_selezionato', methods=['POST'])
+@login_required
+@require_admin
+def scarico_parziale_selezionato():
+    """Apre lo scarico parziale usando una sola riga selezionata dalla tabella giacenze."""
+    ids = request.form.getlist('ids') or request.form.getlist('selected_ids') or request.form.getlist('selected') or []
+    ids = [str(x).strip() for x in ids if str(x).strip().isdigit()]
+
+    if len(ids) != 1:
+        flash("Seleziona una sola riga per fare lo scarico parziale.", "warning")
+        return redirect(url_for('giacenze'))
+
+    return redirect(url_for('scarico_parziale', id_articolo=int(ids[0])))
+
 
 @app.route('/scarico_parziale/<int:id_articolo>', methods=['GET', 'POST'])
 @login_required
