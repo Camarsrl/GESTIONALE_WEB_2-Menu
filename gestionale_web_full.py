@@ -1552,10 +1552,31 @@ def extract_data_from_ddt_pdf(path):
         return ""
 
     def _ocr_page(page):
+        """OCR robusto per scansioni dritte o ruotate.
+        Ottimizzato per i PDF Fincantieri/VARD: le pagine di packing list sono spesso ruotate.
+        """
         try:
-            img = page.to_image(resolution=200).original
-            txt = pytesseract.image_to_string(img, lang='eng', config='--psm 6') or ""
-            return txt
+            img = page.to_image(resolution=100).original
+            page_no = int(getattr(page, 'page_number', 1) or 1)
+
+            # Nei PDF VARD/Fincantieri le packing list sono spesso da pag. 4 in poi e ruotate.
+            rotations = (270, 0) if page_no >= 4 else (0, 270)
+            best_txt = ""
+            best_score = 0
+            for rot in rotations:
+                try:
+                    im = img.rotate(rot, expand=True) if rot else img
+                    txt = pytesseract.image_to_string(im, lang='eng', config='--psm 6') or ""
+                    score = len(re.findall(r"[A-Za-z0-9]", txt))
+                    if score > best_score:
+                        best_score = score
+                        best_txt = txt
+                    # Se la prima rotazione è già sufficiente, non insiste.
+                    if score > 450:
+                        break
+                except Exception:
+                    pass
+            return best_txt
         except Exception:
             return ""
 
@@ -1652,6 +1673,14 @@ def extract_data_from_ddt_pdf(path):
             "n_ddt": "",
             "data_ingresso": date.today().strftime("%Y-%m-%d"),
         }
+        # Se il file si chiama tipo "ARRIVO N°32_26 FINCANTIERI.pdf", precompila N. Arrivo = 32/26
+        try:
+            fname = os.path.basename(str(path))
+            m_arr = re.search(r"ARRIVO\s*N[°º.]?\s*(\d+)\s*[_/-]\s*(\d+)", fname, re.I)
+            if m_arr:
+                meta["n_arrivo"] = f"{m_arr.group(1)}/{m_arr.group(2)}"
+        except Exception:
+            pass
 
         for ln in lines:
             if not meta['n_ddt']:
@@ -1813,9 +1842,26 @@ def extract_data_from_ddt_pdf(path):
         return rows
 
     def _parse_fincantieri_generic(lines):
+        """Parser dedicato Fincantieri/VARD.
+
+        Regola richiesta:
+        - Codice articolo = Numero Package + Marca pezzo
+        - Pezzi = colonna QTY
+        - Descrizione = descrizione/merce letta dalla packing list
+        - Colli = numero package, se leggibile, altrimenti 1
+        - Peso = gross weight, se leggibile
+        """
         rows = []
-        # caso pedane / nessun codice articolo
         full = "\n".join(lines)
+        up = full.upper()
+
+        # Attiva solo sui documenti Fincantieri/VARD/packing list.
+        is_fincantieri_vard = bool(
+            re.search(r"FINCANTIERI", up)
+            and re.search(r"\bVARD\b|SHIPYARDS|PACKING\s*LIST|C6333", up)
+        )
+
+        # Caso pedane / nessun codice articolo già gestito in precedenza.
         if re.search(r"\bPEDANE\b", full, re.I):
             m_qty = re.search(r"\b(\d+)\s+PZ\s+PEDANE\b", full, re.I)
             m_colli = re.search(r"NUMERO\s+COLLI\s+(\d+)", full, re.I)
@@ -1824,7 +1870,119 @@ def extract_data_from_ddt_pdf(path):
             colli = _to_int(m_colli.group(1)) if m_colli else qty
             peso = _to_float_it(m_peso.group(1)) if m_peso else qty
             rows.append(_base_row('', 'PEDANE', colli or 0, peso or 0, 'KG', str(qty or '')))
-        return rows
+
+        if not is_fincantieri_vard:
+            return rows
+
+        def _clean_ocr_cell(s):
+            s = _clean_spaces(s or '')
+            s = s.replace('|', ' ')
+            s = re.sub(r"[\[\]{}]+", " ", s)
+            s = re.sub(r"\s+", " ", s).strip(" -_;:,.|")
+            return s
+
+        def _fix_package_no(s):
+            s = _clean_ocr_cell(s)
+            s = s.replace(',', '.')
+            # 620/14.04.2026, 8976/05.05.2026, ecc.
+            m = re.search(r"(\d{2,5}\s*/\s*\d{1,2}[./]\d{1,2}[./]\d{4})", s)
+            if not m:
+                return ''
+            val = re.sub(r"\s+", "", m.group(1)).replace('/', '/', 1)
+            return val.replace('.', '.')
+
+        def _extract_nums_tail(s):
+            # Ritorna possibili quantità, colli, peso dalla coda della riga.
+            nums = re.findall(r"(?<![A-Z0-9/])\d+(?:[.,]\d+)?(?![A-Z0-9/])", s)
+            # Rimuove numeri che fanno parte del package/date, tenendo quelli dopo U/M se possibile.
+            after_um = s
+            m_um = re.search(r"\b(PCS|PZ|SET|KG)\b", s, re.I)
+            if m_um:
+                after_um = s[m_um.end():]
+                nums2 = re.findall(r"\d+(?:[.,]\d+)?", after_um)
+                if nums2:
+                    nums = nums2
+            qty = _to_int(nums[0]) if nums else 1
+            colli = _to_int(nums[1]) if len(nums) >= 2 else 1
+            peso = _to_float_it(nums[-1]) if len(nums) >= 3 else None
+            if not qty or qty < 0:
+                qty = 1
+            if not colli or colli < 0:
+                colli = 1
+            return qty, colli, peso
+
+        def _row_from_line(ln):
+            raw = _clean_ocr_cell(ln)
+            if not re.search(r"PACKING\s*LIST|POCTING|PACING|PACKINGL", raw, re.I):
+                return None
+            pkg = _fix_package_no(raw)
+            if not pkg:
+                return None
+
+            # Parte prima del package = descrizione generale, se utile.
+            before, after = raw.split(pkg, 1)
+            before = re.sub(r"^\s*\d+\s*", "", before)
+            before = re.sub(r"PACKING\s*LIST", "", before, flags=re.I)
+            before = re.sub(r"\b(?:WARTSILA|VARD|LUMINITA|SCENSHIP|SCANSHIP|OFFICINA\s+MECCANICA)\b", "", before, flags=re.I)
+            before = _clean_ocr_cell(before)
+
+            # Parte dopo il package = marca pezzo / descrizione, prima di UM/quantità.
+            after0 = after
+            marca = re.split(r"\b(?:PCS|PZ|SET|KG)\b", after0, flags=re.I)[0]
+            marca = _clean_ocr_cell(marca)
+            marca = re.sub(r"\b(?:FAT|LOT|TOTAL|TOTALE)\b.*$", "", marca, flags=re.I).strip()
+
+            # Se l'OCR mette la descrizione nella riga prima e lascia marca vuota, usa before.
+            descr = marca or before or 'Packing list Fincantieri'
+            if before and marca and before.upper() not in marca.upper():
+                # Mantiene una descrizione più completa senza sporcare troppo.
+                descr = _clean_ocr_cell(f"{before} {marca}")
+
+            # Evita righe troppo generiche/gruppi pacchi.
+            if re.fullmatch(r"(?i)(PACKING|LIST|PACKING LIST|VARD|WARTSILA)", descr or ''):
+                return None
+
+            qty, colli, peso = _extract_nums_tail(after0)
+            um_m = re.search(r"\b(PCS|PZ|SET|KG)\b", after0, re.I)
+            um = 'PZ'
+            if um_m:
+                um_raw = um_m.group(1).upper()
+                um = {'PCS': 'PZ', 'SET': 'PZ'}.get(um_raw, um_raw)
+
+            codice = _clean_ocr_cell(f"PACKAGE No.{pkg} - {descr}")
+            return _base_row(
+                codice=codice,
+                descrizione=descr,
+                colli=colli or 1,
+                pezzi=peso if peso is not None else qty,
+                um='KG' if peso is not None else um,
+                pezzi_articolo=str(qty or 1),
+            )
+
+        # Scansione righe OCR. Una riga = una riga di packing list quando possibile.
+        for ln in lines:
+            row = _row_from_line(ln)
+            if row:
+                rows.append(row)
+
+        # Fallback: se alcune righe sono state spezzate, unisci piccole finestre di righe.
+        if len(rows) < 3:
+            for i in range(len(lines)):
+                joined = _clean_ocr_cell(' '.join(lines[i:i+3]))
+                row = _row_from_line(joined)
+                if row:
+                    rows.append(row)
+
+        # Dedup mantenendo il primo risultato.
+        dedup = []
+        seen = set()
+        for r in rows:
+            key = (r.get('codice') or '').upper()
+            if key and key not in seen:
+                seen.add(key)
+                dedup.append(r)
+
+        return dedup
 
     def _parse_generic(lines):
         extracted_rows = []
@@ -1926,6 +2084,9 @@ def extract_data_from_ddt_pdf(path):
             meta['cliente'] = 'MARINE INTERIORS'
         if re.search(r"DE\s+WAVE", up):
             meta['cliente'] = 'DE WAVE'
+        if re.search(r"FINCANTIERI", up) and re.search(r"\bVARD\b|SHIPYARDS|C6333|PACKING\s*LIST", up):
+            meta['cliente'] = 'FINCANTIERI'
+            meta['fornitore'] = meta.get('fornitore') or 'VARD'
 
         if re.search(r"ATOTECH|MKS", up):
             meta['fornitore'] = 'ATOTECH ITALIA S.R.L.'
@@ -1936,6 +2097,8 @@ def extract_data_from_ddt_pdf(path):
 
         if not meta.get('n_ddt'):
             for pat in [
+                r"SERIA\s*[:\-]?\s*(?:VSRTL\s*[*#-]?)?\s*(\d{3,})",
+                r"\bVSRTL\s*[*#-]?(\d{3,})\b",
                 r"NUMERO\s+BOLLA\s+(?:DATA\s+BOLLA\s+)?([A-Z0-9./-]{3,})",
                 r"\b(AT\d{5,})\b",
                 r"NUMERO\s+DOCUMENTO\s+(\d{3,})",
@@ -1958,10 +2121,10 @@ def extract_data_from_ddt_pdf(path):
                     meta['commessa'] = _clean_spaces(m.group(1)); break
 
         if not meta.get('data_ingresso') or meta.get('data_ingresso') == date.today().strftime('%Y-%m-%d'):
-            m = re.search(r"\b(\d{1,2}/\d{1,2}/\d{4})\b", txt)
+            m = re.search(r"\b(\d{1,2}[/.]\d{1,2}[/.]\d{4})\b", txt)
             if m:
                 try:
-                    meta['data_ingresso'] = datetime.strptime(m.group(1), '%d/%m/%Y').strftime('%Y-%m-%d')
+                    meta['data_ingresso'] = datetime.strptime(m.group(1).replace('.', '/'), '%d/%m/%Y').strftime('%Y-%m-%d')
                 except Exception:
                     pass
 
@@ -2940,8 +3103,8 @@ IMPORT_PDF_HTML = """
     
     {% if not rows %}
     <div class="alert alert-info">
-        Carica un DDT in formato PDF digitale. Il sistema tenterà di leggere codici e quantità.<br>
-        <b>Nota:</b> Funziona meglio con PDF generati da computer, non scansioni.
+        Carica un DDT in formato PDF digitale o scansione. Il sistema tenterà di leggere codici e quantità.<br>
+        <b>Nota:</b> per Fincantieri/VARD il codice articolo viene composto da Numero Package + Marca pezzo.
     </div>
     <form method="post" enctype="multipart/form-data" class="mt-4">
         <div class="mb-3">
