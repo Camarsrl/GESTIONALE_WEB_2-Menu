@@ -1542,6 +1542,14 @@ ADMIN_ERRORI_HTML = """
         <div>
             <a href="{{ url_for('admin_scarica_log_errori') }}" class="btn btn-outline-primary btn-sm">Scarica log</a>
             <form method="POST" action="{{ url_for('admin_svuota_log_errori') }}" style="display:inline;" onsubmit="return confirm('Svuotare il log errori?');">
+{% if request.args.get('aggiungi_buono_carico') %}
+<input type="hidden" name="buono_carico_id" value="{{ request.args.get('aggiungi_buono_carico') }}">
+<div class="alert alert-warning py-2 my-2">
+    Stai aggiungendo arrivi al buono di carico <strong>#{{ request.args.get('aggiungi_buono_carico') }}</strong>.
+    Seleziona una o più righe e premi <strong>➕ Aggiungi al buono</strong>.
+</div>
+{% endif %}
+
                 <button class="btn btn-outline-danger btn-sm">Svuota log</button>
             </form>
             <a href="{{ url_for('home') }}" class="btn btn-secondary btn-sm">Home</a>
@@ -1555,84 +1563,7 @@ ADMIN_ERRORI_HTML = """
     <pre style="background:#111;color:#eee;padding:15px;border-radius:8px;white-space:pre-wrap;max-height:75vh;overflow:auto;">{{ contenuto }}</pre>
 </div>
 
-<script>
-let qrScannerInstance = null;
 
-async function avviaScannerQR() {
-    try {
-        const readerEl = document.getElementById("reader");
-        readerEl.innerHTML = "";
-
-        if (qrScannerInstance) {
-            try {
-                await qrScannerInstance.stop();
-            } catch(e) {}
-        }
-
-        qrScannerInstance = new Html5Qrcode("reader");
-
-        const cameras = await Html5Qrcode.getCameras();
-
-        if (!cameras || cameras.length === 0) {
-            alert("Nessuna fotocamera trovata.");
-            return;
-        }
-
-        let cameraId = cameras[0].id;
-
-        // Preferisce camera posteriore su smartphone
-        for (const cam of cameras) {
-            const label = (cam.label || "").toLowerCase();
-            if (label.includes("back") || label.includes("rear") || label.includes("post")) {
-                cameraId = cam.id;
-                break;
-            }
-        }
-
-        await qrScannerInstance.start(
-            cameraId,
-            {
-                fps: 10,
-                qrbox: { width: 250, height: 250 }
-            },
-            (decodedText) => {
-                const input = document.getElementById("codice_scansionato");
-                if (input) {
-                    input.value = decodedText;
-                }
-
-                try {
-                    qrScannerInstance.stop();
-                } catch(e) {}
-
-                // invio automatico
-                const form = input.closest("form");
-                if (form) {
-                    form.submit();
-                }
-            },
-            (errorMessage) => {
-                // Ignora errori continui di scansione
-            }
-        );
-
-    } catch (err) {
-        console.error(err);
-        alert("Errore apertura fotocamera QR: " + err);
-    }
-}
-
-async function fermaScannerQR() {
-    try {
-        if (qrScannerInstance) {
-            await qrScannerInstance.stop();
-            document.getElementById("reader").innerHTML = "";
-        }
-    } catch(e) {
-        console.error(e);
-    }
-}
-</script>
 
 {% endblock %}
 """
@@ -4004,6 +3935,9 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm"><i class="bi bi-envelope"></i> Email</button>
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Modifica</button>
         <button type="submit" formaction="{{ url_for('buono_carico_da_riga') }}" formmethod="post" class="btn btn-outline-primary btn-sm fw-bold">🧾 Buono carico QR</button>
+        {% if request.args.get('aggiungi_buono_carico') %}
+        <button type="submit" formaction="{{ url_for('aggiungi_righe_a_buono_carico') }}" formmethod="post" class="btn btn-primary btn-sm fw-bold">➕ Aggiungi al buono</button>
+        {% endif %}
         <button type="submit" formaction="{{ url_for('scarico_parziale_selezionato') }}" formmethod="post" class="btn btn-warning btn-sm fw-bold">
             📤 Scarico parziale
         </button>
@@ -11967,6 +11901,7 @@ BUONO_CARICO_DETTAGLIO_HTML = """
     <div>
       <a href="{{ url_for('buoni_carico') }}" class="btn btn-secondary btn-sm">Elenco buoni</a>
       <a href="{{ url_for('stampa_buono_carico_pdf', buono_id=buono.id) }}" class="btn btn-success btn-sm">🖨️ Stampa buono</a>
+      <a href="{{ url_for('giacenze', aggiungi_buono_carico=buono.id) }}" class="btn btn-primary btn-sm">➕ Aggiungi arrivi</a>
       <form method="POST" action="{{ url_for('elimina_buono_carico', buono_id=buono.id) }}" style="display:inline;" onsubmit="return confirm('Eliminare questo buono di carico? Assicurati di aver salvato/stampato il PDF.');">
         <button type="submit" class="btn btn-danger btn-sm">🗑️ Elimina buono</button>
       </form>
@@ -12050,14 +11985,31 @@ BUONO_CARICO_DETTAGLIO_HTML = """
   <div class="card shadow-sm mb-3">
     <div class="card-header fw-bold">Scansiona pallet / arrivo</div>
     <div class="card-body">
-      <form method="POST" action="{{ url_for('scansiona_buono_carico', buono_id=buono.id) }}" class="row g-2">
+      <form id="form_scansione_qr" method="POST" action="{{ url_for('scansiona_buono_carico', buono_id=buono.id) }}" class="row g-2">
         <div class="col-md-8">
-          <input type="text" name="codice_scansionato" class="form-control form-control-lg" placeholder="Scansiona QR o incolla codice entrata ENT-..." autofocus required>
+          <input type="text" id="codice_scansionato" name="codice_scansionato" class="form-control form-control-lg" placeholder="Scansiona QR o incolla codice entrata ENT-..." autofocus required>
         </div>
         <div class="col-md-4">
           <button class="btn btn-success btn-lg w-100">Registra scansione</button>
         </div>
       </form>
+
+    <div class="mt-3 d-flex gap-2 flex-wrap">
+      <button type="button" class="btn btn-outline-primary btn-lg" onclick="avviaScannerQR()">
+        📷 Apri fotocamera QR
+      </button>
+      <button type="button" class="btn btn-outline-danger btn-lg" onclick="fermaScannerQR()">
+        ✖ Chiudi fotocamera
+      </button>
+    </div>
+
+    <div id="qr_reader_box" class="mt-3" style="display:none;">
+      <div id="reader" style="width:100%;max-width:420px;margin:auto;border:1px solid #ddd;border-radius:8px;padding:8px;background:#fff;"></div>
+      <div class="small text-muted mt-2 text-center">
+        Su smartphone autorizza l'uso della fotocamera. Se non si apre, verifica che il sito sia in HTTPS.
+      </div>
+    </div>
+
     </div>
   </div>
 
@@ -12083,6 +12035,176 @@ BUONO_CARICO_DETTAGLIO_HTML = """
     </div>
   </div>
 </div>
+
+<script>
+let qrScannerInstance = null;
+let qrScannerRunning = false;
+
+function setQrStatus(msg, type) {
+    let el = document.getElementById("qr_status_msg");
+    if (!el) {
+        const box = document.getElementById("qr_reader_box");
+        if (box) {
+            el = document.createElement("div");
+            el.id = "qr_status_msg";
+            el.className = "alert mt-2";
+            box.appendChild(el);
+        }
+    }
+    if (el) {
+        el.className = "alert mt-2 " + (type || "alert-info");
+        el.innerText = msg;
+    }
+}
+
+function caricaHtml5QrCodeSeServe(callback) {
+    if (typeof Html5Qrcode !== "undefined") {
+        callback();
+        return;
+    }
+
+    const old = document.getElementById("html5-qrcode-dynamic");
+    if (old) {
+        old.addEventListener("load", callback);
+        return;
+    }
+
+    const s = document.createElement("script");
+    s.id = "html5-qrcode-dynamic";
+    s.src = "https://unpkg.com/html5-qrcode";
+    s.onload = callback;
+    s.onerror = function() {
+        setQrStatus("Impossibile caricare il lettore QR. Controlla la connessione internet del telefono.", "alert-danger");
+    };
+    document.head.appendChild(s);
+}
+
+async function avviaScannerQR() {
+    const box = document.getElementById("qr_reader_box");
+    const readerEl = document.getElementById("reader");
+    const input = document.getElementById("codice_scansionato");
+
+    if (!box || !readerEl || !input) {
+        alert("Lettore QR non trovato nella pagina.");
+        return;
+    }
+
+    box.style.display = "block";
+    readerEl.innerHTML = "";
+
+    if (!window.isSecureContext) {
+        setQrStatus("La fotocamera dello smartphone funziona solo con sito HTTPS. Apri il gestionale dal link https://...", "alert-danger");
+        return;
+    }
+
+    caricaHtml5QrCodeSeServe(async function() {
+        try {
+            if (qrScannerRunning && qrScannerInstance) {
+                await fermaScannerQR();
+            }
+
+            qrScannerInstance = new Html5Qrcode("reader");
+
+            let config = {
+                fps: 10,
+                qrbox: function(viewfinderWidth, viewfinderHeight) {
+                    const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+                    const boxSize = Math.floor(minEdge * 0.75);
+                    return { width: boxSize, height: boxSize };
+                },
+                aspectRatio: 1.0
+            };
+
+            // Su smartphone è più affidabile chiedere direttamente la camera posteriore
+            await qrScannerInstance.start(
+                { facingMode: { exact: "environment" } },
+                config,
+                function(decodedText) {
+                    input.value = decodedText;
+                    setQrStatus("QR letto correttamente. Invio scansione...", "alert-success");
+
+                    setTimeout(async function() {
+                        try { await fermaScannerQR(); } catch(e) {}
+                        const form = document.getElementById("form_scansione_qr") || input.closest("form");
+                        if (form) form.submit();
+                    }, 300);
+                },
+                function(errorMessage) {
+                    // errori normali durante la ricerca del QR: non mostrare alert continui
+                }
+            );
+
+            qrScannerRunning = true;
+            setQrStatus("Fotocamera attiva. Inquadra il QR dell'arrivo.", "alert-info");
+
+        } catch (err1) {
+            console.warn("Camera environment exact fallita, provo fallback", err1);
+
+            try {
+                // Fallback per iPhone/Android che non accettano exact
+                if (qrScannerInstance) {
+                    try { await qrScannerInstance.clear(); } catch(e) {}
+                }
+                qrScannerInstance = new Html5Qrcode("reader");
+
+                await qrScannerInstance.start(
+                    { facingMode: "environment" },
+                    {
+                        fps: 10,
+                        qrbox: { width: 250, height: 250 }
+                    },
+                    function(decodedText) {
+                        input.value = decodedText;
+                        setQrStatus("QR letto correttamente. Invio scansione...", "alert-success");
+
+                        setTimeout(async function() {
+                            try { await fermaScannerQR(); } catch(e) {}
+                            const form = document.getElementById("form_scansione_qr") || input.closest("form");
+                            if (form) form.submit();
+                        }, 300);
+                    },
+                    function(errorMessage) {}
+                );
+
+                qrScannerRunning = true;
+                setQrStatus("Fotocamera attiva. Inquadra il QR dell'arrivo.", "alert-info");
+
+            } catch (err2) {
+                console.error(err2);
+                setQrStatus(
+                    "Non riesco ad aprire la fotocamera. Controlla i permessi del browser e che il sito sia aperto in HTTPS. Errore: " + err2,
+                    "alert-danger"
+                );
+            }
+        }
+    });
+}
+
+async function fermaScannerQR() {
+    try {
+        if (qrScannerInstance && qrScannerRunning) {
+            await qrScannerInstance.stop();
+        }
+    } catch(e) {
+        console.warn(e);
+    }
+
+    try {
+        if (qrScannerInstance) {
+            await qrScannerInstance.clear();
+        }
+    } catch(e) {}
+
+    qrScannerRunning = false;
+
+    const readerEl = document.getElementById("reader");
+    if (readerEl) readerEl.innerHTML = "";
+
+    const box = document.getElementById("qr_reader_box");
+    if (box) box.style.display = "none";
+}
+</script>
+
 {% endblock %}
 """
 
@@ -12477,6 +12599,156 @@ def scansiona_buono_carico(buono_id):
     finally:
         db.close()
 
+
+
+
+@app.route("/buoni_carico/aggiungi_righe", methods=["POST"])
+@login_required
+@require_admin
+def aggiungi_righe_a_buono_carico():
+    """Aggiunge una o più righe selezionate dal Magazzino a un buono di carico esistente."""
+    buono_id_raw = (request.form.get("buono_carico_id") or "").strip()
+    ids = request.form.getlist("ids") or request.form.getlist("selected_ids") or request.form.getlist("selected") or []
+    ids = [str(x).strip() for x in ids if str(x).strip().isdigit()]
+
+    if not buono_id_raw.isdigit():
+        flash("Buono di carico non indicato.", "danger")
+        return redirect(url_for("giacenze"))
+
+    if not ids:
+        flash("Seleziona almeno una riga da aggiungere al buono di carico.", "warning")
+        return redirect(url_for("giacenze", aggiungi_buono_carico=buono_id_raw))
+
+    db = SessionLocal()
+    try:
+        Base.metadata.create_all(engine)
+
+        buono = db.query(BuonoCarico).filter(BuonoCarico.id == int(buono_id_raw)).first()
+        if not buono:
+            flash("Buono di carico non trovato.", "danger")
+            return redirect(url_for("giacenze"))
+
+        articoli = (
+            db.query(Articolo)
+            .filter(Articolo.id_articolo.in_([int(x) for x in ids]))
+            .order_by(Articolo.id_articolo.asc())
+            .all()
+        )
+
+        if not articoli:
+            flash("Nessuna riga selezionata trovata.", "danger")
+            return redirect(url_for("giacenze", aggiungi_buono_carico=buono.id))
+
+        usciti = [str(a.id_articolo) for a in articoli if (a.data_uscita or a.n_ddt_uscita)]
+        if usciti:
+            flash("Alcune righe selezionate risultano già uscite: " + ", ".join(usciti), "warning")
+            return redirect(url_for("giacenze", aggiungi_buono_carico=buono.id))
+
+        # stesso cliente del buono
+        for art in articoli:
+            cliente_art = validate_cliente_or_raise(art.cliente)
+            if normalize_text_key(cliente_art) != normalize_text_key(buono.cliente):
+                flash("Puoi aggiungere solo righe dello stesso cliente del buono.", "warning")
+                return redirect(url_for("giacenze", aggiungi_buono_carico=buono.id))
+
+        esistenti = {
+            int(r.id_articolo) for r in db.query(BuonoCaricoRiga)
+            .filter(BuonoCaricoRiga.buono_id == buono.id)
+            .all()
+            if r.id_articolo
+        }
+
+        aggiunte = 0
+        totale_colli_add = 0
+        totale_peso_add = 0.0
+
+        def _add_summary(current, value, sep="; ", limit=1500):
+            value = (str(value or "")).strip()
+            current = (str(current or "")).strip()
+            if not value:
+                return current
+            parts = [p.strip() for p in current.split(sep) if p.strip()] if current else []
+            if value not in parts:
+                parts.append(value)
+            return sep.join(parts)[:limit]
+
+        for art in articoli:
+            if art.id_articolo in esistenti:
+                continue
+
+            n_arrivo_base = strip_arrivo_progressivo(art.n_arrivo)
+            codice_entrata = ensure_codice_entrata(
+                getattr(art, "codice_entrata", None),
+                n_arrivo=n_arrivo_base or art.n_arrivo,
+                n_ddt=art.n_ddt_ingresso,
+                data_ingresso=art.data_ingresso,
+                cliente=buono.cliente
+            )
+
+            if not (getattr(art, "codice_entrata", "") or "").strip():
+                art.codice_entrata = codice_entrata
+
+            try:
+                colli = int(art.n_colli or 0)
+            except Exception:
+                colli = 0
+            if colli <= 0:
+                colli = 1
+
+            try:
+                peso = float(art.peso or 0)
+            except Exception:
+                peso = 0.0
+
+            db.add(BuonoCaricoRiga(
+                buono_id=buono.id,
+                id_articolo=art.id_articolo,
+                cliente=buono.cliente,
+                fornitore=art.fornitore or "",
+                codice_articolo=art.codice_articolo or "",
+                descrizione=art.descrizione or "",
+                n_arrivo=n_arrivo_base or (art.n_arrivo or ""),
+                n_ddt_ingresso=art.n_ddt_ingresso or "",
+                data_ingresso=art.data_ingresso or "",
+                codice_entrata=codice_entrata,
+                colli_previsti=colli,
+                peso_previsto=peso
+            ))
+
+            buono.fornitore = _add_summary(buono.fornitore, art.fornitore, sep=" / ", limit=500)
+            buono.codice_articolo = _add_summary(getattr(buono, "codice_articolo", ""), art.codice_articolo, sep="; ", limit=500)
+            buono.descrizione = _add_summary(getattr(buono, "descrizione", ""), art.descrizione, sep="; ", limit=800)
+            buono.n_arrivo = _add_summary(buono.n_arrivo, n_arrivo_base or art.n_arrivo, sep="; ", limit=500)
+            buono.n_ddt_ingresso = _add_summary(buono.n_ddt_ingresso, art.n_ddt_ingresso, sep="; ", limit=500)
+            buono.codice_entrata = _add_summary(buono.codice_entrata, codice_entrata, sep="; ", limit=1500)
+
+            totale_colli_add += colli
+            totale_peso_add += peso
+            aggiunte += 1
+
+        buono.pallet_previsti = int(buono.pallet_previsti or 0) + totale_colli_add
+        buono.peso_previsto = float(buono.peso_previsto or 0) + totale_peso_add
+
+        _aggiorna_stato_buono_carico(db, buono)
+        db.commit()
+
+        if aggiunte:
+            flash(f"Aggiunte {aggiunte} righe/arrivi al buono di carico.", "success")
+        else:
+            flash("Le righe selezionate erano già presenti nel buono.", "info")
+
+        return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
+
+    except Exception as e:
+        db.rollback()
+        try:
+            scrivi_log_errore("Errore aggiunta righe a buono carico", e)
+        except Exception:
+            pass
+        flash(f"Errore aggiunta righe al buono: {e}", "danger")
+        return redirect(url_for("giacenze", aggiungi_buono_carico=buono_id_raw))
+    finally:
+        db.close()
 
 
 @app.route("/buoni_carico/<int:buono_id>/elimina", methods=["POST"])
