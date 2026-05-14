@@ -106,6 +106,9 @@ def normalize_text_key(value):
     return re.sub(r'[^A-Z0-9]+', '', s)
 
 
+app.jinja_env.filters['norm_key'] = normalize_text_key
+
+
 def normalized_sql_text(column_expr):
     """Versione SQL normalizzata di un campo testuale (maiuscolo, senza spazi/punteggiatura)."""
     expr = func.upper(func.trim(column_expr))
@@ -279,6 +282,9 @@ def _codice_entrata_varianti(codice_entrata):
             seen.add(v)
             out.append(v)
     return out
+
+
+app.jinja_env.globals['_codice_entrata_varianti'] = _codice_entrata_varianti
 
 
 def _codice_entrata_preferito(codice_entrata, rows=None):
@@ -977,6 +983,32 @@ def _auto_backup_hook():
     except Exception:
         pass
 
+
+
+@app.before_request
+def _remember_buono_carico_da_aggiungere():
+    """Mantiene in sessione l'ID del buono quando si passa dal dettaglio buono al Magazzino."""
+    try:
+        val = (buono_carico_attivo or "").strip()
+        if val.isdigit():
+            session["aggiungi_buono_carico"] = val
+    except Exception:
+        pass
+
+@app.context_processor
+def _ctx_buono_carico_attivo():
+    """ID buono carico attivo per template Magazzino."""
+    try:
+        return {
+            "buono_carico_attivo": (
+                buono_carico_attivo
+                or session.get("aggiungi_buono_carico")
+                or ""
+            )
+        }
+    except Exception:
+        return {"buono_carico_attivo": ""}
+
 def pulisci_backup_vecchi(max_files=50):
     files = sorted(
         Path(BACKUP_DIR).glob("backup_*.zip"),
@@ -1536,16 +1568,25 @@ def gestisci_errore_generale(e):
 ADMIN_ERRORI_HTML = """
 {% extends 'base.html' %}
 {% block content %}
+
+<style>
+.buono-wrap-text{
+    white-space: normal !important;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+</style>
+
 <div class="container-fluid py-3">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h3>🧾 Log errori gestionale</h3>
         <div>
             <a href="{{ url_for('admin_scarica_log_errori') }}" class="btn btn-outline-primary btn-sm">Scarica log</a>
             <form method="POST" action="{{ url_for('admin_svuota_log_errori') }}" style="display:inline;" onsubmit="return confirm('Svuotare il log errori?');">
-{% if request.args.get('aggiungi_buono_carico') %}
-<input type="hidden" name="buono_carico_id" value="{{ request.args.get('aggiungi_buono_carico') }}">
+{% if buono_carico_attivo %}
+<input type="hidden" name="buono_carico_id" value="{{ buono_carico_attivo }}">
 <div class="alert alert-warning py-2 my-2">
-    Stai aggiungendo arrivi al buono di carico <strong>#{{ request.args.get('aggiungi_buono_carico') }}</strong>.
+    Stai aggiungendo arrivi al buono di carico <strong>#{{ buono_carico_attivo }}</strong>.
     Seleziona una o più righe e premi <strong>➕ Aggiungi al buono</strong>.
 </div>
 {% endif %}
@@ -3473,8 +3514,8 @@ DETTAGLIO_ENTRATA_HTML = """
         </form>
         {% endif %}
         <form action="{{ url_for('bulk_edit') }}" method="get" class="d-inline">
-{% if request.args.get('aggiungi_buono_carico') %}
-<input type="hidden" name="aggiungi_buono_carico" value="{{ request.args.get('aggiungi_buono_carico') }}">
+{% if buono_carico_attivo %}
+<input type="hidden" name="aggiungi_buono_carico" value="{{ buono_carico_attivo }}">
 {% endif %}
             {% for r in rows %}<input type="hidden" name="ids" value="{{ r.id_articolo }}">{% endfor %}
             <button class="btn btn-primary btn-sm"><i class="bi bi-pencil-square"></i> Completa entrata</button>
@@ -3831,10 +3872,10 @@ GIACENZE_HTML = """
         <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> Nuovo</a>
         <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>
         <form action="{{ url_for('labels_pdf') }}" method="POST" target="_blank" class="d-inline">
-{% if request.args.get('aggiungi_buono_carico') %}
-<input type="hidden" name="buono_carico_id" value="{{ request.args.get('aggiungi_buono_carico') }}">
+{% if buono_carico_attivo %}
+<input type="hidden" name="buono_carico_id" value="{{ buono_carico_attivo }}">
 <div class="alert alert-warning py-2 my-2">
-    Stai aggiungendo arrivi al buono di carico <strong>#{{ request.args.get('aggiungi_buono_carico') }}</strong>.
+    Stai aggiungendo arrivi al buono di carico <strong>#{{ buono_carico_attivo }}</strong>.
     Seleziona una o più righe e premi <strong>➕ Aggiungi al buono</strong>.
 </div>
 {% endif %}
@@ -3865,8 +3906,8 @@ GIACENZE_HTML = """
     <div id="filterBody" class="collapse {% if request.args %}show{% endif %}">
         <div class="card-body py-2">
             <form method="get">
-{% if request.args.get('aggiungi_buono_carico') %}
-<input type="hidden" name="aggiungi_buono_carico" value="{{ request.args.get('aggiungi_buono_carico') }}">
+{% if buono_carico_attivo %}
+<input type="hidden" name="aggiungi_buono_carico" value="{{ buono_carico_attivo }}">
 {% endif %}
                 <div class="row g-1 mb-1">
                     <div class="col-md-1"><input name="id" class="form-control form-control-sm" placeholder="ID" value="{{ request.args.get('id','') }}"></div>
@@ -3948,7 +3989,7 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm"><i class="bi bi-envelope"></i> Email</button>
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Modifica</button>
         <button type="submit" formaction="{{ url_for('buono_carico_da_riga') }}" formmethod="post" class="btn btn-outline-primary btn-sm fw-bold">🧾 Buono carico QR</button>
-        {% if request.args.get('aggiungi_buono_carico') %}
+        {% if buono_carico_attivo %}
         <button type="submit" formaction="{{ url_for('aggiungi_righe_a_buono_carico') }}" formmethod="post" class="btn btn-primary btn-sm fw-bold">➕ Aggiungi al buono</button>
         {% endif %}
         <button type="submit" formaction="{{ url_for('scarico_parziale_selezionato') }}" formmethod="post" class="btn btn-warning btn-sm fw-bold">
@@ -4306,8 +4347,8 @@ REPORT_FATTURAZIONE_HTML = """
 <div class="card shadow-sm mb-4">
     <div class="card-body">
         <form method="get" class="row g-3 align-items-end">
-{% if request.args.get('aggiungi_buono_carico') %}
-<input type="hidden" name="aggiungi_buono_carico" value="{{ request.args.get('aggiungi_buono_carico') }}">
+{% if buono_carico_attivo %}
+<input type="hidden" name="aggiungi_buono_carico" value="{{ buono_carico_attivo }}">
 {% endif %}
             <div class="col-md-2">
                 <label class="form-label fw-bold">Mese</label>
@@ -11932,8 +11973,8 @@ BUONO_CARICO_DETTAGLIO_HTML = """
         <div class="card-body">
           <div class="row g-2">
             <div class="col-md-3"><strong>Cliente</strong><br>{{ buono.cliente }}</div>
-            <div class="col-md-3"><strong>Fornitore</strong><br>{{ buono.fornitore or '-' }}</div>
-            <div class="col-md-3"><strong>Codice articolo</strong><br>{{ buono.codice_articolo or '-' }}</div>
+            <div class="col-md-3"><strong class="buono-wrap-text">Fornitore</strong><br>{{ buono.fornitore or '-' }}</div>
+            <div class="col-md-3"><span style="white-space:pre-wrap;word-break:break-word;"><strong>Codice articolo</strong><br>{{ buono.codice_articolo or '-' }}</span></div>
             <div class="col-md-3"><strong>Descrizione</strong><br>{{ buono.descrizione or '-' }}</div>
             <div class="col-md-2 mt-3"><strong>N. arrivo</strong><br>{{ buono.n_arrivo }}</div>
             <div class="col-md-2"><strong>DDT</strong><br>{{ buono.n_ddt_ingresso or '-' }}</div>
@@ -11966,14 +12007,60 @@ BUONO_CARICO_DETTAGLIO_HTML = """
   </div>
 
 
+  
   <div class="card shadow-sm mb-3">
+    <div class="card-header fw-bold">Riepilogo controllo scansioni</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <div class="alert alert-warning mb-0">
+            <strong>Arrivi non ancora scansionati:</strong>
+            {% if riepilogo_scan.mancanti %}
+              <ul class="mb-0 mt-2">
+                {% for r in riepilogo_scan.mancanti %}
+                <li>
+                  <strong>{{ r.n_arrivo or '-' }}</strong>
+                  {% if r.codice_articolo %} - {{ r.codice_articolo }}{% endif %}
+                  {% if r.descrizione %} - {{ r.descrizione }}{% endif %}
+                  <br><small>QR: {{ r.codice_entrata }}</small>
+                </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <div class="mt-2">Nessun arrivo mancante.</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="col-md-6">
+          <div class="alert {% if riepilogo_scan.sbagliati %}alert-danger{% else %}alert-success{% endif %} mb-0">
+            <strong>Scansioni non presenti nel buono:</strong>
+            {% if riepilogo_scan.sbagliati %}
+              <ul class="mb-0 mt-2">
+                {% for s in riepilogo_scan.sbagliati %}
+                <li>
+                  <strong>{{ s.codice_scansionato }}</strong>
+                  <br><small>{{ s.scanned_at }} - {{ s.messaggio }}</small>
+                </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <div class="mt-2">Nessuna scansione errata.</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<div class="card shadow-sm mb-3">
     <div class="card-header fw-bold">Arrivi collegati al buono</div>
     <div class="table-responsive">
       <table class="table table-sm table-striped mb-0">
         <thead>
           <tr>
             <th>ID Art.</th><th>Cliente</th><th>Fornitore</th><th>Codice</th><th>Descrizione</th>
-            <th>N. Arrivo</th><th>DDT Ing</th><th>Colli</th><th>Peso</th><th>QR/Codice entrata</th>
+            <th>N. Arrivo</th><th>DDT Ing</th><th>Colli</th><th>Peso</th><th>QR/Codice entrata</th><th>Stato scansione</th>
           </tr>
         </thead>
         <tbody>
@@ -11989,9 +12076,22 @@ BUONO_CARICO_DETTAGLIO_HTML = """
             <td>{{ r.colli_previsti or 0 }}</td>
             <td>{{ r.peso_previsto|it_num(2) }}</td>
             <td><code>{{ r.codice_entrata }}</code></td>
+            <td>
+              {% set ns = namespace(caricato=false) %}
+              {% for v in _codice_entrata_varianti(r.codice_entrata) %}
+                {% if v|norm_key in riepilogo_scan.ok_codes %}
+                  {% set ns.caricato = true %}
+                {% endif %}
+              {% endfor %}
+              {% if ns.caricato %}
+                <span class="badge bg-success">Caricato</span>
+              {% else %}
+                <span class="badge bg-warning text-dark">Mancante</span>
+              {% endif %}
+            </td>
           </tr>
           {% else %}
-          <tr><td colspan="10" class="text-muted">Vecchio buono senza righe dettagliate.</td></tr>
+          <tr><td colspan="11" class="text-muted">Vecchio buono senza righe dettagliate.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -12285,6 +12385,43 @@ def _stats_buono_carico(db, buono):
 
     return {"ok": ok, "mancanti": max(0, previsti - ok), "previsti": previsti}
 
+
+def _riepilogo_scansioni_buono_carico(db, buono):
+    """Riepiloga arrivi scansionati, mancanti e QR sbagliati/non presenti nel buono."""
+    righe = _righe_buono_carico(db, buono)
+    scansioni = db.query(BuonoCaricoScan).filter(
+        BuonoCaricoScan.buono_id == buono.id
+    ).order_by(BuonoCaricoScan.id.desc()).all()
+
+    ok_codes = set()
+    wrong_scans = []
+    for s in scansioni:
+        codice = (s.codice_scansionato or "").strip()
+        if s.esito == "OK":
+            for v in _codice_entrata_varianti(codice):
+                ok_codes.add(normalize_text_key(v))
+        elif s.esito in ("SBAGLIATO", "ERRORE"):
+            wrong_scans.append(s)
+
+    mancanti = []
+    caricati = []
+    for r in righe:
+        cod = (r.codice_entrata or "").strip()
+        varianti = _codice_entrata_varianti(cod)
+        trovato = any(normalize_text_key(v) in ok_codes for v in varianti)
+        if trovato:
+            caricati.append(r)
+        else:
+            mancanti.append(r)
+
+    return {
+        "mancanti": mancanti,
+        "caricati": caricati,
+        "sbagliati": wrong_scans,
+        "ok_codes": ok_codes,
+    }
+
+
 def _aggiorna_stato_buono_carico(db, buono):
     st = _stats_buono_carico(db, buono)
     errori = db.query(BuonoCaricoScan).filter(BuonoCaricoScan.buono_id == buono.id, BuonoCaricoScan.esito.in_(["ERRORE", "SBAGLIATO"])).count()
@@ -12435,6 +12572,7 @@ def buono_carico_da_riga():
 
         db.commit()
         flash(f"Buono di carico QR creato con {len(articoli)} righe/arrivi selezionati.", "success")
+        session.pop("aggiungi_buono_carico", None)
         return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
 
     except Exception as e:
@@ -12532,7 +12670,16 @@ def dettaglio_buono_carico(buono_id):
         _aggiorna_stato_buono_carico(db, buono)
         scansioni = db.query(BuonoCaricoScan).filter(BuonoCaricoScan.buono_id == buono.id).order_by(BuonoCaricoScan.id.desc()).all()
         st = _stats_buono_carico(db, buono)
-        return render_template_string(BUONO_CARICO_DETTAGLIO_HTML, buono=buono, righe=_righe_buono_carico(db, buono), scansioni=scansioni, caricati_ok=st["ok"], mancanti=st["mancanti"])
+        riepilogo_scan = _riepilogo_scansioni_buono_carico(db, buono)
+        return render_template_string(
+            BUONO_CARICO_DETTAGLIO_HTML,
+            buono=buono,
+            righe=_righe_buono_carico(db, buono),
+            scansioni=scansioni,
+            caricati_ok=st["ok"],
+            mancanti=st["mancanti"],
+            riepilogo_scan=riepilogo_scan
+        )
     finally:
         db.close()
 
@@ -12623,12 +12770,27 @@ def scansiona_buono_carico(buono_id):
 @require_admin
 def aggiungi_righe_a_buono_carico():
     """Aggiunge una o più righe selezionate dal Magazzino a un buono di carico esistente."""
-    buono_id_raw = (request.form.get("buono_carico_id") or "").strip()
+    buono_id_raw = (
+        request.form.get("buono_carico_id")
+        or request.form.get("aggiungi_buono_carico")
+        or request.args.get("aggiungi_buono_carico")
+        or session.get("aggiungi_buono_carico")
+        or ""
+    )
+    buono_id_raw = str(buono_id_raw).strip()
+
+    if not buono_id_raw.isdigit():
+        ref = request.headers.get("Referer") or ""
+        m_ref = re.search(r"[?&]aggiungi_buono_carico=(\\d+)", ref)
+        if m_ref:
+            buono_id_raw = m_ref.group(1)
+
     ids = request.form.getlist("ids") or request.form.getlist("selected_ids") or request.form.getlist("selected") or []
     ids = [str(x).strip() for x in ids if str(x).strip().isdigit()]
 
     if not buono_id_raw.isdigit():
-        flash("Buono di carico non indicato.", "danger")
+        session.pop("aggiungi_buono_carico", None)
+        flash("Buono di carico non indicato. Apri il buono e premi di nuovo 'Aggiungi arrivi'.", "warning")
         return redirect(url_for("giacenze"))
 
     if not ids:
