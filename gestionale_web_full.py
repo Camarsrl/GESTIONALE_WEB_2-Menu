@@ -11940,7 +11940,12 @@ BUONI_CARICO_HTML = """
                 {{ b.stato or 'DA CARICARE' }}
               </span>
             </td>
-            <td><a class="btn btn-primary btn-sm" href="{{ url_for('dettaglio_buono_carico', buono_id=b.id) }}">Apri</a></td>
+            <td>
+              <a class="btn btn-primary btn-sm" href="{{ url_for('dettaglio_buono_carico', buono_id=b.id) }}">Apri</a>
+              <form method="POST" action="{{ url_for('elimina_buono_carico', buono_id=b.id) }}" style="display:inline;" onsubmit="return confirm('Eliminare questo buono di carico? Assicurati di aver salvato/stampato il PDF.');">
+                <button type="submit" class="btn btn-danger btn-sm">Elimina</button>
+              </form>
+            </td>
           </tr>
           {% else %}
           <tr><td colspan="9" class="text-muted">Nessun buono creato.</td></tr>
@@ -11962,6 +11967,9 @@ BUONO_CARICO_DETTAGLIO_HTML = """
     <div>
       <a href="{{ url_for('buoni_carico') }}" class="btn btn-secondary btn-sm">Elenco buoni</a>
       <a href="{{ url_for('stampa_buono_carico_pdf', buono_id=buono.id) }}" class="btn btn-success btn-sm">🖨️ Stampa buono</a>
+      <form method="POST" action="{{ url_for('elimina_buono_carico', buono_id=buono.id) }}" style="display:inline;" onsubmit="return confirm('Eliminare questo buono di carico? Assicurati di aver salvato/stampato il PDF.');">
+        <button type="submit" class="btn btn-danger btn-sm">🗑️ Elimina buono</button>
+      </form>
       <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm">Magazzino</a>
     </div>
   </div>
@@ -12465,6 +12473,47 @@ def scansiona_buono_carico(buono_id):
         except Exception:
             pass
         flash(f"Errore scansione: {e}", "danger")
+        return redirect(url_for("dettaglio_buono_carico", buono_id=buono_id))
+    finally:
+        db.close()
+
+
+
+@app.route("/buoni_carico/<int:buono_id>/elimina", methods=["POST"])
+@login_required
+@require_admin
+def elimina_buono_carico(buono_id):
+    """Elimina un buono di carico e le relative righe/scansioni."""
+    db = SessionLocal()
+    try:
+        buono = db.query(BuonoCarico).filter(BuonoCarico.id == buono_id).first()
+        if not buono:
+            flash("Buono di carico non trovato.", "danger")
+            return redirect(url_for("buoni_carico"))
+
+        codice = buono.codice_buono or str(buono.id)
+
+        try:
+            db.query(BuonoCaricoScan).filter(BuonoCaricoScan.buono_id == buono.id).delete(synchronize_session=False)
+        except Exception:
+            pass
+
+        try:
+            db.query(BuonoCaricoRiga).filter(BuonoCaricoRiga.buono_id == buono.id).delete(synchronize_session=False)
+        except Exception:
+            pass
+
+        db.delete(buono)
+        db.commit()
+        flash(f"Buono di carico {codice} eliminato.", "success")
+        return redirect(url_for("buoni_carico"))
+    except Exception as e:
+        db.rollback()
+        try:
+            scrivi_log_errore("Errore elimina buono carico", e)
+        except Exception:
+            pass
+        flash(f"Errore eliminazione buono di carico: {e}", "danger")
         return redirect(url_for("dettaglio_buono_carico", buono_id=buono_id))
     finally:
         db.close()
