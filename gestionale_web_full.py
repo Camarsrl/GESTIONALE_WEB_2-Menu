@@ -1180,8 +1180,11 @@ class BuonoCarico(Base):
     __tablename__ = "buoni_carico"
     id = Column(Integer, Identity(start=1), primary_key=True)
     codice_buono = Column(String(64), unique=True)
+    id_articolo_origine = Column(Integer)
     cliente = Column(Text)
     fornitore = Column(Text)
+    codice_articolo = Column(Text)
+    descrizione = Column(Text)
     n_arrivo = Column(Text)
     n_ddt_ingresso = Column(Text)
     data_ingresso = Column(String(32))
@@ -1204,6 +1207,35 @@ class BuonoCaricoScan(Base):
     scanned_by = Column(String(64))
 
 Base.metadata.create_all(engine)
+
+
+def ensure_buoni_carico_extra_schema(engine):
+    """Aggiunge campi extra ai buoni di carico se il DB è già esistente."""
+    try:
+        insp = inspect(engine)
+        tables = set(insp.get_table_names())
+        if "buoni_carico" not in tables:
+            Base.metadata.create_all(engine)
+            return
+        cols = {c.get("name") for c in insp.get_columns("buoni_carico")}
+        extra_cols = {
+            "id_articolo_origine": "INTEGER",
+            "codice_articolo": "TEXT",
+            "descrizione": "TEXT",
+        }
+        for col, typ in extra_cols.items():
+            if col not in cols:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text(f"ALTER TABLE buoni_carico ADD COLUMN {col} {typ}"))
+                    print(f"[OK] aggiunta colonna buoni_carico.{col}")
+                except Exception as e:
+                    print(f"[WARN] impossibile aggiungere buoni_carico.{col}: {e}")
+    except Exception as e:
+        print(f"[WARN] ensure_buoni_carico_extra_schema fallita: {e}")
+
+ensure_buoni_carico_extra_schema(engine)
+
 
 
 def ensure_barcode_entry_schema(engine):
@@ -1478,6 +1510,86 @@ ADMIN_ERRORI_HTML = """
 
     <pre style="background:#111;color:#eee;padding:15px;border-radius:8px;white-space:pre-wrap;max-height:75vh;overflow:auto;">{{ contenuto }}</pre>
 </div>
+
+<script>
+let qrScannerInstance = null;
+
+async function avviaScannerQR() {
+    try {
+        const readerEl = document.getElementById("reader");
+        readerEl.innerHTML = "";
+
+        if (qrScannerInstance) {
+            try {
+                await qrScannerInstance.stop();
+            } catch(e) {}
+        }
+
+        qrScannerInstance = new Html5Qrcode("reader");
+
+        const cameras = await Html5Qrcode.getCameras();
+
+        if (!cameras || cameras.length === 0) {
+            alert("Nessuna fotocamera trovata.");
+            return;
+        }
+
+        let cameraId = cameras[0].id;
+
+        // Preferisce camera posteriore su smartphone
+        for (const cam of cameras) {
+            const label = (cam.label || "").toLowerCase();
+            if (label.includes("back") || label.includes("rear") || label.includes("post")) {
+                cameraId = cam.id;
+                break;
+            }
+        }
+
+        await qrScannerInstance.start(
+            cameraId,
+            {
+                fps: 10,
+                qrbox: { width: 250, height: 250 }
+            },
+            (decodedText) => {
+                const input = document.getElementById("codice_scansionato");
+                if (input) {
+                    input.value = decodedText;
+                }
+
+                try {
+                    qrScannerInstance.stop();
+                } catch(e) {}
+
+                // invio automatico
+                const form = input.closest("form");
+                if (form) {
+                    form.submit();
+                }
+            },
+            (errorMessage) => {
+                // Ignora errori continui di scansione
+            }
+        );
+
+    } catch (err) {
+        console.error(err);
+        alert("Errore apertura fotocamera QR: " + err);
+    }
+}
+
+async function fermaScannerQR() {
+    try {
+        if (qrScannerInstance) {
+            await qrScannerInstance.stop();
+            document.getElementById("reader").innerHTML = "";
+        }
+    } catch(e) {
+        console.error(e);
+    }
+}
+</script>
+
 {% endblock %}
 """
 
@@ -2984,6 +3096,7 @@ BASE_HTML = """
         
         @media print { .no-print { display: none !important; } }
     </style>
+    <script src="https://unpkg.com/html5-qrcode"></script>
 </head>
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark shadow-sm no-print">
@@ -3811,6 +3924,7 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
         <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm"><i class="bi bi-envelope"></i> Email</button>
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Modifica</button>
+        <button type="submit" formaction="{{ url_for('buono_carico_da_riga') }}" formmethod="post" class="btn btn-outline-primary btn-sm fw-bold">🧾 Buono carico QR</button>
         <button type="submit" formaction="{{ url_for('scarico_parziale_selezionato') }}" formmethod="post" class="btn btn-warning btn-sm fw-bold">
             📤 Scarico parziale
         </button>
@@ -11676,6 +11790,14 @@ BUONI_CARICO_HTML = """
           <label class="form-label">N. arrivo</label>
           <input type="text" name="n_arrivo" class="form-control" required>
         </div>
+        <div class="col-md-3">
+          <label class="form-label">Codice articolo</label>
+          <input type="text" name="codice_articolo" class="form-control">
+        </div>
+        <div class="col-md-5">
+          <label class="form-label">Descrizione</label>
+          <input type="text" name="descrizione" class="form-control">
+        </div>
         <div class="col-md-2">
           <label class="form-label">DDT ingresso</label>
           <input type="text" name="n_ddt_ingresso" class="form-control">
@@ -11685,7 +11807,7 @@ BUONI_CARICO_HTML = """
           <input type="date" name="data_ingresso" value="{{ oggi }}" class="form-control" required>
         </div>
         <div class="col-md-2">
-          <label class="form-label">Pallet previsti</label>
+          <label class="form-label">Colli previsti</label>
           <input type="number" min="1" name="pallet_previsti" class="form-control" required>
         </div>
         <div class="col-md-2">
@@ -11765,11 +11887,13 @@ BUONO_CARICO_DETTAGLIO_HTML = """
           <div class="row g-2">
             <div class="col-md-3"><strong>Cliente</strong><br>{{ buono.cliente }}</div>
             <div class="col-md-3"><strong>Fornitore</strong><br>{{ buono.fornitore or '-' }}</div>
-            <div class="col-md-2"><strong>N. arrivo</strong><br>{{ buono.n_arrivo }}</div>
+            <div class="col-md-3"><strong>Codice articolo</strong><br>{{ buono.codice_articolo or '-' }}</div>
+            <div class="col-md-3"><strong>Descrizione</strong><br>{{ buono.descrizione or '-' }}</div>
+            <div class="col-md-2 mt-3"><strong>N. arrivo</strong><br>{{ buono.n_arrivo }}</div>
             <div class="col-md-2"><strong>DDT</strong><br>{{ buono.n_ddt_ingresso or '-' }}</div>
             <div class="col-md-2"><strong>Data</strong><br>{{ buono.data_ingresso or '-' }}</div>
-            <div class="col-md-3 mt-3"><strong>Pallet previsti</strong><br>{{ buono.pallet_previsti or 0 }}</div>
-            <div class="col-md-3 mt-3"><strong>Pallet caricati</strong><br>{{ caricati_ok }}</div>
+            <div class="col-md-3 mt-3"><strong>Colli previsti</strong><br>{{ buono.pallet_previsti or 0 }}</div>
+            <div class="col-md-3 mt-3"><strong>Colli caricati</strong><br>{{ caricati_ok }}</div>
             <div class="col-md-3 mt-3"><strong>Mancanti</strong><br>{{ mancanti }}</div>
             <div class="col-md-3 mt-3"><strong>Stato</strong><br>{{ buono.stato or 'DA CARICARE' }}</div>
           </div>
@@ -11777,9 +11901,9 @@ BUONO_CARICO_DETTAGLIO_HTML = """
           <strong>QR/Codice entrata corretto:</strong><br>
           <code>{{ buono.codice_entrata }}</code>
           {% if mancanti > 0 %}
-          <div class="alert alert-warning mt-3 mb-0">Mancano ancora <strong>{{ mancanti }}</strong> pallet da caricare/scansionare.</div>
+          <div class="alert alert-warning mt-3 mb-0">Mancano ancora <strong>{{ mancanti }}</strong> colli da caricare/scansionare.</div>
           {% else %}
-          <div class="alert alert-success mt-3 mb-0">Tutti i pallet previsti risultano caricati.</div>
+          <div class="alert alert-success mt-3 mb-0">Tutti i colli previsti risultano caricati.</div>
           {% endif %}
         </div>
       </div>
@@ -11863,6 +11987,95 @@ def _aggiorna_stato_buono_carico(db, buono):
         buono.stato = "DA CARICARE"
     db.commit()
 
+
+@app.route("/buono_carico_da_riga", methods=["POST"])
+@login_required
+@require_admin
+def buono_carico_da_riga():
+    """Crea un buono di carico QR partendo dalla riga selezionata in Magazzino."""
+    ids = request.form.getlist("ids") or request.form.getlist("selected_ids") or request.form.getlist("selected") or []
+    ids = [str(x).strip() for x in ids if str(x).strip().isdigit()]
+
+    if len(ids) != 1:
+        flash("Seleziona una sola riga per creare il buono di carico QR.", "warning")
+        return redirect(url_for("giacenze"))
+
+    db = SessionLocal()
+    try:
+        art = db.query(Articolo).filter(Articolo.id_articolo == int(ids[0])).first()
+        if not art:
+            flash("Riga selezionata non trovata.", "danger")
+            return redirect(url_for("giacenze"))
+
+        if art.data_uscita or art.n_ddt_uscita:
+            flash("La riga selezionata risulta già uscita: non posso creare un buono di carico.", "warning")
+            return redirect(url_for("giacenze"))
+
+        cliente = validate_cliente_or_raise(art.cliente)
+        n_arrivo_base = strip_arrivo_progressivo(art.n_arrivo)
+        codice_entrata = ensure_codice_entrata(
+            getattr(art, "codice_entrata", None),
+            n_arrivo=n_arrivo_base or art.n_arrivo,
+            n_ddt=art.n_ddt_ingresso,
+            data_ingresso=art.data_ingresso,
+            cliente=cliente
+        )
+
+        if not (getattr(art, "codice_entrata", "") or "").strip():
+            art.codice_entrata = codice_entrata
+
+        try:
+            colli_previsti = int(art.n_colli or 0)
+        except Exception:
+            colli_previsti = 0
+        if colli_previsti <= 0:
+            colli_previsti = 1
+
+        try:
+            peso_previsto = float(art.peso or 0)
+        except Exception:
+            peso_previsto = 0.0
+
+        esistente = db.query(BuonoCarico).filter(BuonoCarico.id_articolo_origine == art.id_articolo).first()
+        if esistente:
+            flash("Esiste già un buono di carico per questa riga. Apro quello esistente.", "info")
+            db.commit()
+            return redirect(url_for("dettaglio_buono_carico", buono_id=esistente.id))
+
+        buono = BuonoCarico(
+            codice_buono=_next_codice_buono_carico(db),
+            id_articolo_origine=art.id_articolo,
+            cliente=cliente,
+            fornitore=art.fornitore or "",
+            codice_articolo=art.codice_articolo or "",
+            descrizione=art.descrizione or "",
+            n_arrivo=n_arrivo_base or (art.n_arrivo or ""),
+            n_ddt_ingresso=art.n_ddt_ingresso or "",
+            data_ingresso=art.data_ingresso or date.today().strftime("%Y-%m-%d"),
+            codice_entrata=codice_entrata,
+            pallet_previsti=colli_previsti,
+            peso_previsto=peso_previsto,
+            stato="DA CARICARE",
+            note=f"Creato da riga magazzino ID {art.id_articolo}",
+            created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            created_by=_current_username_for_audit()
+        )
+        db.add(buono)
+        db.commit()
+        flash("Buono di carico QR creato dalla riga selezionata.", "success")
+        return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
+    except Exception as e:
+        db.rollback()
+        try:
+            scrivi_log_errore("Errore buono_carico_da_riga", e)
+        except Exception:
+            pass
+        flash(f"Errore creazione buono di carico: {e}", "danger")
+        return redirect(url_for("giacenze"))
+    finally:
+        db.close()
+
+
 @app.route("/buoni_carico", methods=["GET", "POST"])
 @login_required
 @require_admin
@@ -11873,6 +12086,8 @@ def buoni_carico():
         if request.method == "POST":
             cliente = validate_cliente_or_raise(request.form.get("cliente"))
             fornitore = (request.form.get("fornitore") or "").strip()
+            codice_articolo = (request.form.get("codice_articolo") or "").strip()
+            descrizione = (request.form.get("descrizione") or "").strip()
             n_arrivo = (request.form.get("n_arrivo") or "").strip()
             n_ddt_ingresso = (request.form.get("n_ddt_ingresso") or "").strip()
             data_ingresso = (request.form.get("data_ingresso") or date.today().strftime("%Y-%m-%d")).strip()
@@ -11899,6 +12114,8 @@ def buoni_carico():
                 codice_buono=_next_codice_buono_carico(db),
                 cliente=cliente,
                 fornitore=fornitore,
+                codice_articolo=codice_articolo,
+                descrizione=descrizione,
                 n_arrivo=n_arrivo,
                 n_ddt_ingresso=n_ddt_ingresso,
                 data_ingresso=data_ingresso,
