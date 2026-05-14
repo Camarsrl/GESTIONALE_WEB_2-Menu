@@ -3473,6 +3473,9 @@ DETTAGLIO_ENTRATA_HTML = """
         </form>
         {% endif %}
         <form action="{{ url_for('bulk_edit') }}" method="get" class="d-inline">
+{% if request.args.get('aggiungi_buono_carico') %}
+<input type="hidden" name="aggiungi_buono_carico" value="{{ request.args.get('aggiungi_buono_carico') }}">
+{% endif %}
             {% for r in rows %}<input type="hidden" name="ids" value="{{ r.id_articolo }}">{% endfor %}
             <button class="btn btn-primary btn-sm"><i class="bi bi-pencil-square"></i> Completa entrata</button>
         </form>
@@ -3828,6 +3831,13 @@ GIACENZE_HTML = """
         <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> Nuovo</a>
         <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>
         <form action="{{ url_for('labels_pdf') }}" method="POST" target="_blank" class="d-inline">
+{% if request.args.get('aggiungi_buono_carico') %}
+<input type="hidden" name="buono_carico_id" value="{{ request.args.get('aggiungi_buono_carico') }}">
+<div class="alert alert-warning py-2 my-2">
+    Stai aggiungendo arrivi al buono di carico <strong>#{{ request.args.get('aggiungi_buono_carico') }}</strong>.
+    Seleziona una o più righe e premi <strong>➕ Aggiungi al buono</strong>.
+</div>
+{% endif %}
             <button class="btn btn-sm btn-info text-white"><i class="bi bi-tag"></i> Etichette</button>
         </form>
         {% endif %}
@@ -3855,6 +3865,9 @@ GIACENZE_HTML = """
     <div id="filterBody" class="collapse {% if request.args %}show{% endif %}">
         <div class="card-body py-2">
             <form method="get">
+{% if request.args.get('aggiungi_buono_carico') %}
+<input type="hidden" name="aggiungi_buono_carico" value="{{ request.args.get('aggiungi_buono_carico') }}">
+{% endif %}
                 <div class="row g-1 mb-1">
                     <div class="col-md-1"><input name="id" class="form-control form-control-sm" placeholder="ID" value="{{ request.args.get('id','') }}"></div>
                     <div class="col-md-2"><input name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ request.args.get('cliente','') }}"></div>
@@ -4293,6 +4306,9 @@ REPORT_FATTURAZIONE_HTML = """
 <div class="card shadow-sm mb-4">
     <div class="card-body">
         <form method="get" class="row g-3 align-items-end">
+{% if request.args.get('aggiungi_buono_carico') %}
+<input type="hidden" name="aggiungi_buono_carico" value="{{ request.args.get('aggiungi_buono_carico') }}">
+{% endif %}
             <div class="col-md-2">
                 <label class="form-label fw-bold">Mese</label>
                 <select name="mese" class="form-select">
