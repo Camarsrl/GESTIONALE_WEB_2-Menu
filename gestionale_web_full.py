@@ -12540,18 +12540,61 @@ def _codici_validi_buono_carico(db, buono):
     return out
 
 def _stats_buono_carico(db, buono):
+    """Statistiche corrette buono carico.
+
+    IMPORTANTISSIMO:
+    - il conteggio NON deve basarsi sul numero scansioni
+    - ma sui colli reali previsti per ogni QR/codice entrata.
+
+    Se un arrivo ha:
+    - stesso QR/codice entrata
+    - colli_previsti > 1
+
+    una sola scansione valida deve considerare caricati
+    tutti i colli collegati a quell'arrivo.
+    """
+
     righe = _righe_buono_carico(db, buono)
+
     if righe:
         previsti = sum(int(r.colli_previsti or 0) for r in righe)
     else:
         previsti = int(buono.pallet_previsti or 0)
 
-    ok = db.query(BuonoCaricoScan).filter(
+    scansioni_ok = db.query(BuonoCaricoScan).filter(
         BuonoCaricoScan.buono_id == buono.id,
         BuonoCaricoScan.esito == "OK"
-    ).count()
+    ).all()
 
-    return {"ok": ok, "mancanti": max(0, previsti - ok), "previsti": previsti}
+    ok_codes = set()
+
+    for s in scansioni_ok:
+        codice = (s.codice_scansionato or "").strip()
+        for v in _codice_entrata_varianti(codice):
+            ok_codes.add(normalize_text_key(v))
+
+    ok = 0
+
+    if righe:
+        for r in righe:
+            cod = (r.codice_entrata or "").strip()
+            varianti = _codice_entrata_varianti(cod)
+
+            trovato = any(
+                normalize_text_key(v) in ok_codes
+                for v in varianti
+            )
+
+            if trovato:
+                ok += int(r.colli_previsti or 0)
+    else:
+        ok = len(ok_codes)
+
+    return {
+        "ok": ok,
+        "mancanti": max(0, previsti - ok),
+        "previsti": previsti
+    }
 
 
 def _riepilogo_scansioni_buono_carico(db, buono):
