@@ -24,6 +24,22 @@ def register_buoni_qr_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
 
+    # Permessi Buoni QR:
+    # - ADMIN / OPS = role admin
+    # - MAGAZZINO = role magazzino
+    # - CLIENTI esclusi
+    if "require_admin_or_magazzino" not in globals():
+        def require_admin_or_magazzino(view_func):
+            @wraps(view_func)
+            def _wrapped(*args, **kwargs):
+                if session.get("role") not in ("admin", "magazzino"):
+                    flash("Accesso negato.", "danger")
+                    return redirect(url_for("giacenze"))
+                return view_func(*args, **kwargs)
+            return _wrapped
+
+
+
     # ========================================================
     #  BUONI DI CARICO CON QR COLLEGATO ALL'ARRIVO
     # ========================================================
@@ -268,7 +284,7 @@ def register_buoni_qr_routes(app_obj, deps):
                 <td>{{ r.peso_previsto|it_num(2) }}</td>
                 <td><code>{{ r.codice_entrata }}</code></td>
                 <td>
-                  {% set stato_riga = riepilogo_scan.row_status.get(r.id|string, 'mancante') %}
+                  {% set stato_riga = (riepilogo_scan.row_status or {}).get(r.id|string, 'mancante') %}
                   {% if stato_riga == 'caricato' %}
                     <span class="badge bg-success">Caricato</span>
                   {% elif stato_riga == 'parziale' %}
@@ -752,7 +768,7 @@ def register_buoni_qr_routes(app_obj, deps):
 
     @app.route("/buono_carico_da_riga", methods=["POST"])
     @login_required
-    @require_admin
+    @require_admin_or_magazzino
     def buono_carico_da_riga():
         """Crea un buono di carico QR partendo da una o più righe selezionate in Magazzino."""
         ids = request.form.getlist("ids") or request.form.getlist("selected_ids") or request.form.getlist("selected") or []
@@ -902,7 +918,7 @@ def register_buoni_qr_routes(app_obj, deps):
 
     @app.route("/buoni_carico", methods=["GET", "POST"])
     @login_required
-    @require_admin
+    @require_admin_or_magazzino
     def buoni_carico():
         db = SessionLocal()
         try:
@@ -972,7 +988,7 @@ def register_buoni_qr_routes(app_obj, deps):
 
     @app.route("/buoni_carico/<int:buono_id>", methods=["GET"])
     @login_required
-    @require_admin
+    @require_admin_or_magazzino
     def dettaglio_buono_carico(buono_id):
         db = SessionLocal()
         try:
@@ -998,7 +1014,7 @@ def register_buoni_qr_routes(app_obj, deps):
 
     @app.route("/buoni_carico/<int:buono_id>/scansiona", methods=["POST"])
     @login_required
-    @require_admin
+    @require_admin_or_magazzino
     def scansiona_buono_carico(buono_id):
         db = SessionLocal()
         try:
@@ -1070,7 +1086,7 @@ def register_buoni_qr_routes(app_obj, deps):
 
     @app.route("/buoni_carico/aggiungi_righe", methods=["POST"])
     @login_required
-    @require_admin
+    @require_admin_or_magazzino
     def aggiungi_righe_a_buono_carico():
         """Aggiunge una o più righe selezionate dal Magazzino a un buono di carico esistente."""
         buono_input = (
@@ -1229,7 +1245,7 @@ def register_buoni_qr_routes(app_obj, deps):
 
     @app.route("/buoni_carico/<int:buono_id>/elimina", methods=["POST"])
     @login_required
-    @require_admin
+    @require_admin_or_magazzino
     def elimina_buono_carico(buono_id):
         """Elimina un buono di carico e le relative righe/scansioni."""
         db = SessionLocal()
@@ -1269,7 +1285,7 @@ def register_buoni_qr_routes(app_obj, deps):
 
     @app.route("/buoni_carico/<int:buono_id>/stampa.pdf")
     @login_required
-    @require_admin
+    @require_admin_or_magazzino
     def stampa_buono_carico_pdf(buono_id):
         """Genera la stampa PDF operativa del buono di carico."""
         db = SessionLocal()
@@ -1430,7 +1446,7 @@ def register_buoni_qr_routes(app_obj, deps):
 
     @app.route("/buoni_carico/<int:buono_id>/qr.png")
     @login_required
-    @require_admin
+    @require_admin_or_magazzino
     def qr_buono_carico(buono_id):
         db = SessionLocal()
         try:
