@@ -3150,6 +3150,38 @@ BASE_HTML = """
         @media print { .no-print { display: none !important; } }
     </style>
     <script src="https://unpkg.com/html5-qrcode"></script>
+
+<style>
+/* Pulsanti Magazzino più compatti */
+.magazzino-actions .btn,
+.toolbar-magazzino .btn,
+.table-actions .btn,
+.btn-sm,
+button.btn,
+a.btn {
+    padding: 4px 8px !important;
+    font-size: 12px !important;
+    line-height: 1.2 !important;
+    border-radius: 5px !important;
+}
+
+.magazzino-actions,
+.toolbar-magazzino,
+.table-actions {
+    gap: 4px !important;
+}
+
+.btn-lg {
+    padding: 6px 10px !important;
+    font-size: 13px !important;
+}
+
+input.form-control-sm {
+    height: 30px !important;
+    font-size: 12px !important;
+}
+</style>
+
 </head>
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark shadow-sm no-print">
@@ -3874,6 +3906,19 @@ GIACENZE_HTML = """
         <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> Nuovo</a>
         <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>
         <form action="{{ url_for('labels_pdf') }}" method="POST" target="_blank" class="d-inline">
+
+<div class="d-flex align-items-center gap-1 flex-wrap my-1 p-1 border rounded bg-light">
+    <strong>➕ Aggiungi arrivi a buono esistente:</strong>
+    <input type="text" name="buono_carico_id_manual" class="form-control form-control-sm"
+           style="width:140px;height:28px;font-size:12px;"
+           placeholder="ID o BC-2026-0001" value="{{ buono_carico_attivo or '' }}">
+    <button type="submit" formaction="{{ url_for('aggiungi_righe_a_buono_carico') }}" formmethod="post"
+            class="btn btn-primary btn-sm fw-bold">
+        ➕ Aggiungi al buono
+    </button>
+    <span class="text-muted small">Puoi scrivere l'ID numerico oppure il codice buono.</span>
+</div>
+
 {% if buono_carico_attivo %}
 <input type="hidden" name="buono_carico_id" value="{{ buono_carico_attivo }}">
 <div class="alert alert-warning py-2 my-2">
@@ -3987,17 +4032,6 @@ GIACENZE_HTML = """
     <div class="btn-toolbar mb-2 gap-1 flex-wrap">
         {% if session.get('role') == 'admin' %}
         
-<div class="d-flex align-items-center gap-2 flex-wrap my-2 p-2 border rounded bg-light">
-    <strong>➕ Aggiungi arrivi a buono esistente:</strong>
-    <input type="text" name="buono_carico_id_manual" class="form-control form-control-sm" style="width:120px;"
-           placeholder="ID buono" value="{{ buono_carico_attivo or '' }}">
-    <button type="submit" formaction="{{ url_for('aggiungi_righe_a_buono_carico') }}" formmethod="post"
-            class="btn btn-primary btn-sm fw-bold">
-        ➕ Aggiungi al buono
-    </button>
-    <span class="text-muted small">Se il pulsante automatico sparisce dopo i filtri, inserisci qui l'ID del buono e seleziona le righe.</span>
-</div>
-
 <button type="submit" formaction="{{ url_for('buono_preview') }}" class="btn btn-outline-dark btn-sm">Buono</button>
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
         <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm"><i class="bi bi-envelope"></i> Email</button>
@@ -12120,15 +12154,15 @@ BUONO_CARICO_DETTAGLIO_HTML = """
           <input type="text" id="codice_scansionato" name="codice_scansionato" class="form-control form-control-lg" placeholder="Scansiona QR o incolla codice entrata ENT-..." autofocus required>
         </div>
         <div class="col-md-4">
-          <button class="btn btn-success btn-lg w-100">Registra scansione</button>
+          <button class="btn btn-success btn-sm w-100">Registra scansione</button>
         </div>
       </form>
 
     <div class="mt-3 d-flex gap-2 flex-wrap">
-      <button type="button" class="btn btn-outline-primary btn-lg" onclick="avviaScannerQR()">
+      <button type="button" class="btn btn-outline-primary btn-sm" onclick="avviaScannerQR()">
         📷 Apri fotocamera QR
       </button>
-      <button type="button" class="btn btn-outline-danger btn-lg" onclick="fermaScannerQR()">
+      <button type="button" class="btn btn-outline-danger btn-sm" onclick="fermaScannerQR()">
         ✖ Chiudi fotocamera
       </button>
     </div>
@@ -12337,6 +12371,19 @@ async function fermaScannerQR() {
 
 {% endblock %}
 """
+
+
+def _trova_buono_carico_da_input(db, valore):
+    """Trova un buono carico da ID numerico oppure da codice tipo BC-2026-0001."""
+    raw = (str(valore or "")).strip()
+    if not raw:
+        return None
+    if raw.isdigit():
+        b = db.query(BuonoCarico).filter(BuonoCarico.id == int(raw)).first()
+        if b:
+            return b
+    return db.query(BuonoCarico).filter(func.upper(BuonoCarico.codice_buono) == raw.upper()).first()
+
 
 def _next_codice_buono_carico(db):
     anno = date.today().year
@@ -12783,7 +12830,7 @@ def scansiona_buono_carico(buono_id):
 @require_admin
 def aggiungi_righe_a_buono_carico():
     """Aggiunge una o più righe selezionate dal Magazzino a un buono di carico esistente."""
-    buono_id_raw = (
+    buono_input = (
         request.form.get("buono_carico_id_manual")
         or request.form.get("buono_carico_id")
         or request.form.get("aggiungi_buono_carico")
@@ -12791,64 +12838,45 @@ def aggiungi_righe_a_buono_carico():
         or session.get("aggiungi_buono_carico")
         or ""
     )
-    buono_id_raw = str(buono_id_raw).strip()
-
-    if not buono_id_raw.isdigit():
-        ref = request.headers.get("Referer") or ""
-        m_ref = re.search(r"[?&]aggiungi_buono_carico=(\\d+)", ref)
-        if m_ref:
-            buono_id_raw = m_ref.group(1)
+    buono_input = str(buono_input).strip()
 
     ids = request.form.getlist("ids") or request.form.getlist("selected_ids") or request.form.getlist("selected") or []
     ids = [str(x).strip() for x in ids if str(x).strip().isdigit()]
 
-    if not buono_id_raw.isdigit():
-        session.pop("aggiungi_buono_carico", None)
-        flash("Buono di carico non indicato. Apri il buono e premi di nuovo 'Aggiungi arrivi'.", "warning")
+    if not buono_input:
+        flash("Indica l'ID del buono oppure il codice buono, esempio BC-2026-0001.", "warning")
         return redirect(url_for("giacenze"))
 
     if not ids:
         flash("Seleziona almeno una riga da aggiungere al buono di carico.", "warning")
-        return redirect(url_for("giacenze", aggiungi_buono_carico=buono_id_raw))
+        return redirect(url_for("giacenze", aggiungi_buono_carico=buono_input))
 
     db = SessionLocal()
     try:
         Base.metadata.create_all(engine)
 
-        buono = db.query(BuonoCarico).filter(BuonoCarico.id == int(buono_id_raw)).first()
+        buono = _trova_buono_carico_da_input(db, buono_input)
         if not buono:
-            flash("Buono di carico non trovato.", "danger")
+            flash("Buono di carico non trovato. Inserisci l'ID numerico del buono oppure il codice BC-....", "danger")
             return redirect(url_for("giacenze"))
 
-        articoli = (
-            db.query(Articolo)
-            .filter(Articolo.id_articolo.in_([int(x) for x in ids]))
-            .order_by(Articolo.id_articolo.asc())
-            .all()
-        )
+        articoli = db.query(Articolo).filter(
+            Articolo.id_articolo.in_([int(x) for x in ids])
+        ).order_by(Articolo.id_articolo.asc()).all()
 
         if not articoli:
             flash("Nessuna riga selezionata trovata.", "danger")
             return redirect(url_for("giacenze", aggiungi_buono_carico=buono.id))
 
-        usciti = [str(a.id_articolo) for a in articoli if (a.data_uscita or a.n_ddt_uscita)]
-        if usciti:
-            flash("Alcune righe selezionate risultano già uscite: " + ", ".join(usciti), "warning")
-            return redirect(url_for("giacenze", aggiungi_buono_carico=buono.id))
-
-        # stesso cliente del buono
-        for art in articoli:
-            cliente_art = validate_cliente_or_raise(art.cliente)
-            if normalize_text_key(cliente_art) != normalize_text_key(buono.cliente):
-                flash("Puoi aggiungere solo righe dello stesso cliente del buono.", "warning")
-                return redirect(url_for("giacenze", aggiungi_buono_carico=buono.id))
-
-        esistenti = {
-            int(r.id_articolo) for r in db.query(BuonoCaricoRiga)
-            .filter(BuonoCaricoRiga.buono_id == buono.id)
-            .all()
-            if r.id_articolo
-        }
+        try:
+            esistenti = {
+                int(r.id_articolo) for r in db.query(BuonoCaricoRiga)
+                .filter(BuonoCaricoRiga.buono_id == buono.id)
+                .all()
+                if r.id_articolo
+            }
+        except Exception:
+            esistenti = set()
 
         aggiunte = 0
         totale_colli_add = 0
@@ -12867,6 +12895,15 @@ def aggiungi_righe_a_buono_carico():
         for art in articoli:
             if art.id_articolo in esistenti:
                 continue
+
+            cliente_art = validate_cliente_or_raise(art.cliente)
+            if normalize_text_key(cliente_art) != normalize_text_key(buono.cliente):
+                flash("Puoi aggiungere solo righe dello stesso cliente del buono.", "warning")
+                return redirect(url_for("giacenze", aggiungi_buono_carico=buono.id))
+
+            if art.data_uscita or art.n_ddt_uscita:
+                flash(f"La riga ID {art.id_articolo} risulta già uscita e non può essere aggiunta.", "warning")
+                return redirect(url_for("giacenze", aggiungi_buono_carico=buono.id))
 
             n_arrivo_base = strip_arrivo_progressivo(art.n_arrivo)
             codice_entrata = ensure_codice_entrata(
@@ -12925,10 +12962,11 @@ def aggiungi_righe_a_buono_carico():
         db.commit()
 
         if aggiunte:
-            flash(f"Aggiunte {aggiunte} righe/arrivi al buono di carico.", "success")
+            flash(f"Aggiunte {aggiunte} righe/arrivi al buono di carico {buono.codice_buono}.", "success")
         else:
             flash("Le righe selezionate erano già presenti nel buono.", "info")
 
+        session["aggiungi_buono_carico"] = str(buono.id)
         return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
 
     except Exception as e:
@@ -12938,7 +12976,7 @@ def aggiungi_righe_a_buono_carico():
         except Exception:
             pass
         flash(f"Errore aggiunta righe al buono: {e}", "danger")
-        return redirect(url_for("giacenze", aggiungi_buono_carico=buono_id_raw))
+        return redirect(url_for("giacenze", aggiungi_buono_carico=buono_input))
     finally:
         db.close()
 
