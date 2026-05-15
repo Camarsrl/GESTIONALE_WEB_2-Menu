@@ -1585,15 +1585,7 @@ ADMIN_ERRORI_HTML = """
         <div>
             <a href="{{ url_for('admin_scarica_log_errori') }}" class="btn btn-outline-primary btn-sm">Scarica log</a>
             <form method="POST" action="{{ url_for('admin_svuota_log_errori') }}" style="display:inline;" onsubmit="return confirm('Svuotare il log errori?');">
-{% if buono_carico_attivo %}
-<input type="hidden" name="buono_carico_id" value="{{ buono_carico_attivo }}">
-<div class="alert alert-warning py-2 my-2">
-    Stai aggiungendo arrivi al buono di carico <strong>#{{ buono_carico_attivo }}</strong>.
-    Seleziona una o più righe e premi <strong>➕ Aggiungi al buono</strong>.
-</div>
-{% endif %}
-
-                <button class="btn btn-outline-danger btn-sm">Svuota log</button>
+<button class="btn btn-outline-danger btn-sm">Svuota log</button>
             </form>
             <a href="{{ url_for('home') }}" class="btn btn-secondary btn-sm">Home</a>
         </div>
@@ -3245,6 +3237,62 @@ a.btn {
 }
 </style>
 
+
+<style>
+/* --- correzione finale bottoni testata magazzino --- */
+.top-magazzino-actions{
+    align-items:center !important;
+    gap:6px !important;
+}
+.top-magazzino-actions .btn,
+.top-magazzino-actions a.btn,
+.top-magazzino-actions button.btn{
+    padding:4px 8px !important;
+    font-size:12px !important;
+    line-height:1.2 !important;
+    min-height:28px !important;
+    height:28px !important;
+    display:inline-flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    border-radius:5px !important;
+    white-space:nowrap !important;
+}
+.top-magazzino-actions form{
+    margin:0 !important;
+    display:inline-flex !important;
+    align-items:center !important;
+}
+.top-magazzino-actions .input-group-sm .form-control,
+.top-magazzino-actions .input-group-sm .input-group-text{
+    height:28px !important;
+    padding:3px 6px !important;
+    font-size:12px !important;
+}
+.add-buono-box{
+    display:flex !important;
+    align-items:center !important;
+    gap:6px !important;
+    flex-wrap:wrap !important;
+    padding:5px 7px !important;
+    border:1px solid #d0d7de !important;
+    border-radius:6px !important;
+    background:#f8f9fa !important;
+    margin:6px 0 !important;
+}
+.add-buono-box input{
+    width:145px !important;
+    height:28px !important;
+    font-size:12px !important;
+    padding:3px 6px !important;
+}
+.add-buono-box .btn{
+    height:28px !important;
+    min-height:28px !important;
+    padding:4px 8px !important;
+}
+</style>
+
 </head>
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark shadow-sm no-print">
@@ -3964,36 +4012,17 @@ GIACENZE_HTML = """
 
 <div class="d-flex justify-content-between align-items-center mb-2">
     <h4 class="mb-0"><i class="bi bi-box-seam"></i> Magazzino <small class="text-muted fs-6">({{ total_items }} articoli)</small></h4>
-    <div class="d-flex gap-2 flex-wrap">
+    <div class="d-flex gap-2 flex-wrap top-magazzino-actions">
         {% if session.get('role') == 'admin' %}
-        <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> Nuovo</a>
-        <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>
+        <a href="{{ url_for('nuovo_articolo') }}" class="btn btn-success btn-sm mag-btn-compact"><i class="bi bi-plus-lg"></i> Nuovo</a>
+        <a href="{{ url_for('import_pdf') }}" class="btn btn-dark btn-sm mag-btn-compact"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>
         <form action="{{ url_for('labels_pdf') }}" method="POST" target="_blank" class="d-inline">
 
-<div class="add-buono-box">
-    <strong>➕ Aggiungi arrivi a buono esistente:</strong>
-    <input type="text" name="buono_carico_id_manual" class="form-control form-control-sm"
-           placeholder="ID o BC-2026-0001" value="{{ buono_carico_attivo or '' }}">
-    <button type="submit" formaction="{{ url_for('aggiungi_righe_a_buono_carico') }}" formmethod="post"
-            class="btn btn-primary btn-sm fw-bold mag-btn-compact">
-        ➕ Aggiungi al buono
-    </button>
-    <span class="text-muted small">Scrivi l'ID numerico o il codice buono, poi seleziona le righe.</span>
-</div>
-
-
-{% if buono_carico_attivo %}
-<input type="hidden" name="buono_carico_id" value="{{ buono_carico_attivo }}">
-<div class="alert alert-warning py-2 my-2">
-    Stai aggiungendo arrivi al buono di carico <strong>#{{ buono_carico_attivo }}</strong>.
-    Seleziona una o più righe e premi <strong>➕ Aggiungi al buono</strong>.
-</div>
-{% endif %}
-            <button class="btn btn-sm btn-info text-white"><i class="bi bi-tag"></i> Etichette</button>
+<button class="btn btn-info btn-sm text-white mag-btn-compact"><i class="bi bi-tag"></i> Etichette</button>
         </form>
         {% endif %}
-        <a href="{{ url_for('calcola_costi') }}" class="btn btn-sm btn-warning"><i class="bi bi-calculator"></i> Calcoli</a>
-        <a href="{{ url_for('export_excel') }}{% if request.query_string %}?{{ request.query_string.decode('utf-8') }}{% endif %}" class="btn btn-sm btn-success"><i class="bi bi-file-earmark-excel"></i> Excel Filtri</a>
+        <a href="{{ url_for('calcola_costi') }}" class="btn btn-warning btn-sm mag-btn-compact"><i class="bi bi-calculator"></i> Calcoli</a>
+        <a href="{{ url_for('export_excel') }}{% if request.query_string %}?{{ request.query_string.decode('utf-8') }}{% endif %}" class="btn btn-success btn-sm mag-btn-compact"><i class="bi bi-file-earmark-excel"></i> Excel Filtri</a>
 
         <form action="{{ url_for('report_inventario_excel') }}" method="POST" class="d-inline-block">
             <div class="input-group input-group-sm">
@@ -4092,6 +4121,21 @@ GIACENZE_HTML = """
 </div>
 
 <form method="POST">
+
+{% if buono_carico_attivo %}
+<input type="hidden" name="buono_carico_id" value="{{ buono_carico_attivo }}">
+{% endif %}
+<div class="add-buono-box">
+    <strong>➕ Aggiungi arrivi a buono esistente:</strong>
+    <input type="text" name="buono_carico_id_manual" class="form-control form-control-sm"
+           placeholder="ID o BC-2026-0001" value="{{ buono_carico_attivo or '' }}">
+    <button type="submit" formaction="{{ url_for('aggiungi_righe_a_buono_carico') }}" formmethod="post"
+            class="btn btn-primary btn-sm fw-bold mag-btn-compact">
+        ➕ Aggiungi al buono
+    </button>
+    <span class="text-muted small">Scrivi l'ID numerico o il codice buono, poi seleziona le righe.</span>
+</div>
+
     <div class="btn-toolbar mb-2 gap-1 flex-wrap">
         {% if session.get('role') == 'admin' %}
         
@@ -12068,7 +12112,7 @@ BUONO_CARICO_DETTAGLIO_HTML = """
     <h3>📦 Buono di carico {{ buono.codice_buono }}</h3>
     <div>
       <a href="{{ url_for('buoni_carico') }}" class="btn btn-secondary btn-sm">Elenco buoni</a>
-      <a href="{{ url_for('stampa_buono_carico_pdf', buono_id=buono.id) }}" class="btn btn-success btn-sm">🖨️ Stampa buono</a>
+      <a href="{{ url_for('stampa_buono_carico_pdf', buono_id=buono.id) }}" class="btn btn-success btn-sm" target="_blank" rel="noopener">🖨️ Stampa buono</a>
       <a href="{{ url_for('giacenze', aggiungi_buono_carico=buono.id) }}" class="btn btn-primary btn-sm">➕ Aggiungi arrivi</a>
       <form method="POST" action="{{ url_for('elimina_buono_carico', buono_id=buono.id) }}" style="display:inline;" onsubmit="return confirm('Eliminare questo buono di carico? Assicurati di aver salvato/stampato il PDF.');">
         <button type="submit" class="btn btn-danger btn-sm">🗑️ Elimina buono</button>
@@ -13122,6 +13166,15 @@ def stampa_buono_carico_pdf(buono_id):
         )
         normal = styles["Normal"]
         small = ParagraphStyle("small", parent=styles["Normal"], fontSize=8, leading=10)
+        from xml.sax.saxutils import escape as _xml_escape
+
+        def _pdf_text_cell(value, style=small):
+            """Cella PDF con ritorno a capo automatico; separa anche liste con / o ;."""
+            s = str(value or "").strip()
+            s = _xml_escape(s)
+            s = s.replace(" / ", "<br/>").replace("; ", "<br/>")
+            return Paragraph(s or "-", style)
+
 
         story = []
 
@@ -13137,8 +13190,8 @@ def stampa_buono_carico_pdf(buono_id):
         story.append(Spacer(1, 6))
 
         dati = [
-            ["Cliente", buono.cliente or "", "Stato", buono.stato or "DA CARICARE"],
-            ["Fornitore", buono.fornitore or "", "Data", buono.data_ingresso or ""],
+            ["Cliente", _pdf_text_cell(buono.cliente), "Stato", _pdf_text_cell(buono.stato or "DA CARICARE")],
+            ["Fornitore", _pdf_text_cell(buono.fornitore), "Data", _pdf_text_cell(buono.data_ingresso)],
             ["Colli previsti", str(stats.get("previsti", 0)), "Colli caricati", str(stats.get("ok", 0))],
             ["Colli mancanti", str(stats.get("mancanti", 0)), "Peso previsto", it_num(buono.peso_previsto or 0, 2) + " kg"],
         ]
@@ -13166,26 +13219,26 @@ def stampa_buono_carico_pdf(buono_id):
             for r in righe:
                 data.append([
                     str(r.id_articolo or ""),
-                    Paragraph(str(r.fornitore or ""), small),
-                    Paragraph(str(r.codice_articolo or ""), small),
-                    Paragraph(str(r.descrizione or ""), small),
-                    Paragraph(str(r.n_arrivo or ""), small),
-                    Paragraph(str(r.n_ddt_ingresso or ""), small),
+                    _pdf_text_cell(r.fornitore),
+                    _pdf_text_cell(r.codice_articolo),
+                    _pdf_text_cell(r.descrizione),
+                    _pdf_text_cell(r.n_arrivo),
+                    _pdf_text_cell(r.n_ddt_ingresso),
                     str(r.colli_previsti or 0),
                     it_num(r.peso_previsto or 0, 2),
-                    Paragraph(str(r.codice_entrata or ""), small),
+                    _pdf_text_cell(r.codice_entrata),
                 ])
         else:
             data.append([
                 str(getattr(buono, "id_articolo_origine", "") or ""),
-                Paragraph(str(buono.fornitore or ""), small),
-                Paragraph(str(getattr(buono, "codice_articolo", "") or ""), small),
-                Paragraph(str(getattr(buono, "descrizione", "") or ""), small),
-                Paragraph(str(buono.n_arrivo or ""), small),
-                Paragraph(str(buono.n_ddt_ingresso or ""), small),
+                _pdf_text_cell(buono.fornitore),
+                _pdf_text_cell(getattr(buono, "codice_articolo", "")),
+                _pdf_text_cell(getattr(buono, "descrizione", "")),
+                _pdf_text_cell(buono.n_arrivo),
+                _pdf_text_cell(buono.n_ddt_ingresso),
                 str(buono.pallet_previsti or 0),
                 it_num(buono.peso_previsto or 0, 2),
-                Paragraph(str(buono.codice_entrata or ""), small),
+                _pdf_text_cell(buono.codice_entrata),
             ])
 
         tab = Table(data, repeatRows=1, colWidths=[10*mm, 22*mm, 25*mm, 38*mm, 20*mm, 18*mm, 10*mm, 15*mm, 42*mm])
