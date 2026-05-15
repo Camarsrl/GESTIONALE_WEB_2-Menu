@@ -985,11 +985,12 @@ def _auto_backup_hook():
 
 
 
+
 @app.before_request
 def _remember_buono_carico_da_aggiungere():
     """Mantiene in sessione l'ID del buono quando si passa dal dettaglio buono al Magazzino."""
     try:
-        val = (buono_carico_attivo or "").strip()
+        val = (request.args.get("aggiungi_buono_carico") or "").strip()
         if val.isdigit():
             session["aggiungi_buono_carico"] = val
     except Exception:
@@ -1001,13 +1002,14 @@ def _ctx_buono_carico_attivo():
     try:
         return {
             "buono_carico_attivo": (
-                buono_carico_attivo
+                request.args.get("aggiungi_buono_carico")
                 or session.get("aggiungi_buono_carico")
                 or ""
             )
         }
     except Exception:
         return {"buono_carico_attivo": ""}
+
 
 def pulisci_backup_vecchi(max_files=50):
     files = sorted(
@@ -3984,7 +3986,19 @@ GIACENZE_HTML = """
 <form method="POST">
     <div class="btn-toolbar mb-2 gap-1 flex-wrap">
         {% if session.get('role') == 'admin' %}
-        <button type="submit" formaction="{{ url_for('buono_preview') }}" class="btn btn-outline-dark btn-sm">Buono</button>
+        
+<div class="d-flex align-items-center gap-2 flex-wrap my-2 p-2 border rounded bg-light">
+    <strong>➕ Aggiungi arrivi a buono esistente:</strong>
+    <input type="text" name="buono_carico_id_manual" class="form-control form-control-sm" style="width:120px;"
+           placeholder="ID buono" value="{{ buono_carico_attivo or '' }}">
+    <button type="submit" formaction="{{ url_for('aggiungi_righe_a_buono_carico') }}" formmethod="post"
+            class="btn btn-primary btn-sm fw-bold">
+        ➕ Aggiungi al buono
+    </button>
+    <span class="text-muted small">Se il pulsante automatico sparisce dopo i filtri, inserisci qui l'ID del buono e seleziona le righe.</span>
+</div>
+
+<button type="submit" formaction="{{ url_for('buono_preview') }}" class="btn btn-outline-dark btn-sm">Buono</button>
         <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
         <button type="submit" formaction="{{ url_for('invia_email') }}" formmethod="get" class="btn btn-success btn-sm"><i class="bi bi-envelope"></i> Email</button>
         <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Modifica</button>
@@ -12572,7 +12586,6 @@ def buono_carico_da_riga():
 
         db.commit()
         flash(f"Buono di carico QR creato con {len(articoli)} righe/arrivi selezionati.", "success")
-        session.pop("aggiungi_buono_carico", None)
         return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
 
     except Exception as e:
@@ -12771,7 +12784,8 @@ def scansiona_buono_carico(buono_id):
 def aggiungi_righe_a_buono_carico():
     """Aggiunge una o più righe selezionate dal Magazzino a un buono di carico esistente."""
     buono_id_raw = (
-        request.form.get("buono_carico_id")
+        request.form.get("buono_carico_id_manual")
+        or request.form.get("buono_carico_id")
         or request.form.get("aggiungi_buono_carico")
         or request.args.get("aggiungi_buono_carico")
         or session.get("aggiungi_buono_carico")
