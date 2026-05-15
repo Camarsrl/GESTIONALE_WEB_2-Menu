@@ -25,9 +25,7 @@ def register_buoni_qr_routes(app_obj, deps):
     globals()["app"] = app_obj
 
     # Permessi Buoni QR:
-    # - ADMIN / OPS = role admin
-    # - MAGAZZINO = role magazzino
-    # - CLIENTI esclusi
+    # ADMIN/OPS = role admin, MAGAZZINO = role magazzino, CLIENTI esclusi
     if "require_admin_or_magazzino" not in globals():
         def require_admin_or_magazzino(view_func):
             @wraps(view_func)
