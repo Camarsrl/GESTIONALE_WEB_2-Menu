@@ -1493,6 +1493,17 @@ ADMIN_USERS = {'ADMIN', 'OPS', 'CUSTOMS', 'TAZIO', 'DIEGO'}
 WAREHOUSE_USERS = {'MAGAZZINO', 'WAREHOUSE', 'MAG1'}
 
 
+
+def can_use_buoni_qr():
+    """Permessi Buoni QR: ADMIN/OPS e MAGAZZINO. Clienti esclusi."""
+    try:
+        return session.get("role") in ("admin", "magazzino")
+    except Exception:
+        return False
+
+app.jinja_env.globals["can_use_buoni_qr"] = can_use_buoni_qr
+
+
 def require_admin(view_func):
     """Decorator: allow only admin users."""
     @wraps(view_func)
@@ -3573,7 +3584,9 @@ HOME_HTML = """
                 {% endif %}
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_client') }}"><i class="bi bi-people"></i> Export per Cliente</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>
-                <a class="btn btn-outline-primary btn-sm" href="{{ url_for('scan_entrata') }}"><i class="bi bi-upc-scan"></i> Scan / Ricerca Entrata</a>
+                {% if can_use_buoni_qr() %}
+<a class="btn btn-outline-primary btn-sm" href="{{ url_for('scan_entrata') }}"><i class="bi bi-upc-scan"></i> Scan / Ricerca Entrata</a>
+{% endif %}
             </div>
         </div>
     </div>
@@ -3644,7 +3657,9 @@ DETTAGLIO_ENTRATA_HTML = """
         <div class="text-muted">Codice entrata: <strong>{{ codice_entrata }}</strong></div>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-        <a href="{{ url_for('scan_entrata') }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-upc-scan"></i> Nuova scansione</a>
+        {% if can_use_buoni_qr() %}
+<a href="{{ url_for('scan_entrata') }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-upc-scan"></i> Nuova scansione</a>
+{% endif %}
         <a href="{{ url_for('giacenze', codice_entrata=codice_entrata) }}" class="btn btn-outline-secondary btn-sm">Vedi in giacenze</a>
         {% if session.get('role') == 'admin' %}
         <a href="{{ url_for('invia_email') }}?selected_ids={{ ids_csv }}" class="btn btn-success btn-sm"><i class="bi bi-envelope"></i> Email</a>
@@ -4125,6 +4140,7 @@ GIACENZE_HTML = """
 {% if buono_carico_attivo %}
 <input type="hidden" name="buono_carico_id" value="{{ buono_carico_attivo }}">
 {% endif %}
+{% if can_use_buoni_qr() %}
 <div class="add-buono-box">
     <strong>➕ Aggiungi arrivi a buono esistente:</strong>
     <input type="text" name="buono_carico_id_manual" class="form-control form-control-sm"
@@ -4135,6 +4151,7 @@ GIACENZE_HTML = """
     </button>
     <span class="text-muted small">Scrivi l'ID numerico o il codice buono, poi seleziona le righe.</span>
 </div>
+{% endif %}
 
     <div class="btn-toolbar mb-2 gap-1 flex-wrap">
         {% if session.get('role') == 'admin' %}
@@ -4154,7 +4171,9 @@ GIACENZE_HTML = """
         <button type="submit" formaction="{{ url_for('delete_rows') }}" class="btn btn-danger btn-sm" onclick="return confirm('Eliminare SELEZIONATI?')">Elimina</button>
         <button type="submit" formaction="{{ url_for('bulk_duplicate') }}" class="btn btn-primary btn-sm" onclick="return confirm('Duplicare?')">Duplica</button>
         {% endif %}
-        <a href="{{ url_for('scan_entrata') }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-upc-scan"></i> Scan Entrata</a>
+        {% if can_use_buoni_qr() %}
+<a href="{{ url_for('scan_entrata') }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-upc-scan"></i> Scan Entrata</a>
+{% endif %}
     </div>
 
     <div class="table-responsive shadow-sm" style="max-height: 65vh;">
@@ -11984,6 +12003,17 @@ def scarico_parziale(id_articolo):
         return redirect(url_for('giacenze'))
     finally:
         db.close()
+
+
+
+# ========================================================
+#  REGISTRAZIONE MODULO MAGAZZINO - PREPARAZIONE
+# ========================================================
+try:
+    from routes.magazzino import register_magazzino_routes
+    register_magazzino_routes(app, globals())
+except Exception as e:
+    print(f"[WARN] modulo magazzino non registrato: {e}")
 
 
 # ========================================================
