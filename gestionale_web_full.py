@@ -3321,7 +3321,9 @@ a.btn {
             <ul class="navbar-nav ms-auto align-items-center gap-2">
                 
                 <li class="nav-item"><a class="nav-link" href="{{ url_for('giacenze') }}">📦 Magazzino</a>
-<a class="btn btn-primary btn-sm" href="{{ url_for('buoni_carico') }}">🧾 Buoni Carico</a></li>
+{% if can_use_buoni_qr() %}
+<a class="btn btn-primary btn-sm" href="{{ url_for('buoni_carico') }}">🧾 Buoni Carico</a>
+{% endif %}</li>
                 {% if session.get('role') == 'admin' %}
                 <li class="nav-item"><a class="nav-link" href="{{ url_for('import_excel') }}">📥 Import Excel</a></li>
                 {% endif %}
@@ -12004,6 +12006,17 @@ def scarico_parziale(id_articolo):
     finally:
         db.close()
 
+
+
+
+# ========================================================
+#  REGISTRAZIONE MODULO DDT - PREPARAZIONE
+# ========================================================
+try:
+    from routes.ddt import register_ddt_routes
+    register_ddt_routes(app, globals())
+except Exception as e:
+    print(f"[WARN] modulo ddt non registrato: {e}")
 
 
 # ========================================================
