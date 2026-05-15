@@ -3182,6 +3182,69 @@ input.form-control-sm {
 }
 </style>
 
+
+<style>
+/* --- Pulsanti più lineari e compatti --- */
+.btn,
+button.btn,
+a.btn {
+    padding: 5px 9px !important;
+    font-size: 12px !important;
+    line-height: 1.25 !important;
+    border-radius: 5px !important;
+    min-height: 30px !important;
+    height: auto !important;
+    white-space: nowrap !important;
+}
+
+.btn-sm {
+    padding: 4px 8px !important;
+    font-size: 12px !important;
+    min-height: 28px !important;
+}
+
+.btn-lg {
+    padding: 6px 10px !important;
+    font-size: 13px !important;
+    min-height: 32px !important;
+}
+
+/* Bottoni principali magazzino: stessa altezza, senza blocchi enormi */
+.mag-btn-compact,
+.magazzino-actions .btn,
+.toolbar-magazzino .btn,
+.table-actions .btn {
+    padding: 5px 9px !important;
+    font-size: 12px !important;
+    min-height: 30px !important;
+    line-height: 1.25 !important;
+}
+
+/* Box aggiunta buono più ordinato */
+.add-buono-box {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 5px 7px;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    background: #f8f9fa;
+    margin: 6px 0;
+}
+
+.add-buono-box input {
+    width: 145px !important;
+    height: 29px !important;
+    font-size: 12px !important;
+    padding: 3px 6px !important;
+}
+
+.add-buono-box .small {
+    font-size: 11px !important;
+}
+</style>
+
 </head>
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark shadow-sm no-print">
@@ -3907,17 +3970,17 @@ GIACENZE_HTML = """
         <a href="{{ url_for('import_pdf') }}" class="btn btn-sm btn-dark"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>
         <form action="{{ url_for('labels_pdf') }}" method="POST" target="_blank" class="d-inline">
 
-<div class="d-flex align-items-center gap-1 flex-wrap my-1 p-1 border rounded bg-light">
+<div class="add-buono-box">
     <strong>➕ Aggiungi arrivi a buono esistente:</strong>
     <input type="text" name="buono_carico_id_manual" class="form-control form-control-sm"
-           style="width:140px;height:28px;font-size:12px;"
            placeholder="ID o BC-2026-0001" value="{{ buono_carico_attivo or '' }}">
     <button type="submit" formaction="{{ url_for('aggiungi_righe_a_buono_carico') }}" formmethod="post"
-            class="btn btn-primary btn-sm fw-bold">
+            class="btn btn-primary btn-sm fw-bold mag-btn-compact">
         ➕ Aggiungi al buono
     </button>
-    <span class="text-muted small">Puoi scrivere l'ID numerico oppure il codice buono.</span>
+    <span class="text-muted small">Scrivi l'ID numerico o il codice buono, poi seleziona le righe.</span>
 </div>
+
 
 {% if buono_carico_attivo %}
 <input type="hidden" name="buono_carico_id" value="{{ buono_carico_attivo }}">
@@ -12857,12 +12920,15 @@ def aggiungi_righe_a_buono_carico():
 
         buono = _trova_buono_carico_da_input(db, buono_input)
         if not buono:
-            flash("Buono di carico non trovato. Inserisci l'ID numerico del buono oppure il codice BC-....", "danger")
+            flash("Buono di carico non trovato. Inserisci l'ID numerico oppure il codice tipo BC-2026-0001.", "danger")
             return redirect(url_for("giacenze"))
 
-        articoli = db.query(Articolo).filter(
-            Articolo.id_articolo.in_([int(x) for x in ids])
-        ).order_by(Articolo.id_articolo.asc()).all()
+        articoli = (
+            db.query(Articolo)
+            .filter(Articolo.id_articolo.in_([int(x) for x in ids]))
+            .order_by(Articolo.id_articolo.asc())
+            .all()
+        )
 
         if not articoli:
             flash("Nessuna riga selezionata trovata.", "danger")
