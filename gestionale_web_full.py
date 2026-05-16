@@ -4850,6 +4850,26 @@ DDT_PREVIEW_HTML = """
                         <option value="{{ k }}">{{ k }} - {{ v.ragione_sociale }}</option>
                         {% endfor %}
                     </select>
+
+<div class="alert alert-secondary mt-2">
+  <strong>Destinatario manuale senza salvarlo in rubrica</strong>
+  <div class="row g-2 mt-1">
+    <div class="col-md-4">
+      <label class="form-label small mb-1">Ragione sociale</label>
+      <input type="text" name="dest_ragione_manual" class="form-control form-control-sm" placeholder="Destinatario occasionale">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small mb-1">Indirizzo</label>
+      <input type="text" name="dest_indirizzo_manual" class="form-control form-control-sm" placeholder="Indirizzo destinatario">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small mb-1">Città / CAP / Prov.</label>
+      <input type="text" name="dest_citta_manual" class="form-control form-control-sm" placeholder="Città">
+    </div>
+  </div>
+  <div class="small text-muted mt-1">Compila questi campi solo se il destinatario non deve essere salvato in rubrica.</div>
+</div>
+
                     <a href="{{ url_for('manage_destinatari') }}" class="btn btn-outline-secondary" target="_blank">
                         <i class="bi bi-pencil"></i>
                     </a>
