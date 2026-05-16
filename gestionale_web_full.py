@@ -4811,7 +4811,130 @@ function submitBuono(actionType) {
 DDT_PREVIEW_HTML = """ 
 {% extends 'base.html' %}
 {% block content %}
-<div class="card p-3">
+<style>
+    .ddt-page-card{
+        border:0;
+        border-radius:18px;
+        box-shadow:0 8px 26px rgba(15,23,42,.08);
+        overflow:hidden;
+    }
+    .ddt-title{
+        font-weight:700;
+        letter-spacing:.02em;
+        color:#172033;
+    }
+    .ddt-section-title{
+        font-size:.82rem;
+        font-weight:800;
+        text-transform:uppercase;
+        letter-spacing:.03em;
+        color:#1f2937;
+        margin-bottom:.25rem;
+    }
+    .ddt-helper{
+        font-size:.76rem;
+        color:#6b7280;
+        margin:0;
+    }
+    .ddt-recipient-card{
+        border:1px solid #dbe3ef;
+        border-radius:14px;
+        background:#fff;
+        box-shadow:0 4px 14px rgba(15,23,42,.04);
+    }
+    .ddt-recipient-card.active{
+        border-color:#0d6efd;
+        box-shadow:0 0 0 .16rem rgba(13,110,253,.10);
+    }
+    .ddt-recipient-card.manual-active{
+        border-color:#198754;
+        box-shadow:0 0 0 .16rem rgba(25,135,84,.10);
+    }
+    .ddt-card-head{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:.75rem;
+        padding:.75rem .85rem;
+        background:#f8fafc;
+        border-bottom:1px solid #e5eaf2;
+        border-radius:14px 14px 0 0;
+    }
+    .ddt-list-toolbar{
+        display:flex;
+        gap:.45rem;
+        align-items:center;
+        margin-bottom:.55rem;
+    }
+    .ddt-search-wrap{
+        position:relative;
+        flex:1;
+    }
+    .ddt-search-wrap i{
+        position:absolute;
+        right:.7rem;
+        top:50%;
+        transform:translateY(-50%);
+        color:#64748b;
+    }
+    #dest_search{
+        padding-right:2rem;
+    }
+    #dest_key{
+        height:178px;
+        overflow:auto;
+        font-size:.86rem;
+        border-radius:10px;
+    }
+    #dest_key option{
+        padding:7px 8px;
+        white-space:normal;
+    }
+    .ddt-preview-box{
+        border-left:4px solid #0d6efd;
+        background:#f8fbff;
+        border-radius:12px;
+        padding:.65rem .75rem;
+        min-height:86px;
+    }
+    .ddt-preview-row{
+        display:grid;
+        grid-template-columns:120px 1fr;
+        gap:.6rem;
+        margin-bottom:.25rem;
+        align-items:start;
+    }
+    .ddt-preview-label{
+        color:#64748b;
+        font-size:.74rem;
+    }
+    .ddt-preview-value{
+        font-weight:700;
+        color:#111827;
+        word-break:break-word;
+    }
+    .ddt-manual-grid{
+        display:grid;
+        grid-template-columns:1.2fr 1fr 1fr;
+        gap:.55rem;
+    }
+    .ddt-field-card{
+        border:1px solid #e5e7eb;
+        border-radius:12px;
+        padding:.75rem;
+        background:#fff;
+        height:100%;
+    }
+    .ddt-actions .btn{
+        white-space:nowrap;
+    }
+    @media (max-width: 991px){
+        .ddt-manual-grid{ grid-template-columns:1fr; }
+        .ddt-actions{ width:100%; justify-content:flex-start; flex-wrap:wrap; }
+    }
+</style>
+
+<div class="card p-3 ddt-page-card">
 
     <!-- ✅ HEADER -->
     <div class="d-flex align-items-center gap-3 mb-4" style="padding-bottom:10px;">
@@ -4819,11 +4942,11 @@ DDT_PREVIEW_HTML = """
             <img src="{{ logo_url }}" style="height:70px; margin-bottom:10px;">
         {% endif %}
 
-        <h5 class="flex-grow-1 text-center m-0" style="padding-top:10px;">
+        <h5 class="flex-grow-1 text-center m-0 ddt-title" style="padding-top:10px;">
             DOCUMENTO DI TRASPORTO
         </h5>
 
-        <div class="btn-group">
+        <div class="btn-group ddt-actions">
             <button type="button" class="btn btn-outline-primary" onclick="submitDdt('preview')">
                 <i class="bi bi-printer"></i> Anteprima PDF
             </button>
@@ -4840,123 +4963,135 @@ DDT_PREVIEW_HTML = """
     <form id="ddt-form" method="POST" action="{{ url_for('ddt_finalize') }}">
         <input type="hidden" name="ids" value="{{ ids }}">
         <input type="hidden" name="action" id="action_field" value="preview">
+        <input type="hidden" name="dest_source" id="dest_source" value="saved">
 
-        <div class="row g-3">
-            <!-- ✅ DESTINATARIO DDT: lista scorrevole compatta + occasionale sotto -->
-            <div class="col-md-4">
-                <label class="form-label fw-bold">Destinatario DDT</label>
-                <input type="hidden" name="dest_source" id="dest_source" value="saved">
+        <div class="row g-3 align-items-start">
+            <!-- ✅ COLONNA DESTINATARIO -->
+            <div class="col-lg-4 col-xl-4">
+                <div class="ddt-section-title">Destinatario DDT</div>
 
-                <div class="card border-primary" id="box_dest_saved">
-                    <div class="card-header py-2 bg-light d-flex justify-content-between align-items-center">
+                <div class="ddt-recipient-card active mb-3" id="box_dest_saved">
+                    <div class="ddt-card-head">
                         <div>
-                            <strong>Destinatari salvati</strong>
-                            <div class="small text-muted">Seleziona dalla lista.</div>
+                            <div class="fw-bold">Destinatari salvati <span class="text-muted fw-normal">(rubrica)</span></div>
+                            <p class="ddt-helper">Cerca e seleziona il destinatario dalla lista.</p>
                         </div>
                         <button type="button" class="btn btn-primary btn-sm" id="btn_use_saved">
-                            Usa salvato
+                            <i class="bi bi-check2-circle"></i> Usa salvato
                         </button>
                     </div>
                     <div class="card-body p-2">
-                        <div class="d-flex gap-2 align-items-start">
-                            <select class="form-select" name="dest_key" id="dest_key" size="6" style="height:150px; min-width:180px;">
-                                {% for k, v in destinatari.items() %}
-                                <option value="{{ k }}"
-                                        data-ragione="{{ v.ragione_sociale or '' }}"
-                                        data-indirizzo="{{ v.indirizzo or '' }}"
-                                        data-citta="{{ v.citta or '' }}">
-                                    {{ k }}{% if v.ragione_sociale %} - {{ v.ragione_sociale }}{% endif %}
-                                </option>
-                                {% endfor %}
-                            </select>
+                        <div class="ddt-list-toolbar">
+                            <div class="ddt-search-wrap">
+                                <input type="text" id="dest_search" class="form-control form-control-sm" placeholder="Cerca destinatario...">
+                                <i class="bi bi-search"></i>
+                            </div>
                             <a href="{{ url_for('manage_destinatari') }}" class="btn btn-outline-secondary btn-sm" target="_blank" title="Gestisci rubrica destinatari">
                                 <i class="bi bi-pencil"></i>
                             </a>
                         </div>
-                        <div id="dest_saved_preview" class="small mt-2 p-2 rounded border bg-white" style="min-height:58px;">
+
+                        <select class="form-select" name="dest_key" id="dest_key" size="7">
+                            {% for k, v in destinatari.items() %}
+                            <option value="{{ k }}"
+                                    data-search="{{ (k ~ ' ' ~ (v.ragione_sociale or '') ~ ' ' ~ (v.indirizzo or '') ~ ' ' ~ (v.citta or ''))|lower }}"
+                                    data-ragione="{{ v.ragione_sociale or '' }}"
+                                    data-indirizzo="{{ v.indirizzo or '' }}"
+                                    data-citta="{{ v.citta or '' }}">
+                                {{ k }}{% if v.ragione_sociale %} - {{ v.ragione_sociale }}{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+
+                        <div id="dest_saved_preview" class="ddt-preview-box small mt-2">
                             Seleziona un destinatario dalla lista.
                         </div>
                     </div>
                 </div>
 
-                <div class="card border-secondary mt-2" id="box_dest_manual">
-                    <div class="card-header py-2 bg-light d-flex justify-content-between align-items-center">
+                <div class="ddt-recipient-card" id="box_dest_manual">
+                    <div class="ddt-card-head">
                         <div>
-                            <strong>Destinatario occasionale</strong>
-                            <div class="small text-muted">Non viene salvato in rubrica.</div>
+                            <div class="fw-bold">Destinatario occasionale <span class="text-muted fw-normal">(da non salvare)</span></div>
+                            <p class="ddt-helper">Compila solo per questo DDT.</p>
                         </div>
-                        <button type="button" class="btn btn-outline-secondary btn-sm" id="btn_use_manual">
-                            Usa occasionale
+                        <button type="button" class="btn btn-outline-success btn-sm" id="btn_use_manual">
+                            <i class="bi bi-person-plus"></i> Usa occasionale
                         </button>
                     </div>
                     <div class="card-body p-2">
-                        <div class="row g-2">
-                            <div class="col-12">
-                                <input type="text" name="dest_ragione_manual" id="dest_ragione_manual" class="form-control form-control-sm" placeholder="Ragione sociale destinatario">
-                            </div>
-                            <div class="col-12">
-                                <input type="text" name="dest_indirizzo_manual" class="form-control form-control-sm" placeholder="Indirizzo">
-                            </div>
-                            <div class="col-12">
-                                <input type="text" name="dest_citta_manual" class="form-control form-control-sm" placeholder="Città / CAP / Prov.">
-                            </div>
+                        <div class="mb-2">
+                            <input type="text" name="dest_ragione_manual" id="dest_ragione_manual" class="form-control form-control-sm" placeholder="Ragione sociale destinatario *">
+                        </div>
+                        <div class="mb-2">
+                            <input type="text" name="dest_indirizzo_manual" id="dest_indirizzo_manual" class="form-control form-control-sm" placeholder="Indirizzo">
+                        </div>
+                        <div>
+                            <input type="text" name="dest_citta_manual" id="dest_citta_manual" class="form-control form-control-sm" placeholder="Città / CAP / Prov.">
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
-                <label class="form-label">N. DDT</label>
-                <div class="input-group">
-                    <!-- ✅ PREV -->
-                    <button class="btn btn-outline-secondary" type="button" id="get-prev-ddt" title="Numero precedente">
-                        <i class="bi bi-arrow-left"></i>
-                    </button>
 
-                    <input name="n_ddt" id="n_ddt_input" class="form-control text-center" value="{{ n_ddt }}" required>
+            <!-- ✅ COLONNA DATI DDT -->
+            <div class="col-lg-8 col-xl-8">
+                <div class="row g-3 align-items-start">
+                    <div class="col-md-5">
+                        <div class="ddt-field-card">
+                            <label class="form-label">N. DDT</label>
+                            <div class="input-group">
+                                <button class="btn btn-outline-secondary" type="button" id="get-prev-ddt" title="Numero precedente">
+                                    <i class="bi bi-arrow-left"></i>
+                                </button>
+                                <input name="n_ddt" id="n_ddt_input" class="form-control text-center" value="{{ n_ddt }}" required>
+                                <button class="btn btn-outline-secondary" type="button" id="get-next-ddt" title="Numero successivo">
+                                    <i class="bi bi-arrow-right"></i>
+                                </button>
+                            </div>
+                            <div class="form-text">Usa ⬅️/➡️ per cambiare progressivo.</div>
+                        </div>
+                    </div>
 
-                    <!-- ✅ NEXT -->
-                    <button class="btn btn-outline-secondary" type="button" id="get-next-ddt" title="Numero successivo">
-                        <i class="bi bi-arrow-right"></i>
-                    </button>
+                    <div class="col-md-3">
+                        <div class="ddt-field-card">
+                            <label class="form-label">Data DDT</label>
+                            <input name="data_ddt" type="date" class="form-control" value="{{ oggi }}" required>
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="ddt-field-card">
+                            <label class="form-label">Targa</label>
+                            <input name="targa" class="form-control" placeholder="Inserisci targa (opzionale)">
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Causale</label>
+                        <input name="causale" class="form-control" value="TRASFERIMENTO">
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Porto</label>
+                        <input name="porto" class="form-control" value="FRANCO">
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Aspetto</label>
+                        <input name="aspetto" class="form-control" value="A VISTA">
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Mezzo in uscita *</label>
+                        <select name="mezzi_in_uscita" id="mezzi_in_uscita" class="form-select">
+                            <option value="" selected>-- Seleziona --</option>
+                            <option value="MOTRICE">Motrice</option>
+                            <option value="BILICO">Bilico</option>
+                            <option value="FURGONE">Furgone</option>
+                        </select>
+                        <div class="form-text">Obbligatorio quando fai “Finalizza”.</div>
+                    </div>
                 </div>
-                <div class="form-text">Usa ⬅️/➡️ per cambiare progressivo.</div>
-            </div>
-
-            <div class="col-md-2">
-                <label class="form-label">Data DDT</label>
-                <input name="data_ddt" type="date" class="form-control" value="{{ oggi }}" required>
-            </div>
-
-            <div class="col-md-3">
-                <label class="form-label">Targa</label>
-                <input name="targa" class="form-control">
-            </div>
-
-            <div class="col-md-4">
-                <label class="form-label">Causale</label>
-                <input name="causale" class="form-control" value="TRASFERIMENTO">
-            </div>
-
-            <div class="col-md-4">
-                <label class="form-label">Porto</label>
-                <input name="porto" class="form-control" value="FRANCO">
-            </div>
-
-            <div class="col-md-4">
-                <label class="form-label">Aspetto</label>
-                <input name="aspetto" class="form-control" value="A VISTA">
-            </div>
-
-            <!-- ✅ MEZZO IN USCITA -->
-            <div class="col-md-4">
-                <label class="form-label">Mezzo in uscita *</label>
-                <select name="mezzi_in_uscita" id="mezzi_in_uscita" class="form-select">
-                    <option value="" selected>-- Seleziona --</option>
-                    <option value="MOTRICE">Motrice</option>
-                    <option value="BILICO">Bilico</option>
-                    <option value="FURGONE">Furgone</option>
-                </select>
-                <div class="form-text">Obbligatorio quando fai “Finalizza”.</div>
             </div>
         </div>
 
@@ -5025,6 +5160,15 @@ document.getElementById('get-prev-ddt').addEventListener('click', function() {
       });
 });
 
+function escapeHtml(value) {
+    return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+}
+
 function updateDestSavedPreview() {
     const sel = document.getElementById('dest_key');
     const box = document.getElementById('dest_saved_preview');
@@ -5041,9 +5185,9 @@ function updateDestSavedPreview() {
     const citta = opt.dataset.citta || '';
 
     box.innerHTML = `
-        <div><strong>${ragione}</strong></div>
-        <div>${indirizzo}</div>
-        <div>${citta}</div>
+        <div class="ddt-preview-row"><div class="ddt-preview-label">Ragione sociale</div><div class="ddt-preview-value">${escapeHtml(ragione)}</div></div>
+        <div class="ddt-preview-row"><div class="ddt-preview-label">Indirizzo</div><div class="ddt-preview-value">${escapeHtml(indirizzo)}</div></div>
+        <div class="ddt-preview-row mb-0"><div class="ddt-preview-label">Città / CAP / Prov.</div><div class="ddt-preview-value">${escapeHtml(citta)}</div></div>
     `;
 }
 
@@ -5057,22 +5201,39 @@ function setDestSource(source) {
     hidden.value = source;
 
     if (source === 'manual') {
-        savedBox.classList.remove('border-primary');
-        savedBox.classList.add('border-secondary');
-        manualBox.classList.remove('border-secondary');
-        manualBox.classList.add('border-primary');
-        savedBtn.className = 'btn btn-outline-secondary btn-sm';
-        manualBtn.className = 'btn btn-primary btn-sm';
+        savedBox.classList.remove('active');
+        manualBox.classList.add('manual-active');
+        savedBtn.className = 'btn btn-outline-primary btn-sm';
+        manualBtn.className = 'btn btn-success btn-sm';
         document.getElementById('dest_ragione_manual').focus();
     } else {
-        manualBox.classList.remove('border-primary');
-        manualBox.classList.add('border-secondary');
-        savedBox.classList.remove('border-secondary');
-        savedBox.classList.add('border-primary');
-        manualBtn.className = 'btn btn-outline-secondary btn-sm';
+        manualBox.classList.remove('manual-active');
+        savedBox.classList.add('active');
+        manualBtn.className = 'btn btn-outline-success btn-sm';
         savedBtn.className = 'btn btn-primary btn-sm';
         updateDestSavedPreview();
     }
+}
+
+function filterDestinatari() {
+    const search = (document.getElementById('dest_search').value || '').toLowerCase().trim();
+    const sel = document.getElementById('dest_key');
+    if (!sel) return;
+
+    let firstVisible = -1;
+    for (let i = 0; i < sel.options.length; i++) {
+        const opt = sel.options[i];
+        const haystack = (opt.dataset.search || opt.text || '').toLowerCase();
+        const visible = !search || haystack.includes(search);
+        opt.hidden = !visible;
+        opt.disabled = !visible;
+        if (visible && firstVisible === -1) firstVisible = i;
+    }
+
+    if (firstVisible >= 0 && (sel.selectedIndex < 0 || sel.options[sel.selectedIndex].hidden)) {
+        sel.selectedIndex = firstVisible;
+    }
+    updateDestSavedPreview();
 }
 
 const destSelect = document.getElementById('dest_key');
@@ -5089,12 +5250,22 @@ if (destSelect) {
     });
 }
 
+const destSearch = document.getElementById('dest_search');
+if (destSearch) {
+    destSearch.addEventListener('input', filterDestinatari);
+}
+
 document.getElementById('btn_use_saved').addEventListener('click', function() {
     setDestSource('saved');
 });
 
 document.getElementById('btn_use_manual').addEventListener('click', function() {
     setDestSource('manual');
+});
+
+['dest_ragione_manual', 'dest_indirizzo_manual', 'dest_citta_manual'].forEach(function(id) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', function(){ setDestSource('manual'); });
 });
 
 updateDestSavedPreview();
@@ -5160,7 +5331,6 @@ function submitDdt(actionType) {
 </script>
 {% endblock %}
 """
-
 
 
 DDT_MEZZO_USCITA_HTML = """
