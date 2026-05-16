@@ -4842,40 +4842,70 @@ DDT_PREVIEW_HTML = """
         <input type="hidden" name="action" id="action_field" value="preview">
 
         <div class="row g-3">
-            <div class="col-md-4">
-                <label class="form-label">Destinatario</label>
-                <div class="input-group">
-                    <select class="form-select" name="dest_key" required>
-                        {% for k, v in destinatari.items() %}
-                        <option value="{{ k }}">{{ k }} - {{ v.ragione_sociale }}</option>
-                        {% endfor %}
-                    </select>
+            <!-- ✅ DESTINATARIO DDT: rubrica grande + manuale sotto -->
+            <div class="col-12">
+                <label class="form-label fw-bold">Destinatario DDT</label>
+                <input type="hidden" name="dest_source" id="dest_source" value="saved">
 
-<div class="alert alert-secondary mt-2">
-  <strong>Destinatario manuale senza salvarlo in rubrica</strong>
-  <div class="row g-2 mt-1">
-    <div class="col-md-4">
-      <label class="form-label small mb-1">Ragione sociale</label>
-      <input type="text" name="dest_ragione_manual" class="form-control form-control-sm" placeholder="Destinatario occasionale">
-    </div>
-    <div class="col-md-4">
-      <label class="form-label small mb-1">Indirizzo</label>
-      <input type="text" name="dest_indirizzo_manual" class="form-control form-control-sm" placeholder="Indirizzo destinatario">
-    </div>
-    <div class="col-md-4">
-      <label class="form-label small mb-1">Città / CAP / Prov.</label>
-      <input type="text" name="dest_citta_manual" class="form-control form-control-sm" placeholder="Città">
-    </div>
-  </div>
-  <div class="small text-muted mt-1">Compila questi campi solo se il destinatario non deve essere salvato in rubrica.</div>
-</div>
+                <div class="row g-3">
+                    <div class="col-12">
+                        <div class="card border-primary h-100" id="box_dest_saved">
+                            <div class="card-header bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <div>
+                                    <strong>Destinatario salvato in rubrica</strong>
+                                    <div class="small text-muted">Usa un destinatario già presente nella rubrica.</div>
+                                </div>
+                                <button type="button" class="btn btn-primary btn-sm" id="btn_use_saved">
+                                    <i class="bi bi-check-circle"></i> Usa destinatario salvato
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div class="input-group">
+                                    <select class="form-select" name="dest_key" id="dest_key" size="8" style="min-height:210px;">
+                                        {% for k, v in destinatari.items() %}
+                                        <option value="{{ k }}">{{ k }} - {{ v.ragione_sociale }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <a href="{{ url_for('manage_destinatari') }}" class="btn btn-outline-secondary" target="_blank" title="Gestisci rubrica destinatari">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                </div>
+                                <div class="form-text">La rubrica resta grande e visibile. Seleziona una riga e premi “Usa destinatario salvato”.</div>
+                            </div>
+                        </div>
+                    </div>
 
-                    <a href="{{ url_for('manage_destinatari') }}" class="btn btn-outline-secondary" target="_blank">
-                        <i class="bi bi-pencil"></i>
-                    </a>
+                    <div class="col-12">
+                        <div class="card border-secondary h-100" id="box_dest_manual">
+                            <div class="card-header bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <div>
+                                    <strong>Destinatario occasionale da non salvare</strong>
+                                    <div class="small text-muted">Compila questi campi solo per questo DDT.</div>
+                                </div>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="btn_use_manual">
+                                    <i class="bi bi-check-circle"></i> Usa destinatario occasionale
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-2">
+                                    <div class="col-md-4">
+                                        <label class="form-label small mb-1">Ragione sociale</label>
+                                        <input type="text" name="dest_ragione_manual" id="dest_ragione_manual" class="form-control" placeholder="Destinatario occasionale">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small mb-1">Indirizzo</label>
+                                        <input type="text" name="dest_indirizzo_manual" class="form-control" placeholder="Indirizzo destinatario">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small mb-1">Città / CAP / Prov.</label>
+                                        <input type="text" name="dest_citta_manual" class="form-control" placeholder="Città">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
-
             <div class="col-md-3">
                 <label class="form-label">N. DDT</label>
                 <div class="input-group">
@@ -4997,9 +5027,63 @@ document.getElementById('get-prev-ddt').addEventListener('click', function() {
       });
 });
 
+function setDestSource(source) {
+    const hidden = document.getElementById('dest_source');
+    const savedBox = document.getElementById('box_dest_saved');
+    const manualBox = document.getElementById('box_dest_manual');
+    const savedBtn = document.getElementById('btn_use_saved');
+    const manualBtn = document.getElementById('btn_use_manual');
+
+    hidden.value = source;
+
+    if (source === 'manual') {
+        savedBox.classList.remove('border-primary');
+        savedBox.classList.add('border-secondary');
+        manualBox.classList.remove('border-secondary');
+        manualBox.classList.add('border-primary');
+        savedBtn.className = 'btn btn-outline-secondary btn-sm';
+        manualBtn.className = 'btn btn-primary btn-sm';
+        document.getElementById('dest_ragione_manual').focus();
+    } else {
+        manualBox.classList.remove('border-primary');
+        manualBox.classList.add('border-secondary');
+        savedBox.classList.remove('border-secondary');
+        savedBox.classList.add('border-primary');
+        manualBtn.className = 'btn btn-outline-secondary btn-sm';
+        savedBtn.className = 'btn btn-primary btn-sm';
+    }
+}
+
+document.getElementById('btn_use_saved').addEventListener('click', function() {
+    setDestSource('saved');
+});
+
+document.getElementById('btn_use_manual').addEventListener('click', function() {
+    setDestSource('manual');
+});
+
+setDestSource('saved');
+
 function submitDdt(actionType) {
     const form = document.getElementById('ddt-form');
     document.getElementById('action_field').value = actionType;
+
+    const destSource = (document.getElementById('dest_source').value || 'saved');
+    if (destSource === 'saved') {
+        const destKey = (document.getElementById('dest_key').value || '').trim();
+        if (!destKey) {
+            alert("Seleziona un destinatario salvato oppure premi 'Usa destinatario occasionale'.");
+            document.getElementById('dest_key').focus();
+            return;
+        }
+    } else {
+        const manualName = (document.getElementById('dest_ragione_manual').value || '').trim();
+        if (!manualName) {
+            alert("Inserisci almeno la ragione sociale del destinatario occasionale.");
+            document.getElementById('dest_ragione_manual').focus();
+            return;
+        }
+    }
 
     // ✅ obbligatorio SOLO in finalize
     if (actionType === 'finalize') {
