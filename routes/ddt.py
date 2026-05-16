@@ -62,25 +62,43 @@ def register_ddt_routes(app_obj, deps):
                 data_ddt_str = date.today().strftime("%Y-%m-%d")
 
             # 3. Recupera Destinatario
-            # Priorità:
-            # 1) destinatario manuale inserito nel DDT, NON salvato in rubrica
-            # 2) destinatario scelto dalla rubrica
-            # 3) campi standard già presenti
-            dest_ragione = (request.form.get('dest_ragione_manual') or request.form.get('dest_ragione') or '').strip()
-            dest_indirizzo = (request.form.get('dest_indirizzo_manual') or request.form.get('dest_indirizzo') or '').strip()
-            dest_citta = (request.form.get('dest_citta_manual') or request.form.get('dest_citta') or '').strip()
-
-            # Sovrascrittura da eventuale rubrica SOLO se non è stato inserito un destinatario manuale
+            # L'utente sceglie esplicitamente quale blocco usare:
+            # - saved  = destinatario salvato in rubrica
+            # - manual = destinatario occasionale NON salvato
+            dest_source = (request.form.get('dest_source') or 'saved').strip().lower()
             dest_key = (request.form.get('dest_key') or '').strip()
-            if dest_key and not (request.form.get('dest_ragione_manual') or '').strip():
+
+            dest_ragione = ''
+            dest_indirizzo = ''
+            dest_citta = ''
+
+            if dest_source == 'manual':
+                dest_ragione = (request.form.get('dest_ragione_manual') or '').strip()
+                dest_indirizzo = (request.form.get('dest_indirizzo_manual') or '').strip()
+                dest_citta = (request.form.get('dest_citta_manual') or '').strip()
+
+                if not dest_ragione:
+                    flash("Inserisci almeno la ragione sociale del destinatario occasionale.", "danger")
+                    return redirect(url_for('giacenze'))
+            else:
                 try:
-                    dest_info = load_destinatari().get(dest_key, {})
+                    dest_info = load_destinatari().get(dest_key, {}) if dest_key else {}
                     if dest_info:
                         dest_ragione = (dest_info.get('ragione_sociale', '') or '').strip()
                         dest_indirizzo = (dest_info.get('indirizzo', '') or '').strip()
                         dest_citta = (dest_info.get('citta', '') or '').strip()
                 except Exception:
-                    pass
+                    dest_info = {}
+
+                # fallback per compatibilità con eventuali vecchi campi form
+                if not dest_ragione:
+                    dest_ragione = (request.form.get('dest_ragione') or '').strip()
+                    dest_indirizzo = (request.form.get('dest_indirizzo') or '').strip()
+                    dest_citta = (request.form.get('dest_citta') or '').strip()
+
+                if not dest_ragione:
+                    flash("Seleziona un destinatario salvato oppure usa il destinatario occasionale.", "danger")
+                    return redirect(url_for('giacenze'))
 
             # 4. Recupera Articoli
             articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
