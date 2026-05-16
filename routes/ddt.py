@@ -62,20 +62,24 @@ def register_ddt_routes(app_obj, deps):
                 data_ddt_str = date.today().strftime("%Y-%m-%d")
 
             # 3. Recupera Destinatario
-            dest_ragione = request.form.get('dest_ragione', '')
-            dest_indirizzo = request.form.get('dest_indirizzo', '')
-            dest_citta = request.form.get('dest_citta', '')
+            # Priorità:
+            # 1) destinatario manuale inserito nel DDT, NON salvato in rubrica
+            # 2) destinatario scelto dalla rubrica
+            # 3) campi standard già presenti
+            dest_ragione = (request.form.get('dest_ragione_manual') or request.form.get('dest_ragione') or '').strip()
+            dest_indirizzo = (request.form.get('dest_indirizzo_manual') or request.form.get('dest_indirizzo') or '').strip()
+            dest_citta = (request.form.get('dest_citta_manual') or request.form.get('dest_citta') or '').strip()
 
-            # Sovrascrittura da eventuale rubrica
-            dest_key = request.form.get('dest_key')
-            if dest_key:
+            # Sovrascrittura da eventuale rubrica SOLO se non è stato inserito un destinatario manuale
+            dest_key = (request.form.get('dest_key') or '').strip()
+            if dest_key and not (request.form.get('dest_ragione_manual') or '').strip():
                 try:
                     dest_info = load_destinatari().get(dest_key, {})
                     if dest_info:
-                        dest_ragione = dest_info.get('ragione_sociale', '')
-                        dest_indirizzo = dest_info.get('indirizzo', '')
-                        dest_citta = dest_info.get('citta', '')
-                except:
+                        dest_ragione = (dest_info.get('ragione_sociale', '') or '').strip()
+                        dest_indirizzo = (dest_info.get('indirizzo', '') or '').strip()
+                        dest_citta = (dest_info.get('citta', '') or '').strip()
+                except Exception:
                     pass
 
             # 4. Recupera Articoli
