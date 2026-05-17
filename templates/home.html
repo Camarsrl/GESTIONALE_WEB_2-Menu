@@ -1,0 +1,57 @@
+
+{% extends 'base.html' %}
+{% block content %}
+<div class="row g-3">
+    <div class="col-lg-3">
+        <div class="card p-3">
+            <h6 class="mb-3">Menu Principale</h6>
+            <div class="d-grid gap-2">
+                <a class="btn btn-primary" href="{{ url_for('giacenze') }}"><i class="bi bi-grid-3x3-gap-fill"></i> Visualizza Giacenze</a>
+                {% if session.get('role') == 'admin' %}
+                <a class="btn btn-success" href="{{ url_for('nuovo_articolo') }}"><i class="bi bi-plus-circle"></i> Nuovo Articolo</a>
+                {% endif %}
+                {% if session.get('role') == 'admin' %}
+                <a class="btn btn-outline-secondary" href="{{ url_for('labels_form') }}"><i class="bi bi-tag"></i> Stampa Etichette</a>
+                {% endif %}
+                <hr>
+                {% if session.get('role') == 'admin' %}
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('import_excel') }}"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</a>
+                {% endif %}
+                {% if session.get('role') == 'admin' %}
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel Totale</a>
+                {% endif %}
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_client') }}"><i class="bi bi-people"></i> Export per Cliente</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>
+                {% if can_use_buoni_qr() %}
+<a class="btn btn-outline-primary btn-sm" href="{{ url_for('scan_entrata') }}"><i class="bi bi-upc-scan"></i> Scan / Ricerca Entrata</a>
+{% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-9">
+        <div class="card p-4">
+            <div class="row g-3 align-items-center">
+                <div class="col-lg-7">
+                    <div class="d-flex align-items-center gap-3">
+                {% if logo_url %}<img src="{{ logo_url }}" style="height:48px">{% endif %}
+                <div>
+                    <h4 class="m-0">Benvenuto nel Gestionale Camar</h4>
+                    <p class="text-muted m-0">Gestione completa di giacenze, DDT, buoni di prelievo e stampa PDF.</p>
+                </div>
+                </div>
+                <div class="col-lg-5">
+                    <div class="border rounded p-3 bg-light">
+                        <h6 class="mb-2"><i class="bi bi-upc-scan"></i> Ricerca veloce entrata</h6>
+                        <form action="{{ url_for('go_scan_entrata') }}" method="post" class="d-flex gap-2">
+                            <input name="codice_entrata" class="form-control" placeholder="Scansiona o inserisci codice entrata">
+                            <button class="btn btn-primary">Apri</button>
+                        </form>
+                        <div class="form-text">Funziona da PC con lettore barcode e da smartphone con QR.</div>
+                        {% if session.get('role') == 'admin' %}<div class="mt-2"><a href="{{ url_for('admin_genera_codici_entrata') }}" class="btn btn-outline-dark btn-sm"><i class="bi bi-arrow-repeat"></i> Genera codici entrata storici</a></div>{% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
