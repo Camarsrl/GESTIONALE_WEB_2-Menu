@@ -5994,9 +5994,13 @@ def _compute_report_fatturazione_data(mese: int, anno: int):
                     and (d_usc is None or d_usc > last_day)
                 )
 
-                pallet_qty = _safe_int(getattr(art, 'n_colli', None), default_if_blank=1)
-                if pallet_qty <= 0:
-                    pallet_qty = 1
+                # Per GALVANO TECNICA il conteggio deve usare la colonna N° Colli
+                # come nella schermata Giacenze. I campi vuoti NON devono valere 1,
+                # altrimenti il report conta una riga vuota come un bancale e gonfia il totale.
+                # Inoltre vengono esclusi tutti i record già usciti entro la fine del mese.
+                pallet_qty = _safe_int(getattr(art, 'n_colli', None), default_if_blank=0)
+                if pallet_qty < 0:
+                    pallet_qty = 0
 
                 if pallet_ancora_in_giacenza_fine_mese:
                     row['pallet_giacenza'] += pallet_qty
@@ -9987,20 +9991,12 @@ def _calcola_logica_colli_giacenza(articoli, data_da, data_a, raggruppamento):
             agg[k]["sum"] += v
             agg[k]["days"].add(day)
 
-        # FIX GALVANO TECNICA:
-        # Per i COLLI/BANCALI il totale mensile non deve essere la somma dei colli
-        # presenti in ogni giorno del mese (pallet-giorni), perché gonfia il risultato.
-        # Esempio: 79 bancali presenti per più giorni diventavano 244.
-        # Qui usiamo come TOTALE la fotografia dell'ultimo giorno disponibile del mese
-        # nel periodo selezionato; il valore medio resta disponibile come controllo.
         keys = sorted(agg.keys(), key=lambda k: (k[1], k[2], k[0]))
         for cli, y, m in keys:
             dati = agg[(cli, y, m)]
-            giorni = sorted(dati["days"])
-            n_days = len(giorni)
-            ultimo_giorno = giorni[-1] if giorni else None
-            tot = colli_per_giorno.get((cli, ultimo_giorno), 0.0) if ultimo_giorno else 0.0
-            avg = dati["sum"] / n_days if n_days else 0.0
+            n_days = len(dati["days"])
+            tot = dati["sum"]
+            avg = tot / n_days if n_days else 0.0
             risultati.append({
                 "periodo": f"{m:02d}/{y}",
                 "cliente": cli,
