@@ -259,11 +259,22 @@ def register_buoni_qr_routes(app_obj, deps):
       </div>
 
     <div class="card shadow-sm mb-3">
-        <div class="card-header fw-bold">Arrivi collegati al buono</div>
+        <div class="card-header fw-bold d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <span>Arrivi collegati al buono</span>
+          <small class="text-muted">Puoi spuntare manualmente gli arrivi caricati, come se avessi sparato il QR.</small>
+        </div>
+        <form method="POST" action="{{ url_for('segna_righe_buono_carico', buono_id=buono.id) }}" onsubmit="return confirm('Segnare gli arrivi selezionati come caricati?');">
+        <div class="p-2 d-flex gap-2 flex-wrap align-items-center">
+          <button type="submit" class="btn btn-success btn-sm">✅ Segna selezionati come caricati</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.querySelectorAll('.chk-arrivo-carico:not(:disabled)').forEach(c => c.checked = true);">Seleziona mancanti</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.querySelectorAll('.chk-arrivo-carico').forEach(c => c.checked = false);">Deseleziona</button>
+          <span class="small text-muted">Utile se non riesci a leggere il QR con pistola/fotocamera.</span>
+        </div>
         <div class="table-responsive">
           <table class="table table-sm table-striped mb-0">
             <thead>
               <tr>
+                <th style="width:60px;">Spunta</th>
                 <th>ID Art.</th><th>Cliente</th><th>Fornitore</th><th>Codice</th><th>Descrizione</th>
                 <th>N. Arrivo</th><th>DDT Ing</th><th>Colli</th><th>Peso</th><th>QR/Codice entrata</th><th>Stato scansione</th>
               </tr>
@@ -271,6 +282,14 @@ def register_buoni_qr_routes(app_obj, deps):
             <tbody>
               {% for r in righe %}
               <tr>
+                {% set stato_riga = (riepilogo_scan.row_status or {}).get(r.id|string, 'mancante') %}
+                <td class="text-center">
+                  <input type="checkbox"
+                         class="form-check-input chk-arrivo-carico"
+                         name="riga_ids"
+                         value="{{ r.id }}"
+                         {% if stato_riga == 'caricato' %}disabled{% endif %}>
+                </td>
                 <td>{{ r.id_articolo }}</td>
                 <td>{{ r.cliente }}</td>
                 <td>{{ r.fornitore or '' }}</td>
@@ -282,7 +301,6 @@ def register_buoni_qr_routes(app_obj, deps):
                 <td>{{ r.peso_previsto|it_num(2) }}</td>
                 <td><code>{{ r.codice_entrata }}</code></td>
                 <td>
-                  {% set stato_riga = (riepilogo_scan.row_status or {}).get(r.id|string, 'mancante') %}
                   {% if stato_riga == 'caricato' %}
                     <span class="badge bg-success">Caricato</span>
                   {% elif stato_riga == 'parziale' %}
@@ -293,11 +311,12 @@ def register_buoni_qr_routes(app_obj, deps):
                 </td>
               </tr>
               {% else %}
-              <tr><td colspan="11" class="text-muted">Vecchio buono senza righe dettagliate.</td></tr>
+              <tr><td colspan="12" class="text-muted">Vecchio buono senza righe dettagliate.</td></tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
+        </form>
       </div>
 
       <div class="card shadow-sm mb-3">
@@ -1077,6 +1096,111 @@ def register_buoni_qr_routes(app_obj, deps):
             return redirect(url_for("dettaglio_buono_carico", buono_id=buono_id))
         finally:
             db.close()
+
+
+    @app.route("/buoni_carico/<int:buono_id>/segna_righe", methods=["POST"])
+    @login_required
+    @require_admin_or_magazzino
+    def segna_righe_buono_carico(buono_id):
+        """Permette di spuntare manualmente gli arrivi collegati al buono.
+
+        La spunta registra scansioni OK come se il QR fosse stato letto.
+        Se una riga ha più colli previsti, vengono aggiunte solo le scansioni mancanti
+        fino al totale previsto per quel codice entrata, senza duplicare colli già caricati.
+        """
+        db = SessionLocal()
+        try:
+            buono = db.query(BuonoCarico).filter(BuonoCarico.id == buono_id).first()
+            if not buono:
+                flash("Buono di carico non trovato.", "danger")
+                return redirect(url_for("buoni_carico"))
+
+            ids = request.form.getlist("riga_ids")
+            ids = [int(x) for x in ids if str(x).strip().isdigit()]
+
+            if not ids:
+                flash("Seleziona almeno un arrivo da segnare come caricato.", "warning")
+                return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
+
+            righe = (
+                db.query(BuonoCaricoRiga)
+                .filter(BuonoCaricoRiga.buono_id == buono.id, BuonoCaricoRiga.id.in_(ids))
+                .order_by(BuonoCaricoRiga.id.asc())
+                .all()
+            )
+
+            if not righe:
+                flash("Nessuna riga valida selezionata.", "warning")
+                return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
+
+            expected_by_key, ok_by_key, canonical_by_key = _conteggi_qr_buono_carico(db, buono)
+
+            aggiunte = 0
+            saltate = 0
+
+            for r in righe:
+                codice = (r.codice_entrata or "").strip()
+                if not codice:
+                    saltate += 1
+                    continue
+
+                k = _key_codice_entrata_buono(codice)
+                previsti_totali = int(expected_by_key.get(k, 0))
+                gia_ok = int(ok_by_key.get(k, 0))
+                colli_riga = int(r.colli_previsti or 0)
+                if colli_riga <= 0:
+                    colli_riga = 1
+
+                mancanti_qr = max(0, previsti_totali - gia_ok)
+                da_aggiungere = min(colli_riga, mancanti_qr)
+
+                if da_aggiungere <= 0:
+                    saltate += 1
+                    continue
+
+                codice_salvato = canonical_by_key.get(k) or codice
+
+                for i in range(da_aggiungere):
+                    scan = BuonoCaricoScan(
+                        buono_id=buono.id,
+                        codice_scansionato=codice_salvato,
+                        esito="OK",
+                        messaggio=(
+                            f"Arrivo segnato manualmente come caricato "
+                            f"({gia_ok + i + 1}/{previsti_totali})."
+                        ),
+                        scanned_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        scanned_by=_current_username_for_audit()
+                    )
+                    db.add(scan)
+                    aggiunte += 1
+
+                ok_by_key[k] = gia_ok + da_aggiungere
+
+            db.commit()
+            _aggiorna_stato_buono_carico(db, buono)
+
+            if aggiunte:
+                msg = f"Spunta registrata: {aggiunte} collo/i segnati come caricati."
+                if saltate:
+                    msg += f" {saltate} riga/e erano già complete o senza QR."
+                flash(msg, "success")
+            else:
+                flash("Nessuna scansione aggiunta: gli arrivi selezionati risultano già caricati o senza QR.", "warning")
+
+            return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
+
+        except Exception as e:
+            db.rollback()
+            try:
+                scrivi_log_errore("Errore spunta manuale buono carico", e)
+            except Exception:
+                pass
+            flash(f"Errore spunta manuale: {e}", "danger")
+            return redirect(url_for("dettaglio_buono_carico", buono_id=buono_id))
+        finally:
+            db.close()
+
 
 
 
