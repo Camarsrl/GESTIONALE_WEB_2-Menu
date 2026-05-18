@@ -2820,54 +2820,205 @@ LOGIN_HTML = """
 HOME_HTML = """
 {% extends 'base.html' %}
 {% block content %}
-<div class="row g-3">
-    <div class="col-lg-3">
-        <div class="card p-3">
-            <h6 class="mb-3">Menu Principale</h6>
-            <div class="d-grid gap-2">
-                <a class="btn btn-primary" href="{{ url_for('giacenze') }}"><i class="bi bi-grid-3x3-gap-fill"></i> Visualizza Giacenze</a>
-                {% if session.get('role') == 'admin' %}
-                <a class="btn btn-success" href="{{ url_for('nuovo_articolo') }}"><i class="bi bi-plus-circle"></i> Nuovo Articolo</a>
-                {% endif %}
-                {% if session.get('role') == 'admin' %}
-                <a class="btn btn-outline-secondary" href="{{ url_for('labels_form') }}"><i class="bi bi-tag"></i> Stampa Etichette</a>
-                {% endif %}
-                <hr>
-                {% if session.get('role') == 'admin' %}
-                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('import_excel') }}"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</a>
-                {% endif %}
-                {% if session.get('role') == 'admin' %}
-                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel Totale</a>
-                {% endif %}
-                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_client') }}"><i class="bi bi-people"></i> Export per Cliente</a>
-                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>
-                {% if can_use_buoni_qr() %}
-<a class="btn btn-outline-primary btn-sm" href="{{ url_for('scan_entrata') }}"><i class="bi bi-upc-scan"></i> Scan / Ricerca Entrata</a>
-{% endif %}
+<style>
+.home-kpi-card{
+    border:0;
+    border-radius:16px;
+    box-shadow:0 4px 14px rgba(0,0,0,.07);
+    height:100%;
+}
+.home-kpi-icon{
+    width:42px;
+    height:42px;
+    border-radius:12px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:#eef5ff;
+    color:#0d6efd;
+    font-size:20px;
+}
+.home-kpi-value{
+    font-size:26px;
+    font-weight:700;
+    line-height:1.1;
+}
+.home-section-card{
+    border:0;
+    border-radius:16px;
+    box-shadow:0 4px 14px rgba(0,0,0,.07);
+}
+.home-movement-table td,
+.home-movement-table th{
+    vertical-align:middle;
+    font-size:13px;
+}
+</style>
+
+<div class="container-fluid py-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div class="d-flex align-items-center gap-3">
+            {% if logo_url %}<img src="{{ logo_url }}" style="height:50px;width:auto;">{% endif %}
+            <div>
+                <h3 class="m-0">Dashboard Gestionale</h3>
+                <div class="text-muted small">Riepilogo operativo aggiornato al {{ today.strftime('%d/%m/%Y') if today else '' }}</div>
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a class="btn btn-primary btn-sm" href="{{ url_for('giacenze') }}"><i class="bi bi-grid-3x3-gap-fill"></i> Giacenze</a>
+            {% if session.get('role') == 'admin' %}
+            <a class="btn btn-success btn-sm" href="{{ url_for('nuovo_articolo') }}"><i class="bi bi-plus-circle"></i> Nuovo articolo</a>
+            {% endif %}
+            {% if can_use_buoni_qr() %}
+            <a class="btn btn-outline-primary btn-sm" href="{{ url_for('scan_entrata') }}"><i class="bi bi-upc-scan"></i> Scan entrata</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-6 col-xl-3">
+            <div class="card home-kpi-card p-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="text-muted small">Articoli in giacenza</div>
+                        <div class="home-kpi-value">{{ dashboard.tot_giacenza }}</div>
+                    </div>
+                    <div class="home-kpi-icon"><i class="bi bi-box-seam"></i></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card home-kpi-card p-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="text-muted small">M² occupati</div>
+                        <div class="home-kpi-value">{{ dashboard.tot_m2|it_num(2) }}</div>
+                    </div>
+                    <div class="home-kpi-icon"><i class="bi bi-rulers"></i></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card home-kpi-card p-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="text-muted small">Entrate oggi</div>
+                        <div class="home-kpi-value">{{ dashboard.entrate_oggi }}</div>
+                    </div>
+                    <div class="home-kpi-icon"><i class="bi bi-arrow-down-circle"></i></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card home-kpi-card p-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="text-muted small">Uscite oggi</div>
+                        <div class="home-kpi-value">{{ dashboard.uscite_oggi }}</div>
+                    </div>
+                    <div class="home-kpi-icon"><i class="bi bi-arrow-up-circle"></i></div>
+                </div>
             </div>
         </div>
     </div>
-    <div class="col-lg-9">
-        <div class="card p-4">
-            <div class="row g-3 align-items-center">
-                <div class="col-lg-7">
-                    <div class="d-flex align-items-center gap-3">
-                {% if logo_url %}<img src="{{ logo_url }}" style="height:48px">{% endif %}
-                <div>
-                    <h4 class="m-0">Benvenuto nel Gestionale Camar</h4>
-                    <p class="text-muted m-0">Gestione completa di giacenze, DDT, buoni di prelievo e stampa PDF.</p>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-6 col-xl-3">
+            <div class="card home-kpi-card p-3">
+                <div class="text-muted small">Articoli doganali in giacenza</div>
+                <div class="home-kpi-value">{{ dashboard.doganali }}</div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card home-kpi-card p-3">
+                <div class="text-muted small">Buoni QR aperti</div>
+                <div class="home-kpi-value">{{ dashboard.buoni_aperti }}</div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card home-kpi-card p-3">
+                <div class="text-muted small">Peso in giacenza</div>
+                <div class="home-kpi-value">{{ dashboard.tot_peso|it_num(2) }}</div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card home-kpi-card p-3">
+                <div class="text-muted small">Colli in giacenza</div>
+                <div class="home-kpi-value">{{ dashboard.tot_colli }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-xl-3">
+            <div class="card home-section-card p-3 mb-3">
+                <h6 class="mb-3">Menu rapido</h6>
+                <div class="d-grid gap-2">
+                    <a class="btn btn-primary" href="{{ url_for('giacenze') }}"><i class="bi bi-grid-3x3-gap-fill"></i> Visualizza Giacenze</a>
+                    {% if session.get('role') == 'admin' %}
+                    <a class="btn btn-success" href="{{ url_for('nuovo_articolo') }}"><i class="bi bi-plus-circle"></i> Nuovo Articolo</a>
+                    <a class="btn btn-outline-secondary" href="{{ url_for('labels_form') }}"><i class="bi bi-tag"></i> Stampa Etichette</a>
+                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('import_excel') }}"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</a>
+                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel Totale</a>
+                    {% endif %}
+                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_client') }}"><i class="bi bi-people"></i> Export per Cliente</a>
+                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>
+                    {% if can_use_buoni_qr() %}
+                    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('scan_entrata') }}"><i class="bi bi-upc-scan"></i> Scan / Ricerca Entrata</a>
+                    {% endif %}
                 </div>
+            </div>
+
+            <div class="card home-section-card p-3">
+                <h6 class="mb-2"><i class="bi bi-upc-scan"></i> Ricerca veloce entrata</h6>
+                <form action="{{ url_for('go_scan_entrata') }}" method="post" class="d-flex gap-2">
+                    <input name="codice_entrata" class="form-control" placeholder="Scansiona o incolla codice..." autocomplete="off">
+                    <button class="btn btn-primary">Apri</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="col-xl-9">
+            <div class="card home-section-card p-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="m-0">Ultimi movimenti</h5>
+                    <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm">Apri giacenze</a>
                 </div>
-                <div class="col-lg-5">
-                    <div class="border rounded p-3 bg-light">
-                        <h6 class="mb-2"><i class="bi bi-upc-scan"></i> Ricerca veloce entrata</h6>
-                        <form action="{{ url_for('go_scan_entrata') }}" method="post" class="d-flex gap-2">
-                            <input name="codice_entrata" class="form-control" placeholder="Scansiona o inserisci codice entrata">
-                            <button class="btn btn-primary">Apri</button>
-                        </form>
-                        <div class="form-text">Funziona da PC con lettore barcode e da smartphone con QR.</div>
-                        {% if session.get('role') == 'admin' %}<div class="mt-2"><a href="{{ url_for('admin_genera_codici_entrata') }}" class="btn btn-outline-dark btn-sm"><i class="bi bi-arrow-repeat"></i> Genera codici entrata storici</a></div>{% endif %}
-                    </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped home-movement-table">
+                        <thead>
+                            <tr>
+                                <th>Data</th>
+                                <th>Tipo</th>
+                                <th>Cliente</th>
+                                <th>Codice</th>
+                                <th>Descrizione</th>
+                                <th>N. Arrivo</th>
+                                <th>DDT</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for m in ultimi_movimenti %}
+                            <tr>
+                                <td>{{ m.data }}</td>
+                                <td>
+                                    {% if m.tipo == 'Entrata' %}
+                                    <span class="badge bg-success">Entrata</span>
+                                    {% else %}
+                                    <span class="badge bg-danger">Uscita</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ m.cliente }}</td>
+                                <td>{{ m.codice }}</td>
+                                <td>{{ m.descrizione }}</td>
+                                <td>{{ m.n_arrivo }}</td>
+                                <td>{{ m.ddt }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="7" class="text-muted text-center py-3">Nessun movimento recente.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -5963,35 +6114,96 @@ def _warehouse_readonly_guard():
 @login_required
 def home():
     try:
-        # Recupera dati per la dashboard (con gestione errori se il DB è vuoto)
-        tot_articoli = 0
-        tot_m2 = 0.0
-        
+        db = SessionLocal()
         try:
-            db = SessionLocal()
-            tot_articoli = db.query(Articolo).count()
-            # Calcolo somma M2 sicuro
-            result = db.query(func.sum(Articolo.m2)).scalar()
-            if result:
-                tot_m2 = float(result)
-            db.close()
-        except Exception as e_db:
-            print(f"Errore Dashboard DB: {e_db}")
-            # Non bloccare l'app, mostra 0
-            tot_articoli = 0
-            tot_m2 = 0
+            today_obj = date.today()
+            today_iso = today_obj.strftime('%Y-%m-%d')
+            cliente_corrente = current_cliente()
 
-        return render_template('home.html', 
-                               tot_articoli=tot_articoli, 
-                               tot_m2=round(tot_m2, 2),
-                               today=date.today())
-                               
+            q_base = db.query(Articolo)
+            if cliente_corrente:
+                q_base = q_base.filter(func.upper(Articolo.cliente) == cliente_corrente.upper())
+
+            rows = q_base.all()
+
+            def _is_active(art):
+                return not (getattr(art, 'data_uscita', None) or '').strip()
+
+            def _date_is_today(value):
+                try:
+                    d = to_date_db(value)
+                    return bool(d and d == today_obj)
+                except Exception:
+                    return str(value or '').strip() == today_iso
+
+            active_rows = [a for a in rows if _is_active(a)]
+
+            dashboard = {
+                'tot_giacenza': len(active_rows),
+                'tot_m2': round(sum(float(a.m2 or 0) for a in active_rows), 2),
+                'tot_peso': round(sum(float(a.peso or 0) for a in active_rows), 2),
+                'tot_colli': sum(int(a.n_colli or 0) for a in active_rows),
+                'entrate_oggi': sum(1 for a in rows if _date_is_today(getattr(a, 'data_ingresso', None))),
+                'uscite_oggi': sum(1 for a in rows if _date_is_today(getattr(a, 'data_uscita', None))),
+                'doganali': sum(1 for a in active_rows if 'DOGANA' in ((getattr(a, 'stato', '') or '').upper())),
+                'buoni_aperti': 0,
+            }
+
+            try:
+                q_buoni = db.query(BuonoCarico)
+                if cliente_corrente:
+                    q_buoni = q_buoni.filter(func.upper(BuonoCarico.cliente) == cliente_corrente.upper())
+                buoni_rows = q_buoni.all()
+                dashboard['buoni_aperti'] = sum(
+                    1 for b in buoni_rows
+                    if (getattr(b, 'stato', '') or '').upper() not in ('CARICATO', 'CHIUSO', 'COMPLETATO', 'ELIMINATO')
+                )
+            except Exception:
+                dashboard['buoni_aperti'] = 0
+
+            movimenti = []
+            for a in rows:
+                d_in = to_date_db(getattr(a, 'data_ingresso', None))
+                if d_in:
+                    movimenti.append({
+                        'data_sort': d_in,
+                        'data': d_in.strftime('%d/%m/%Y'),
+                        'tipo': 'Entrata',
+                        'cliente': getattr(a, 'cliente', '') or '',
+                        'codice': getattr(a, 'codice_articolo', '') or '',
+                        'descrizione': (getattr(a, 'descrizione', '') or '')[:60],
+                        'n_arrivo': getattr(a, 'n_arrivo', '') or '',
+                        'ddt': getattr(a, 'n_ddt_ingresso', '') or '',
+                    })
+                d_out = to_date_db(getattr(a, 'data_uscita', None))
+                if d_out:
+                    movimenti.append({
+                        'data_sort': d_out,
+                        'data': d_out.strftime('%d/%m/%Y'),
+                        'tipo': 'Uscita',
+                        'cliente': getattr(a, 'cliente', '') or '',
+                        'codice': getattr(a, 'codice_articolo', '') or '',
+                        'descrizione': (getattr(a, 'descrizione', '') or '')[:60],
+                        'n_arrivo': getattr(a, 'n_arrivo', '') or '',
+                        'ddt': getattr(a, 'n_ddt_uscita', '') or '',
+                    })
+
+            ultimi_movimenti = sorted(movimenti, key=lambda x: x.get('data_sort') or date.min, reverse=True)[:10]
+
+            return render_template(
+                'home.html',
+                dashboard=dashboard,
+                ultimi_movimenti=ultimi_movimenti,
+                today=today_obj,
+                tot_articoli=dashboard['tot_giacenza'],
+                tot_m2=dashboard['tot_m2']
+            )
+        finally:
+            db.close()
     except Exception as e:
-        # Se c'è un errore grave nel template o altro
         print(f"CRITICAL ERROR HOME: {e}")
         import traceback
         traceback.print_exc()
-        # Fallback estremo: pagina bianca con errore leggibile
         return f"<h1>Errore Caricamento Home</h1><p>{e}</p><a href='/logout'>Logout</a>"
 
 # ========================================================
