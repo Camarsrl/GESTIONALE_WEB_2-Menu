@@ -1,14 +1,93 @@
 # -*- coding: utf-8 -*-
 """
-Modulo Trasporti - Step 7.
-
-Route Trasporti spostate dal file principale.
-Gli endpoint restano invariati perché vengono registrati sulla stessa app.
+Modulo Trasporti - versione corretta.
+Fix:
+- niente nullslast() per evitare errori SQL su alcuni database
+- filtri data/costo più robusti
+- export Excel compatibile sia con Date sia con Text
+- registrazione tabella/colonne trasporti sicura
 """
 
 def register_trasporti_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
+
+    def _ensure_trasporti_schema_safe():
+        """Crea/aggiorna la tabella trasporti se il DB esiste già."""
+        try:
+            Base.metadata.create_all(engine)
+            insp = inspect(engine)
+            tables = set(insp.get_table_names())
+            if "trasporti" not in tables:
+                return
+
+            cols = {c.get("name") for c in insp.get_columns("trasporti")}
+            extra_cols = {
+                "data": "DATE",
+                "tipo_mezzo": "TEXT",
+                "cliente": "TEXT",
+                "trasportatore": "TEXT",
+                "ddt_uscita": "TEXT",
+                "magazzino": "TEXT",
+                "consolidato": "TEXT",
+                "costo": "FLOAT",
+            }
+            for col, typ in extra_cols.items():
+                if col not in cols:
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(text(f"ALTER TABLE trasporti ADD COLUMN {col} {typ}"))
+                        print(f"[OK] aggiunta colonna trasporti.{col}")
+                    except Exception as e:
+                        print(f"[WARN] colonna trasporti.{col}: {e}")
+        except Exception as e:
+            print(f"[WARN] ensure trasporti schema: {e}")
+
+    _ensure_trasporti_schema_safe()
+
+    def _as_date_safe(v):
+        try:
+            d = parse_any_date(v)
+            if d:
+                return d
+        except Exception:
+            pass
+        try:
+            d = to_date_db(v)
+            if d:
+                return d
+        except Exception:
+            pass
+        return None
+
+    def _fmt_date_safe(v):
+        d = _as_date_safe(v)
+        if d:
+            try:
+                return d.strftime("%Y-%m-%d")
+            except Exception:
+                return str(d)[:10]
+        return ""
+
+    def _match_txt(value, filtro):
+        filtro = (filtro or '').strip()
+        if not filtro:
+            return True
+        v = str(value or '')
+        try:
+            return filtro.lower() in v.lower() or normalize_text_key(filtro) in normalize_text_key(v)
+        except Exception:
+            return filtro.lower() in v.lower()
+
+    def _cliente_safe_from_form(value):
+        raw = (value or "").strip()
+        if not raw:
+            return None
+        try:
+            return validate_cliente_or_raise(raw)
+        except Exception:
+            # Non blocchiamo la pagina trasporti se il cliente non è nella lista utenti
+            return raw.upper()
 
     @app.route('/trasporti', methods=['GET', 'POST'])
     @login_required
@@ -35,7 +114,7 @@ def register_trasporti_routes(app_obj, deps):
                     rec.costo = float(costo_str.replace(',', '.')) if costo_str != '' else None
 
                     rec.tipo_mezzo = (request.form.get('tipo_mezzo') or '').strip() or None
-                    rec.cliente = validate_cliente_or_raise(request.form.get('cliente')) or None
+                    rec.cliente = _cliente_safe_from_form(request.form.get('cliente'))
                     rec.trasportatore = (request.form.get('trasportatore') or '').strip() or None
                     rec.ddt_uscita = (request.form.get('ddt_uscita') or '').strip() or None
                     rec.magazzino = (request.form.get('magazzino') or '').strip() or None
@@ -65,7 +144,7 @@ def register_trasporti_routes(app_obj, deps):
                     nuovo = Trasporto(
                         data=data_val,
                         tipo_mezzo=(request.form.get('tipo_mezzo') or '').strip() or None,
-                        cliente=validate_cliente_or_raise(request.form.get('cliente')) or None,
+                        cliente=_cliente_safe_from_form(request.form.get('cliente')),
                         trasportatore=(request.form.get('trasportatore') or '').strip() or None,
                         ddt_uscita=(request.form.get('ddt_uscita') or '').strip() or None,
                         magazzino=(request.form.get('magazzino') or '').strip() or None,
@@ -82,16 +161,15 @@ def register_trasporti_routes(app_obj, deps):
 
                 return redirect(url_for('trasporti'))
 
-            # --- EDIT MODE (GET ?edit_id=) ---
+            # --- EDIT MODE ---
             edit_id = request.args.get('edit_id')
             edit_row = None
             if edit_id and session.get('role') == 'admin':
                 try:
                     edit_row = db.query(Trasporto).filter(Trasporto.id == int(edit_id)).first()
-                except:
+                except Exception:
                     edit_row = None
 
-            # --- VISUALIZZA LISTA ---
             filtri = {
                 'data_da': (request.args.get('data_da') or '').strip(),
                 'data_a': (request.args.get('data_a') or '').strip(),
@@ -110,22 +188,12 @@ def register_trasporti_routes(app_obj, deps):
             costo_da = _safe_float_it(filtri['costo_da'])
             costo_a = _safe_float_it(filtri['costo_a'])
 
-            def _match_txt(value, filtro):
-                filtro = (filtro or '').strip()
-                if not filtro:
-                    return True
-                v = str(value or '')
-                return filtro.lower() in v.lower() or normalize_text_key(filtro) in normalize_text_key(v)
-
-            dati = (
-                db.query(Trasporto)
-                .order_by(Trasporto.data.desc().nullslast(), Trasporto.id.desc())
-                .all()
-            )
+            # Evita nullslast(): in alcuni ambienti può generare errore.
+            dati = db.query(Trasporto).order_by(Trasporto.id.desc()).all()
 
             filtered = []
             for rec in dati:
-                rec_date = parse_any_date(getattr(rec, 'data', None))
+                rec_date = _as_date_safe(getattr(rec, 'data', None))
                 if data_da and (not rec_date or rec_date < data_da):
                     continue
                 if data_a and (not rec_date or rec_date > data_a):
@@ -149,17 +217,23 @@ def register_trasporti_routes(app_obj, deps):
                     continue
                 filtered.append(rec)
 
-            dati = filtered
+            # ordinamento Python robusto: data desc, id desc
+            filtered.sort(key=lambda r: (_as_date_safe(getattr(r, 'data', None)) or date.min, getattr(r, 'id', 0) or 0), reverse=True)
 
             return render_template(
                 'trasporti.html',
-                trasporti=dati,
+                trasporti=filtered,
                 today=date.today(),
                 edit_row=edit_row,
                 filtri=filtri,
                 clienti_validi=get_clienti_utenti()
             )
 
+        except Exception as e:
+            db.rollback()
+            scrivi_log_errore("Errore pagina trasporti", e)
+            flash(f"Errore apertura Trasporti: {e}", "danger")
+            return redirect(url_for('home'))
         finally:
             db.close()
 
@@ -174,10 +248,8 @@ def register_trasporti_routes(app_obj, deps):
         from openpyxl import Workbook
         from openpyxl.styles import Font, Alignment, PatternFill
         from openpyxl.utils import get_column_letter
-        from sqlalchemy import func
 
-        # Recupera i filtri dal form
-        mese = (request.form.get('mese') or '').strip()              # es '2026-01'
+        mese = (request.form.get('mese') or '').strip()
         mezzo = (request.form.get('tipo_mezzo') or '').strip()
         cliente = (request.form.get('cliente') or '').strip()
         ddt_uscita = (request.form.get('ddt_uscita') or '').strip()
@@ -185,37 +257,34 @@ def register_trasporti_routes(app_obj, deps):
 
         db = SessionLocal()
         try:
-            query = db.query(Trasporto)
+            rows = db.query(Trasporto).all()
+            dati = []
 
-            # ✅ FILTRO MESE (compatibile se Trasporto.data è TEXT)
+            mese_start = mese_end = None
             if mese:
                 try:
-                    year, month = mese.split("-")
-                    y = int(year)
-                    m = int(month)
-                    start = date(y, m, 1)
-                    end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
-
-                    # Converte 'data' (testo) in data: to_date(data, 'YYYY-MM-DD')
-                    data_as_date = func.to_date(Trasporto.data, 'YYYY-MM-DD')
-                    query = query.filter(data_as_date >= start, data_as_date < end)
-
+                    y, m = [int(x) for x in mese.split("-")]
+                    mese_start = date(y, m, 1)
+                    mese_end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
                 except Exception:
-                    # fallback
-                    query = query.filter(Trasporto.data.like(f"{mese}%"))
+                    mese_start = mese_end = None
 
-            if mezzo:
-                query = query.filter(Trasporto.tipo_mezzo.ilike(f"%{mezzo}%"))
-            if cliente:
-                query = query.filter(Trasporto.cliente.ilike(f"%{cliente}%"))
-            if ddt_uscita:
-                query = query.filter(Trasporto.ddt_uscita.ilike(f"%{ddt_uscita}%"))
-            if consolidato:
-                query = query.filter(Trasporto.consolidato.ilike(f"%{consolidato}%"))
+            for t in rows:
+                d_val = _as_date_safe(getattr(t, "data", None))
+                if mese_start and (not d_val or d_val < mese_start or d_val >= mese_end):
+                    continue
+                if mezzo and not _match_txt(t.tipo_mezzo, mezzo):
+                    continue
+                if cliente and not _match_txt(t.cliente, cliente):
+                    continue
+                if ddt_uscita and not _match_txt(t.ddt_uscita, ddt_uscita):
+                    continue
+                if consolidato and not _match_txt(t.consolidato, consolidato):
+                    continue
+                dati.append(t)
 
-            dati = query.order_by(Trasporto.data.asc().nullslast(), Trasporto.id.asc()).all()
+            dati.sort(key=lambda r: (_as_date_safe(getattr(r, 'data', None)) or date.min, getattr(r, 'id', 0) or 0))
 
-            # --- CREA EXCEL ---
             wb = Workbook()
             ws = wb.active
             ws.title = "Trasporti"
@@ -247,17 +316,10 @@ def register_trasporti_routes(app_obj, deps):
             totale = 0.0
 
             for t in dati:
-                d_val = ""
-                if t.data:
-                    try:
-                        d_val = t.data.strftime("%Y-%m-%d")
-                    except:
-                        d_val = str(t.data)[:10]
-
                 costo_val = float(t.costo or 0.0)
                 totale += costo_val
 
-                ws.cell(riga, 1, d_val).alignment = center
+                ws.cell(riga, 1, _fmt_date_safe(t.data)).alignment = center
                 ws.cell(riga, 2, (t.tipo_mezzo or "")).alignment = left
                 ws.cell(riga, 3, (t.cliente or "")).alignment = left
                 ws.cell(riga, 4, (t.trasportatore or "")).alignment = left
@@ -279,8 +341,7 @@ def register_trasporti_routes(app_obj, deps):
             tot_cell.number_format = '#,##0.00'
             tot_cell.alignment = center
 
-            col_widths = [12, 16, 22, 22, 14, 14, 16, 12]
-            for i, w in enumerate(col_widths, start=1):
+            for i, w in enumerate([12, 16, 22, 22, 14, 14, 16, 12], start=1):
                 ws.column_dimensions[get_column_letter(i)].width = w
 
             bio = io.BytesIO()
@@ -298,7 +359,7 @@ def register_trasporti_routes(app_obj, deps):
             )
 
         except Exception as e:
+            scrivi_log_errore("Errore export Trasporti Excel", e)
             return f"Errore export Trasporti Excel: {e}", 500
         finally:
             db.close()
-
