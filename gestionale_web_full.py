@@ -4391,6 +4391,70 @@ DDT_PREVIEW_HTML = """
         </div>
     </form>
 </div>
+
+<script>
+(function(){
+  function ready(fn){
+    if(document.readyState !== 'loading') fn();
+    else document.addEventListener('DOMContentLoaded', fn);
+  }
+
+  ready(function(){
+    const manualNames = [
+      'dest_ragione_manual',
+      'dest_indirizzo_manual',
+      'dest_citta_manual'
+    ];
+
+    const source = document.querySelector('[name="dest_source"]');
+
+    function getManualFields(){
+      return manualNames
+        .map(function(name){ return document.querySelector('[name="' + name + '"]') || document.getElementById(name); })
+        .filter(Boolean);
+    }
+
+    function setManualMode(){
+      if(source) source.value = 'manual';
+      getManualFields().forEach(function(el){
+        el.removeAttribute('readonly');
+        el.removeAttribute('disabled');
+        el.readOnly = false;
+        el.disabled = false;
+        el.classList.remove('bg-light');
+      });
+    }
+
+    getManualFields().forEach(function(el){
+      ['focus','click','input','keydown','paste'].forEach(function(ev){
+        el.addEventListener(ev, setManualMode, true);
+      });
+    });
+
+    document.querySelectorAll('button, a, input[type="button"], input[type="submit"]').forEach(function(btn){
+      const txt = (btn.innerText || btn.value || '').toLowerCase();
+      if(txt.includes('occasionale')){
+        btn.addEventListener('click', function(){
+          setManualMode();
+          setTimeout(setManualMode, 50);
+        }, true);
+      }
+    });
+
+    const manualFields = getManualFields();
+    if(manualFields.length){
+      const box = manualFields[0].closest('.card') || manualFields[0].closest('div');
+      if(box){
+        box.addEventListener('click', setManualMode, true);
+        box.addEventListener('focusin', setManualMode, true);
+      }
+    }
+
+    setTimeout(setManualMode, 300);
+  });
+})();
+</script>
+
 {% endblock %}
 
 {% block extra_js %}
