@@ -4392,69 +4392,6 @@ DDT_PREVIEW_HTML = """
     </form>
 </div>
 
-<script>
-(function(){
-  function ready(fn){
-    if(document.readyState !== 'loading') fn();
-    else document.addEventListener('DOMContentLoaded', fn);
-  }
-
-  ready(function(){
-    const manualNames = [
-      'dest_ragione_manual',
-      'dest_indirizzo_manual',
-      'dest_citta_manual'
-    ];
-
-    const source = document.querySelector('[name="dest_source"]');
-
-    function getManualFields(){
-      return manualNames
-        .map(function(name){ return document.querySelector('[name="' + name + '"]') || document.getElementById(name); })
-        .filter(Boolean);
-    }
-
-    function setManualMode(){
-      if(source) source.value = 'manual';
-      getManualFields().forEach(function(el){
-        el.removeAttribute('readonly');
-        el.removeAttribute('disabled');
-        el.readOnly = false;
-        el.disabled = false;
-        el.classList.remove('bg-light');
-      });
-    }
-
-    getManualFields().forEach(function(el){
-      ['focus','click','input','keydown','paste'].forEach(function(ev){
-        el.addEventListener(ev, setManualMode, true);
-      });
-    });
-
-    document.querySelectorAll('button, a, input[type="button"], input[type="submit"]').forEach(function(btn){
-      const txt = (btn.innerText || btn.value || '').toLowerCase();
-      if(txt.includes('occasionale')){
-        btn.addEventListener('click', function(){
-          setManualMode();
-          setTimeout(setManualMode, 50);
-        }, true);
-      }
-    });
-
-    const manualFields = getManualFields();
-    if(manualFields.length){
-      const box = manualFields[0].closest('.card') || manualFields[0].closest('div');
-      if(box){
-        box.addEventListener('click', setManualMode, true);
-        box.addEventListener('focusin', setManualMode, true);
-      }
-    }
-
-    setTimeout(setManualMode, 300);
-  });
-})();
-</script>
-
 {% endblock %}
 
 {% block extra_js %}
@@ -4510,7 +4447,7 @@ function updateDestSavedPreview() {
     `;
 }
 
-function setDestSource(source) {
+function setDestSource(source, doFocus) {
     const hidden = document.getElementById('dest_source');
     const savedBox = document.getElementById('box_dest_saved');
     const manualBox = document.getElementById('box_dest_manual');
@@ -4524,7 +4461,7 @@ function setDestSource(source) {
         manualBox.classList.add('manual-active');
         savedBtn.className = 'btn btn-outline-primary btn-sm';
         manualBtn.className = 'btn btn-success btn-sm';
-        document.getElementById('dest_ragione_manual').focus();
+        if (doFocus === true) document.getElementById('dest_ragione_manual').focus();
     } else {
         manualBox.classList.remove('manual-active');
         savedBox.classList.add('active');
@@ -4562,10 +4499,10 @@ if (destSelect) {
     }
     destSelect.addEventListener('change', function() {
         updateDestSavedPreview();
-        setDestSource('saved');
+        setDestSource('saved', false);
     });
     destSelect.addEventListener('click', function() {
-        setDestSource('saved');
+        setDestSource('saved', false);
     });
 }
 
@@ -4575,20 +4512,27 @@ if (destSearch) {
 }
 
 document.getElementById('btn_use_saved').addEventListener('click', function() {
-    setDestSource('saved');
+    setDestSource('saved', false);
 });
 
 document.getElementById('btn_use_manual').addEventListener('click', function() {
-    setDestSource('manual');
+    setDestSource('manual', true);
 });
+
+const manualBoxDdt = document.getElementById('box_dest_manual');
+if (manualBoxDdt) {
+    manualBoxDdt.addEventListener('click', function(){ setDestSource('manual', false); });
+    manualBoxDdt.addEventListener('focusin', function(){ setDestSource('manual', false); });
+}
+
 
 ['dest_ragione_manual', 'dest_indirizzo_manual', 'dest_citta_manual'].forEach(function(id) {
     const el = document.getElementById(id);
-    if (el) el.addEventListener('input', function(){ setDestSource('manual'); });
+    if (el) el.addEventListener('input', function(){ setDestSource('manual', false); });
 });
 
 updateDestSavedPreview();
-setDestSource('saved');
+setDestSource('saved', false);
 
 function submitDdt(actionType) {
     const form = document.getElementById('ddt-form');
@@ -4606,7 +4550,7 @@ function submitDdt(actionType) {
         const manualName = (document.getElementById('dest_ragione_manual').value || '').trim();
         if (!manualName) {
             alert("Inserisci almeno la ragione sociale del destinatario occasionale.");
-            document.getElementById('dest_ragione_manual').focus();
+            if (doFocus === true) document.getElementById('dest_ragione_manual').focus();
             return;
         }
     }
