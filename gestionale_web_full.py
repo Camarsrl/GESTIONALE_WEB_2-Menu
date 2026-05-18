@@ -9924,7 +9924,9 @@ try:
     from routes.trasporti import register_trasporti_routes
     register_trasporti_routes(app, globals())
 except Exception as e:
+    scrivi_log_errore("Modulo trasporti non registrato", e)
     print(f"[WARN] modulo trasporti non registrato: {e}")
+
 
 
 # ========================================================
