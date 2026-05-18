@@ -73,9 +73,27 @@ def register_ddt_routes(app_obj, deps):
             dest_citta = ''
 
             if dest_source == 'manual':
-                dest_ragione = (request.form.get('dest_ragione_manual') or '').strip()
-                dest_indirizzo = (request.form.get('dest_indirizzo_manual') or '').strip()
-                dest_citta = (request.form.get('dest_citta_manual') or '').strip()
+                dest_ragione = (
+                    request.form.get('dest_ragione_manual')
+                    or request.form.get('manual_ragione')
+                    or request.form.get('dest_ragione_occasionale')
+                    or request.form.get('ragione_sociale_occasionale')
+                    or ''
+                ).strip()
+                dest_indirizzo = (
+                    request.form.get('dest_indirizzo_manual')
+                    or request.form.get('manual_indirizzo')
+                    or request.form.get('dest_indirizzo_occasionale')
+                    or request.form.get('indirizzo_occasionale')
+                    or ''
+                ).strip()
+                dest_citta = (
+                    request.form.get('dest_citta_manual')
+                    or request.form.get('manual_citta')
+                    or request.form.get('dest_citta_occasionale')
+                    or request.form.get('citta_occasionale')
+                    or ''
+                ).strip()
 
                 if not dest_ragione:
                     flash("Inserisci almeno la ragione sociale del destinatario occasionale.", "danger")
