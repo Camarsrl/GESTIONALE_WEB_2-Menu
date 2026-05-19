@@ -4189,13 +4189,18 @@ BUONO_PREVIEW_HTML = """
             </div>
         </div>
 
+        <div class="alert alert-warning py-2 small">
+            <b>Scarico parziale:</b> se nella cella ci sono più codici/descrizioni, lascia nei campi sotto solo il codice e la descrizione che vuoi mettere nel buono.
+            Quando premi <b>Genera e Salva</b>, quel codice/descrizione verrà tolto dalla riga originale e resterà in giacenza solo il residuo.
+        </div>
+
         <div class="table-responsive">
             <table class="table table-sm table-bordered align-middle table-hover">
                 <thead class="table-dark text-black" style="color:black !important;">
                     <tr>
                         <th style="width:10%">Ordine Orig.</th>
-                        <th style="width:15%">Codice</th>
-                        <th style="width:35%">Descrizione</th>
+                        <th style="width:22%">Codice da mettere nel buono</th>
+                        <th style="width:38%">Descrizione da mettere nel buono</th>
                         <th style="width:10%">Q.tà</th>
                         <th style="width:10%">N.Arr</th>
                     </tr>
@@ -4204,8 +4209,22 @@ BUONO_PREVIEW_HTML = """
                     {% for r in rows %}
                     <tr class="table-light">
                         <td class="small">{{ r.ordine or '' }}</td>
-                        <td class="fw-bold">{{ r.codice_articolo or '' }}</td>
-                        <td class="small">{{ r.descrizione or '' }}</td>
+                        <td>
+                            <textarea name="codice_buono_{{ r.id_articolo }}" rows="2"
+                                      class="form-control form-control-sm fw-bold"
+                                      title="Scrivi qui SOLO il codice articolo da inserire nel buono. Se lo modifichi, quando salvi verrà tolto dalla cella originale.">{{ r.codice_articolo or '' }}</textarea>
+                            <div class="small text-muted mt-1">
+                                Orig.: {{ r.codice_articolo or '' }}
+                            </div>
+                        </td>
+                        <td>
+                            <textarea name="descrizione_buono_{{ r.id_articolo }}" rows="2"
+                                      class="form-control form-control-sm"
+                                      title="Scrivi qui SOLO la descrizione da inserire nel buono. Se la modifichi, quando salvi verrà tolta dalla cella originale.">{{ r.descrizione or '' }}</textarea>
+                            <div class="small text-muted mt-1">
+                                Orig.: {{ r.descrizione or '' }}
+                            </div>
+                        </td>
                         <td>
                             <!-- ✅ Q.tà prende PEZZI -->
                             <input name="q_{{ r.id_articolo }}" type="number"
@@ -8766,56 +8785,10 @@ def _get_rows_from_ids(ids_list):
     db=SessionLocal()
     return db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
 
-@app.post('/buono/preview')
-@login_required
-def buono_preview():
+# Route /buono/preview spostata in routes/buono.py
 
-    if session.get('role') != 'admin':
-        flash('Accesso negato.', 'danger')
-        return redirect(url_for('giacenze'))
-    # Recupera gli ID selezionati
-    ids_str_list = request.form.getlist('ids')
-    ids = [int(i) for i in ids_str_list if i.isdigit()]
-    
-    db = SessionLocal()
-    try:
-        rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-        
-        # --- LOGICA DI AUTO-COMPILAZIONE ---
-        
-        # 1. PROTOCOLLO
-        protocolli_trovati = set()
-        for r in rows:
-            if r.protocollo and str(r.protocollo).strip():
-                protocolli_trovati.add(str(r.protocollo).strip())
-        protocollo_auto = ", ".join(sorted(protocolli_trovati))
-
-        # 2. COMMESSA
-        commessa_auto = next((r.commessa for r in rows if r.commessa), "")
-        
-        # 3. FORNITORE
-        fornitore_auto = next((r.fornitore for r in rows if r.fornitore), "")
-
-        # 4. N. BUONO (ristampa)
-        buono_n_auto = next((r.buono_n for r in rows if r.buono_n), "")
-        
-        # 5. ORDINE (NUOVO!)
-        ordine_auto = next((r.ordine for r in rows if r.ordine), "")
-
-        meta = {
-            "buono_n": buono_n_auto, 
-            "data_em": datetime.today().strftime("%d/%m/%Y"),
-            "commessa": commessa_auto, 
-            "fornitore": fornitore_auto,
-            "protocollo": protocollo_auto,
-            "ordine": ordine_auto, # ✅ CAMPO AGGIUNTO
-        }
-        
-        return render_template('buono_preview.html', rows=rows, meta=meta, ids=",".join(map(str, ids)))
-        
-    finally:
-        db.close()
-
+from datetime import date
+from flask import request
 from datetime import date
 from flask import request, redirect, url_for, flash, jsonify, render_template
 from flask_login import login_required
@@ -9095,13 +9068,14 @@ def _generate_buono_pdf(form_data, rows):
         else:
             q = _to_int_safe(getattr(r, "pezzo", None), default=0)
 
-        desc = str(r.descrizione or '')
+        codice_pdf = (form_data.get(f"codice_buono_{r.id_articolo}") or str(r.codice_articolo or '')).strip()
+        desc = (form_data.get(f"descrizione_buono_{r.id_articolo}") or str(r.descrizione or '')).strip()
         note_user = form_data.get(f"note_{r.id_articolo}")
         if note_user is None:
             note_user = r.note
 
         table_data.append([
-            Paragraph(str(r.codice_articolo or ''), s_norm),
+            Paragraph(codice_pdf, s_norm),
             Paragraph(desc, s_norm),
             str(q),
             Paragraph(str(r.n_arrivo or ''), s_norm)
@@ -9297,55 +9271,10 @@ def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
 
     doc.build(story)
 
-@app.route('/buono/finalize_and_get_pdf', methods=['POST'])
-@login_required
-def buono_finalize_and_get_pdf():
-    db = SessionLocal()
-    try:
-        req_data = request.form
-        ids = [int(i) for i in req_data.get('ids','').split(',') if i.isdigit()]
-        rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-        
-        action = req_data.get('action')
-        
-        # AGGIORNAMENTO DATI (Sia per anteprima che per salvataggio)
-        # È importante salvare le note temporaneamente o definitivamente
-        # Qui le salviamo nel DB se l'azione è 'save'
-        
-        bn = req_data.get('buono_n')
-        
-        for r in rows:
-            # Se stiamo salvando, aggiorna il numero buono
-            if action == 'save' and bn:
-                r.buono_n = bn
-            
-            # SALVA LE NOTE! (Così il DDT le troverà dopo)
-            note_inserite = req_data.get(f"note_{r.id_articolo}")
-            if note_inserite is not None:
-                r.note = note_inserite
+# Route /buono/finalize_and_get_pdf spostata in routes/buono.py
 
-        # Commit delle note (importante per il passaggio al DDT)
-        if action == 'save':
-            db.commit()
-            flash(f"Buono salvato. Note aggiornate.", "info")
-        
-        # Genera PDF
-        pdf_bio = _generate_buono_pdf(req_data, rows)
-        
-        return send_file(
-            pdf_bio, 
-            as_attachment=(action == 'save'), 
-            download_name=f'Buono_{bn}.pdf', 
-            mimetype='application/pdf'
-        )
 
-    except Exception as e:
-        db.rollback()
-        print(f"ERRORE BUONO: {e}") 
-        return f"Errore server: {e}", 500
-    finally:
-        db.close()
-        
+@app.get('/labels')
 
 
 
@@ -10132,6 +10061,17 @@ try:
 except Exception as e:
     print(f"[WARN] modulo email non registrato: {e}")
 
+
+
+# ========================================================
+#  REGISTRAZIONE MODULO BUONO PRELIEVO
+# ========================================================
+try:
+    from routes.buono import register_buono_routes
+    register_buono_routes(app, globals())
+except Exception as e:
+    scrivi_log_errore("Modulo buono prelievo non registrato", e)
+    print(f"[WARN] modulo buono prelievo non registrato: {e}")
 
 # ========================================================
 #  REGISTRAZIONE MODULO DDT
