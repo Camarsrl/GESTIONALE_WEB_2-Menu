@@ -9,8 +9,8 @@ Gestisce:
 
 Uso operativo:
 se in una riga sono presenti più codici/descrizioni, nel preview del buono si lascia
-solo il codice/descrizione da prelevare. Al salvataggio il testo scelto viene tolto
-dalla cella originale e resta in giacenza il residuo.
+solo il codice/descrizione da prelevare. Con lo scarico parziale viene creata una nuova riga con il N. buono indicato,
+mentre la riga originale resta in giacenza senza N. buono.
 """
 
 def register_buono_routes(app_obj, deps):
@@ -113,6 +113,7 @@ def register_buono_routes(app_obj, deps):
 
             action = req_data.get('action')
             bn = (req_data.get('buono_n') or '').strip()
+            scarico_parziale_eseguito = False
 
             for r in rows:
                 codice_scelto = (req_data.get(f"codice_buono_{r.id_articolo}") or str(r.codice_articolo or '')).strip()
@@ -141,6 +142,8 @@ def register_buono_routes(app_obj, deps):
                     desc_parziale = bool(descr_scelta and _norm_for_match(descr_scelta) != _norm_for_match(old_desc))
 
                     if cod_parziale or desc_parziale:
+                        scarico_parziale_eseguito = True
+
                         # Scarico parziale:
                         # la riga originale resta in giacenza SENZA numero buono;
                         # il numero buono va solo sulla nuova riga del materiale prelevato.
@@ -183,7 +186,18 @@ def register_buono_routes(app_obj, deps):
 
             if action == 'save':
                 db.commit()
-                flash("Buono salvato. Nel parziale il N. buono resta solo sulla riga del materiale prelevato; la riga residua rimane senza N. buono.", "success")
+
+                if scarico_parziale_eseguito:
+                    flash(
+                        "Scarico parziale salvato. Il N. buono è stato inserito solo sulle nuove righe prelevate; ora puoi filtrare per N.Buono e creare il buono finale.",
+                        "success"
+                    )
+                    try:
+                        return redirect(url_for('giacenze', buono_n=bn))
+                    except Exception:
+                        return redirect(url_for('giacenze'))
+
+                flash("Buono salvato correttamente.", "success")
 
             pdf_bio = _generate_buono_pdf(req_data, rows)
 
