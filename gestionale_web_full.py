@@ -6324,26 +6324,41 @@ def home():
                 list(dup_arrivi.keys())[:5]
             )
 
-            dup_serial = _duplicates(active_rows, 'serial_number')
+            # Serial Number duplicato:
+            # Per DUFERCO il seriale ripetuto può essere normale, quindi lo escludiamo dall'alert.
+            # Inoltre lo trattiamo come ATTENZIONE e non come errore bloccante.
+            clienti_serial_ok = {'DUFERCO'}
+            serial_rows = [
+                a for a in active_rows
+                if (getattr(a, 'cliente', '') or '').strip().upper() not in clienti_serial_ok
+            ]
+            dup_serial = _duplicates(serial_rows, 'serial_number')
             _add_alert(
-                'danger',
+                'warning',
                 'Serial number duplicato',
                 len(dup_serial),
-                'Ci sono serial number ripetuti tra gli articoli ancora in giacenza.',
+                'Ci sono serial number ripetuti tra gli articoli ancora in giacenza, esclusi i clienti dove è ammesso.',
                 list(dup_serial.keys())[:5]
             )
 
-            # Uscite senza mezzo in uscita
+            # Uscite senza mezzo in uscita:
+            # Il mezzo è obbligatorio solo per i DDT creati da noi dal gestionale.
+            # Consideriamo "nostri" i DDT con formato semplice tipo 399/26.
+            def _is_ddt_gestionale(n):
+                n = (n or '').strip()
+                return bool(re.match(r'^\d{1,5}/\d{2}$', n))
+
             uscite_senza_mezzo = [
                 a for a in rows
                 if (getattr(a, 'data_uscita', None) or '').strip()
+                and _is_ddt_gestionale(getattr(a, 'n_ddt_uscita', ''))
                 and not (getattr(a, 'mezzi_in_uscita', '') or '').strip()
             ]
             _add_alert(
                 'danger',
-                'Uscita senza mezzo',
+                'DDT gestionale senza mezzo',
                 len(uscite_senza_mezzo),
-                'Articoli usciti senza Motrice / Bilico / Furgone compilato.',
+                'DDT creati dal gestionale senza Motrice / Bilico / Furgone compilato.',
                 _short_examples(uscite_senza_mezzo, 'n_ddt_uscita')
             )
 
