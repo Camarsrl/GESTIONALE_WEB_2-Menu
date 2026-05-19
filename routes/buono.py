@@ -9,8 +9,8 @@ Gestisce:
 
 Uso operativo:
 se in una riga sono presenti più codici/descrizioni, nel preview del buono si lascia
-solo il codice/descrizione da prelevare. Con lo scarico parziale viene creata una nuova riga con il N. buono indicato,
-mentre la riga originale resta in giacenza senza N. buono.
+solo il codice/descrizione da prelevare. Con lo scarico parziale viene creata una nuova riga con N. buono, note e pezzi prelevati;
+la riga originale resta in giacenza con il residuo, senza note del buono e senza N. buono.
 """
 
 def register_buono_routes(app_obj, deps):
@@ -28,6 +28,43 @@ def register_buono_routes(app_obj, deps):
 
     def _norm_for_match(value):
         return re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
+
+    def _num_float(value):
+        """Converte numeri italiani/inglesi in float."""
+        try:
+            if value is None:
+                return 0.0
+            s = str(value).strip()
+            if not s:
+                return 0.0
+            if ',' in s:
+                s = s.replace('.', '').replace(',', '.')
+            return float(s)
+        except Exception:
+            return 0.0
+
+    def _fmt_num_clean(value):
+        """Restituisce numero pulito da salvare nel campo pezzo."""
+        try:
+            f = float(value or 0)
+            if abs(f - int(f)) < 0.000001:
+                return str(int(f))
+            return str(round(f, 3)).replace('.', ',')
+        except Exception:
+            return str(value or '')
+
+    def _split_quantita(orig_pezzi, q_scelta, orig_valore):
+        """Ripartisce peso/m2/m3 proporzionalmente ai pezzi."""
+        op = _num_float(orig_pezzi)
+        q = _num_float(q_scelta)
+        val = _num_float(orig_valore)
+        if op <= 0 or q <= 0 or val <= 0:
+            return orig_valore, orig_valore
+        if q > op:
+            q = op
+        scelto = val * (q / op)
+        residuo = max(0.0, val - scelto)
+        return residuo, scelto
 
     def _remove_selected_from_cell(original, selected):
         """Rimuove dalla cella originale il codice/descrizione scelto per il buono.
@@ -119,12 +156,10 @@ def register_buono_routes(app_obj, deps):
                 codice_scelto = (req_data.get(f"codice_buono_{r.id_articolo}") or str(r.codice_articolo or '')).strip()
                 descr_scelta = (req_data.get(f"descrizione_buono_{r.id_articolo}") or str(r.descrizione or '')).strip()
 
-                # Il N. buono NON va scritto subito sulla riga originale.
-                # Se è scarico parziale, il N. buono deve andare solo sulla nuova riga creata per il materiale prelevato.
-                # Se invece non è parziale, verrà scritto sulla riga originale più sotto.
+                # Le note del buono NON devono essere copiate subito sulla riga originale.
+                # Nel parziale vanno solo sulla nuova riga creata; la riga residua mantiene le sue note originali.
                 note_inserite = req_data.get(f"note_{r.id_articolo}")
-                if note_inserite is not None:
-                    r.note = note_inserite
+                note_originale = r.note
 
                 # Scarico parziale testuale:
                 # se nel buono hai lasciato solo un codice/descrizione specifica,
@@ -137,6 +172,13 @@ def register_buono_routes(app_obj, deps):
                 if action == 'save':
                     old_cod = (r.codice_articolo or '').strip()
                     old_desc = (r.descrizione or '').strip()
+
+                    q_scelta = req_data.get(f"q_{r.id_articolo}")
+                    pezzi_originali = _num_float(getattr(r, 'pezzo', None))
+                    pezzi_scelti = _num_float(q_scelta) if q_scelta is not None else pezzi_originali
+                    if pezzi_originali > 0 and (pezzi_scelti <= 0 or pezzi_scelti > pezzi_originali):
+                        pezzi_scelti = pezzi_originali
+                    pezzi_residui = max(0.0, pezzi_originali - pezzi_scelti) if pezzi_originali > 0 else 0.0
 
                     cod_parziale = bool(codice_scelto and _norm_for_match(codice_scelto) != _norm_for_match(old_cod))
                     desc_parziale = bool(descr_scelta and _norm_for_match(descr_scelta) != _norm_for_match(old_desc))
@@ -159,12 +201,26 @@ def register_buono_routes(app_obj, deps):
                         riga_buono.codice_articolo = codice_scelto or old_cod
                         riga_buono.descrizione = descr_scelta or old_desc
                         riga_buono.buono_n = bn or r.buono_n
+
+                        # I pezzi scaricati vanno sulla nuova riga; sulla riga originale resta il residuo.
+                        if pezzi_originali > 0:
+                            riga_buono.pezzo = _fmt_num_clean(pezzi_scelti)
+                            r.pezzo = _fmt_num_clean(pezzi_residui)
+
+                            for campo in ('peso', 'm2', 'm3'):
+                                residuo_val, scelto_val = _split_quantita(pezzi_originali, pezzi_scelti, getattr(r, campo, None))
+                                try:
+                                    setattr(riga_buono, campo, scelto_val)
+                                    setattr(r, campo, residuo_val)
+                                except Exception:
+                                    pass
+
                         riga_buono.data_uscita = getattr(r, 'data_uscita', '') or ''
                         riga_buono.n_ddt_uscita = getattr(r, 'n_ddt_uscita', '') or ''
-                        riga_buono.note = (
-                            (getattr(riga_buono, 'note', '') or '').strip()
-                            + f" | RIGA CREATA DA BUONO PARZIALE da ID {r.id_articolo}"
-                        ).strip(" |")
+
+                        # Le note scritte nel buono vanno solo sulla nuova riga.
+                        # Non aggiungo testi automatici tipo "scarico parziale".
+                        riga_buono.note = (note_inserite or '').strip()
 
                         db.add(riga_buono)
 
@@ -175,21 +231,23 @@ def register_buono_routes(app_obj, deps):
                         if desc_parziale:
                             r.descrizione = _remove_selected_from_cell(old_desc, descr_scelta)
 
-                        r.note = (
-                            (r.note or '').strip()
-                            + f" | RESIDUO dopo buono parziale {bn or ''}: tolto codice/descrizione inserito nel buono"
-                        ).strip(" |")
+                        # La riga residua mantiene le note originali.
+                        r.note = note_originale
                     else:
-                        # Scarico normale/non parziale: qui il N. buono resta sulla riga selezionata.
+                        # Buono normale/non parziale: qui il N. buono e le note restano sulla riga selezionata.
                         if bn:
                             r.buono_n = bn
+                        if note_inserite is not None:
+                            r.note = note_inserite
+                        if q_scelta is not None and _num_float(q_scelta) > 0:
+                            r.pezzo = _fmt_num_clean(_num_float(q_scelta))
 
             if action == 'save':
                 db.commit()
 
                 if scarico_parziale_eseguito:
                     flash(
-                        "Scarico parziale salvato. Il N. buono è stato inserito solo sulle nuove righe prelevate; ora puoi filtrare per N.Buono e creare il buono finale.",
+                        "Scarico parziale salvato. Pezzi, note e N. buono sono stati inseriti solo sulla nuova riga prelevata; la riga residua resta pulita.",
                         "success"
                     )
                     try:
