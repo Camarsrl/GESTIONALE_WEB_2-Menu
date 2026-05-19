@@ -118,9 +118,9 @@ def register_buono_routes(app_obj, deps):
                 codice_scelto = (req_data.get(f"codice_buono_{r.id_articolo}") or str(r.codice_articolo or '')).strip()
                 descr_scelta = (req_data.get(f"descrizione_buono_{r.id_articolo}") or str(r.descrizione or '')).strip()
 
-                if action == 'save' and bn:
-                    r.buono_n = bn
-
+                # Il N. buono NON va scritto subito sulla riga originale.
+                # Se è scarico parziale, il N. buono deve andare solo sulla nuova riga creata per il materiale prelevato.
+                # Se invece non è parziale, verrà scritto sulla riga originale più sotto.
                 note_inserite = req_data.get(f"note_{r.id_articolo}")
                 if note_inserite is not None:
                     r.note = note_inserite
@@ -141,6 +141,11 @@ def register_buono_routes(app_obj, deps):
                     desc_parziale = bool(descr_scelta and _norm_for_match(descr_scelta) != _norm_for_match(old_desc))
 
                     if cod_parziale or desc_parziale:
+                        # Scarico parziale:
+                        # la riga originale resta in giacenza SENZA numero buono;
+                        # il numero buono va solo sulla nuova riga del materiale prelevato.
+                        r.buono_n = ""
+
                         # Prima creo la riga "materiale del buono", così non si perde nulla.
                         riga_buono = Articolo()
                         for col in Articolo.__table__.columns:
@@ -171,10 +176,14 @@ def register_buono_routes(app_obj, deps):
                             (r.note or '').strip()
                             + f" | RESIDUO dopo buono parziale {bn or ''}: tolto codice/descrizione inserito nel buono"
                         ).strip(" |")
+                    else:
+                        # Scarico normale/non parziale: qui il N. buono resta sulla riga selezionata.
+                        if bn:
+                            r.buono_n = bn
 
             if action == 'save':
                 db.commit()
-                flash("Buono salvato. Il materiale scelto resta in una nuova riga con il N. buono; la riga originale mantiene il residuo.", "success")
+                flash("Buono salvato. Nel parziale il N. buono resta solo sulla riga del materiale prelevato; la riga residua rimane senza N. buono.", "success")
 
             pdf_bio = _generate_buono_pdf(req_data, rows)
 
