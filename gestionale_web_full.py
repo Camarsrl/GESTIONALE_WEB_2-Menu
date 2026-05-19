@@ -2853,6 +2853,31 @@ HOME_HTML = """
     vertical-align:middle;
     font-size:13px;
 }
+
+.home-alert-card{
+    border:0;
+    border-radius:16px;
+    box-shadow:0 4px 14px rgba(0,0,0,.07);
+}
+.home-alert-item{
+    border-left:5px solid #ffc107;
+    background:#fff8e1;
+    border-radius:10px;
+    padding:10px 12px;
+    margin-bottom:8px;
+}
+.home-alert-item.danger{
+    border-left-color:#dc3545;
+    background:#fff1f1;
+}
+.home-alert-item.warning{
+    border-left-color:#ffc107;
+    background:#fff8e1;
+}
+.home-alert-item.info{
+    border-left-color:#0d6efd;
+    background:#eef5ff;
+}
 </style>
 
 <div class="container-fluid py-3">
@@ -2948,6 +2973,31 @@ HOME_HTML = """
             </div>
         </div>
     </div>
+
+    {% if dashboard_alerts %}
+    <div class="card home-alert-card p-3 mb-3">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <h5 class="m-0"><i class="bi bi-bell-fill text-warning"></i> Alert automatici</h5>
+            <span class="badge bg-warning text-dark">{{ dashboard_alerts|length }} segnalazioni</span>
+        </div>
+        <div class="row g-2">
+            {% for alert in dashboard_alerts %}
+            <div class="col-lg-6 col-xxl-4">
+                <div class="home-alert-item {{ alert.level }}">
+                    <div class="d-flex justify-content-between gap-2">
+                        <strong>{{ alert.title }}</strong>
+                        <span class="badge {% if alert.level == 'danger' %}bg-danger{% elif alert.level == 'warning' %}bg-warning text-dark{% else %}bg-primary{% endif %}">{{ alert.count }}</span>
+                    </div>
+                    <div class="small text-muted mt-1">{{ alert.message }}</div>
+                    {% if alert.examples %}
+                    <div class="small mt-1"><strong>Esempi:</strong> {{ alert.examples|join(', ') }}</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
 
     <div class="row g-3">
         <div class="col-xl-3">
@@ -6120,7 +6170,7 @@ def home():
             today_iso = today_obj.strftime('%Y-%m-%d')
             cliente_corrente = current_cliente()
 
-            q_base = db.query(Articolo)
+            q_base = db.query(Articolo).options(selectinload(Articolo.attachments))
             if cliente_corrente:
                 q_base = q_base.filter(func.upper(Articolo.cliente) == cliente_corrente.upper())
 
@@ -6190,9 +6240,138 @@ def home():
 
             ultimi_movimenti = sorted(movimenti, key=lambda x: x.get('data_sort') or date.min, reverse=True)[:10]
 
+            # ========================================================
+            # ALERT AUTOMATICI HOME
+            # ========================================================
+            dashboard_alerts = []
+
+            def _short_examples(items, attr, max_items=5):
+                out = []
+                for item in items:
+                    val = (getattr(item, attr, '') or '').strip()
+                    if val and val not in out:
+                        out.append(val)
+                    if len(out) >= max_items:
+                        break
+                return out
+
+            def _add_alert(level, title, count, message, examples=None):
+                try:
+                    count = int(count or 0)
+                except Exception:
+                    count = 0
+                if count > 0:
+                    dashboard_alerts.append({
+                        'level': level,
+                        'title': title,
+                        'count': count,
+                        'message': message,
+                        'examples': examples or []
+                    })
+
+            # QR / codice entrata mancante su articoli ancora in giacenza
+            missing_qr = [a for a in active_rows if not (getattr(a, 'codice_entrata', '') or '').strip()]
+            _add_alert(
+                'danger',
+                'QR / codice entrata mancante',
+                len(missing_qr),
+                'Articoli in giacenza senza codice entrata collegato.',
+                _short_examples(missing_qr, 'n_arrivo')
+            )
+
+            # Articoli senza documento PDF/foto allegata
+            senza_foto = []
+            senza_pdf = []
+            for a in active_rows:
+                atts = getattr(a, 'attachments', []) or []
+                has_photo = any((getattr(x, 'kind', '') or '') == 'photo' for x in atts)
+                has_doc = any((getattr(x, 'kind', '') or '') == 'doc' for x in atts)
+                if not has_photo:
+                    senza_foto.append(a)
+                if not has_doc:
+                    senza_pdf.append(a)
+
+            _add_alert(
+                'warning',
+                'Foto mancante',
+                len(senza_foto),
+                'Articoli in giacenza senza foto arrivo.',
+                _short_examples(senza_foto, 'n_arrivo')
+            )
+            _add_alert(
+                'warning',
+                'Documento PDF mancante',
+                len(senza_pdf),
+                'Articoli in giacenza senza documento arrivo PDF.',
+                _short_examples(senza_pdf, 'n_arrivo')
+            )
+
+            # Duplicati su N. Arrivo e Serial Number tra articoli in giacenza
+            def _duplicates(rows_to_check, attr):
+                groups = defaultdict(list)
+                for a in rows_to_check:
+                    val = (getattr(a, attr, '') or '').strip().upper()
+                    if val:
+                        groups[val].append(a)
+                return {k: v for k, v in groups.items() if len(v) > 1}
+
+            dup_arrivi = _duplicates(active_rows, 'n_arrivo')
+            _add_alert(
+                'warning',
+                'N. arrivo duplicato',
+                len(dup_arrivi),
+                'Ci sono numeri arrivo ripetuti tra gli articoli ancora in giacenza.',
+                list(dup_arrivi.keys())[:5]
+            )
+
+            dup_serial = _duplicates(active_rows, 'serial_number')
+            _add_alert(
+                'danger',
+                'Serial number duplicato',
+                len(dup_serial),
+                'Ci sono serial number ripetuti tra gli articoli ancora in giacenza.',
+                list(dup_serial.keys())[:5]
+            )
+
+            # Uscite senza mezzo in uscita
+            uscite_senza_mezzo = [
+                a for a in rows
+                if (getattr(a, 'data_uscita', None) or '').strip()
+                and not (getattr(a, 'mezzi_in_uscita', '') or '').strip()
+            ]
+            _add_alert(
+                'danger',
+                'Uscita senza mezzo',
+                len(uscite_senza_mezzo),
+                'Articoli usciti senza Motrice / Bilico / Furgone compilato.',
+                _short_examples(uscite_senza_mezzo, 'n_ddt_uscita')
+            )
+
+            # Merce ferma da oltre 90 giorni
+            vecchie = []
+            for a in active_rows:
+                d_in = to_date_db(getattr(a, 'data_ingresso', None))
+                if d_in and (today_obj - d_in).days >= 90:
+                    vecchie.append(a)
+            _add_alert(
+                'info',
+                'Giacenze oltre 90 giorni',
+                len(vecchie),
+                'Articoli ancora in giacenza da almeno 90 giorni.',
+                _short_examples(vecchie, 'n_arrivo')
+            )
+
+            # Mostra prima gli alert più importanti
+            level_order = {'danger': 0, 'warning': 1, 'info': 2}
+            dashboard_alerts = sorted(
+                dashboard_alerts,
+                key=lambda x: (level_order.get(x.get('level'), 9), -int(x.get('count') or 0))
+            )
+
             return render_template(
                 'home.html',
                 dashboard=dashboard,
+                dashboard_alerts=dashboard_alerts,
                 ultimi_movimenti=ultimi_movimenti,
                 today=today_obj,
                 tot_articoli=dashboard['tot_giacenza'],
