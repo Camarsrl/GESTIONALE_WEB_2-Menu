@@ -3689,6 +3689,7 @@ GIACENZE_HTML = """
                     <td class="text-center">
                         {% if session.get('role') == 'admin' %}
                         <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" class="btn btn-outline-primary btn-sm py-0 px-1" title="Modifica">✏️</a>
+                        <a href="{{ url_for('allegati_articolo', id_articolo=r.id_articolo) }}" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Documenti e Foto">📎</a>
                         {% if not r.data_uscita and not r.n_ddt_uscita %}
                         <a href="{{ url_for('scarico_parziale', id_articolo=r.id_articolo) }}" class="btn btn-warning btn-sm py-0 px-1 fw-bold text-nowrap" title="Scarico parziale pezzi">📤 Scarico</a>
                         {% endif %}
@@ -3919,22 +3920,34 @@ EDIT_HTML = """
         <h5 class="m-0"><i class="bi bi-paperclip"></i> Allegati Salvati</h5>
         
         <form action="{{ url_for('upload_file', id_articolo=row.id_articolo) }}" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
-            <input type="file" name="file" class="form-control" multiple required>
-            <button type="submit" class="btn btn-success fw-bold"><i class="bi bi-cloud-upload"></i> Aggiungi File</button>
+            <input type="file" name="file" class="form-control" multiple required
+                   accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                   capture="environment">
+            <button type="submit" class="btn btn-success fw-bold">
+                <i class="bi bi-camera"></i> Scatta / Carica File
+            </button>
         </form>
     </div>
-    <div class="small text-muted mb-3">Puoi caricare foto e PDF aggiuntivi selezionandoli insieme (tieni premuto CTRL).</div>
+    <div class="small text-muted mb-3">Da smartphone puoi scattare una foto direttamente oppure allegare PDF/documenti. Puoi caricare anche più file insieme.</div>
     <hr>
     
     <div class="row g-3">
         {% for att in row.attachments %}
         <div class="col-md-2 col-6">
             <div class="card h-100 text-center p-2 border bg-light position-relative shadow-sm">
-                <div class="mb-2 text-primary" style="font-size:2.5em;">
+                <div class="mb-2">
                     {% if att.kind == 'photo' %}
-                    <i class="bi bi-file-earmark-image"></i>
+                    <a href="{{ url_for('serve_uploaded_file', filename=att.filename) }}" target="_blank">
+                        <img src="{{ url_for('serve_uploaded_file', filename=att.filename) }}"
+                             class="img-fluid rounded border"
+                             style="height:95px; object-fit:cover; width:100%; background:#fff;">
+                    </a>
                     {% else %}
-                    <i class="bi bi-file-earmark-pdf text-danger"></i>
+                    <a href="{{ url_for('serve_uploaded_file', filename=att.filename) }}" target="_blank"
+                       class="d-flex align-items-center justify-content-center border rounded bg-white text-danger text-decoration-none"
+                       style="height:95px; font-size:2.4em;">
+                        <i class="bi bi-file-earmark-pdf"></i>
+                    </a>
                     {% endif %}
                 </div>
                 <div class="text-truncate small fw-bold mb-2 text-dark" title="{{ att.filename }}">
@@ -7674,6 +7687,111 @@ def export_client():
 
 
 # --- FUNZIONE UPLOAD FILE MULTIPLI (CORRETTA PER EDIT_RECORD) ---
+
+# ========================================================
+#  VISUALIZZAZIONE ALLEGATI ARTICOLO - DOCUMENTI/FOTO
+# ========================================================
+ALLEGATI_ARTICOLO_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div>
+            <h3 class="mb-1">📎 Documenti e foto articolo #{{ art.id_articolo }}</h3>
+            <div class="text-muted small">
+                {{ art.cliente or '' }} · {{ art.codice_articolo or '' }} · {{ art.descrizione or '' }}
+            </div>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('edit_record', id_articolo=art.id_articolo) }}" class="btn btn-primary btn-sm">Modifica articolo</a>
+            <a href="{{ url_for('giacenze') }}" class="btn btn-secondary btn-sm">Torna a Giacenze</a>
+        </div>
+    </div>
+
+    {% if session.get('role') == 'admin' %}
+    <div class="card shadow-sm mb-3">
+        <div class="card-body">
+            <form action="{{ url_for('upload_file', id_articolo=art.id_articolo) }}" method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
+                <div class="col-md-9">
+                    <label class="form-label fw-bold">Scatta foto o allega documenti</label>
+                    <input type="file" name="file" class="form-control" multiple required
+                           accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                           capture="environment">
+                    <div class="form-text">Da smartphone puoi aprire direttamente la fotocamera. Sono supportati foto, PDF e documenti.</div>
+                </div>
+                <div class="col-md-3 d-grid">
+                    <button type="submit" class="btn btn-success fw-bold">📷 Carica / Scatta</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="row g-3">
+        {% for att in art.attachments %}
+        <div class="col-6 col-md-3 col-lg-2">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body text-center p-2">
+                    {% if att.kind == 'photo' %}
+                    <a href="{{ url_for('serve_uploaded_file', filename=att.filename) }}" target="_blank">
+                        <img src="{{ url_for('serve_uploaded_file', filename=att.filename) }}"
+                             class="img-fluid rounded border"
+                             style="height:150px; width:100%; object-fit:cover;">
+                    </a>
+                    {% else %}
+                    <a href="{{ url_for('serve_uploaded_file', filename=att.filename) }}" target="_blank"
+                       class="d-flex align-items-center justify-content-center rounded border text-danger text-decoration-none bg-light"
+                       style="height:150px; font-size:3rem;">
+                        📄
+                    </a>
+                    {% endif %}
+                    <div class="small fw-bold text-truncate mt-2" title="{{ att.filename }}">
+                        {{ att.filename.split('_', 2)[-1] }}
+                    </div>
+                    <div class="btn-group btn-group-sm w-100 mt-2">
+                        <a href="{{ url_for('serve_uploaded_file', filename=att.filename) }}" target="_blank" class="btn btn-outline-primary">Apri</a>
+                        {% if session.get('role') == 'admin' %}
+                        <a href="{{ url_for('delete_attachment', id_attachment=att.id) }}" class="btn btn-outline-danger" onclick="return confirm('Eliminare allegato?')">Elimina</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="col-12">
+            <div class="alert alert-info">Nessun documento o foto allegato a questo articolo.</div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+"""
+
+@app.route('/articolo/<int:id_articolo>/allegati', methods=['GET'])
+@login_required
+def allegati_articolo(id_articolo):
+    db = SessionLocal()
+    try:
+        art = (
+            db.query(Articolo)
+            .options(selectinload(Articolo.attachments))
+            .filter(Articolo.id_articolo == id_articolo)
+            .first()
+        )
+        if not art:
+            flash("Articolo non trovato.", "danger")
+            return redirect(url_for('giacenze'))
+
+        cliente_corrente = current_cliente()
+        if cliente_corrente and normalize_text_key(art.cliente) != normalize_text_key(cliente_corrente):
+            flash("Accesso non consentito a questo articolo.", "danger")
+            return redirect(url_for('giacenze'))
+
+        return render_template_string(ALLEGATI_ARTICOLO_HTML, art=art)
+    finally:
+        db.close()
+
+
 @app.route('/upload/<int:id_articolo>', methods=['POST'])
 @login_required
 def upload_file(id_articolo):
