@@ -127,20 +127,54 @@ def register_buono_routes(app_obj, deps):
 
                 # Scarico parziale testuale:
                 # se nel buono hai lasciato solo un codice/descrizione specifica,
-                # quello viene tolto dalla cella originale.
+                # NON deve sparire il materiale scelto.
+                #
+                # Logica corretta:
+                # 1) la riga originale resta in giacenza con il residuo;
+                # 2) viene creata una nuova riga per il materiale messo nel buono;
+                # 3) la nuova riga mantiene il codice/descrizione del buono e il N. buono.
                 if action == 'save':
                     old_cod = (r.codice_articolo or '').strip()
                     old_desc = (r.descrizione or '').strip()
 
-                    if codice_scelto and _norm_for_match(codice_scelto) != _norm_for_match(old_cod):
-                        r.codice_articolo = _remove_selected_from_cell(old_cod, codice_scelto)
+                    cod_parziale = bool(codice_scelto and _norm_for_match(codice_scelto) != _norm_for_match(old_cod))
+                    desc_parziale = bool(descr_scelta and _norm_for_match(descr_scelta) != _norm_for_match(old_desc))
 
-                    if descr_scelta and _norm_for_match(descr_scelta) != _norm_for_match(old_desc):
-                        r.descrizione = _remove_selected_from_cell(old_desc, descr_scelta)
+                    if cod_parziale or desc_parziale:
+                        # Prima creo la riga "materiale del buono", così non si perde nulla.
+                        riga_buono = Articolo()
+                        for col in Articolo.__table__.columns:
+                            if col.name == 'id_articolo':
+                                continue
+                            setattr(riga_buono, col.name, getattr(r, col.name))
+
+                        riga_buono.codice_articolo = codice_scelto or old_cod
+                        riga_buono.descrizione = descr_scelta or old_desc
+                        riga_buono.buono_n = bn or r.buono_n
+                        riga_buono.data_uscita = getattr(r, 'data_uscita', '') or ''
+                        riga_buono.n_ddt_uscita = getattr(r, 'n_ddt_uscita', '') or ''
+                        riga_buono.note = (
+                            (getattr(riga_buono, 'note', '') or '').strip()
+                            + f" | RIGA CREATA DA BUONO PARZIALE da ID {r.id_articolo}"
+                        ).strip(" |")
+
+                        db.add(riga_buono)
+
+                        # Poi aggiorno la riga originale lasciando solo il residuo.
+                        if cod_parziale:
+                            r.codice_articolo = _remove_selected_from_cell(old_cod, codice_scelto)
+
+                        if desc_parziale:
+                            r.descrizione = _remove_selected_from_cell(old_desc, descr_scelta)
+
+                        r.note = (
+                            (r.note or '').strip()
+                            + f" | RESIDUO dopo buono parziale {bn or ''}: tolto codice/descrizione inserito nel buono"
+                        ).strip(" |")
 
             if action == 'save':
                 db.commit()
-                flash("Buono salvato. Se hai indicato un codice/descrizione parziale, è stato tolto dalla riga originale.", "success")
+                flash("Buono salvato. Il materiale scelto resta in una nuova riga con il N. buono; la riga originale mantiene il residuo.", "success")
 
             pdf_bio = _generate_buono_pdf(req_data, rows)
 
