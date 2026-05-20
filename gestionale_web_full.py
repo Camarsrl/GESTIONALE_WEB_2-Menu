@@ -1771,17 +1771,37 @@ def current_cliente():
     return None
 
 def get_users():
-    """Legge utenti dal file txt o usa i default."""
+    """Legge utenti dal file storico/default + utenti creati dal pannello admin."""
+    users = dict(DEFAULT_USERS)
+
     try:
         fp = APP_DIR / "password Utenti Gestionale.txt"
         if fp.exists():
             content = fp.read_text(encoding="utf-8", errors="ignore")
             pairs = re.findall(r"'([^']+)'\s*[:=]\s*'?([^']+)'?", content)
             if pairs:
-                return {k.strip().upper(): v.strip().replace("'", "") for k, v in pairs}
+                users.update({k.strip().upper(): v.strip().replace("'", "") for k, v in pairs})
     except Exception as e:
         print(f"Errore lettura file utenti: {e}")
-    return DEFAULT_USERS
+
+    try:
+        managed_file = MEDIA_DIR / "utenti_gestionale.json"
+        if managed_file.exists():
+            data = json.loads(managed_file.read_text(encoding="utf-8", errors="ignore"))
+            if isinstance(data, dict):
+                for username, rec in data.items():
+                    u = (username or "").strip().upper()
+                    if not u:
+                        continue
+                    if isinstance(rec, dict):
+                        if rec.get("active", True):
+                            users[u] = rec.get("password", "")
+                    else:
+                        users[u] = str(rec or "")
+    except Exception as e:
+        print(f"Errore lettura utenti_gestionale.json: {e}")
+
+    return users
 
 # ORA possiamo chiamarla, perché è stata definita sopra
 USERS_DB = get_users()
@@ -1856,14 +1876,29 @@ class User(UserMixin):
 
 @login_manager.user_loader
 def load_user(user_id):
-    users_db = get_users() 
+    user_id = (user_id or '').strip().upper()
+    users_db = get_users()
     if user_id in users_db:
-        if user_id in ADMIN_USERS:
-            role = 'admin'
-        elif user_id in WAREHOUSE_USERS:
-            role = 'magazzino'
-        else:
-            role = 'client'
+        role = None
+        try:
+            managed_file = MEDIA_DIR / "utenti_gestionale.json"
+            if managed_file.exists():
+                data = json.loads(managed_file.read_text(encoding="utf-8", errors="ignore"))
+                rec = data.get(user_id)
+                if isinstance(rec, dict):
+                    if not rec.get("active", True):
+                        return None
+                    role = rec.get("role")
+        except Exception:
+            role = None
+
+        if role not in ('admin', 'magazzino', 'client'):
+            if user_id in ADMIN_USERS:
+                role = 'admin'
+            elif user_id in WAREHOUSE_USERS:
+                role = 'magazzino'
+            else:
+                role = 'client'
         return User(user_id, role)
     return None
 
@@ -10091,6 +10126,17 @@ register_buoni_qr_routes(app, globals())
 
 
 # --- AVVIO FLASK APP ---
+
+# ========================================================
+#  REGISTRAZIONE MODULO GESTIONE UTENTI
+# ========================================================
+try:
+    from routes.utenti import register_utenti_routes
+    register_utenti_routes(app, globals())
+    print("[OK] modulo gestione utenti registrato")
+except Exception as e:
+    print(f"[WARN] modulo gestione utenti non caricato: {e}")
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     print(f"✅ Avvio Gestionale Camar Web Edition su http://127.0.0.1:{port}")
