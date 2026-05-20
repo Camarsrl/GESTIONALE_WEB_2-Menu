@@ -3215,7 +3215,7 @@ DETTAGLIO_ENTRATA_HTML = """
 {% endblock %}
 """
 
-# IMPORT_PDF_HTML spostato in routes/import_pdf.py
+# Template Import PDF spostato in templates/import_pdf.html
 
 
     
