@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div>
+            <h3 class="mb-1">👥 Gestione Utenti</h3>
+            <div class="text-muted small">Aggiungi nuovi clienti/utenti e aggiorna le password in modo sicuro.</div>
+        </div>
+        <a href="{{ url_for('home') }}" class="btn btn-secondary btn-sm">Torna alla Home</a>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header fw-bold">➕ Nuovo utente / cliente</div>
+                <div class="card-body">
+                    <form method="post">
+                        <input type="hidden" name="action" value="add_user">
+                        <div class="mb-3">
+                            <label class="form-label">Nome utente / Cliente</label>
+                            <input name="username" class="form-control" placeholder="es. NUOVO CLIENTE" required>
+                            <div class="form-text">Per i clienti usa lo stesso nome che userai nelle giacenze.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Ruolo</label>
+                            <select name="role" class="form-select">
+                                <option value="client">Cliente</option>
+                                <option value="magazzino">Magazzino</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Password</label>
+                            <input name="password" type="password" class="form-control" required autocomplete="new-password">
+                        </div>
+                        <button class="btn btn-success w-100 fw-bold">Crea / Aggiorna utente</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header fw-bold">Utenti esistenti</div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped align-middle mb-0">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Utente</th><th>Ruolo</th><th>Origine</th><th>Stato</th>
+                                    <th style="width:280px;">Cambia password</th>
+                                    <th style="width:210px;">Ruolo/Stato</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for u in users %}
+                                <tr>
+                                    <td class="fw-bold">{{ u.username }}</td>
+                                    <td>{{ role_labels.get(u.role, u.role) }}</td>
+                                    <td>{% if u.source == 'base' %}<span class="badge bg-secondary">Base</span>{% else %}<span class="badge bg-primary">Gestione</span>{% endif %}</td>
+                                    <td>{% if u.active %}<span class="badge bg-success">Attivo</span>{% else %}<span class="badge bg-danger">Disattivato</span>{% endif %}</td>
+                                    <td>
+                                        <form method="post" class="d-flex gap-1">
+                                            <input type="hidden" name="action" value="change_password">
+                                            <input type="hidden" name="username" value="{{ u.username }}">
+                                            <input name="password" type="password" class="form-control form-control-sm" placeholder="Nuova password" autocomplete="new-password" required>
+                                            <button class="btn btn-outline-primary btn-sm">Salva</button>
+                                        </form>
+                                    </td>
+                                    <td>
+                                        <form method="post" class="d-flex gap-1 align-items-center">
+                                            <input type="hidden" name="action" value="update_role">
+                                            <input type="hidden" name="username" value="{{ u.username }}">
+                                            <select name="role" class="form-select form-select-sm">
+                                                <option value="client" {% if u.role == 'client' %}selected{% endif %}>Cliente</option>
+                                                <option value="magazzino" {% if u.role == 'magazzino' %}selected{% endif %}>Magazzino</option>
+                                                <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Admin</option>
+                                            </select>
+                                            <select name="active" class="form-select form-select-sm">
+                                                <option value="1" {% if u.active %}selected{% endif %}>Attivo</option>
+                                                <option value="0" {% if not u.active %}selected{% endif %}>No</option>
+                                            </select>
+                                            <button class="btn btn-outline-secondary btn-sm">OK</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="6" class="text-center text-muted py-4">Nessun utente trovato.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="alert alert-info mt-3 mb-0">
+                Le nuove password vengono salvate criptate nel file persistente <b>utenti_gestionale.json</b>.
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
