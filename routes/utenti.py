@@ -4,7 +4,6 @@ Modulo Gestione Utenti.
 Permette agli admin di aggiungere utenti/clienti, cambiare password e gestire ruoli.
 """
 
-
 def register_utenti_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
@@ -142,7 +141,4 @@ def register_utenti_routes(app_obj, deps):
                 return redirect(url_for("admin_utenti"))
 
         users = sorted(_merged_users().values(), key=lambda r: (r.get("role", ""), r.get("username", "")))
-        try:
-            return render_template("utenti.html", users=users, role_labels=ROLE_LABELS)
-        except Exception:
-            return render_template_string(UTENTI_HTML, users=users, role_labels=ROLE_LABELS)
+        return render_template("utenti.html", users=users, role_labels=ROLE_LABELS)
