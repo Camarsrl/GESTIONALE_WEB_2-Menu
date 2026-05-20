@@ -2659,6 +2659,13 @@ a.btn {
             </ul>
         </div>
     </div>
+
+{% if session.get('role') == 'admin' %}
+<a href="{{ url_for('admin_utenti') }}" class="btn btn-warning btn-sm">
+    👥 UTENTI
+</a>
+{% endif %}
+
 </nav>
 
 <main class="container-fluid my-4">
