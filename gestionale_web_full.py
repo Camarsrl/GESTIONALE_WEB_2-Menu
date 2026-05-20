@@ -57,7 +57,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, PageBreak
 
 # Jinja
-from jinja2 import DictLoader
+from jinja2 import DictLoader, ChoiceLoader, FileSystemLoader
 # ========================================================
 # 1. INIZIALIZZAZIONE APP E LOGIN MANAGER (ORDINE CORRETTO)
 # ========================================================
