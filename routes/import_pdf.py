@@ -10,152 +10,6 @@ Sono state spostate qui le funzioni principali collegate a:
 Il file principale resta più leggero e le route mantengono gli stessi endpoint.
 """
 
-IMPORT_PDF_HTML = """
-{% extends 'base.html' %}
-{% block content %}
-<div class="card p-4">
-    <h3><i class="bi bi-file-earmark-pdf"></i> Importa Articoli da PDF (DDT/Bolla)</h3>
-    
-    {% if not rows %}
-    <div class="alert alert-info">
-        Carica un DDT in formato PDF digitale o scansione. Il sistema tenterà di leggere codici e quantità.<br>
-        <b>Nota:</b> per Fincantieri/VARD il codice articolo viene composto da Numero Package + Marca pezzo.
-    </div>
-    <form method="post" enctype="multipart/form-data" class="mt-4">
-        <div class="mb-3">
-            <label class="form-label">Seleziona File PDF</label>
-            <input type="file" name="file" class="form-control" accept=".pdf" required>
-        </div>
-        <button type="submit" class="btn btn-primary">Analizza PDF</button>
-        <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
-    </form>
-    {% endif %}
-
-    {% if rows %}
-    <form action="{{ url_for('save_pdf_import') }}" method="post">
-        <div class="row g-3 mb-3 bg-light p-3 rounded border">
-            <h5 class="mb-3">Dati Testata (Rilevati o da compilare)</h5>
-            <div class="col-md-3">
-                <label>Cliente</label>
-                <input name="cliente" class="form-control" list="clientiUtentiListImport" value="{{ meta.cliente or '' }}" required>
-                <datalist id="clientiUtentiListImport">
-                    {% for c in clienti_validi %}<option value="{{ c }}">{% endfor %}
-                </datalist>
-            </div>
-            <div class="col-md-3">
-                <label>Fornitore</label>
-                <input name="fornitore" class="form-control" value="{{ meta.fornitore or '' }}">
-            </div>
-            <div class="col-md-2">
-                <label>Commessa</label>
-                <input name="commessa" class="form-control" value="{{ meta.commessa or '' }}">
-            </div>
-            <div class="col-md-2">
-                <label>N. DDT</label>
-                <input name="n_ddt" class="form-control" value="{{ meta.n_ddt or '' }}">
-            </div>
-            <div class="col-md-2">
-                <label>Data Ingresso</label>
-                <input type="date" name="data_ingresso" class="form-control" value="{{ meta.data_ingresso or '' }}">
-            </div>
-            <div class="col-md-2">
-                <label>N. Arrivo</label>
-                <input name="n_arrivo" class="form-control" value="{{ meta.n_arrivo or '' }}" placeholder="es. 83/26">
-            </div>
-            <div class="col-md-2">
-                <label>Magazzino</label>
-                <input name="magazzino" class="form-control" value="{{ meta.magazzino or 'STRUPPA' }}">
-            </div>
-            <div class="col-md-2">
-                <label>Stato</label>
-                <input name="stato" class="form-control" value="{{ meta.stato or 'NAZIONALE' }}">
-            </div>
-        </div>
-
-        <div class="table-responsive">
-            <table class="table table-striped table-sm align-middle">
-                <thead class="table-dark">
-                    <tr>
-                        <th style="width:70px">Rimuovi</th>
-                        <th>Codice Articolo</th>
-                        <th>Descrizione</th>
-                        <th style="width:120px">Colli</th>
-                        <th style="width:160px">Peso / Q.tà</th>
-                        <th style="width:80px">UM</th>
-                        <th style="width:120px">Pezzi</th>
-                        <th style="width:160px">Lotto</th>
-                        <th style="width:180px">Seriale</th>
-                    </tr>
-                </thead>
-                <tbody id="rowsBody">
-                    {% for r in rows %}
-                    <tr>
-                        <td class="text-center">
-                            <button type="button" class="btn btn-danger btn-sm py-0" onclick="this.closest('tr').remove()">X</button>
-                        </td>
-                        <td>
-                            <input name="codice[]" class="form-control form-control-sm" value="{{ r.codice or '' }}">
-                        </td>
-                        <td>
-                            <input name="descrizione[]" class="form-control form-control-sm" value="{{ r.descrizione or '' }}">
-                        </td>
-                        <td>
-                            <input name="colli[]" type="number" min="0" class="form-control form-control-sm" value="{{ r.colli or r.qta or 1 }}">
-                        </td>
-                        <td>
-                            <input name="pezzi[]" type="number" step="0.01" class="form-control form-control-sm" value="{{ r.pezzi or 1 }}">
-                        </td>
-                        <td>
-                            <input name="um[]" class="form-control form-control-sm" value="{{ r.um or '' }}" readonly>
-                        </td>
-                        <td>
-                            <input name="pezzi_articolo[]" type="number" min="0" class="form-control form-control-sm" value="{{ r.pezzi_articolo or '' }}">
-                        </td>
-                        <td>
-                            <input name="lotto[]" class="form-control form-control-sm" value="{{ r.lotto or '' }}">
-                        </td>
-                        <td>
-                            <input name="serial_number[]" class="form-control form-control-sm" value="{{ r.serial_number or '' }}">
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        
-        <div class="d-flex justify-content-between mt-3">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="addRow()">+ Aggiungi Riga Vuota</button>
-            <div>
-                <a href="{{ url_for('import_pdf') }}" class="btn btn-outline-secondary">Ricomincia</a>
-                <button type="submit" class="btn btn-success fw-bold px-4">CONFERMA E IMPORTA</button>
-            </div>
-        </div>
-    </form>
-
-    <script>
-    function addRow() {
-        const tbody = document.getElementById('rowsBody');
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td class="text-center">
-                <button type="button" class="btn btn-danger btn-sm py-0" onclick="this.closest('tr').remove()">X</button>
-            </td>
-            <td><input name="codice[]" class="form-control form-control-sm"></td>
-            <td><input name="descrizione[]" class="form-control form-control-sm"></td>
-            <td><input name="colli[]" type="number" min="0" class="form-control form-control-sm" value="1"></td>
-            <td><input name="pezzi[]" type="number" step="0.01" class="form-control form-control-sm" value="1"></td>
-            <td><input name="um[]" class="form-control form-control-sm" value="" readonly></td>
-            <td><input name="pezzi_articolo[]" type="number" min="0" class="form-control form-control-sm" value=""></td>
-            <td><input name="lotto[]" class="form-control form-control-sm" value=""></td>
-            <td><input name="serial_number[]" class="form-control form-control-sm" value=""></td>
-        `;
-        tbody.appendChild(tr);
-    }
-    </script>
-    {% endif %}
-</div>
-{% endblock %}
-"""
 
 def register_import_pdf_routes(app_obj, deps):
     globals().update(deps)
@@ -926,12 +780,12 @@ def register_import_pdf_routes(app_obj, deps):
                     meta, rows = extract_data_from_ddt_pdf(temp_path)
                     # Pulisce file temp
                     if os.path.exists(temp_path): os.remove(temp_path)
-                    return render_template_string(IMPORT_PDF_HTML, meta=meta, rows=rows, clienti_validi=get_clienti_utenti())
+                    return render_template('import_pdf.html', meta=meta, rows=rows, clienti_validi=get_clienti_utenti())
                 except Exception as e:
                     flash(f"Errore PDF: {e}", "danger")
                     return redirect(url_for('giacenze'))
                 
-        return render_template_string(IMPORT_PDF_HTML, meta={}, rows=[], clienti_validi=get_clienti_utenti())
+        return render_template('import_pdf.html', meta={}, rows=[], clienti_validi=get_clienti_utenti())
 
     @app.route('/save_pdf_import', methods=['POST'])
     @login_required
