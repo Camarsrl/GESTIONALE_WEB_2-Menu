@@ -2646,6 +2646,13 @@ a.btn {
                     </li>
 
                     <li class="nav-item">
+                        <a class="nav-link btn btn-warning text-dark px-3 ms-2 btn-nav-admin" href="/admin/utenti">
+                            <i class="bi bi-people-fill"></i> UTENTI
+                        </a>
+                    </li>
+
+
+                    <li class="nav-item">
                          <a class="nav-link text-white-50 ms-1" href="{{ url_for('manage_mappe') }}" title="Gestione Mappe"><i class="bi bi-gear"></i></a>
                     </li>
                 {% endif %}
@@ -2659,12 +2666,6 @@ a.btn {
             </ul>
         </div>
     </div>
-
-{% if session.get('role') == 'admin' %}
-<a href="{{ url_for('admin_utenti') }}" class="btn btn-warning btn-sm">
-    👥 UTENTI
-</a>
-{% endif %}
 
 </nav>
 
