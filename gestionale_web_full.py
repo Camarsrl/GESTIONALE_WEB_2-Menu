@@ -5985,7 +5985,10 @@ templates = {
 # ========================================================
 # CONFIGURAZIONE FINALE (SENZA RICREARE L'APP)
 # ========================================================
-app.jinja_loader = DictLoader(templates)
+app.jinja_loader = ChoiceLoader([
+    DictLoader(templates),
+    FileSystemLoader(str(APP_DIR / 'templates'))
+])
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.jinja_env.globals['getattr'] = getattr
 app.jinja_env.filters['fmt_date'] = fmt_date
