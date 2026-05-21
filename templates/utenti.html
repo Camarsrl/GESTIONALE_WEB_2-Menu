@@ -47,7 +47,10 @@
                         <table class="table table-sm table-striped align-middle mb-0">
                             <thead class="table-dark">
                                 <tr>
-                                    <th>Utente</th><th>Ruolo</th><th>Origine</th><th>Stato</th>
+                                    <th>Utente</th>
+                                    <th>Ruolo</th>
+                                    <th>Origine</th>
+                                    <th>Stato</th>
                                     <th style="width:280px;">Cambia password</th>
                                     <th style="width:210px;">Ruolo/Stato</th>
                                 </tr>
@@ -57,8 +60,20 @@
                                 <tr>
                                     <td class="fw-bold">{{ u.username }}</td>
                                     <td>{{ role_labels.get(u.role, u.role) }}</td>
-                                    <td>{% if u.source == 'base' %}<span class="badge bg-secondary">Base</span>{% else %}<span class="badge bg-primary">Gestione</span>{% endif %}</td>
-                                    <td>{% if u.active %}<span class="badge bg-success">Attivo</span>{% else %}<span class="badge bg-danger">Disattivato</span>{% endif %}</td>
+                                    <td>
+                                        {% if u.source == 'base' %}
+                                            <span class="badge bg-secondary">Base</span>
+                                        {% else %}
+                                            <span class="badge bg-primary">Gestione</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if u.active %}
+                                            <span class="badge bg-success">Attivo</span>
+                                        {% else %}
+                                            <span class="badge bg-danger">Disattivato</span>
+                                        {% endif %}
+                                    </td>
                                     <td>
                                         <form method="post" class="d-flex gap-1">
                                             <input type="hidden" name="action" value="change_password">
@@ -85,13 +100,16 @@
                                     </td>
                                 </tr>
                                 {% else %}
-                                <tr><td colspan="6" class="text-center text-muted py-4">Nessun utente trovato.</td></tr>
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted py-4">Nessun utente trovato.</td>
+                                </tr>
                                 {% endfor %}
                             </tbody>
                         </table>
                     </div>
                 </div>
             </div>
+
             <div class="alert alert-info mt-3 mb-0">
                 Le nuove password vengono salvate criptate nel file persistente <b>utenti_gestionale.json</b>.
             </div>
