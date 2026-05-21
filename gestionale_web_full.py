@@ -926,7 +926,7 @@ def auto_backup_if_due():
         _AUTO_BACKUP_LAST_CHECK = now
 
         # ✅ possibilità di disattivare via ENV
-        if str(os.environ.get("AUTO_BACKUP", "1")).lower() in ("0", "false", "no", "off"):
+        if str(os.environ.get("AUTO_BACKUP", "0")).lower() in ("0", "false", "no", "off"):
             app.logger.info("[AUTO_BACKUP] disabilitato via AUTO_BACKUP=0")
             return
 
@@ -986,6 +986,45 @@ def _auto_backup_hook():
 
 
 
+def _get_buono_carico_attivo_id():
+    """Restituisce l'ID del buono QR attivo solo se valido ed esistente.
+
+    Evita Internal Server Error quando in sessione resta salvato un buono eliminato
+    oppure quando arriva un valore non numerico nella URL /giacenze.
+    """
+    raw = ""
+    try:
+        raw = (
+            request.args.get("aggiungi_buono_carico")
+            or session.get("aggiungi_buono_carico")
+            or ""
+        )
+        raw = str(raw).strip()
+        if not raw or not raw.isdigit():
+            session.pop("aggiungi_buono_carico", None)
+            return ""
+
+        # A richiesta già avviata i modelli sono presenti nei globals().
+        if "BuonoCarico" not in globals() or "SessionLocal" not in globals():
+            return raw
+
+        db = SessionLocal()
+        try:
+            exists = db.query(BuonoCarico.id).filter(BuonoCarico.id == int(raw)).first()
+            if exists:
+                return raw
+            session.pop("aggiungi_buono_carico", None)
+            return ""
+        finally:
+            db.close()
+    except Exception:
+        try:
+            session.pop("aggiungi_buono_carico", None)
+        except Exception:
+            pass
+        return ""
+
+
 @app.before_request
 def _remember_buono_carico_da_aggiungere():
     """Mantiene in sessione l'ID del buono quando si passa dal dettaglio buono al Magazzino."""
@@ -993,22 +1032,16 @@ def _remember_buono_carico_da_aggiungere():
         val = (request.args.get("aggiungi_buono_carico") or "").strip()
         if val.isdigit():
             session["aggiungi_buono_carico"] = val
+        elif "aggiungi_buono_carico" in request.args:
+            session.pop("aggiungi_buono_carico", None)
     except Exception:
         pass
+
 
 @app.context_processor
 def _ctx_buono_carico_attivo():
     """ID buono carico attivo per template Magazzino."""
-    try:
-        return {
-            "buono_carico_attivo": (
-                request.args.get("aggiungi_buono_carico")
-                or session.get("aggiungi_buono_carico")
-                or ""
-            )
-        }
-    except Exception:
-        return {"buono_carico_attivo": ""}
+    return {"buono_carico_attivo": _get_buono_carico_attivo_id()}
 
 
 def pulisci_backup_vecchi(max_files=50):
