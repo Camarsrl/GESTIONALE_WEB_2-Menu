@@ -1238,8 +1238,11 @@ def register_buoni_qr_routes(app_obj, deps):
 
             buono = _trova_buono_carico_da_input(db, buono_input)
             if not buono:
-                flash("Buono di carico non trovato. Inserisci l'ID numerico oppure il codice tipo BC-2026-0001.", "danger")
+                session.pop("aggiungi_buono_carico", None)
+                flash("Buono di carico non trovato o eliminato. Seleziona nuovamente il buono dall'elenco.", "danger")
                 return redirect(url_for("giacenze"))
+
+            session["aggiungi_buono_carico"] = str(buono.id)
 
             articoli = (
                 db.query(Articolo)
