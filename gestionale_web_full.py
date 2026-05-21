@@ -9735,7 +9735,10 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
 
 # --- CONFIGURAZIONE FINALE E AVVIO ---
-app.jinja_loader = DictLoader(templates)
+app.jinja_loader = ChoiceLoader([
+    DictLoader(templates),
+    FileSystemLoader(str(APP_DIR / 'templates'))
+])
 app.jinja_env.globals['getattr'] = getattr
 app.jinja_env.filters['fmt_date'] = fmt_date
     
