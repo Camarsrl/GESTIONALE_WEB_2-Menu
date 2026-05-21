@@ -4,7 +4,7 @@
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
         <div>
             <h3 class="mb-1">👥 Gestione Utenti</h3>
-            <div class="text-muted small">Aggiungi nuovi clienti/utenti e aggiorna le password in modo sicuro.</div>
+            <div class="text-muted small">Aggiungi clienti/utenti e aggiorna le password dal file password Utenti Gestionale.txt.</div>
         </div>
         <a href="{{ url_for('home') }}" class="btn btn-secondary btn-sm">Torna alla Home</a>
     </div>
@@ -28,6 +28,7 @@
                                 <option value="magazzino">Magazzino</option>
                                 <option value="admin">Admin</option>
                             </select>
+                            <div class="form-text">I nuovi clienti vengono salvati nel file password. I ruoli admin/magazzino restano gestiti dal file principale.</div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Password</label>
@@ -50,9 +51,7 @@
                                     <th>Utente</th>
                                     <th>Ruolo</th>
                                     <th>Origine</th>
-                                    <th>Stato</th>
-                                    <th style="width:280px;">Cambia password</th>
-                                    <th style="width:210px;">Ruolo/Stato</th>
+                                    <th style="width:300px;">Cambia password</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -60,20 +59,7 @@
                                 <tr>
                                     <td class="fw-bold">{{ u.username }}</td>
                                     <td>{{ role_labels.get(u.role, u.role) }}</td>
-                                    <td>
-                                        {% if u.source == 'base' %}
-                                            <span class="badge bg-secondary">Base</span>
-                                        {% else %}
-                                            <span class="badge bg-primary">Gestione</span>
-                                        {% endif %}
-                                    </td>
-                                    <td>
-                                        {% if u.active %}
-                                            <span class="badge bg-success">Attivo</span>
-                                        {% else %}
-                                            <span class="badge bg-danger">Disattivato</span>
-                                        {% endif %}
-                                    </td>
+                                    <td><span class="badge bg-primary">{{ u.source }}</span></td>
                                     <td>
                                         <form method="post" class="d-flex gap-1">
                                             <input type="hidden" name="action" value="change_password">
@@ -82,26 +68,10 @@
                                             <button class="btn btn-outline-primary btn-sm">Salva</button>
                                         </form>
                                     </td>
-                                    <td>
-                                        <form method="post" class="d-flex gap-1 align-items-center">
-                                            <input type="hidden" name="action" value="update_role">
-                                            <input type="hidden" name="username" value="{{ u.username }}">
-                                            <select name="role" class="form-select form-select-sm">
-                                                <option value="client" {% if u.role == 'client' %}selected{% endif %}>Cliente</option>
-                                                <option value="magazzino" {% if u.role == 'magazzino' %}selected{% endif %}>Magazzino</option>
-                                                <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Admin</option>
-                                            </select>
-                                            <select name="active" class="form-select form-select-sm">
-                                                <option value="1" {% if u.active %}selected{% endif %}>Attivo</option>
-                                                <option value="0" {% if not u.active %}selected{% endif %}>No</option>
-                                            </select>
-                                            <button class="btn btn-outline-secondary btn-sm">OK</button>
-                                        </form>
-                                    </td>
                                 </tr>
                                 {% else %}
                                 <tr>
-                                    <td colspan="6" class="text-center text-muted py-4">Nessun utente trovato.</td>
+                                    <td colspan="4" class="text-center text-muted py-4">Nessun utente trovato.</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -111,7 +81,7 @@
             </div>
 
             <div class="alert alert-info mt-3 mb-0">
-                Le nuove password vengono salvate criptate nel file persistente <b>utenti_gestionale.json</b>.
+                Le password vengono lette e salvate nel file <b>password Utenti Gestionale.txt</b>.
             </div>
         </div>
     </div>
