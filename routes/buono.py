@@ -161,14 +161,15 @@ def register_buono_routes(app_obj, deps):
                 note_inserite = req_data.get(f"note_{r.id_articolo}")
                 note_originale = r.note
 
-                # Scarico parziale testuale:
-                # se nel buono hai lasciato solo un codice/descrizione specifica,
-                # NON deve sparire il materiale scelto.
+                # Scarico parziale:
+                # deve funzionare sia quando viene tolto solo un codice/descrizione da una cella multi-valore,
+                # sia quando viene prelevata solo una parte dei pezzi/colli della stessa riga.
                 #
                 # Logica corretta:
                 # 1) la riga originale resta in giacenza con il residuo;
                 # 2) viene creata una nuova riga per il materiale messo nel buono;
-                # 3) la nuova riga mantiene il codice/descrizione del buono e il N. buono.
+                # 3) la nuova riga mantiene codice/descrizione del buono e N. buono;
+                # 4) se lo scarico è solo quantitativo, la riga residua mantiene lo stesso codice/descrizione.
                 if action == 'save':
                     old_cod = (r.codice_articolo or '').strip()
                     old_desc = (r.descrizione or '').strip()
@@ -183,7 +184,15 @@ def register_buono_routes(app_obj, deps):
                     cod_parziale = bool(codice_scelto and _norm_for_match(codice_scelto) != _norm_for_match(old_cod))
                     desc_parziale = bool(descr_scelta and _norm_for_match(descr_scelta) != _norm_for_match(old_desc))
 
-                    if cod_parziale or desc_parziale:
+                    # Parziale anche se il codice/descrizione resta uguale ma viene indicata una quantità inferiore.
+                    qta_parziale = bool(
+                        q_scelta is not None
+                        and pezzi_originali > 0
+                        and pezzi_scelti > 0
+                        and pezzi_scelti < pezzi_originali
+                    )
+
+                    if cod_parziale or desc_parziale or qta_parziale:
                         scarico_parziale_eseguito = True
 
                         # Scarico parziale:
@@ -225,11 +234,16 @@ def register_buono_routes(app_obj, deps):
                         db.add(riga_buono)
 
                         # Poi aggiorno la riga originale lasciando solo il residuo.
+                        # Se il parziale è solo quantitativo, codice e descrizione devono restare sulla riga in giacenza.
                         if cod_parziale:
                             r.codice_articolo = _remove_selected_from_cell(old_cod, codice_scelto)
+                        else:
+                            r.codice_articolo = old_cod
 
                         if desc_parziale:
                             r.descrizione = _remove_selected_from_cell(old_desc, descr_scelta)
+                        else:
+                            r.descrizione = old_desc
 
                         # La riga residua mantiene le note originali.
                         r.note = note_originale
