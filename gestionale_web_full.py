@@ -908,10 +908,14 @@ _AUTO_BACKUP_LAST_CHECK = 0
 
 def auto_backup_if_due():
     """
-    Backup automatico:
+    Backup automatico LEGGERO:
     - controllo max ogni 10 minuti
     - crea backup se ultimo è più vecchio di 2 ore
+    - salva database e file JSON/configurazioni
+    - NON comprime PDF/foto per non rallentare il gestionale
     - mantiene solo gli ultimi 50 backup
+
+    Il backup completo con PDF/foto resta disponibile manualmente dal pannello admin.
     """
 
     global _AUTO_BACKUP_LAST_CHECK
@@ -926,7 +930,7 @@ def auto_backup_if_due():
         _AUTO_BACKUP_LAST_CHECK = now
 
         # ✅ possibilità di disattivare via ENV
-        if str(os.environ.get("AUTO_BACKUP", "0")).lower() in ("0", "false", "no", "off"):
+        if str(os.environ.get("AUTO_BACKUP", "1")).lower() in ("0", "false", "no", "off"):
             app.logger.info("[AUTO_BACKUP] disabilitato via AUTO_BACKUP=0")
             return
 
@@ -952,11 +956,14 @@ def auto_backup_if_due():
         INTERVALLO = 2 * 3600  # 2 ore
 
         if (latest is None) or ((now - latest.stat().st_mtime) > INTERVALLO):
-            app.logger.warning("[AUTO_BACKUP] CREAZIONE backup automatico in corso...")
+            app.logger.warning("[AUTO_BACKUP] CREAZIONE backup automatico LEGGERO in corso...")
 
-            zip_path = create_backup_zip(include_media=True)
+            # Backup automatico leggero: DB + JSON/configurazioni.
+            # PDF e foto NON vengono compressi qui, per evitare lentezza e timeout su Render.
+            # Per un backup completo con media usare il pulsante/route admin di backup manuale.
+            zip_path = create_backup_zip(include_media=False)
 
-            app.logger.warning(f"[AUTO_BACKUP] OK creato: {zip_path}")
+            app.logger.warning(f"[AUTO_BACKUP] OK creato backup leggero: {zip_path}")
 
             # ✅ mantiene solo ultimi 50 backup
             MAX_FILES = 50
@@ -9000,6 +9007,7 @@ def get_prev_ddt_number():
 @require_admin
 def backup_download():
     try:
+        # Backup manuale completo: include anche PDF/foto/media.
         p = create_backup_zip(include_media=True)
         return send_file(p, as_attachment=True, download_name=p.name, mimetype="application/zip")
     except Exception as e:
