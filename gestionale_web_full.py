@@ -8936,7 +8936,7 @@ def bulk_duplicate():
                     altezza=original.altezza,
                     m2=original.m2,
                     m3=original.m3,
-                    n_arrivo=strip_arrivo_progressivo(original.n_arrivo),
+                    n_arrivo=original.n_arrivo,
                     codice_entrata=original.codice_entrata,
                     stato=original.stato,
                     magazzino=original.magazzino,
