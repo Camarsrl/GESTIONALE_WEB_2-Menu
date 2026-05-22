@@ -6135,242 +6135,352 @@ def _warehouse_readonly_guard():
 @app.route('/home')
 @login_required
 def home():
+    """Home alleggerita.
+
+    Prima la Home caricava TUTTI gli articoli e TUTTI gli allegati in memoria
+    con q_base.all() + selectinload(attachments). Con molti record/PDF/foto questo
+    rendeva la pagina lenta e poteva causare timeout su Render.
+
+    Questa versione usa soprattutto COUNT/SUM direttamente nel database e carica
+    solo pochi record per esempi e ultimi movimenti.
+    """
+    db = SessionLocal()
     try:
-        db = SessionLocal()
-        try:
-            today_obj = date.today()
-            today_iso = today_obj.strftime('%Y-%m-%d')
-            cliente_corrente = current_cliente()
+        today_obj = date.today()
+        today_iso = today_obj.strftime('%Y-%m-%d')
+        today_it = today_obj.strftime('%d/%m/%Y')
+        cutoff_90_iso = (today_obj - timedelta(days=90)).strftime('%Y-%m-%d')
+        cliente_corrente = current_cliente()
 
-            q_base = db.query(Articolo).options(selectinload(Articolo.attachments))
+        def _cliente_filter(model=Articolo):
             if cliente_corrente:
-                q_base = q_base.filter(func.upper(Articolo.cliente) == cliente_corrente.upper())
+                return [func.upper(model.cliente) == cliente_corrente.upper()]
+            return []
 
-            rows = q_base.all()
+        active_filter = [
+            or_(Articolo.data_uscita == None, Articolo.data_uscita == "")
+        ] + _cliente_filter(Articolo)
 
-            def _is_active(art):
-                return not (getattr(art, 'data_uscita', None) or '').strip()
+        all_filter = _cliente_filter(Articolo)
 
-            def _date_is_today(value):
-                try:
-                    d = to_date_db(value)
-                    return bool(d and d == today_obj)
-                except Exception:
-                    return str(value or '').strip() == today_iso
-
-            active_rows = [a for a in rows if _is_active(a)]
-
-            dashboard = {
-                'tot_giacenza': len(active_rows),
-                'tot_m2': round(sum(float(a.m2 or 0) for a in active_rows), 2),
-                'tot_peso': round(sum(float(a.peso or 0) for a in active_rows), 2),
-                'tot_colli': sum(int(a.n_colli or 0) for a in active_rows),
-                'entrate_oggi': sum(1 for a in rows if _date_is_today(getattr(a, 'data_ingresso', None))),
-                'uscite_oggi': sum(1 for a in rows if _date_is_today(getattr(a, 'data_uscita', None))),
-                'doganali': sum(1 for a in active_rows if 'DOGANA' in ((getattr(a, 'stato', '') or '').upper())),
-                'buoni_aperti': 0,
-            }
-
+        def _scalar(query, default=0):
             try:
-                q_buoni = db.query(BuonoCarico)
-                if cliente_corrente:
-                    q_buoni = q_buoni.filter(func.upper(BuonoCarico.cliente) == cliente_corrente.upper())
-                buoni_rows = q_buoni.all()
-                dashboard['buoni_aperti'] = sum(
-                    1 for b in buoni_rows
-                    if (getattr(b, 'stato', '') or '').upper() not in ('CARICATO', 'CHIUSO', 'COMPLETATO', 'ELIMINATO')
-                )
+                v = query.scalar()
+                return default if v is None else v
             except Exception:
-                dashboard['buoni_aperti'] = 0
+                return default
 
-            movimenti = []
-            for a in rows:
-                d_in = to_date_db(getattr(a, 'data_ingresso', None))
-                if d_in:
-                    movimenti.append({
-                        'data_sort': d_in,
-                        'data': d_in.strftime('%d/%m/%Y'),
-                        'tipo': 'Entrata',
-                        'cliente': getattr(a, 'cliente', '') or '',
-                        'codice': getattr(a, 'codice_articolo', '') or '',
-                        'descrizione': (getattr(a, 'descrizione', '') or '')[:60],
-                        'n_arrivo': getattr(a, 'n_arrivo', '') or '',
-                        'ddt': getattr(a, 'n_ddt_ingresso', '') or '',
-                    })
-                d_out = to_date_db(getattr(a, 'data_uscita', None))
-                if d_out:
-                    movimenti.append({
-                        'data_sort': d_out,
-                        'data': d_out.strftime('%d/%m/%Y'),
-                        'tipo': 'Uscita',
-                        'cliente': getattr(a, 'cliente', '') or '',
-                        'codice': getattr(a, 'codice_articolo', '') or '',
-                        'descrizione': (getattr(a, 'descrizione', '') or '')[:60],
-                        'n_arrivo': getattr(a, 'n_arrivo', '') or '',
-                        'ddt': getattr(a, 'n_ddt_uscita', '') or '',
-                    })
+        def _count_articoli(extra_filters=None):
+            q = db.query(func.count(Articolo.id_articolo))
+            filters = list(extra_filters or [])
+            if filters:
+                q = q.filter(*filters)
+            return int(_scalar(q, 0) or 0)
 
-            ultimi_movimenti = sorted(movimenti, key=lambda x: x.get('data_sort') or date.min, reverse=True)[:10]
+        def _sum_articoli(column, extra_filters=None):
+            q = db.query(func.coalesce(func.sum(column), 0))
+            filters = list(extra_filters or [])
+            if filters:
+                q = q.filter(*filters)
+            try:
+                return float(q.scalar() or 0)
+            except Exception:
+                return 0.0
 
-            # ========================================================
-            # ALERT AUTOMATICI HOME
-            # ========================================================
-            dashboard_alerts = []
-
-            def _short_examples(items, attr, max_items=5):
+        def _examples(extra_filters, attr, max_items=5):
+            try:
+                col = getattr(Articolo, attr)
+                rows_ex = (
+                    db.query(col)
+                    .filter(*(extra_filters or []))
+                    .filter(col != None, col != "")
+                    .limit(max_items)
+                    .all()
+                )
                 out = []
-                for item in items:
-                    val = (getattr(item, attr, '') or '').strip()
+                for (val,) in rows_ex:
+                    val = (str(val or "")).strip()
                     if val and val not in out:
                         out.append(val)
-                    if len(out) >= max_items:
-                        break
-                return out
+                return out[:max_items]
+            except Exception:
+                return []
 
-            def _add_alert(level, title, count, message, examples=None):
-                try:
-                    count = int(count or 0)
-                except Exception:
-                    count = 0
-                if count > 0:
-                    dashboard_alerts.append({
-                        'level': level,
-                        'title': title,
-                        'count': count,
-                        'message': message,
-                        'examples': examples or []
-                    })
+        def _add_alert(alerts, level, title, count, message, examples=None):
+            try:
+                count = int(count or 0)
+            except Exception:
+                count = 0
+            if count > 0:
+                alerts.append({
+                    'level': level,
+                    'title': title,
+                    'count': count,
+                    'message': message,
+                    'examples': examples or []
+                })
 
-            # QR / codice entrata mancante su articoli ancora in giacenza
-            missing_qr = [a for a in active_rows if not (getattr(a, 'codice_entrata', '') or '').strip()]
-            _add_alert(
-                'danger',
-                'QR / codice entrata mancante',
-                len(missing_qr),
-                'Articoli in giacenza senza codice entrata collegato.',
-                _short_examples(missing_qr, 'n_arrivo')
+        dashboard = {
+            'tot_giacenza': _count_articoli(active_filter),
+            'tot_m2': round(_sum_articoli(Articolo.m2, active_filter), 2),
+            'tot_peso': round(_sum_articoli(Articolo.peso, active_filter), 2),
+            'tot_colli': int(_sum_articoli(Articolo.n_colli, active_filter)),
+            # Supporta sia formato ISO YYYY-MM-DD sia formato italiano DD/MM/YYYY.
+            'entrate_oggi': _count_articoli(all_filter + [
+                or_(Articolo.data_ingresso == today_iso, Articolo.data_ingresso == today_it)
+            ]),
+            'uscite_oggi': _count_articoli(all_filter + [
+                or_(Articolo.data_uscita == today_iso, Articolo.data_uscita == today_it)
+            ]),
+            'doganali': _count_articoli(active_filter + [
+                func.upper(func.coalesce(Articolo.stato, '')).like('%DOGANA%')
+            ]),
+            'buoni_aperti': 0,
+        }
+
+        try:
+            q_buoni = db.query(func.count(BuonoCarico.id)).filter(
+                ~func.upper(func.coalesce(BuonoCarico.stato, '')).in_(
+                    ['CARICATO', 'CHIUSO', 'COMPLETATO', 'ELIMINATO']
+                )
             )
+            if cliente_corrente:
+                q_buoni = q_buoni.filter(func.upper(BuonoCarico.cliente) == cliente_corrente.upper())
+            dashboard['buoni_aperti'] = int(q_buoni.scalar() or 0)
+        except Exception:
+            dashboard['buoni_aperti'] = 0
 
-            # Articoli senza documento PDF/foto allegata
-            senza_foto = []
-            senza_pdf = []
-            for a in active_rows:
-                atts = getattr(a, 'attachments', []) or []
-                has_photo = any((getattr(x, 'kind', '') or '') == 'photo' for x in atts)
-                has_doc = any((getattr(x, 'kind', '') or '') == 'doc' for x in atts)
-                if not has_photo:
-                    senza_foto.append(a)
-                if not has_doc:
-                    senza_pdf.append(a)
+        # Ultimi movimenti: carica poche colonne e pochi record, non tutti gli articoli.
+        movimenti = []
 
-            _add_alert(
-                'warning',
-                'Foto mancante',
-                len(senza_foto),
-                'Articoli in giacenza senza foto arrivo.',
-                _short_examples(senza_foto, 'n_arrivo')
+        def _add_movimenti_ingresso():
+            q = db.query(
+                Articolo.data_ingresso, Articolo.cliente, Articolo.codice_articolo,
+                Articolo.descrizione, Articolo.n_arrivo, Articolo.n_ddt_ingresso
+            ).filter(*(all_filter + [Articolo.data_ingresso != None, Articolo.data_ingresso != ""]))
+            q = q.order_by(Articolo.id_articolo.desc()).limit(20)
+            for d_in_raw, cli, cod, desc, arr, ddt in q.all():
+                d_in = to_date_db(d_in_raw)
+                if not d_in:
+                    continue
+                movimenti.append({
+                    'data_sort': d_in,
+                    'data': d_in.strftime('%d/%m/%Y'),
+                    'tipo': 'Entrata',
+                    'cliente': cli or '',
+                    'codice': cod or '',
+                    'descrizione': (desc or '')[:60],
+                    'n_arrivo': arr or '',
+                    'ddt': ddt or '',
+                })
+
+        def _add_movimenti_uscita():
+            q = db.query(
+                Articolo.data_uscita, Articolo.cliente, Articolo.codice_articolo,
+                Articolo.descrizione, Articolo.n_arrivo, Articolo.n_ddt_uscita
+            ).filter(*(all_filter + [Articolo.data_uscita != None, Articolo.data_uscita != ""]))
+            q = q.order_by(Articolo.id_articolo.desc()).limit(20)
+            for d_out_raw, cli, cod, desc, arr, ddt in q.all():
+                d_out = to_date_db(d_out_raw)
+                if not d_out:
+                    continue
+                movimenti.append({
+                    'data_sort': d_out,
+                    'data': d_out.strftime('%d/%m/%Y'),
+                    'tipo': 'Uscita',
+                    'cliente': cli or '',
+                    'codice': cod or '',
+                    'descrizione': (desc or '')[:60],
+                    'n_arrivo': arr or '',
+                    'ddt': ddt or '',
+                })
+
+        try:
+            _add_movimenti_ingresso()
+            _add_movimenti_uscita()
+        except Exception:
+            movimenti = []
+
+        ultimi_movimenti = sorted(
+            movimenti,
+            key=lambda x: x.get('data_sort') or date.min,
+            reverse=True
+        )[:10]
+
+        # ========================================================
+        # ALERT AUTOMATICI HOME - versione ottimizzata
+        # ========================================================
+        dashboard_alerts = []
+
+        missing_qr_filter = active_filter + [
+            or_(Articolo.codice_entrata == None, Articolo.codice_entrata == "")
+        ]
+        _add_alert(
+            dashboard_alerts,
+            'danger',
+            'QR / codice entrata mancante',
+            _count_articoli(missing_qr_filter),
+            'Articoli in giacenza senza codice entrata collegato.',
+            _examples(missing_qr_filter, 'n_arrivo')
+        )
+
+        senza_foto_filter = active_filter + [
+            ~Articolo.attachments.any(Attachment.kind == 'photo')
+        ]
+        senza_pdf_filter = active_filter + [
+            ~Articolo.attachments.any(Attachment.kind == 'doc')
+        ]
+
+        _add_alert(
+            dashboard_alerts,
+            'warning',
+            'Foto mancante',
+            _count_articoli(senza_foto_filter),
+            'Articoli in giacenza senza foto arrivo.',
+            _examples(senza_foto_filter, 'n_arrivo')
+        )
+
+        _add_alert(
+            dashboard_alerts,
+            'warning',
+            'Documento PDF mancante',
+            _count_articoli(senza_pdf_filter),
+            'Articoli in giacenza senza documento arrivo PDF.',
+            _examples(senza_pdf_filter, 'n_arrivo')
+        )
+
+        def _duplicate_summary(attr, extra_filters=None, exclude_clienti=None):
+            exclude_clienti = {c.upper() for c in (exclude_clienti or [])}
+            col = getattr(Articolo, attr)
+            filters = list(extra_filters or [])
+            filters += [col != None, col != ""]
+            if exclude_clienti:
+                filters.append(~func.upper(func.coalesce(Articolo.cliente, '')).in_(list(exclude_clienti)))
+
+            try:
+                rows_dup = (
+                    db.query(col, func.count(Articolo.id_articolo).label('cnt'))
+                    .filter(*filters)
+                    .group_by(col)
+                    .having(func.count(Articolo.id_articolo) > 1)
+                    .order_by(func.count(Articolo.id_articolo).desc())
+                    .limit(50)
+                    .all()
+                )
+                total_groups = len(rows_dup)
+                examples = [str(v or '').strip() for v, c in rows_dup[:5] if str(v or '').strip()]
+                return total_groups, examples
+            except Exception:
+                return 0, []
+
+        dup_arrivi_count, dup_arrivi_examples = _duplicate_summary('n_arrivo', active_filter)
+        _add_alert(
+            dashboard_alerts,
+            'warning',
+            'N. arrivo duplicato',
+            dup_arrivi_count,
+            'Ci sono numeri arrivo ripetuti tra gli articoli ancora in giacenza.',
+            dup_arrivi_examples
+        )
+
+        dup_serial_count, dup_serial_examples = _duplicate_summary(
+            'serial_number',
+            active_filter,
+            exclude_clienti={'DUFERCO'}
+        )
+        _add_alert(
+            dashboard_alerts,
+            'warning',
+            'Serial number duplicato',
+            dup_serial_count,
+            'Ci sono serial number ripetuti tra gli articoli ancora in giacenza, esclusi i clienti dove è ammesso.',
+            dup_serial_examples
+        )
+
+        # DDT gestionale senza mezzo. Usiamo regex Python solo su pochi record candidati:
+        # prima filtriamo lato DB con uscita presente e mezzo vuoto.
+        uscite_candidate_filter = all_filter + [
+            Articolo.data_uscita != None,
+            Articolo.data_uscita != "",
+            or_(Articolo.mezzi_in_uscita == None, Articolo.mezzi_in_uscita == ""),
+            Articolo.n_ddt_uscita != None,
+            Articolo.n_ddt_uscita != "",
+        ]
+        uscite_senza_mezzo_count = 0
+        uscite_senza_mezzo_examples = []
+        try:
+            candidate_ddt = (
+                db.query(Articolo.n_ddt_uscita)
+                .filter(*uscite_candidate_filter)
+                .limit(500)
+                .all()
             )
-            _add_alert(
-                'warning',
-                'Documento PDF mancante',
-                len(senza_pdf),
-                'Articoli in giacenza senza documento arrivo PDF.',
-                _short_examples(senza_pdf, 'n_arrivo')
-            )
+            seen = set()
+            for (n_ddt,) in candidate_ddt:
+                n = (n_ddt or '').strip()
+                if re.match(r'^\d{1,5}/\d{2}$', n):
+                    uscite_senza_mezzo_count += 1
+                    if n not in seen and len(uscite_senza_mezzo_examples) < 5:
+                        seen.add(n)
+                        uscite_senza_mezzo_examples.append(n)
+        except Exception:
+            uscite_senza_mezzo_count = 0
+            uscite_senza_mezzo_examples = []
 
-            # Duplicati su N. Arrivo e Serial Number tra articoli in giacenza
-            def _duplicates(rows_to_check, attr):
-                groups = defaultdict(list)
-                for a in rows_to_check:
-                    val = (getattr(a, attr, '') or '').strip().upper()
-                    if val:
-                        groups[val].append(a)
-                return {k: v for k, v in groups.items() if len(v) > 1}
+        _add_alert(
+            dashboard_alerts,
+            'danger',
+            'DDT gestionale senza mezzo',
+            uscite_senza_mezzo_count,
+            'DDT creati dal gestionale senza Motrice / Bilico / Furgone compilato.',
+            uscite_senza_mezzo_examples
+        )
 
-            dup_arrivi = _duplicates(active_rows, 'n_arrivo')
-            _add_alert(
-                'warning',
-                'N. arrivo duplicato',
-                len(dup_arrivi),
-                'Ci sono numeri arrivo ripetuti tra gli articoli ancora in giacenza.',
-                list(dup_arrivi.keys())[:5]
-            )
+        # Merce ferma da oltre 90 giorni.
+        # Nota: confronto SQL affidabile quando data_ingresso è in formato YYYY-MM-DD.
+        # Le date non ISO restano gestibili dalle pagine di dettaglio, ma qui evitiamo scan completo.
+        vecchie_filter = active_filter + [
+            Articolo.data_ingresso != None,
+            Articolo.data_ingresso != "",
+            Articolo.data_ingresso <= cutoff_90_iso
+        ]
+        _add_alert(
+            dashboard_alerts,
+            'info',
+            'Giacenze oltre 90 giorni',
+            _count_articoli(vecchie_filter),
+            'Articoli ancora in giacenza da almeno 90 giorni.',
+            _examples(vecchie_filter, 'n_arrivo')
+        )
 
-            # Serial Number duplicato:
-            # Per DUFERCO il seriale ripetuto può essere normale, quindi lo escludiamo dall'alert.
-            # Inoltre lo trattiamo come ATTENZIONE e non come errore bloccante.
-            clienti_serial_ok = {'DUFERCO'}
-            serial_rows = [
-                a for a in active_rows
-                if (getattr(a, 'cliente', '') or '').strip().upper() not in clienti_serial_ok
-            ]
-            dup_serial = _duplicates(serial_rows, 'serial_number')
-            _add_alert(
-                'warning',
-                'Serial number duplicato',
-                len(dup_serial),
-                'Ci sono serial number ripetuti tra gli articoli ancora in giacenza, esclusi i clienti dove è ammesso.',
-                list(dup_serial.keys())[:5]
-            )
+        level_order = {'danger': 0, 'warning': 1, 'info': 2}
+        dashboard_alerts = sorted(
+            dashboard_alerts,
+            key=lambda x: (level_order.get(x.get('level'), 9), -int(x.get('count') or 0))
+        )
 
-            # Uscite senza mezzo in uscita:
-            # Il mezzo è obbligatorio solo per i DDT creati da noi dal gestionale.
-            # Consideriamo "nostri" i DDT con formato semplice tipo 399/26.
-            def _is_ddt_gestionale(n):
-                n = (n or '').strip()
-                return bool(re.match(r'^\d{1,5}/\d{2}$', n))
+        return render_template(
+            'home.html',
+            dashboard=dashboard,
+            dashboard_alerts=dashboard_alerts,
+            ultimi_movimenti=ultimi_movimenti,
+            today=today_obj,
+            tot_articoli=dashboard['tot_giacenza'],
+            tot_m2=dashboard['tot_m2']
+        )
 
-            uscite_senza_mezzo = [
-                a for a in rows
-                if (getattr(a, 'data_uscita', None) or '').strip()
-                and _is_ddt_gestionale(getattr(a, 'n_ddt_uscita', ''))
-                and not (getattr(a, 'mezzi_in_uscita', '') or '').strip()
-            ]
-            _add_alert(
-                'danger',
-                'DDT gestionale senza mezzo',
-                len(uscite_senza_mezzo),
-                'DDT creati dal gestionale senza Motrice / Bilico / Furgone compilato.',
-                _short_examples(uscite_senza_mezzo, 'n_ddt_uscita')
-            )
-
-            # Merce ferma da oltre 90 giorni
-            vecchie = []
-            for a in active_rows:
-                d_in = to_date_db(getattr(a, 'data_ingresso', None))
-                if d_in and (today_obj - d_in).days >= 90:
-                    vecchie.append(a)
-            _add_alert(
-                'info',
-                'Giacenze oltre 90 giorni',
-                len(vecchie),
-                'Articoli ancora in giacenza da almeno 90 giorni.',
-                _short_examples(vecchie, 'n_arrivo')
-            )
-
-            # Mostra prima gli alert più importanti
-            level_order = {'danger': 0, 'warning': 1, 'info': 2}
-            dashboard_alerts = sorted(
-                dashboard_alerts,
-                key=lambda x: (level_order.get(x.get('level'), 9), -int(x.get('count') or 0))
-            )
-
-            return render_template(
-                'home.html',
-                dashboard=dashboard,
-                dashboard_alerts=dashboard_alerts,
-                ultimi_movimenti=ultimi_movimenti,
-                today=today_obj,
-                tot_articoli=dashboard['tot_giacenza'],
-                tot_m2=dashboard['tot_m2']
-            )
-        finally:
-            db.close()
     except Exception as e:
+        scrivi_log_errore("Errore caricamento Home alleggerita", e)
         print(f"CRITICAL ERROR HOME: {e}")
         import traceback
         traceback.print_exc()
         return f"<h1>Errore Caricamento Home</h1><p>{e}</p><a href='/logout'>Logout</a>"
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
 
 # ========================================================
 # GESTIONE MAPPE EXCEL (CORRETTA + LOG DEBUG)
