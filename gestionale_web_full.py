@@ -8326,7 +8326,7 @@ def edit_articolo(id):
     db = SessionLocal()
     cliente_form = get_clienti_utenti()
     try:
-        art = db.query(Articolo).get(id)
+        art = db.query(Articolo).options(selectinload(Articolo.attachments)).filter(Articolo.id_articolo == id).first()
         if not art:
             flash("Articolo non trovato", "danger")
             return redirect(url_for('giacenze'))
@@ -8432,6 +8432,12 @@ def edit_articolo(id):
             return redirect(url_for('giacenze'))
 
         # GET: Mostra template modifica
+        # Gli allegati devono essere già caricati prima che la sessione DB venga chiusa.
+        # Evita errore SQLAlchemy: Parent instance is not bound to a Session / lazy load attachments.
+        try:
+            art.attachments = list(art.attachments or [])
+        except Exception:
+            pass
         return render_template('edit.html', row=art, clienti_validi=get_clienti_utenti())
 
     except Exception as e:
@@ -8447,7 +8453,7 @@ def edit_record(id_articolo):
     db = SessionLocal()
     cliente_form = get_clienti_utenti()
     try:
-        art = db.query(Articolo).filter(Articolo.id_articolo == id_articolo).first()
+        art = db.query(Articolo).options(selectinload(Articolo.attachments)).filter(Articolo.id_articolo == id_articolo).first()
         if not art:
             flash("Articolo non trovato", "danger")
             return redirect(url_for('giacenze'))
@@ -10051,7 +10057,7 @@ def scarico_parziale_selezionato():
 def scarico_parziale(id_articolo):
     db = SessionLocal()
     try:
-        art = db.query(Articolo).filter(Articolo.id_articolo == id_articolo).first()
+        art = db.query(Articolo).options(selectinload(Articolo.attachments)).filter(Articolo.id_articolo == id_articolo).first()
         if not art:
             flash("Articolo non trovato.", "danger")
             return redirect(url_for('giacenze'))
