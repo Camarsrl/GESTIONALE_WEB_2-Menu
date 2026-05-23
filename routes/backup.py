@@ -13,6 +13,14 @@ def register_backup_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
 
+    import os
+    import time
+    import zipfile
+    import tempfile
+    import shutil
+    from pathlib import Path
+    from datetime import datetime
+
     # ========================================================
     #  BACKUP (DB + JSON + Media) - crea ZIP in /media/backups
     # ========================================================
@@ -54,6 +62,60 @@ def register_backup_routes(app_obj, deps):
         return out
 
 
+    _AUTO_BACKUP_LAST_CHECK = {"ts": 0}
+
+    def auto_backup_if_due():
+        """Backup automatico leggero ogni 2 ore, senza PDF/foto."""
+        try:
+            now = time.time()
+
+            # controlla al massimo ogni 10 minuti
+            if _AUTO_BACKUP_LAST_CHECK["ts"] and (now - _AUTO_BACKUP_LAST_CHECK["ts"]) < 600:
+                return
+            _AUTO_BACKUP_LAST_CHECK["ts"] = now
+
+            if str(os.environ.get("AUTO_BACKUP", "1")).lower() in ("0", "false", "no", "off"):
+                app.logger.info("[AUTO_BACKUP] disabilitato via AUTO_BACKUP=0")
+                return
+
+            BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+            backups = sorted(
+                BACKUP_DIR.glob("backup_camar_*.zip"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True
+            )
+            latest = backups[0] if backups else None
+            intervallo = 2 * 3600
+
+            if latest is None or (now - latest.stat().st_mtime) > intervallo:
+                app.logger.warning("[AUTO_BACKUP] CREAZIONE backup automatico LEGGERO in corso...")
+                zip_path = create_backup_zip(include_media=False)
+                app.logger.warning(f"[AUTO_BACKUP] OK creato backup leggero: {zip_path}")
+
+                backups = sorted(
+                    BACKUP_DIR.glob("backup_camar_*.zip"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True
+                )
+                for old in backups[50:]:
+                    try:
+                        old.unlink()
+                    except Exception:
+                        pass
+            else:
+                ore_passate = (now - latest.stat().st_mtime) / 3600.0
+                app.logger.info(f"[AUTO_BACKUP] skip: ultimo backup {latest.name} ({ore_passate:.1f} ore fa)")
+        except Exception as e:
+            app.logger.warning(f"[AUTO_BACKUP] fallito: {e}")
+
+    @app.before_request
+    def _auto_backup_hook():
+        try:
+            auto_backup_if_due()
+        except Exception:
+            pass
+
+
     def pulisci_backup_vecchi(max_files=50):
         files = sorted(
             Path(BACKUP_DIR).glob("backup_*.zip"),
@@ -63,12 +125,6 @@ def register_backup_routes(app_obj, deps):
         for f in files[max_files:]:
             f.unlink()
 
-
-    from pathlib import Path
-    import zipfile
-    import tempfile
-    import shutil
-    from datetime import datetime
 
     # Assumo che tu abbia già:
     # BACKUP_DIR = Path("/var/data/app/backups")
