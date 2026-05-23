@@ -1895,6 +1895,10 @@ BASE_HTML = """
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ title or "Camar - Gestionale Web" }}</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#1f6fb2">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Gestionale Camar">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
@@ -9361,6 +9365,99 @@ try:
 except Exception as e:
     scrivi_log_errore("Modulo allegati non registrato", e)
     print(f"[WARN] modulo allegati non registrato: {e}")
+
+
+# ========================================================
+#  PWA / SMARTPHONE
+# ========================================================
+@app.route("/manifest.webmanifest")
+def pwa_manifest():
+    """Manifest PWA: permette di aggiungere il gestionale alla schermata Home dello smartphone."""
+    manifest = {
+        "name": "Gestionale Camar",
+        "short_name": "Camar",
+        "description": "Gestionale magazzino Camar",
+        "start_url": "/chatbot",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#ffffff",
+        "theme_color": "#1f6fb2",
+        "orientation": "portrait",
+        "icons": [
+            {
+                "src": "/static/logo camar.jpg",
+                "sizes": "192x192",
+                "type": "image/jpeg",
+                "purpose": "any maskable"
+            },
+            {
+                "src": "/static/logo camar.jpg",
+                "sizes": "512x512",
+                "type": "image/jpeg",
+                "purpose": "any maskable"
+            }
+        ]
+    }
+    return app.response_class(
+        json.dumps(manifest, ensure_ascii=False),
+        mimetype="application/manifest+json"
+    )
+
+
+@app.route("/service-worker.js")
+def pwa_service_worker():
+    """Service worker leggero: cache minima delle pagine principali, senza toccare dati sensibili."""
+    js = """
+const CACHE_NAME = 'camar-gestionale-v1';
+const CORE_ASSETS = [
+  '/login',
+  '/chatbot',
+  '/manifest.webmanifest'
+];
+
+self.addEventListener('install', event => {
+  self.skipWaiting();
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(CORE_ASSETS).catch(() => null))
+  );
+});
+
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys().then(keys => Promise.all(
+      keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
+    ))
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', event => {
+  const req = event.request;
+  const url = new URL(req.url);
+
+  // Non mettere mai in cache POST, API e file allegati.
+  if (req.method !== 'GET' || url.pathname.startsWith('/chatbot/api') || url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/')) {
+    return;
+  }
+
+  event.respondWith(
+    fetch(req).then(resp => {
+      const copy = resp.clone();
+      if (resp.ok && (url.pathname === '/chatbot' || url.pathname === '/login' || url.pathname === '/manifest.webmanifest')) {
+        caches.open(CACHE_NAME).then(cache => cache.put(req, copy)).catch(() => null);
+      }
+      return resp;
+    }).catch(() => caches.match(req))
+  );
+});
+"""
+    return app.response_class(js, mimetype="application/javascript")
+
+
+@app.route("/offline")
+def pwa_offline():
+    return "Gestionale Camar: connessione assente. Riapri quando torna internet.", 200
+
 
 # ========================================================
 #  REGISTRAZIONE MODULO BACKUP
