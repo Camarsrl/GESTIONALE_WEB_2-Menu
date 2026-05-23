@@ -28,16 +28,30 @@ def register_chatbot_routes(app_obj, deps):
     {% block content %}
     <style>
       .chat-card { max-width: 1050px; margin: 20px auto; }
-      .chat-box { height: 60vh; overflow-y: auto; background: #f8f9fa; border: 1px solid #ddd; border-radius: 12px; padding: 15px; }
+      .chat-box { height: 60vh; overflow-y: auto; background: #f8f9fa; border: 1px solid #ddd; border-radius: 12px; padding: 15px; scroll-behavior: smooth; }
       .msg { margin: 8px 0; display: flex; }
       .msg.user { justify-content: flex-end; }
       .bubble { max-width: 82%; padding: 10px 12px; border-radius: 14px; white-space: pre-wrap; line-height: 1.35; }
       .msg.user .bubble { background: #0d6efd; color: white; border-bottom-right-radius: 4px; }
       .msg.bot .bubble { background: white; border: 1px solid #e2e2e2; border-bottom-left-radius: 4px; }
-      .quick button { margin: 3px; }
+      .quick { display:flex; flex-wrap:wrap; gap:6px; }
+      .quick button { margin: 0; min-height: 36px; }
       .bot-result { border-top: 1px solid #eee; padding-top: 8px; margin-top: 8px; }
       .bot-result:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
       .bot-link { display:inline-block; margin-top:5px; font-size: 12px; }
+      .chat-input-mobile { position: sticky; bottom: 0; background: #fff; padding-top: 8px; }
+      @media (max-width: 768px) {
+        body { background: #fff; }
+        .chat-card { margin: 0; border-radius: 0; min-height: calc(100vh - 56px); }
+        .chat-card .card-header { position: sticky; top: 0; z-index: 3; background: #fff; }
+        .chat-card .card-body { padding: 10px; display: flex; flex-direction: column; min-height: calc(100vh - 120px); }
+        .chat-box { height: calc(100vh - 285px); min-height: 360px; border-radius: 10px; padding: 10px; }
+        .bubble { max-width: 92%; font-size: 14px; }
+        .quick { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; }
+        .quick button { white-space: nowrap; min-height: 42px; font-size: 13px; }
+        #chatInput { min-height: 44px; font-size: 16px; }
+        .input-group .btn { min-height: 44px; }
+      }
     </style>
 
     <div class="container-fluid">
@@ -47,7 +61,10 @@ def register_chatbot_routes(app_obj, deps):
             <h5 class="mb-0">🤖 Chat gestionale</h5>
             <small class="text-muted">Puoi chiedere giacenze, arrivi, DDT, colli, peso, M2, posizione.</small>
           </div>
-          <a href="{{ url_for('home') }}" class="btn btn-outline-secondary btn-sm">Home</a>
+          <div class="d-flex gap-2">
+            <button id="installPwaBtn" class="btn btn-outline-primary btn-sm" style="display:none;">Installa</button>
+            <a href="{{ url_for('home') }}" class="btn btn-outline-secondary btn-sm">Home</a>
+          </div>
         </div>
 
         <div class="card-body">
@@ -64,7 +81,7 @@ def register_chatbot_routes(app_obj, deps):
             <div class="msg bot"><div class="bubble">Ciao, sono il chatbot del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• giacenze senza posizione<br>• cerca ARRIVO 24/25<br>• dove si trova il codice ABC123</div></div>
           </div>
 
-          <div class="input-group">
+          <div class="input-group chat-input-mobile">
             <input id="chatInput" type="text" class="form-control" placeholder="Scrivi una domanda..." onkeydown="if(event.key==='Enter'){sendMsg();}">
             <button class="btn btn-primary" onclick="sendMsg()">Invia</button>
           </div>
@@ -73,6 +90,33 @@ def register_chatbot_routes(app_obj, deps):
     </div>
 
     <script>
+
+      // Installazione PWA su smartphone/desktop compatibili
+      let deferredInstallPrompt = null;
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredInstallPrompt = e;
+        const btn = document.getElementById('installPwaBtn');
+        if (btn) btn.style.display = 'inline-block';
+      });
+      document.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('installPwaBtn');
+        if (btn) {
+          btn.addEventListener('click', async () => {
+            if (!deferredInstallPrompt) return;
+            deferredInstallPrompt.prompt();
+            await deferredInstallPrompt.userChoice;
+            deferredInstallPrompt = null;
+            btn.style.display = 'none';
+          });
+        }
+      });
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+        });
+      }
+
       function addMsg(text, who, isHtml=false){
         const box = document.getElementById('chatBox');
         const row = document.createElement('div');
