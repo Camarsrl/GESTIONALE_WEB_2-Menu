@@ -236,9 +236,20 @@ def register_chatbot_routes(app_obj, deps):
         db = SessionLocal()
         try:
             low = msg.lower()
+
+            # Domande di riepilogo / situazione attiva.
+            # Esempi: "Quante giacenze ho ancora in magazzino?", "cosa ho in magazzino?",
+            # "quanti colli ci sono?", "totale peso", "totale M2".
+            parole_totali = [
+                "quanto", "quanti", "quante", "totale", "somma",
+                "peso", "m2", "m3", "colli", "pallet", "righe",
+                "giacenze", "giacenza", "magazzino", "ancora", "presenti", "attive",
+                "cosa ho", "merce in giacenza"
+            ]
+
             if any(w in low for w in ["aiuto", "help", "cosa puoi fare"]):
                 answer = _answer_help()
-            elif any(w in low for w in ["quanto", "quanti", "totale", "somma", "peso", "m2", "m3", "colli"]):
+            elif any(w in low for w in parole_totali):
                 answer = _answer_totals(db, msg)
             else:
                 answer = _answer_search(db, msg)
