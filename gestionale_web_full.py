@@ -554,102 +554,10 @@ for d in (STATIC_DIR, MEDIA_DIR, DOCS_DIR, PHOTOS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 
-# ================================
-# BACKUP AUTOMATICO (OGNI 2 ORE)
-# ================================
-
-import time
-import os
-
-_AUTO_BACKUP_LAST_CHECK = 0
-
-
-def auto_backup_if_due():
-    """
-    Backup automatico LEGGERO:
-    - controllo max ogni 10 minuti
-    - crea backup se ultimo è più vecchio di 2 ore
-    - salva database e file JSON/configurazioni
-    - NON comprime PDF/foto per non rallentare il gestionale
-    - mantiene solo gli ultimi 50 backup
-
-    Il backup completo con PDF/foto resta disponibile manualmente dal pannello admin.
-    """
-
-    global _AUTO_BACKUP_LAST_CHECK
-
-    try:
-        now = time.time()
-
-        # ✅ evita controllo continuo: max ogni 10 minuti
-        if _AUTO_BACKUP_LAST_CHECK and (now - _AUTO_BACKUP_LAST_CHECK) < 600:
-            return
-
-        _AUTO_BACKUP_LAST_CHECK = now
-
-        # ✅ possibilità di disattivare via ENV
-        if str(os.environ.get("AUTO_BACKUP", "1")).lower() in ("0", "false", "no", "off"):
-            app.logger.info("[AUTO_BACKUP] disabilitato via AUTO_BACKUP=0")
-            return
-
-        # ✅ crea cartella backup se manca
-        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-
-        # ✅ trova ultimo backup
-        backups = sorted(
-            BACKUP_DIR.glob("backup_camar_*.zip"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True
-        )
-
-        latest = backups[0] if backups else None
-
-        if latest:
-            ore_passate = (now - latest.stat().st_mtime) / 3600.0
-            app.logger.info(f"[AUTO_BACKUP] ultimo backup {latest.name} ({ore_passate:.1f} ore fa)")
-        else:
-            app.logger.info("[AUTO_BACKUP] nessun backup trovato, ne creo uno ora")
-
-        # ✅ intervallo BACKUP: ogni 2 ore
-        INTERVALLO = 2 * 3600  # 2 ore
-
-        if (latest is None) or ((now - latest.stat().st_mtime) > INTERVALLO):
-            app.logger.warning("[AUTO_BACKUP] CREAZIONE backup automatico LEGGERO in corso...")
-
-            # Backup automatico leggero: DB + JSON/configurazioni.
-            # PDF e foto NON vengono compressi qui, per evitare lentezza e timeout su Render.
-            # Per un backup completo con media usare il pulsante/route admin di backup manuale.
-            zip_path = create_backup_zip(include_media=False)
-
-            app.logger.warning(f"[AUTO_BACKUP] OK creato backup leggero: {zip_path}")
-
-            # ✅ mantiene solo ultimi 50 backup
-            MAX_FILES = 50
-            if len(backups) > MAX_FILES:
-                for old in backups[MAX_FILES:]:
-                    try:
-                        old.unlink()
-                        app.logger.info(f"[AUTO_BACKUP] eliminato backup vecchio: {old.name}")
-                    except:
-                        pass
-
-        else:
-            app.logger.info("[AUTO_BACKUP] skip: non sono passate 2 ore")
-
-    except Exception as e:
-        app.logger.warning(f"[AUTO_BACKUP] fallito: {e}")
-
-
-# ✅ Hook automatico su ogni request (non blocca mai)
-@app.before_request
-def _auto_backup_hook():
-    try:
-        auto_backup_if_due()
-    except Exception:
-        pass
-
-
-
+# ========================================================
+# BACKUP
+# Le funzioni backup e il backup automatico sono in routes/backup.py
+# ========================================================
 
 def _get_buono_carico_attivo_id():
     """Restituisce l'ID del buono QR attivo solo se valido ed esistente.
