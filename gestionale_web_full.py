@@ -2088,6 +2088,7 @@ a.btn {
 {% if can_use_buoni_qr() %}
 <a class="btn btn-primary btn-sm" href="{{ url_for('buoni_carico') }}">🧾 Buoni Carico</a>
 {% endif %}</li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('chatbot') }}">🤖 Chat</a></li>
                 {% if session.get('role') == 'admin' %}
                 <li class="nav-item"><a class="nav-link" href="{{ url_for('import_excel') }}">📥 Import Excel</a></li>
                 {% endif %}
@@ -9379,6 +9380,17 @@ try:
 except Exception as e:
     scrivi_log_errore("Modulo API clienti non registrato", e)
     print(f"[WARN] modulo API clienti non registrato: {e}")
+
+# ========================================================
+#  REGISTRAZIONE MODULO CHATBOT
+# ========================================================
+try:
+    from routes.chatbot import register_chatbot_routes
+    register_chatbot_routes(app, globals())
+    print("[OK] modulo chatbot registrato")
+except Exception as e:
+    scrivi_log_errore("Modulo chatbot non registrato", e)
+    print(f"[WARN] modulo chatbot non registrato: {e}")
 
 # --- AVVIO FLASK APP ---
 
