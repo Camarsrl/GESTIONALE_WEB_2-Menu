@@ -547,8 +547,8 @@ def api_giacenze():
 
 @app.route("/api/v1/inventario", methods=["GET"])
 def api_inventario():
-    """Inventario (fotografia) del cliente associato alla API key.
-    Nota: usa le giacenze attive come base (stato attuale).
+    """Inventario del cliente API.
+    Versione ottimizzata: aggrega nel database invece di caricare tutte le righe in Python.
     """
     cliente = _api_get_cliente_from_key()
     if not cliente:
@@ -560,50 +560,53 @@ def api_inventario():
 
     db = SessionLocal()
     try:
-        rows = db.query(Articolo).filter(
-            func.upper(Articolo.cliente) == cliente,
-            (Articolo.data_uscita == None) | (Articolo.data_uscita == "")
-        ).all()
+        if raggruppa == "serial":
+            key_expr = func.coalesce(func.nullif(func.trim(Articolo.serial_number), ''), func.concat('NO_SERIAL|', func.coalesce(Articolo.lotto, ''), '|', func.coalesce(Articolo.codice_articolo, '')))
+            group_cols = [key_expr]
+        elif raggruppa == "codice":
+            key_expr = func.coalesce(func.nullif(func.trim(Articolo.codice_articolo), ''), '(vuoto)')
+            group_cols = [key_expr]
+        else:
+            key_expr = func.coalesce(func.nullif(func.trim(Articolo.lotto), ''), '(vuoto)')
+            group_cols = [key_expr]
 
-        agg = {}
-        for a in rows:
-            if raggruppa == "serial":
-                k = (a.serial_number or "").strip()
-                if not k:
-                    # se manca serial, lo raggruppiamo per lotto+codice per non perdere la riga
-                    k = f"NO_SERIAL|{(a.lotto or '')}|{(a.codice_articolo or '')}"
-            elif raggruppa == "codice":
-                k = (a.codice_articolo or "").strip()
-            else:
-                k = (a.lotto or "").strip()
+        rows = (
+            db.query(
+                key_expr.label("key"),
+                func.min(Articolo.codice_articolo).label("codice"),
+                func.min(Articolo.descrizione).label("descrizione"),
+                func.min(Articolo.lotto).label("lotto"),
+                func.min(Articolo.serial_number).label("serial_number"),
+                func.count(Articolo.id_articolo).label("righe"),
+                func.coalesce(func.sum(Articolo.n_colli), 0).label("colli"),
+                func.coalesce(func.sum(Articolo.peso), 0).label("peso"),
+                func.coalesce(func.sum(Articolo.m2), 0).label("m2"),
+                func.coalesce(func.sum(Articolo.m3), 0).label("m3"),
+            )
+            .filter(
+                func.upper(Articolo.cliente) == cliente,
+                (Articolo.data_uscita == None) | (Articolo.data_uscita == "")
+            )
+            .group_by(*group_cols)
+            .order_by(key_expr)
+            .limit(5000)
+            .all()
+        )
 
-            if not k:
-                k = "(vuoto)"
-
-            if k not in agg:
-                agg[k] = {
-                    "key": k,
-                    "codice": a.codice_articolo,
-                    "descrizione": a.descrizione,
-                    "lotto": a.lotto,
-                    "serial_number": a.serial_number if raggruppa == "serial" else "",
-                    "righe": 0,
-                    "colli": 0,
-                    "peso": 0.0,
-                    "m2": 0.0,
-                    "m3": 0.0,
-                }
-
-            rec = agg[k]
-            rec["righe"] += 1
-            rec["colli"] += int(a.n_colli or 0)
-            rec["peso"] += float(a.peso or 0.0)
-            rec["m2"] += float(a.m2 or 0.0)
-            rec["m3"] += float(a.m3 or 0.0)
-
-        items = list(agg.values())
-        # ordinamento stabile
-        items.sort(key=lambda r: (r.get("codice") or "", r.get("lotto") or "", r.get("serial_number") or ""))
+        items = []
+        for r in rows:
+            items.append({
+                "key": r.key,
+                "codice": r.codice,
+                "descrizione": r.descrizione,
+                "lotto": r.lotto,
+                "serial_number": r.serial_number if raggruppa == "serial" else "",
+                "righe": int(r.righe or 0),
+                "colli": int(r.colli or 0),
+                "peso": float(r.peso or 0.0),
+                "m2": float(r.m2 or 0.0),
+                "m3": float(r.m3 or 0.0),
+            })
 
         return jsonify({
             "cliente": cliente,
@@ -616,8 +619,8 @@ def api_inventario():
 
 @app.route("/api/v1/movimenti", methods=["GET"])
 def api_movimenti():
-    """Movimenti (ingresso/uscita) ricostruiti dai campi dell'articolo.
-    Nota: non è un registro movimenti dedicato; ogni articolo genera al massimo 1 ingresso e 1 uscita.
+    """Movimenti ingresso/uscita del cliente API.
+    Versione ottimizzata: seleziona solo le colonne necessarie e applica un limite di sicurezza.
     """
     cliente = _api_get_cliente_from_key()
     if not cliente:
@@ -630,30 +633,43 @@ def api_movimenti():
 
     da = to_date_db(request.args.get("da"))
     a = to_date_db(request.args.get("a"))
-    # a inclusiva: la convertiamo in fine giornata
-    if a:
-        a_dt = datetime.combine(a, datetime.max.time())
-    else:
-        a_dt = None
+    try:
+        limit = int(request.args.get("limit") or 1000)
+    except Exception:
+        limit = 1000
+    limit = max(1, min(limit, 3000))
 
     db = SessionLocal()
     try:
-        rows = db.query(Articolo).filter(func.upper(Articolo.cliente) == cliente).all()
+        q = db.query(
+            Articolo.id_articolo,
+            Articolo.codice_articolo,
+            Articolo.descrizione,
+            Articolo.lotto,
+            Articolo.serial_number,
+            Articolo.n_colli,
+            Articolo.peso,
+            Articolo.m2,
+            Articolo.m3,
+            Articolo.n_ddt_ingresso,
+            Articolo.n_ddt_uscita,
+            Articolo.magazzino,
+            Articolo.posizione,
+            Articolo.data_ingresso,
+            Articolo.data_uscita,
+        ).filter(func.upper(Articolo.cliente) == cliente)
+
+        if lotto:
+            q = q.filter(Articolo.lotto == lotto)
+
+        # Limite più alto perché ogni riga può generare ingresso + uscita; evita letture enormi.
+        rows = q.order_by(Articolo.id_articolo.desc()).limit(limit * 2).all()
 
         out = []
         for art in rows:
-            if lotto and (str(art.lotto or "").strip() != lotto):
-                continue
-
-            # ingresso
             d_in = to_date_db(art.data_ingresso)
             if d_in and tipo in ("ingresso", "tutti"):
-                dt_in = datetime.combine(d_in, datetime.min.time())
-                if da and dt_in < datetime.combine(da, datetime.min.time()):
-                    pass
-                elif a_dt and dt_in > a_dt:
-                    pass
-                else:
+                if (not da or d_in >= da) and (not a or d_in <= a):
                     out.append({
                         "data": d_in.isoformat(),
                         "tipo": "ingresso",
@@ -671,15 +687,9 @@ def api_movimenti():
                         "posizione": art.posizione,
                     })
 
-            # uscita
             d_out = to_date_db(art.data_uscita)
             if d_out and tipo in ("uscita", "tutti"):
-                dt_out = datetime.combine(d_out, datetime.min.time())
-                if da and dt_out < datetime.combine(da, datetime.min.time()):
-                    pass
-                elif a_dt and dt_out > a_dt:
-                    pass
-                else:
+                if (not da or d_out >= da) and (not a or d_out <= a):
                     out.append({
                         "data": d_out.isoformat(),
                         "tipo": "uscita",
@@ -697,21 +707,18 @@ def api_movimenti():
                         "posizione": art.posizione,
                     })
 
-        # sort per data desc
-        def _key(r):
-            try:
-                return r.get("data") or ""
-            except Exception:
-                return ""
-        out.sort(key=_key, reverse=True)
+        out.sort(key=lambda r: r.get("data") or "", reverse=True)
+        out = out[:limit]
 
         return jsonify({
             "cliente": cliente,
             "count": len(out),
+            "limit": limit,
             "items": out
         })
     finally:
         db.close()
+
 
 
 
@@ -8570,11 +8577,18 @@ def edit_row(id):
 @login_required
 def media(att_id):
     db = SessionLocal()
-    att = db.get(Attachment, att_id)
-    if not att: abort(404)
-    path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / att.filename
+    try:
+        att = db.get(Attachment, att_id)
+        if not att:
+            abort(404)
+        filename = att.filename
+        kind = att.kind
+    finally:
+        db.close()
+
+    path = (DOCS_DIR if kind == 'doc' else PHOTOS_DIR) / filename
     if not path.exists():
-        flash(f"File allegato non trovato sul server: {att.filename}", "danger")
+        flash(f"File allegato non trovato sul server: {filename}", "danger")
         return redirect(request.referrer or url_for('giacenze'))
     return send_file(path, as_attachment=False)
 
@@ -8877,74 +8891,86 @@ def bulk_delete():
     if not ids:
         flash("Nessun articolo selezionato per l'eliminazione.", "warning")
         return redirect(url_for('giacenze'))
-    
-    db = SessionLocal()
-    articoli_da_eliminare = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-    for art in articoli_da_eliminare:
-        for att in art.attachments:
-            path = (DOCS_DIR if att.kind=='doc' else PHOTOS_DIR) / att.filename
-            try:
-                if path.exists(): path.unlink()
-            except Exception: pass
 
-    db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).delete(synchronize_session=False)
-    db.commit()
-    flash(f"{len(ids)} articoli e i loro allegati sono stati eliminati.", "success")
+    db = SessionLocal()
+    try:
+        articoli_da_eliminare = (
+            db.query(Articolo)
+            .options(selectinload(Articolo.attachments))
+            .filter(Articolo.id_articolo.in_(ids))
+            .all()
+        )
+        for art in articoli_da_eliminare:
+            for att in art.attachments:
+                path = (DOCS_DIR if att.kind == 'doc' else PHOTOS_DIR) / att.filename
+                try:
+                    if path.exists():
+                        path.unlink()
+                except Exception:
+                    pass
+
+        db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).delete(synchronize_session=False)
+        db.commit()
+        flash(f"{len(ids)} articoli e i loro allegati sono stati eliminati.", "success")
+    except Exception as e:
+        db.rollback()
+        flash(f"Errore eliminazione multipla: {e}", "danger")
+    finally:
+        db.close()
     return redirect(url_for('giacenze'))
 
 @app.post('/bulk/duplicate')
 @login_required
 @require_admin
 def bulk_duplicate():
-    # Controllo Permessi
     if session.get('role') != 'admin':
         flash("Non hai i permessi per duplicare.", "danger")
         return redirect(url_for('giacenze'))
 
-    ids = request.form.getlist('ids')
+    ids = [int(i) for i in request.form.getlist('ids') if str(i).isdigit()]
     if not ids:
         flash("Nessun articolo selezionato.", "warning")
         return redirect(url_for('giacenze'))
 
     db = SessionLocal()
     try:
+        originals = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
         count = 0
-        for id_str in ids:
-            if not id_str.isdigit(): continue
-            original = db.query(Articolo).get(int(id_str))
-            if original:
-                # Clona tutti i campi tranne ID
-                new_art = Articolo(
-                    codice_articolo=original.codice_articolo,
-                    descrizione=original.descrizione,
-                    cliente=original.cliente,
-                    fornitore=original.fornitore,
-                    commessa=original.commessa,
-                    protocollo=original.protocollo,
-                    buono_n=original.buono_n,
-                    ordine=original.ordine,
-                    lotto=original.lotto,
-                    data_ingresso=original.data_ingresso,
-                    n_ddt_ingresso=original.n_ddt_ingresso,
-                    data_uscita=original.data_uscita,
-                    n_ddt_uscita=original.n_ddt_uscita,
-                    pezzo=original.pezzo,
-                    n_colli=original.n_colli,
-                    peso=original.peso,
-                    lunghezza=original.lunghezza,
-                    larghezza=original.larghezza,
-                    altezza=original.altezza,
-                    m2=original.m2,
-                    m3=original.m3,
-                    n_arrivo=original.n_arrivo,
-                    codice_entrata=original.codice_entrata,
-                    stato=original.stato,
-                    magazzino=original.magazzino,
-                    posizione=original.posizione,
-                    note=original.note
-                )
-                db.add(new_art)
-                count += 1
+        for original in originals:
+            new_art = Articolo(
+                codice_articolo=original.codice_articolo,
+                descrizione=original.descrizione,
+                cliente=original.cliente,
+                fornitore=original.fornitore,
+                commessa=original.commessa,
+                protocollo=original.protocollo,
+                buono_n=original.buono_n,
+                ordine=original.ordine,
+                lotto=original.lotto,
+                data_ingresso=original.data_ingresso,
+                n_ddt_ingresso=original.n_ddt_ingresso,
+                data_uscita=original.data_uscita,
+                n_ddt_uscita=original.n_ddt_uscita,
+                pezzo=original.pezzo,
+                n_colli=original.n_colli,
+                peso=original.peso,
+                lunghezza=original.lunghezza,
+                larghezza=original.larghezza,
+                altezza=original.altezza,
+                m2=original.m2,
+                m3=original.m3,
+                n_arrivo=original.n_arrivo,
+                codice_entrata=original.codice_entrata,
+                stato=original.stato,
+                magazzino=original.magazzino,
+                posizione=original.posizione,
+                note=original.note,
+                serial_number=original.serial_number,
+                ns_rif=original.ns_rif,
+                mezzi_in_uscita=original.mezzi_in_uscita,
+            )
+            db.add(new_art)
+            count += 1
         db.commit()
         flash(f"{count} articoli duplicati.", "success")
     except Exception as e:
@@ -8953,11 +8979,28 @@ def bulk_duplicate():
     finally:
         db.close()
     return redirect(url_for('giacenze'))
+
 # --- ANTEPRIME HTML (BUONO / DDT) ---
 def _get_rows_from_ids(ids_list):
-    if not ids_list: return []
-    db=SessionLocal()
-    return db.query(Articolo).filter(Articolo.id_articolo.in_(ids_list)).all()
+    if not ids_list:
+        return []
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(Articolo)
+            .options(selectinload(Articolo.attachments))
+            .filter(Articolo.id_articolo.in_(ids_list))
+            .all()
+        )
+        # stacca i dati scalari/allegati prima di chiudere la sessione
+        for r in rows:
+            try:
+                r.attachments = list(r.attachments or [])
+            except Exception:
+                pass
+        return rows
+    finally:
+        db.close()
 
 # Route /buono/preview spostata in routes/buono.py
 
