@@ -122,7 +122,53 @@ def register_chatbot_routes(app_obj, deps):
         return q
 
     def _active_filter(q):
-        return q.filter((Articolo.data_uscita == None) | (Articolo.data_uscita == ""))
+        # Considera in giacenza anche valori NULL, vuoti o composti solo da spazi.
+        return q.filter((Articolo.data_uscita == None) | (func.trim(Articolo.data_uscita) == ""))
+
+    def _norm_key(value):
+        try:
+            return normalize_text_key(value)
+        except Exception:
+            return re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
+
+    def _cliente_expr_norm():
+        try:
+            return normalized_sql_text(Articolo.cliente)
+        except Exception:
+            expr = func.upper(func.trim(Articolo.cliente))
+            for ch in [" ", ".", "-", "_", "/", "\\"]:
+                expr = func.replace(expr, ch, "")
+            return expr
+
+    def _detect_cliente_from_msg(msg):
+        """Trova il cliente citato nella domanda usando il match più specifico.
+        Esempio: DE WAVE SAMA deve prevalere su DE WAVE.
+        """
+        if _user_role() == "client":
+            return None
+        msg_norm = _norm_key(msg)
+        if not msg_norm:
+            return None
+
+        try:
+            clienti = get_clienti_utenti() or []
+        except Exception:
+            clienti = []
+
+        # Ordina dal nome più lungo al più corto per evitare match sbagliati
+        # tipo DE WAVE prima di DE WAVE SAMA.
+        clienti = sorted(clienti, key=lambda c: len(_norm_key(c)), reverse=True)
+        for cli in clienti:
+            cli_norm = _norm_key(cli)
+            if cli_norm and cli_norm in msg_norm:
+                return cli
+        return None
+
+    def _apply_cliente_from_msg(q, msg):
+        cli = _detect_cliente_from_msg(msg)
+        if cli:
+            q = q.filter(_cliente_expr_norm() == _norm_key(cli))
+        return q, cli
 
     def _extract_search_text(msg):
         s = (msg or "").strip()
@@ -151,14 +197,9 @@ def register_chatbot_routes(app_obj, deps):
 
     def _answer_totals(db, msg):
         q = _active_filter(_base_query(db))
-        msg_u = (msg or "").upper()
 
         # filtro cliente testuale per admin/magazzino, senza toccare client.
-        if _user_role() != "client":
-            for cli in get_clienti_utenti():
-                if cli and cli.upper() in msg_u:
-                    q = q.filter(func.upper(Articolo.cliente) == cli.upper())
-                    break
+        q, cliente_match = _apply_cliente_from_msg(q, msg)
 
         rec = q.with_entities(
             func.count(Articolo.id_articolo),
@@ -168,8 +209,13 @@ def register_chatbot_routes(app_obj, deps):
             func.coalesce(func.sum(Articolo.m3), 0),
         ).first()
         righe, colli, peso, m2, m3 = rec or (0, 0, 0, 0, 0)
+
+        titolo = "Situazione giacenze attive"
+        if cliente_match:
+            titolo += f" - {cliente_match}"
+
         return (
-            f"Situazione giacenze attive:\n"
+            f"{titolo}:\n"
             f"• Righe: {int(righe or 0)}\n"
             f"• Colli: {int(colli or 0)}\n"
             f"• Peso totale: {_fmt_num(peso)} kg\n"
@@ -181,6 +227,11 @@ def register_chatbot_routes(app_obj, deps):
         term = _extract_search_text(msg)
         if not term or len(term) < 2:
             return "Scrivimi cosa devo cercare, ad esempio: cerca ARRIVO 24/25 oppure cerca codice ABC123."
+
+        cliente_match = _detect_cliente_from_msg(msg)
+        # Se la domanda contiene solo un cliente e parla di giacenze, rispondi con il riepilogo.
+        if cliente_match and any(w in (msg or "").lower() for w in ["giacenza", "giacenze", "magazzino", "colli", "peso", "m2", "m3"]):
+            return _answer_totals(db, msg)
 
         like = f"%{term}%"
         q = _base_query(db).filter(or_(
