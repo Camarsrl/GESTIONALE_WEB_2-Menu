@@ -951,7 +951,7 @@ def register_chatbot_routes(app_obj, deps):
         codice_buono = data.get("codice_buono") or data.get("codice") or art.codice_articolo or ""
         n_buono = (data.get("buono") or "").strip()
         n_arrivo_base = strip_arrivo_progressivo(art.n_arrivo)
-        colli_originali = _as_int_safe(getattr(art, "n_colli", None), 1) or 1
+        colli_originali = 1  # CAMY: pallet/collo non divisibile, entrambe le righe restano con colli = 1
 
         codice_entrata = ensure_codice_entrata(
             getattr(art, "codice_entrata", None),
