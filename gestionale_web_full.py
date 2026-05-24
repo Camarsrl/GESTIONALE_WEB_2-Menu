@@ -9614,6 +9614,21 @@ def pwa_offline():
     return "Gestionale Camar: connessione assente. Riapri quando torna internet.", 200
 
 
+
+# ========================================================
+#  REGISTRAZIONE MODULO DASHBOARD HOME
+# ========================================================
+try:
+    from routes.dashboard_home import register_dashboard_home_routes
+    register_dashboard_home_routes(app, globals())
+    print("[OK] modulo dashboard home registrato")
+except Exception as e:
+    try:
+        scrivi_log_errore("Modulo dashboard home non registrato", e)
+    except Exception:
+        pass
+    print(f"[WARN] modulo dashboard home non registrato: {e}")
+
 # ========================================================
 #  REGISTRAZIONE MODULO BACKUP
 # ========================================================
