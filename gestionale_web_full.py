@@ -43,7 +43,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 # Database (SQLAlchemy)
-from sqlalchemy import create_engine, Column, Integer, String, Text, Float, Date, ForeignKey, Boolean, or_, Identity, text, Index, inspect
+from sqlalchemy import create_engine, Column, Integer, String, Text, Float, Date, ForeignKey, Boolean, or_, Identity, text, Index, inspect, case
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session, selectinload
 from sqlalchemy.sql import func
 from sqlalchemy.exc import IntegrityError
@@ -2400,6 +2400,15 @@ HOME_HTML = """
     border-left-color:#0d6efd;
     background:#eef5ff;
 }
+.home-client-table th,
+.home-client-table td{
+    font-size:13px;
+    vertical-align:middle;
+}
+.home-client-table tfoot td{
+    font-weight:700;
+    background:#f8f9fa;
+}
 </style>
 
 <div class="container-fluid py-3">
@@ -2470,25 +2479,37 @@ HOME_HTML = """
     </div>
 
     <div class="row g-3 mb-3">
-        <div class="col-md-6 col-xl-3">
+        <div class="col-md-6 col-xl-2">
             <div class="card home-kpi-card p-3">
-                <div class="text-muted small">Articoli doganali in giacenza</div>
+                <div class="text-muted small">Articoli doganali</div>
                 <div class="home-kpi-value">{{ dashboard.doganali }}</div>
             </div>
         </div>
-        <div class="col-md-6 col-xl-3">
+        <div class="col-md-6 col-xl-2">
             <div class="card home-kpi-card p-3">
                 <div class="text-muted small">Buoni QR aperti</div>
                 <div class="home-kpi-value">{{ dashboard.buoni_aperti }}</div>
             </div>
         </div>
-        <div class="col-md-6 col-xl-3">
+        <div class="col-md-6 col-xl-2">
+            <div class="card home-kpi-card p-3">
+                <div class="text-muted small">Buoni creati</div>
+                <div class="home-kpi-value">{{ dashboard.buoni_creati }}</div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-2">
+            <div class="card home-kpi-card p-3">
+                <div class="text-muted small">Buoni usciti</div>
+                <div class="home-kpi-value">{{ dashboard.buoni_usciti }}</div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-2">
             <div class="card home-kpi-card p-3">
                 <div class="text-muted small">Peso in giacenza</div>
                 <div class="home-kpi-value">{{ dashboard.tot_peso|it_num(2) }}</div>
             </div>
         </div>
-        <div class="col-md-6 col-xl-3">
+        <div class="col-md-6 col-xl-2">
             <div class="card home-kpi-card p-3">
                 <div class="text-muted small">Colli in giacenza</div>
                 <div class="home-kpi-value">{{ dashboard.tot_colli }}</div>
@@ -2520,6 +2541,60 @@ HOME_HTML = """
         </div>
     </div>
     {% endif %}
+
+    <div class="card home-section-card p-3 mb-3">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <h5 class="m-0"><i class="bi bi-people-fill text-primary"></i> Giacenza per cliente</h5>
+            <span class="badge bg-primary">{{ dashboard_clienti|length }} clienti</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-striped home-client-table mb-0">
+                <thead>
+                    <tr>
+                        <th>Cliente</th>
+                        <th class="text-end">Righe</th>
+                        <th class="text-end">Colli</th>
+                        <th class="text-end">M²</th>
+                        <th class="text-end">Peso kg</th>
+                        <th class="text-end">Buoni aperti</th>
+                        <th class="text-end">Buoni creati</th>
+                        <th class="text-end">Buoni usciti</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in dashboard_clienti %}
+                    <tr>
+                        <td>{{ r.cliente }}</td>
+                        <td class="text-end">{{ r.righe }}</td>
+                        <td class="text-end">{{ r.colli }}</td>
+                        <td class="text-end">{{ r.m2|it_num(2) }}</td>
+                        <td class="text-end">{{ r.peso|it_num(2) }}</td>
+                        <td class="text-end">{{ r.buoni_aperti }}</td>
+                        <td class="text-end">{{ r.buoni_creati }}</td>
+                        <td class="text-end">{{ r.buoni_usciti }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-muted text-center py-3">Nessuna giacenza attiva.</td></tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td>Totale</td>
+                        <td class="text-end">{{ dashboard.tot_giacenza }}</td>
+                        <td class="text-end">{{ dashboard.tot_colli }}</td>
+                        <td class="text-end">{{ dashboard.tot_m2|it_num(2) }}</td>
+                        <td class="text-end">{{ dashboard.tot_peso|it_num(2) }}</td>
+                        <td class="text-end">{{ dashboard.buoni_aperti }}</td>
+                        <td class="text-end">{{ dashboard.buoni_creati }}</td>
+                        <td class="text-end">{{ dashboard.buoni_usciti }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        <div class="text-muted small mt-2">
+            I colli sono calcolati solo sulle righe ancora in giacenza. Se un articolo ha colli vuoti o pari a 0, viene conteggiato come 0.
+        </div>
+    </div>
 
     <div class="row g-3">
         <div class="col-xl-3">
@@ -5582,19 +5657,29 @@ def home():
                 func.upper(func.coalesce(Articolo.stato, '')).like('%DOGANA%')
             ]),
             'buoni_aperti': 0,
+            'buoni_creati': 0,
+            'buoni_usciti': 0,
         }
 
-        try:
-            q_buoni = db.query(func.count(BuonoCarico.id)).filter(
-                ~func.upper(func.coalesce(BuonoCarico.stato, '')).in_(
-                    ['CARICATO', 'CHIUSO', 'COMPLETATO', 'ELIMINATO']
-                )
-            )
+        def _buoni_base_query():
+            q = db.query(func.count(BuonoCarico.id))
             if cliente_corrente:
-                q_buoni = q_buoni.filter(func.upper(BuonoCarico.cliente) == cliente_corrente.upper())
-            dashboard['buoni_aperti'] = int(q_buoni.scalar() or 0)
+                q = q.filter(func.upper(func.coalesce(BuonoCarico.cliente, '')) == cliente_corrente.upper())
+            return q
+
+        try:
+            stato_buono = func.upper(func.coalesce(BuonoCarico.stato, ''))
+            dashboard['buoni_creati'] = int(_buoni_base_query().filter(~stato_buono.in_(['ELIMINATO'])).scalar() or 0)
+            dashboard['buoni_aperti'] = int(_buoni_base_query().filter(
+                ~stato_buono.in_(['CARICATO', 'CHIUSO', 'COMPLETATO', 'ELIMINATO'])
+            ).scalar() or 0)
+            dashboard['buoni_usciti'] = int(_buoni_base_query().filter(
+                stato_buono.in_(['CARICATO', 'CHIUSO', 'COMPLETATO'])
+            ).scalar() or 0)
         except Exception:
             dashboard['buoni_aperti'] = 0
+            dashboard['buoni_creati'] = 0
+            dashboard['buoni_usciti'] = 0
 
         # Ultimi movimenti: carica poche colonne e pochi record, non tutti gli articoli.
         movimenti = []
@@ -5805,9 +5890,79 @@ def home():
             key=lambda x: (level_order.get(x.get('level'), 9), -int(x.get('count') or 0))
         )
 
+        # ========================================================
+        # RIEPILOGO GIACENZE PER CLIENTE
+        # ========================================================
+        dashboard_clienti = []
+        try:
+            rows_clienti = (
+                db.query(
+                    func.coalesce(Articolo.cliente, '').label('cliente'),
+                    func.count(Articolo.id_articolo).label('righe'),
+                    func.coalesce(func.sum(Articolo.n_colli), 0).label('colli'),
+                    func.coalesce(func.sum(Articolo.m2), 0).label('m2'),
+                    func.coalesce(func.sum(Articolo.peso), 0).label('peso'),
+                )
+                .filter(*active_filter)
+                .group_by(func.coalesce(Articolo.cliente, ''))
+                .order_by(func.coalesce(Articolo.cliente, '').asc())
+                .all()
+            )
+
+            # Precalcolo buoni per cliente, così non faccio query dentro al template.
+            buoni_by_cliente = {}
+            try:
+                stato_b = func.upper(func.coalesce(BuonoCarico.stato, ''))
+                q_b = db.query(
+                    func.coalesce(BuonoCarico.cliente, '').label('cliente'),
+                    func.count(BuonoCarico.id).label('creati'),
+                    func.sum(
+                        case(
+                            (stato_b.in_(['CARICATO', 'CHIUSO', 'COMPLETATO']), 1),
+                            else_=0
+                        )
+                    ).label('usciti'),
+                    func.sum(
+                        case(
+                            (~stato_b.in_(['CARICATO', 'CHIUSO', 'COMPLETATO', 'ELIMINATO']), 1),
+                            else_=0
+                        )
+                    ).label('aperti'),
+                ).filter(~stato_b.in_(['ELIMINATO']))
+
+                if cliente_corrente:
+                    q_b = q_b.filter(func.upper(func.coalesce(BuonoCarico.cliente, '')) == cliente_corrente.upper())
+
+                for cli_b, creati, usciti, aperti in q_b.group_by(func.coalesce(BuonoCarico.cliente, '')).all():
+                    key = (cli_b or '').strip().upper()
+                    buoni_by_cliente[key] = {
+                        'buoni_creati': int(creati or 0),
+                        'buoni_usciti': int(usciti or 0),
+                        'buoni_aperti': int(aperti or 0),
+                    }
+            except Exception:
+                buoni_by_cliente = {}
+
+            for cli, righe, colli, m2_val, peso_val in rows_clienti:
+                nome_cli = (cli or 'SENZA CLIENTE').strip() or 'SENZA CLIENTE'
+                dati_b = buoni_by_cliente.get(nome_cli.upper(), {})
+                dashboard_clienti.append({
+                    'cliente': nome_cli,
+                    'righe': int(righe or 0),
+                    'colli': int(colli or 0),
+                    'm2': float(m2_val or 0),
+                    'peso': float(peso_val or 0),
+                    'buoni_aperti': int(dati_b.get('buoni_aperti', 0) or 0),
+                    'buoni_creati': int(dati_b.get('buoni_creati', 0) or 0),
+                    'buoni_usciti': int(dati_b.get('buoni_usciti', 0) or 0),
+                })
+        except Exception:
+            dashboard_clienti = []
+
         return render_template(
             'home.html',
             dashboard=dashboard,
+            dashboard_clienti=dashboard_clienti,
             dashboard_alerts=dashboard_alerts,
             ultimi_movimenti=ultimi_movimenti,
             today=today_obj,
