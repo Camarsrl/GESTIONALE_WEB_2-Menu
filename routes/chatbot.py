@@ -74,14 +74,14 @@ def register_chatbot_routes(app_obj, deps):
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Entrate oggi')">Entrate oggi</button>
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Uscite oggi')">Uscite oggi</button>
             <button class="btn btn-sm btn-outline-primary" onclick="fillQuick('Cerca ARRIVO ')">Cerca N. arrivo</button>
-            <button class="btn btn-sm btn-outline-warning" onclick="fillQuick('CAMY prepara buono codice  arrivo  pezzi  cliente ')">Prepara Buono</button>
+            <button class="btn btn-sm btn-outline-warning" onclick="openCamyBuonoForm()">Prepara Buono</button>
             <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come creo un DDT?')">Guida DDT</button>
             <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come faccio un buono QR?')">Guida Buono QR</button>
             <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come stampo una etichetta?')">Guida Etichette</button>
           </div>
 
           <div id="chatBox" class="chat-box mb-3">
-            <div class="msg bot"><div class="bubble">Ciao, sono CAMY, l’assistente del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• cerca ARRIVO seguito dal numero<br>• dove si trova il codice ABC123<br>• come creo un DDT?<br>• come faccio un buono QR?<br>• come stampo una etichetta?</div></div>
+            <div class="msg bot"><div class="bubble">Ciao, sono CAMY, l’assistente del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• cerca ARRIVO seguito dal numero<br>• dove si trova il codice ABC123<br>• come creo un DDT?<br>• prepara buono guidato<br>• come faccio un buono QR?<br>• come stampo una etichetta?</div></div>
           </div>
 
           <div class="input-group chat-input-mobile">
@@ -90,6 +90,26 @@ def register_chatbot_routes(app_obj, deps):
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- FORM GUIDATO CAMY: evita errori di testo libero nelle operazioni delicate -->
+    <div class="modal fade" id="camyBuonoModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">🤖 CAMY - Prepara Buono</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div>
+        <div class="modal-body">
+          <div class="alert alert-warning small mb-3">CAMY prepara solo una proposta. La riga viene modificata solo dopo la conferma finale.</div>
+          <div class="row g-2">
+            <div class="col-md-6"><label class="form-label small">Cliente *</label><input id="camyCliente" class="form-control" placeholder="es. FINCANTIERI"></div>
+            <div class="col-md-6"><label class="form-label small">N. Arrivo *</label><input id="camyArrivo" class="form-control" placeholder="es. 200/26"></div>
+            <div class="col-md-6"><label class="form-label small">Codice articolo richiesto *</label><input id="camyCodice" class="form-control" placeholder="es. CB050CF"></div>
+            <div class="col-md-3"><label class="form-label small">Pezzi/Colli *</label><input id="camyPezzi" class="form-control" type="number" min="1" value="1"></div>
+            <div class="col-md-3"><label class="form-label small">Package / Cassa</label><input id="camyPackage" class="form-control" placeholder="opzionale"></div>
+            <div class="col-md-6"><label class="form-label small">Buono esistente</label><input id="camyBuono" class="form-control" placeholder="opzionale: ID o BC-2026-0001"></div>
+          </div>
+          <div class="text-muted small mt-3">Il controllo usa sempre <b>codice articolo + N. arrivo</b>. Se la riga contiene più codici, CAMY prepara lo split riga.</div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-warning" onclick="sendBuonoForm()">Prepara proposta</button></div>
+      </div></div>
     </div>
 
     <script>
@@ -145,6 +165,30 @@ def register_chatbot_routes(app_obj, deps):
         input.value = text;
         input.focus();
         input.setSelectionRange(input.value.length, input.value.length);
+      }
+      function openCamyBuonoForm(){
+        const el = document.getElementById('camyBuonoModal');
+        if(window.bootstrap && el){
+          const modal = bootstrap.Modal.getOrCreateInstance(el);
+          modal.show();
+          setTimeout(() => { const c = document.getElementById('camyCliente'); if(c) c.focus(); }, 250);
+        } else {
+          fillQuick('CAMY PREPARA BUONO\nCLIENTE: \nCODICE: \nARRIVO: \nPEZZI: 1\nPACKAGE: \nBUONO: ');
+        }
+      }
+      function sendBuonoForm(){
+        const cliente = (document.getElementById('camyCliente')?.value || '').trim();
+        const codice = (document.getElementById('camyCodice')?.value || '').trim();
+        const arrivo = (document.getElementById('camyArrivo')?.value || '').trim();
+        const pezzi = (document.getElementById('camyPezzi')?.value || '1').trim();
+        const pkg = (document.getElementById('camyPackage')?.value || '').trim();
+        const buono = (document.getElementById('camyBuono')?.value || '').trim();
+        if(!cliente || !codice || !arrivo || !pezzi){ alert('Compila cliente, codice, arrivo e pezzi.'); return; }
+        const cmd = ['CAMY PREPARA BUONO','CLIENTE: '+cliente,'CODICE: '+codice,'ARRIVO: '+arrivo,'PEZZI: '+pezzi,pkg ? ('PACKAGE: '+pkg) : '',buono ? ('BUONO: '+buono) : ''].filter(Boolean).join('\n');
+        const el = document.getElementById('camyBuonoModal');
+        if(window.bootstrap && el){ bootstrap.Modal.getOrCreateInstance(el).hide(); }
+        document.getElementById('chatInput').value = cmd;
+        sendMsg();
       }
       async function confirmCamyBuono(token){
         if(!token) return;
@@ -627,18 +671,24 @@ def register_chatbot_routes(app_obj, deps):
         """
         text = (msg or "").strip()
 
+        def field(label):
+            # Supporta form guidato tipo: CLIENTE: ... / CODICE: ... / ARRIVO: ...
+            m = re.search(rf"^\s*{label}\s*:\s*(.+?)\s*$", text, flags=re.I | re.M)
+            return (m.group(1).strip() if m else "")
+
         def rx(pattern):
             m = re.search(pattern, text, flags=re.I)
             return (m.group(1).strip() if m else "")
 
-        codice = rx(r"\bcodice(?:\s+articolo)?\s+(.+?)(?=\s+arrivo\b|\s+n\.\s*arrivo\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
-        arrivo = rx(r"\b(?:n\.\s*)?arrivo\s+(.+?)(?=\s+codice\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
-        cliente = _detect_cliente(text) or rx(r"\bcliente\s+(.+?)(?=\s+codice\b|\s+arrivo\b|\s+pezzi\b|\s+colli\b|\s+buono\b|$)")
-        buono = rx(r"\bbuono\s+((?:BC-)?\d{4}-\d+|BC[-\w]+|\d+)\b")
-        package = rx(r"\b(?:package|pkg|cassa)\s+([A-Z0-9\-_/\.]+)")
+        codice = field("codice(?:\s+articolo)?") or rx(r"\bcodice(?:\s+articolo)?\s+(.+?)(?=\s+arrivo\b|\s+n\.\s*arrivo\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
+        arrivo = field("(?:n\.?\s*)?arrivo") or rx(r"\b(?:n\.\s*)?arrivo\s+(.+?)(?=\s+codice\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
+        cliente = field("cliente") or _detect_cliente(text) or rx(r"\bcliente\s+(.+?)(?=\s+codice\b|\s+arrivo\b|\s+pezzi\b|\s+colli\b|\s+buono\b|$)")
+        buono = field("buono") or rx(r"\bbuono\s+((?:BC-)?\d{4}-\d+|BC[-\w]+|\d+)\b")
+        package = field("(?:package|pkg|cassa)") or rx(r"\b(?:package|pkg|cassa)\s+([A-Z0-9\-_/\.]+)")
 
         pezzi = 1
-        m = re.search(r"\bpezzi\s+(\d+)\b", text, flags=re.I)
+        pezzi_field = field("(?:pezzi|colli)")
+        m = re.search(r"(\d+)", pezzi_field) if pezzi_field else re.search(r"\bpezzi\s+(\d+)\b", text, flags=re.I)
         if not m:
             m = re.search(r"\bcolli\s+(\d+)\b", text, flags=re.I)
         if m:
@@ -720,7 +770,7 @@ def register_chatbot_routes(app_obj, deps):
         arrivo = (data.get("arrivo") or "").strip()
         cliente = (data.get("cliente") or "").strip()
         if not codice or not arrivo:
-            return [], "Per preparare il buono mi servono sempre <b>codice articolo</b> e <b>N. arrivo</b>."
+            return [], "Per preparare il buono mi servono sempre <b>codice articolo</b> e <b>N. arrivo</b>. Usa il pulsante <b>Prepara Buono</b> per compilare il form guidato."
 
         q = _active_filter(_base_query(db))
         code_like = f"%{codice}%"
