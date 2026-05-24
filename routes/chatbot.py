@@ -40,12 +40,14 @@ def register_chatbot_routes(app_obj, deps):
       .bot-result:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
       .bot-link { display:inline-block; margin-top:5px; font-size: 12px; }
       .chat-input-mobile { position: sticky; bottom: 0; background: #fff; padding-top: 8px; }
+      .camy-form-box { display:none; border:1px solid #ffc107; background:#fffdf2; border-radius:12px; padding:12px; margin-bottom:10px; }
+      .camy-form-box label { font-size:12px; font-weight:600; color:#555; }
       @media (max-width: 768px) {
         body { background: #fff; }
         .chat-card { margin: 0; border-radius: 0; min-height: calc(100vh - 56px); }
         .chat-card .card-header { position: sticky; top: 0; z-index: 3; background: #fff; }
         .chat-card .card-body { padding: 10px; display: flex; flex-direction: column; min-height: calc(100vh - 120px); }
-        .chat-box { height: calc(100vh - 285px); min-height: 360px; border-radius: 10px; padding: 10px; }
+        .chat-box { height: calc(100vh - 360px); min-height: 320px; border-radius: 10px; padding: 10px; }
         .bubble { max-width: 92%; font-size: 14px; }
         .quick { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; }
         .quick button { white-space: nowrap; min-height: 42px; font-size: 13px; }
@@ -62,59 +64,59 @@ def register_chatbot_routes(app_obj, deps):
             <small class="text-muted">Puoi chiedere giacenze, arrivi, DDT, colli, peso, M2 e guide operative.</small>
           </div>
           <div class="d-flex gap-2">
-            <button id="installPwaBtn" class="btn btn-outline-primary btn-sm" style="display:none;">Installa</button>
+            <button id="installPwaBtn" type="button" class="btn btn-outline-primary btn-sm" style="display:none;">Installa</button>
             <a href="{{ url_for('home') }}" class="btn btn-outline-secondary btn-sm">Home</a>
           </div>
         </div>
 
         <div class="card-body">
-          <div class="quick mb-2">
-            <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Quante giacenze ho ancora in magazzino?')">Giacenze attive</button>
-            <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Totale colli e peso in giacenza')">Totale colli/peso</button>
-            <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Entrate oggi')">Entrate oggi</button>
-            <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Uscite oggi')">Uscite oggi</button>
-            <button class="btn btn-sm btn-outline-primary" onclick="fillQuick('Cerca ARRIVO ')">Cerca N. arrivo</button>
-            <button class="btn btn-sm btn-outline-warning" onclick="openCamyBuonoForm()">Prepara Buono</button>
-            <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come creo un DDT?')">Guida DDT</button>
-            <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come faccio un buono QR?')">Guida Buono QR</button>
-            <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come stampo una etichetta?')">Guida Etichette</button>
+          <div class="quick mb-2" id="quickButtons">
+            <button type="button" class="btn btn-sm btn-outline-primary" data-ask="Quante giacenze ho ancora in magazzino?">Giacenze attive</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-ask="Totale colli e peso in giacenza">Totale colli/peso</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-ask="Entrate oggi">Entrate oggi</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-ask="Uscite oggi">Uscite oggi</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-fill="Cerca ARRIVO ">Cerca N. arrivo</button>
+            <button type="button" class="btn btn-sm btn-outline-warning" id="openBuonoFormBtn">Prepara Buono</button>
+            <button type="button" class="btn btn-sm btn-outline-success" data-ask="Come creo un DDT?">Guida DDT</button>
+            <button type="button" class="btn btn-sm btn-outline-success" data-ask="Come faccio un buono QR?">Guida Buono QR</button>
+            <button type="button" class="btn btn-sm btn-outline-success" data-ask="Come stampo una etichetta?">Guida Etichette</button>
+          </div>
+
+          <div id="camyBuonoFormBox" class="camy-form-box">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <strong>Prepara buono guidato</strong>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="closeBuonoFormBtn">Chiudi</button>
+            </div>
+            <div class="row g-2">
+              <div class="col-md-3"><label>Cliente</label><input id="fCliente" class="form-control form-control-sm" placeholder="FINCANTIERI"></div>
+              <div class="col-md-3"><label>Codice articolo</label><input id="fCodice" class="form-control form-control-sm" placeholder="CB050CF"></div>
+              <div class="col-md-2"><label>N. arrivo</label><input id="fArrivo" class="form-control form-control-sm" placeholder="200/26"></div>
+              <div class="col-md-1"><label>Pezzi</label><input id="fPezzi" type="number" min="1" value="1" class="form-control form-control-sm"></div>
+              <div class="col-md-2"><label>Buono</label><input id="fBuono" class="form-control form-control-sm" placeholder="073-FADEM"></div>
+              <div class="col-md-1"><label>Package</label><input id="fPackage" class="form-control form-control-sm" placeholder=""></div>
+            </div>
+            <div class="mt-2 d-flex gap-2">
+              <button type="button" class="btn btn-warning btn-sm" id="submitBuonoFormBtn">Prepara proposta</button>
+              <span class="small text-muted align-self-center">CAMY mostrerà una bozza e chiederà conferma prima di modificare.</span>
+            </div>
           </div>
 
           <div id="chatBox" class="chat-box mb-3">
-            <div class="msg bot"><div class="bubble">Ciao, sono CAMY, l’assistente del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• cerca ARRIVO seguito dal numero<br>• dove si trova il codice ABC123<br>• come creo un DDT?<br>• prepara buono guidato<br>• come faccio un buono QR?<br>• come stampo una etichetta?</div></div>
+            <div class="msg bot"><div class="bubble">Ciao, sono CAMY, l’assistente del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• cerca ARRIVO seguito dal numero<br>• dove si trova il codice ABC123<br>• prepara buono guidato<br>• come creo un DDT?<br>• come faccio un buono QR?<br>• come stampo una etichetta?</div></div>
           </div>
 
-          <div class="input-group chat-input-mobile">
-            <input id="chatInput" type="text" class="form-control" placeholder="Scrivi una domanda..." onkeydown="if(event.key==='Enter'){sendMsg();}">
-            <button id="chatSendBtn" type="button" class="btn btn-primary" onclick="sendMsg()">Invia</button>
-          </div>
+          <form id="chatForm" class="input-group chat-input-mobile" autocomplete="off">
+            <input id="chatInput" type="text" class="form-control" placeholder="Scrivi una domanda...">
+            <button class="btn btn-primary" type="submit">Invia</button>
+          </form>
         </div>
       </div>
     </div>
 
-    <!-- FORM GUIDATO CAMY: evita errori di testo libero nelle operazioni delicate -->
-    <div class="modal fade" id="camyBuonoModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
-        <div class="modal-header"><h5 class="modal-title">🤖 CAMY - Prepara Buono</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div>
-        <div class="modal-body">
-          <div class="alert alert-warning small mb-3">CAMY prepara solo una proposta. La riga viene modificata solo dopo la conferma finale.</div>
-          <div class="row g-2">
-            <div class="col-md-6"><label class="form-label small">Cliente *</label><input id="camyCliente" class="form-control" placeholder="es. FINCANTIERI"></div>
-            <div class="col-md-6"><label class="form-label small">N. Arrivo *</label><input id="camyArrivo" class="form-control" placeholder="es. 200/26"></div>
-            <div class="col-md-6"><label class="form-label small">Codice articolo richiesto *</label><input id="camyCodice" class="form-control" placeholder="es. CB050CF"></div>
-            <div class="col-md-3"><label class="form-label small">Pezzi/Colli *</label><input id="camyPezzi" class="form-control" type="number" min="1" value="1"></div>
-            <div class="col-md-3"><label class="form-label small">Package / Cassa</label><input id="camyPackage" class="form-control" placeholder="opzionale"></div>
-            <div class="col-md-6"><label class="form-label small">Buono esistente</label><input id="camyBuono" class="form-control" placeholder="opzionale: ID o BC-2026-0001"></div>
-          </div>
-          <div class="text-muted small mt-3">Il controllo usa sempre <b>codice articolo + N. arrivo</b>. Se la riga contiene più codici, CAMY prepara lo split riga.</div>
-        </div>
-        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-warning" onclick="sendBuonoForm()">Prepara proposta</button></div>
-      </div></div>
-    </div>
-
     <script>
+      window.CAMY_API_URL = "{{ url_for('chatbot_api') }}";
+      window.CAMY_CONFIRM_URL = "{{ url_for('chatbot_buono_conferma') }}";
 
-      // Installazione PWA su smartphone/desktop compatibili
       let deferredInstallPrompt = null;
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
@@ -122,121 +124,138 @@ def register_chatbot_routes(app_obj, deps):
         const btn = document.getElementById('installPwaBtn');
         if (btn) btn.style.display = 'inline-block';
       });
-      document.addEventListener('DOMContentLoaded', () => {
-        const btn = document.getElementById('installPwaBtn');
-        if (btn) {
-          btn.addEventListener('click', async () => {
-            if (!deferredInstallPrompt) return;
-            deferredInstallPrompt.prompt();
-            await deferredInstallPrompt.userChoice;
-            deferredInstallPrompt = null;
-            btn.style.display = 'none';
-          });
-        }
-      });
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/service-worker.js').catch(() => {});
-        });
-      }
 
-      function addMsg(text, who, isHtml=false){
+      function addMsg(text, who, isHtml){
         const box = document.getElementById('chatBox');
+        if(!box) return null;
         const row = document.createElement('div');
         row.className = 'msg ' + who;
         const bubble = document.createElement('div');
         bubble.className = 'bubble';
-        if(isHtml && who === 'bot'){
-          bubble.innerHTML = text;
-        } else {
-          bubble.textContent = text;
-        }
+        if(isHtml && who === 'bot') bubble.innerHTML = text;
+        else bubble.textContent = text;
         row.appendChild(bubble);
         box.appendChild(row);
         box.scrollTop = box.scrollHeight;
         return row;
       }
-      function askQuick(text){
-        document.getElementById('chatInput').value = text;
-        sendMsg();
-      }
-      function fillQuick(text){
-        const input = document.getElementById('chatInput');
-        input.value = text;
-        input.focus();
-        input.setSelectionRange(input.value.length, input.value.length);
-      }
-      function openCamyBuonoForm(){
-        const el = document.getElementById('camyBuonoModal');
-        if(window.bootstrap && el){
-          const modal = bootstrap.Modal.getOrCreateInstance(el);
-          modal.show();
-          setTimeout(() => { const c = document.getElementById('camyCliente'); if(c) c.focus(); }, 250);
-        } else {
-          fillQuick('CAMY PREPARA BUONO\nCLIENTE: \nCODICE: \nARRIVO: \nPEZZI: 1\nPACKAGE: \nBUONO: ');
-        }
-      }
-      function sendBuonoForm(){
-        const cliente = (document.getElementById('camyCliente')?.value || '').trim();
-        const codice = (document.getElementById('camyCodice')?.value || '').trim();
-        const arrivo = (document.getElementById('camyArrivo')?.value || '').trim();
-        const pezzi = (document.getElementById('camyPezzi')?.value || '1').trim();
-        const pkg = (document.getElementById('camyPackage')?.value || '').trim();
-        const buono = (document.getElementById('camyBuono')?.value || '').trim();
-        if(!cliente || !codice || !arrivo || !pezzi){ alert('Compila cliente, codice, arrivo e pezzi.'); return; }
-        const cmd = ['CAMY PREPARA BUONO','CLIENTE: '+cliente,'CODICE: '+codice,'ARRIVO: '+arrivo,'PEZZI: '+pezzi,pkg ? ('PACKAGE: '+pkg) : '',buono ? ('BUONO: '+buono) : ''].filter(Boolean).join('\n');
-        const el = document.getElementById('camyBuonoModal');
-        if(window.bootstrap && el){ bootstrap.Modal.getOrCreateInstance(el).hide(); }
-        document.getElementById('chatInput').value = cmd;
-        sendMsg();
-      }
-      async function confirmCamyBuono(token){
-        if(!token) return;
-        const loading = addMsg('Confermo e aggiorno il buono...', 'bot');
-        try{
-          const res = await fetch('{{ url_for('chatbot_buono_conferma') }}', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({token: token})
-          });
-          const data = await res.json();
-          loading.remove();
-          addMsg(data.answer || 'Operazione completata.', 'bot', !!data.html);
-        }catch(e){
-          loading.remove();
-          addMsg('CAMY non è riuscita a confermare il buono. Controlla i log admin.', 'bot');
-        }
-      }
 
-      async function sendMsg(){
+      async function sendMsg(textOverride){
         const input = document.getElementById('chatInput');
-        const text = input.value.trim();
+        const text = (textOverride || (input ? input.value : '') || '').trim();
         if(!text) return;
-        input.value = '';
-        addMsg(text, 'user');
-        const loading = addMsg('Sto cercando...', 'bot');
+        if(input && !textOverride) input.value = '';
+        addMsg(text, 'user', false);
+        const loading = addMsg('Sto cercando...', 'bot', false);
         try{
-          const res = await fetch('{{ url_for('chatbot_api') }}', {
+          const res = await fetch(window.CAMY_API_URL, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({message: text})
           });
           let data = {};
-          try { data = await res.json(); }
-          catch(parseErr){
-            const raw = await res.text().catch(() => '');
-            throw new Error('Risposta non valida dal server: ' + raw.slice(0,120));
+          try { data = await res.json(); } catch(e) {}
+          if(loading) loading.remove();
+          if(!res.ok){
+            addMsg((data && data.answer) || 'CAMY ha ricevuto un errore dal server. Controlla i log admin.', 'bot', !!(data && data.html));
+            return;
           }
-          loading.remove();
-          addMsg(data.answer || 'Non ho trovato una risposta.', 'bot', !!data.html);
+          addMsg((data && data.answer) || 'Non ho trovato una risposta.', 'bot', !!(data && data.html));
         }catch(e){
-          loading.remove();
-          addMsg('CAMY ha avuto un errore durante la ricerca. Riprova o controlla i log admin.', 'bot');
+          if(loading) loading.remove();
+          addMsg('CAMY ha avuto un errore di collegamento. Riprova o aggiorna la pagina.', 'bot', false);
         }
       }
+
+      async function confirmCamyBuono(token){
+        if(!token) return;
+        const loading = addMsg('Confermo e aggiorno il buono...', 'bot', false);
+        try{
+          const res = await fetch(window.CAMY_CONFIRM_URL, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({token: token})
+          });
+          let data = {};
+          try { data = await res.json(); } catch(e) {}
+          if(loading) loading.remove();
+          addMsg((data && data.answer) || 'Operazione completata.', 'bot', !!(data && data.html));
+        }catch(e){
+          if(loading) loading.remove();
+          addMsg('CAMY non è riuscita a confermare il buono. Controlla i log admin.', 'bot', false);
+        }
+      }
+      window.confirmCamyBuono = confirmCamyBuono;
+      window.sendMsg = sendMsg;
+
+      function fillQuick(text){
+        const input = document.getElementById('chatInput');
+        if(!input) return;
+        input.value = text;
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+
+      function buildBuonoCommand(){
+        const val = (id) => (document.getElementById(id)?.value || '').trim();
+        const cliente = val('fCliente');
+        const codice = val('fCodice');
+        const arrivo = val('fArrivo');
+        const pezzi = val('fPezzi') || '1';
+        const buono = val('fBuono');
+        const pkg = val('fPackage');
+        if(!codice || !arrivo){
+          addMsg('Per preparare il buono devi inserire almeno codice articolo e N. arrivo.', 'bot', false);
+          return '';
+        }
+        let cmd = `prepara buono guidato | codice: ${codice} | arrivo: ${arrivo} | pezzi: ${pezzi}`;
+        if(cliente) cmd += ` | cliente: ${cliente}`;
+        if(buono) cmd += ` | buono: ${buono}`;
+        if(pkg) cmd += ` | package: ${pkg}`;
+        return cmd;
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        const form = document.getElementById('chatForm');
+        if(form){
+          form.addEventListener('submit', (e) => { e.preventDefault(); sendMsg(); });
+        }
+        const quick = document.getElementById('quickButtons');
+        if(quick){
+          quick.addEventListener('click', (e) => {
+            const btn = e.target.closest('button');
+            if(!btn) return;
+            const ask = btn.getAttribute('data-ask');
+            const fill = btn.getAttribute('data-fill');
+            if(ask) sendMsg(ask);
+            if(fill) fillQuick(fill);
+          });
+        }
+        const box = document.getElementById('camyBuonoFormBox');
+        const openBtn = document.getElementById('openBuonoFormBtn');
+        const closeBtn = document.getElementById('closeBuonoFormBtn');
+        const submitBtn = document.getElementById('submitBuonoFormBtn');
+        if(openBtn && box) openBtn.addEventListener('click', () => { box.style.display = 'block'; document.getElementById('fCodice')?.focus(); });
+        if(closeBtn && box) closeBtn.addEventListener('click', () => { box.style.display = 'none'; });
+        if(submitBtn) submitBtn.addEventListener('click', () => { const cmd = buildBuonoCommand(); if(cmd) sendMsg(cmd); });
+        const installBtn = document.getElementById('installPwaBtn');
+        if(installBtn){
+          installBtn.addEventListener('click', async () => {
+            if(!deferredInstallPrompt) return;
+            deferredInstallPrompt.prompt();
+            await deferredInstallPrompt.userChoice;
+            deferredInstallPrompt = null;
+            installBtn.style.display = 'none';
+          });
+        }
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+        }
+      });
     </script>
     {% endblock %}
     """
+
 
     def _esc(v):
         return html.escape(str(v or ""))
@@ -667,7 +686,7 @@ def register_chatbot_routes(app_obj, deps):
     # ============================================================
     def _is_buono_operativo_request(msg):
         low = (msg or "").lower()
-        return any(x in low for x in ["prepara buono", "crea buono", "aggiungi al buono", "metti nel buono", "buono per"])
+        return any(x in low for x in ["prepara buono", "prepara buono guidato", "crea buono", "aggiungi al buono", "metti nel buono", "buono per"])
 
     def _parse_buono_operativo(msg):
         """Estrae i dati principali dal comando CAMY.
@@ -675,43 +694,44 @@ def register_chatbot_routes(app_obj, deps):
         CAMY prepara buono codice ABC123 arrivo 87/26 pezzi 1 cliente RF-DE WAVE buono BC-2026-0001
         """
         text = (msg or "").strip()
+        # Supporta anche formato guidato: codice: ABC | arrivo: 87/26 | pezzi: 1 | cliente: ... | buono: ...
+        fields = {}
+        for key in ["codice", "arrivo", "pezzi", "colli", "cliente", "buono", "package", "pkg", "cassa"]:
+            m = re.search(r"(?:^|[|;,-])\s*" + key + r"\s*:\s*(.+?)(?=\s*[|;]\s*[A-Za-z]+\s*:|$)", text, flags=re.I)
+            if m:
+                fields[key.lower()] = m.group(1).strip(" |;,-")
 
-        # Parser robusto: accetta sia form guidato con due punti,
-        # sia frasi con trattini/separatore, es.:
-        # prepara buono codice CB050CF- pezzi 1-cliente FINCANTIERI- arrivo 200/26
-        LABELS = r"codice(?:\s+articolo)?|arrivo|n\.?\s*arrivo|cliente|pezzi|colli|buono|package|pkg|cassa"
+        def rx(pattern):
+            m = re.search(pattern, text, flags=re.I)
+            return (m.group(1).strip() if m else "")
 
-        def field(label):
-            # Cerca LABEL: valore oppure LABEL valore, fermandosi al prossimo campo,
-            # anche se preceduto da trattino, ;, | o a capo.
-            pattern = rf"(?:^|[\s;|\-]+)(?:{label})\s*:?\s*(.+?)(?=\s*(?:[;|\-]+\s*)?(?:{LABELS})\b|$)"
-            m = re.search(pattern, text, flags=re.I | re.S)
-            if not m:
-                return ""
-            val = re.sub(r"\s+", " ", m.group(1)).strip(" -;|,\n\r\t")
-            return val
-
-        codice = field(r"codice(?:\s+articolo)?")
-        arrivo = field(r"(?:n\.?\s*)?arrivo")
-        cliente = field(r"cliente") or _detect_cliente(text)
-        buono = field(r"buono")
-        package = field(r"(?:package|pkg|cassa)")
+        codice = rx(r"\bcodice(?:\s+articolo)?\s+(.+?)(?=\s+arrivo\b|\s+n\.\s*arrivo\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
+        arrivo = rx(r"\b(?:n\.\s*)?arrivo\s+(.+?)(?=\s+codice\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
+        cliente = _detect_cliente(text) or rx(r"\bcliente\s+(.+?)(?=\s+codice\b|\s+arrivo\b|\s+pezzi\b|\s+colli\b|\s+buono\b|$)")
+        buono = rx(r"\bbuono\s+((?:BC-)?\d{4}-\d+|BC[-\w]+|\d+)\b")
+        package = rx(r"\b(?:package|pkg|cassa)\s+([A-Z0-9\-_/\.]+)")
 
         pezzi = 1
-        pezzi_field = field(r"(?:pezzi|colli)")
-        m = re.search(r"(\d+)", pezzi_field) if pezzi_field else None
+        m = re.search(r"\bpezzi\s+(\d+)\b", text, flags=re.I)
+        if not m:
+            m = re.search(r"\bcolli\s+(\d+)\b", text, flags=re.I)
         if m:
             try:
                 pezzi = max(1, int(m.group(1)))
             except Exception:
                 pezzi = 1
+        if fields.get("pezzi") or fields.get("colli"):
+            try:
+                pezzi = max(1, int(float((fields.get("pezzi") or fields.get("colli") or "1").replace(",", "."))))
+            except Exception:
+                pezzi = 1
 
         return {
-            "codice": codice.strip(" ,;-|"),
-            "arrivo": arrivo.strip(" ,;-|"),
-            "cliente": (cliente or "").strip(" ,;-|").upper(),
-            "buono": buono.strip(" ,;-|"),
-            "package": package.strip(" ,;-|"),
+            "codice": codice.strip(" ,;"),
+            "arrivo": arrivo.strip(" ,;"),
+            "cliente": (cliente or "").strip().upper(),
+            "buono": buono.strip(),
+            "package": package.strip(),
             "pezzi": pezzi,
         }
 
@@ -779,7 +799,7 @@ def register_chatbot_routes(app_obj, deps):
         arrivo = (data.get("arrivo") or "").strip()
         cliente = (data.get("cliente") or "").strip()
         if not codice or not arrivo:
-            return [], "Per preparare il buono mi servono sempre <b>codice articolo</b> e <b>N. arrivo</b>. Usa il pulsante <b>Prepara Buono</b> per compilare il form guidato."
+            return [], "Per preparare il buono mi servono sempre <b>codice articolo</b> e <b>N. arrivo</b>."
 
         q = _active_filter(_base_query(db))
         code_like = f"%{codice}%"
