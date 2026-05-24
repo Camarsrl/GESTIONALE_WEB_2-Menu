@@ -74,6 +74,7 @@ def register_chatbot_routes(app_obj, deps):
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Entrate oggi')">Entrate oggi</button>
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Uscite oggi')">Uscite oggi</button>
             <button class="btn btn-sm btn-outline-primary" onclick="fillQuick('Cerca ARRIVO ')">Cerca N. arrivo</button>
+            <button class="btn btn-sm btn-outline-warning" onclick="fillQuick('CAMY prepara buono codice  arrivo  pezzi  cliente ')">Prepara Buono</button>
             <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come creo un DDT?')">Guida DDT</button>
             <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come faccio un buono QR?')">Guida Buono QR</button>
             <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come stampo una etichetta?')">Guida Etichette</button>
@@ -145,6 +146,24 @@ def register_chatbot_routes(app_obj, deps):
         input.focus();
         input.setSelectionRange(input.value.length, input.value.length);
       }
+      async function confirmCamyBuono(token){
+        if(!token) return;
+        const loading = addMsg('Confermo e aggiorno il buono...', 'bot');
+        try{
+          const res = await fetch('{{ url_for('chatbot_buono_conferma') }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({token: token})
+          });
+          const data = await res.json();
+          loading.remove();
+          addMsg(data.answer || 'Operazione completata.', 'bot', !!data.html);
+        }catch(e){
+          loading.remove();
+          addMsg('CAMY non è riuscita a confermare il buono. Controlla i log admin.', 'bot');
+        }
+      }
+
       async function sendMsg(){
         const input = document.getElementById('chatInput');
         const text = input.value.trim();
@@ -593,6 +612,393 @@ def register_chatbot_routes(app_obj, deps):
         ]
         return any(p in low for p in parole_guida) and any(a in low for a in argomenti)
 
+
+    # ============================================================
+    # CAMY OPERATIVA - BUONO CON CONFERMA
+    # ============================================================
+    def _is_buono_operativo_request(msg):
+        low = (msg or "").lower()
+        return any(x in low for x in ["prepara buono", "crea buono", "aggiungi al buono", "metti nel buono", "buono per"])
+
+    def _parse_buono_operativo(msg):
+        """Estrae i dati principali dal comando CAMY.
+        Formato consigliato:
+        CAMY prepara buono codice ABC123 arrivo 87/26 pezzi 1 cliente RF-DE WAVE buono BC-2026-0001
+        """
+        text = (msg or "").strip()
+
+        def rx(pattern):
+            m = re.search(pattern, text, flags=re.I)
+            return (m.group(1).strip() if m else "")
+
+        codice = rx(r"\bcodice(?:\s+articolo)?\s+(.+?)(?=\s+arrivo\b|\s+n\.\s*arrivo\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
+        arrivo = rx(r"\b(?:n\.\s*)?arrivo\s+(.+?)(?=\s+codice\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
+        cliente = _detect_cliente(text) or rx(r"\bcliente\s+(.+?)(?=\s+codice\b|\s+arrivo\b|\s+pezzi\b|\s+colli\b|\s+buono\b|$)")
+        buono = rx(r"\bbuono\s+((?:BC-)?\d{4}-\d+|BC[-\w]+|\d+)\b")
+        package = rx(r"\b(?:package|pkg|cassa)\s+([A-Z0-9\-_/\.]+)")
+
+        pezzi = 1
+        m = re.search(r"\bpezzi\s+(\d+)\b", text, flags=re.I)
+        if not m:
+            m = re.search(r"\bcolli\s+(\d+)\b", text, flags=re.I)
+        if m:
+            try:
+                pezzi = max(1, int(m.group(1)))
+            except Exception:
+                pezzi = 1
+
+        return {
+            "codice": codice.strip(" ,;"),
+            "arrivo": arrivo.strip(" ,;"),
+            "cliente": (cliente or "").strip().upper(),
+            "buono": buono.strip(),
+            "package": package.strip(),
+            "pezzi": pezzi,
+        }
+
+    def _as_int_safe(v, default=0):
+        try:
+            s = str(v or "").strip().replace(",", ".")
+            if not s:
+                return default
+            return int(float(s))
+        except Exception:
+            return default
+
+    def _as_float_safe(v, default=0.0):
+        try:
+            s = str(v or "").strip().replace(",", ".")
+            if not s:
+                return default
+            return float(s)
+        except Exception:
+            return default
+
+    def _has_multiple_codes(value):
+        txt = (value or "").strip()
+        if not txt:
+            return False
+        # Più codici spesso sono separati da ; / + virgole o a capo.
+        return bool(re.search(r"\s*(;|\+|\n|,|\s/\s)\s*", txt))
+
+    def _remove_requested_code(original, requested):
+        """Rimuove il codice richiesto lasciando gli altri codici leggibili."""
+        original = (original or "").strip()
+        requested = (requested or "").strip()
+        if not original or not requested:
+            return original
+        parts = [p.strip() for p in re.split(r"\s*(?:;|\+|\n|,|\s/\s)\s*", original) if p.strip()]
+        req_norm = _norm_txt(requested)
+        kept = [p for p in parts if _norm_txt(p) != req_norm and req_norm not in _norm_txt(p)]
+        if kept:
+            return " ; ".join(kept)
+        # fallback: rimuove solo il testo del codice
+        cleaned = re.sub(re.escape(requested), "", original, flags=re.I)
+        cleaned = re.sub(r"\s*(;|,|\+)\s*(;|,|\+)+", "; ", cleaned)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ;,+-/")
+        return cleaned or original
+
+    def _detect_package_from_row(art, codice):
+        text = " ".join([
+            str(getattr(art, "codice_articolo", "") or ""),
+            str(getattr(art, "descrizione", "") or ""),
+            str(getattr(art, "note", "") or ""),
+            str(getattr(art, "n_arrivo", "") or ""),
+        ])
+        patterns = [
+            r"(?:PACKAGE|PKG|CASSA|CASE|COLLO)\s*[:#\-]?\s*([A-Z0-9\-_/\.]+)",
+            r"\bN\.\s*([0-9]+)\b",
+        ]
+        for pat in patterns:
+            m = re.search(pat, text, flags=re.I)
+            if m:
+                return m.group(1).strip()
+        return ""
+
+    def _find_articolo_per_buono(db, data):
+        codice = (data.get("codice") or "").strip()
+        arrivo = (data.get("arrivo") or "").strip()
+        cliente = (data.get("cliente") or "").strip()
+        if not codice or not arrivo:
+            return [], "Per preparare il buono mi servono sempre <b>codice articolo</b> e <b>N. arrivo</b>."
+
+        q = _active_filter(_base_query(db))
+        code_like = f"%{codice}%"
+        q = q.filter(or_(Articolo.codice_articolo.ilike(code_like), Articolo.descrizione.ilike(code_like), Articolo.note.ilike(code_like)))
+        q = _apply_arrivo_filter(q, arrivo)
+        if cliente and _user_role() != "client":
+            alias_norms = sorted({_norm_txt(a) for a in _cliente_aliases(cliente) if _norm_txt(a)})
+            if alias_norms:
+                col_norm = _sql_norm_col(Articolo.cliente)
+                q = q.filter(or_(*[col_norm == n for n in alias_norms]))
+        rows = q.order_by(Articolo.id_articolo.asc()).limit(20).all()
+        if not rows:
+            return [], f"Non ho trovato righe attive con codice <b>{_esc(codice)}</b> e arrivo <b>{_esc(arrivo)}</b>."
+        return rows, ""
+
+    def _trova_buono_chat(db, valore):
+        raw = str(valore or "").strip()
+        if not raw:
+            return None
+        try:
+            if raw.isdigit():
+                b = db.query(BuonoCarico).filter(BuonoCarico.id == int(raw)).first()
+                if b:
+                    return b
+            return db.query(BuonoCarico).filter(func.upper(BuonoCarico.codice_buono) == raw.upper()).first()
+        except Exception:
+            return None
+
+    def _next_codice_buono_chat(db):
+        anno = date.today().year
+        prefix = f"BC-{anno}-"
+        max_n = 0
+        try:
+            rows = db.query(BuonoCarico.codice_buono).filter(BuonoCarico.codice_buono.ilike(f"{prefix}%")).all()
+            for row in rows:
+                codice = row[0] if isinstance(row, (tuple, list)) else getattr(row, "codice_buono", "")
+                m = re.search(r"(\d+)$", codice or "")
+                if m:
+                    max_n = max(max_n, int(m.group(1)))
+        except Exception:
+            max_n = 0
+        return f"{prefix}{max_n + 1:04d}"
+
+    def _add_summary_chat(current, value, sep="; ", limit=1500):
+        value = (str(value or "")).strip()
+        current = (str(current or "")).strip()
+        if not value:
+            return current
+        parts = [p.strip() for p in current.split(sep) if p.strip()] if current else []
+        if value not in parts:
+            parts.append(value)
+        return sep.join(parts)[:limit]
+
+    def _answer_buono_operativo(db, msg):
+        if _user_role() not in ("admin", "magazzino"):
+            return "CAMY operativa sui buoni è disponibile solo per utenti admin o magazzino."
+
+        data = _parse_buono_operativo(msg)
+        rows, err = _find_articolo_per_buono(db, data)
+        if err:
+            return err
+        if len(rows) > 1:
+            out = ["Ho trovato più righe compatibili. Per sicurezza non preparo il buono finché non è univoca. Aggiungi anche cliente/package oppure controlla queste righe:"]
+            out.extend(_fmt_row_html(r) for r in rows[:5])
+            return "<br>".join(out)
+
+        art = rows[0]
+        pezzi_req = int(data.get("pezzi") or 1)
+        total_pezzi = _as_int_safe(getattr(art, "pezzo", None), 0)
+        if total_pezzi <= 0:
+            total_pezzi = _as_int_safe(getattr(art, "n_colli", None), 1) or 1
+        if pezzi_req > total_pezzi:
+            return f"La riga ID {_esc(art.id_articolo)} ha solo {total_pezzi} pezzi/colli disponibili. Non posso prepararne {pezzi_req}."
+
+        multi = _has_multiple_codes(getattr(art, "codice_articolo", "")) or (_norm_txt(data["codice"]) not in _norm_txt(getattr(art, "codice_articolo", "")))
+        peso_tot = _as_float_safe(getattr(art, "peso", None), 0.0)
+        peso_req = round((peso_tot * pezzi_req / total_pezzi), 3) if total_pezzi else peso_tot
+        peso_residuo = round(max(0.0, peso_tot - peso_req), 3)
+        package = data.get("package") or _detect_package_from_row(art, data.get("codice"))
+        codice_buono = data.get("codice") or art.codice_articolo or ""
+        if package and package not in codice_buono:
+            codice_buono = f"{codice_buono} PACKAGE {package}"
+
+        token = uuid.uuid4().hex
+        pending = {
+            "action": "buono_operativo_split",
+            "articolo_id": int(art.id_articolo),
+            "codice": data.get("codice"),
+            "codice_buono": codice_buono,
+            "arrivo": data.get("arrivo"),
+            "cliente": data.get("cliente") or (art.cliente or ""),
+            "buono": data.get("buono"),
+            "pezzi_req": pezzi_req,
+            "total_pezzi": total_pezzi,
+            "peso_req": peso_req,
+            "peso_residuo": peso_residuo,
+            "package": package,
+            "multi": bool(multi),
+        }
+        session.setdefault("camy_pending", {})
+        pend = dict(session.get("camy_pending") or {})
+        pend[token] = pending
+        session["camy_pending"] = pend
+        session.modified = True
+
+        tipo = "split riga" if multi or pezzi_req < total_pezzi else "aggiunta diretta al buono"
+        buono_txt = data.get("buono") or "nuovo buono automatico"
+        out = [
+            f"<b>CAMY ha preparato una proposta buono ({_esc(tipo)})</b><br>",
+            f"Cliente: <b>{_esc(pending['cliente'])}</b><br>",
+            f"Riga origine: ID <b>{_esc(art.id_articolo)}</b><br>",
+            f"Codice richiesto: <b>{_esc(codice_buono)}</b><br>",
+            f"N. arrivo: <b>{_esc(art.n_arrivo)}</b><br>",
+            f"Pezzi richiesti: <b>{pezzi_req}</b> su {total_pezzi}<br>",
+            f"Peso da assegnare al buono: <b>{_esc(_fmt_num(peso_req))} kg</b><br>",
+            f"Peso residuo in giacenza: <b>{_esc(_fmt_num(peso_residuo))} kg</b><br>",
+            f"Buono: <b>{_esc(buono_txt)}</b><br><br>",
+        ]
+        if multi or pezzi_req < total_pezzi:
+            residuo_codice = _remove_requested_code(art.codice_articolo, data.get("codice"))
+            out.append("<b>Cosa farà dopo conferma:</b><br>")
+            out.append("• creerà una riga per il buono con il codice richiesto e il package/cassa se presente;<br>")
+            out.append(f"• lascerà in giacenza la riga residua con codice: <b>{_esc(residuo_codice or '-')}</b>;<br>")
+            out.append("• varierà pezzi e peso in proporzione;<br>")
+            out.append("• riporterà il numero buono sulla riga inserita nel buono.<br><br>")
+        out.append(f"<button class='btn btn-warning btn-sm' onclick=\"confirmCamyBuono('{token}')\">Conferma proposta CAMY</button>")
+        return "".join(out)
+
+    def _conferma_buono_operativo(db, token):
+        if _user_role() not in ("admin", "magazzino"):
+            return "Operazione non autorizzata."
+        pend = dict(session.get("camy_pending") or {})
+        data = pend.get(token)
+        if not data:
+            return "Proposta CAMY non trovata o già confermata. Ripeti il comando."
+
+        art = db.query(Articolo).filter(Articolo.id_articolo == int(data["articolo_id"])).first()
+        if not art:
+            return "Riga origine non trovata."
+        if (art.data_uscita or "").strip() or (art.n_ddt_uscita or "").strip():
+            return "La riga risulta già uscita: operazione annullata."
+
+        cliente = validate_cliente_or_raise(data.get("cliente") or art.cliente)
+        buono = _trova_buono_chat(db, data.get("buono")) if data.get("buono") else None
+        if buono and normalize_text_key(buono.cliente) != normalize_text_key(cliente):
+            return "Il buono indicato appartiene a un cliente diverso. Operazione annullata."
+        if not buono:
+            buono = BuonoCarico(
+                codice_buono=_next_codice_buono_chat(db),
+                cliente=cliente,
+                fornitore=art.fornitore or "",
+                codice_articolo="",
+                descrizione="",
+                n_arrivo="",
+                n_ddt_ingresso="",
+                data_ingresso=art.data_ingresso or "",
+                codice_entrata="",
+                pallet_previsti=0,
+                peso_previsto=0.0,
+                stato="DA CARICARE",
+                note="Creato da CAMY",
+                created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                created_by=(getattr(current_user, "id", "") or session.get("username") or "").strip().upper()
+            )
+            db.add(buono)
+            db.flush()
+
+        pezzi_req = int(data.get("pezzi_req") or 1)
+        total_pezzi = int(data.get("total_pezzi") or 1)
+        peso_req = float(data.get("peso_req") or 0)
+        peso_residuo = float(data.get("peso_residuo") or 0)
+        codice_buono = data.get("codice_buono") or data.get("codice") or art.codice_articolo or ""
+        n_arrivo_base = strip_arrivo_progressivo(art.n_arrivo)
+        codice_entrata = ensure_codice_entrata(
+            getattr(art, "codice_entrata", None),
+            n_arrivo=n_arrivo_base or art.n_arrivo,
+            n_ddt=art.n_ddt_ingresso,
+            data_ingresso=art.data_ingresso,
+            cliente=cliente
+        )
+        if not (getattr(art, "codice_entrata", "") or "").strip():
+            art.codice_entrata = codice_entrata
+
+        # Split: se richiesta parziale o riga con più codici, creo nuova riga per il buono
+        split_needed = bool(data.get("multi")) or pezzi_req < total_pezzi
+        if split_needed:
+            residuo_codice = _remove_requested_code(art.codice_articolo, data.get("codice"))
+            residuo_pezzi = max(0, total_pezzi - pezzi_req)
+            # Riga nuova collegata al buono
+            nuova = Articolo(
+                codice_articolo=codice_buono,
+                descrizione=art.descrizione,
+                cliente=cliente,
+                fornitore=art.fornitore,
+                magazzino=art.magazzino,
+                protocollo=art.protocollo,
+                ordine=art.ordine,
+                commessa=art.commessa,
+                buono_n=buono.codice_buono,
+                n_arrivo=art.n_arrivo,
+                ns_rif=art.ns_rif,
+                serial_number=art.serial_number,
+                pezzo=str(pezzi_req),
+                n_colli=pezzi_req,
+                peso=peso_req,
+                larghezza=art.larghezza,
+                lunghezza=art.lunghezza,
+                altezza=art.altezza,
+                m2=art.m2,
+                m3=art.m3,
+                posizione=art.posizione,
+                stato=art.stato,
+                note=((art.note or "") + "\nSplit creato da CAMY per buono.").strip(),
+                mezzi_in_uscita=art.mezzi_in_uscita,
+                data_ingresso=art.data_ingresso,
+                n_ddt_ingresso=art.n_ddt_ingresso,
+                data_uscita="",
+                n_ddt_uscita="",
+                codice_entrata=codice_entrata,
+                lotto=getattr(art, "lotto", None),
+            )
+            db.add(nuova)
+            db.flush()
+
+            # Riga origine rimane residua in giacenza senza il codice appena richiesto
+            art.codice_articolo = residuo_codice
+            art.pezzo = str(residuo_pezzi) if residuo_pezzi else ""
+            art.n_colli = residuo_pezzi
+            art.peso = peso_residuo
+            id_articolo_buono = nuova.id_articolo
+            art_buono = nuova
+        else:
+            art.buono_n = buono.codice_buono
+            id_articolo_buono = art.id_articolo
+            art_buono = art
+
+        db.add(BuonoCaricoRiga(
+            buono_id=buono.id,
+            id_articolo=id_articolo_buono,
+            cliente=cliente,
+            fornitore=art_buono.fornitore or "",
+            codice_articolo=codice_buono,
+            descrizione=art_buono.descrizione or "",
+            n_arrivo=n_arrivo_base or (art_buono.n_arrivo or ""),
+            n_ddt_ingresso=art_buono.n_ddt_ingresso or "",
+            data_ingresso=art_buono.data_ingresso or "",
+            codice_entrata=codice_entrata,
+            colli_previsti=pezzi_req,
+            peso_previsto=peso_req,
+        ))
+
+        buono.fornitore = _add_summary_chat(buono.fornitore, art_buono.fornitore, sep=" / ", limit=500)
+        buono.codice_articolo = _add_summary_chat(getattr(buono, "codice_articolo", ""), codice_buono, sep="; ", limit=500)
+        buono.descrizione = _add_summary_chat(getattr(buono, "descrizione", ""), art_buono.descrizione, sep="; ", limit=800)
+        buono.n_arrivo = _add_summary_chat(buono.n_arrivo, n_arrivo_base or art_buono.n_arrivo, sep="; ", limit=500)
+        buono.n_ddt_ingresso = _add_summary_chat(buono.n_ddt_ingresso, art_buono.n_ddt_ingresso, sep="; ", limit=500)
+        buono.codice_entrata = _add_summary_chat(buono.codice_entrata, codice_entrata, sep="; ", limit=1500)
+        buono.pallet_previsti = int(buono.pallet_previsti or 0) + pezzi_req
+        buono.peso_previsto = float(buono.peso_previsto or 0) + peso_req
+
+        db.commit()
+        pend.pop(token, None)
+        session["camy_pending"] = pend
+        session.modified = True
+
+        try:
+            link = url_for("dettaglio_buono_carico", buono_id=buono.id)
+        except Exception:
+            link = f"/buoni_carico/{buono.id}"
+        return (
+            f"<b>Operazione CAMY completata.</b><br>"
+            f"Buono: <b>{_esc(buono.codice_buono)}</b><br>"
+            f"Codice aggiunto: <b>{_esc(codice_buono)}</b><br>"
+            f"Pezzi/colli aggiunti: <b>{pezzi_req}</b><br>"
+            f"Peso aggiunto: <b>{_esc(_fmt_num(peso_req))} kg</b><br>"
+            f"<a class='btn btn-sm btn-primary mt-2' href='{_esc(link)}'>Apri buono</a>"
+        )
+
     def _answer_help():
         return (
             "Sono CAMY e posso aiutarti a cercare nel gestionale. Prova con:<br>"
@@ -610,6 +1016,28 @@ def register_chatbot_routes(app_obj, deps):
     @login_required
     def chatbot():
         return render_template_string(CHATBOT_HTML)
+
+
+    @app.route("/chatbot/buono/conferma", methods=["POST"])
+    @login_required
+    def chatbot_buono_conferma():
+        data = request.get_json(silent=True) or {}
+        token = (data.get("token") or "").strip()
+        if not token:
+            return jsonify({"answer": "Token conferma mancante.", "html": False}), 400
+        db = SessionLocal()
+        try:
+            answer = _conferma_buono_operativo(db, token)
+            return jsonify({"answer": answer, "html": True})
+        except Exception as e:
+            db.rollback()
+            try:
+                scrivi_log_errore("Errore conferma buono CAMY", e)
+            except Exception:
+                pass
+            return jsonify({"answer": "Errore durante la conferma CAMY. Ho registrato l'errore nei log admin.", "html": False}), 500
+        finally:
+            db.close()
 
     @app.route("/chatbot/api", methods=["POST"])
     @login_required
@@ -630,7 +1058,9 @@ def register_chatbot_routes(app_obj, deps):
                 "cosa ho", "merce in giacenza"
             ]
 
-            if _is_guida_request(msg):
+            if _is_buono_operativo_request(msg):
+                answer = _answer_buono_operativo(db, msg)
+            elif _is_guida_request(msg):
                 answer = _answer_guida_operativa(msg)
             elif any(w in low for w in ["aiuto", "help", "cosa puoi fare"]):
                 answer = _answer_help()
