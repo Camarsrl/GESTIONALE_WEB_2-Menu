@@ -86,7 +86,7 @@ def register_chatbot_routes(app_obj, deps):
 
           <div class="input-group chat-input-mobile">
             <input id="chatInput" type="text" class="form-control" placeholder="Scrivi una domanda..." onkeydown="if(event.key==='Enter'){sendMsg();}">
-            <button class="btn btn-primary" onclick="sendMsg()">Invia</button>
+            <button id="chatSendBtn" type="button" class="btn btn-primary" onclick="sendMsg()">Invia</button>
           </div>
         </div>
       </div>
@@ -221,7 +221,12 @@ def register_chatbot_routes(app_obj, deps):
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({message: text})
           });
-          const data = await res.json();
+          let data = {};
+          try { data = await res.json(); }
+          catch(parseErr){
+            const raw = await res.text().catch(() => '');
+            throw new Error('Risposta non valida dal server: ' + raw.slice(0,120));
+          }
           loading.remove();
           addMsg(data.answer || 'Non ho trovato una risposta.', 'bot', !!data.html);
         }catch(e){
@@ -671,26 +676,30 @@ def register_chatbot_routes(app_obj, deps):
         """
         text = (msg or "").strip()
 
+        # Parser robusto: accetta sia form guidato con due punti,
+        # sia frasi con trattini/separatore, es.:
+        # prepara buono codice CB050CF- pezzi 1-cliente FINCANTIERI- arrivo 200/26
+        LABELS = r"codice(?:\s+articolo)?|arrivo|n\.?\s*arrivo|cliente|pezzi|colli|buono|package|pkg|cassa"
+
         def field(label):
-            # Supporta form guidato tipo: CLIENTE: ... / CODICE: ... / ARRIVO: ...
-            m = re.search(rf"^\s*{label}\s*:\s*(.+?)\s*$", text, flags=re.I | re.M)
-            return (m.group(1).strip() if m else "")
+            # Cerca LABEL: valore oppure LABEL valore, fermandosi al prossimo campo,
+            # anche se preceduto da trattino, ;, | o a capo.
+            pattern = rf"(?:^|[\s;|\-]+)(?:{label})\s*:?\s*(.+?)(?=\s*(?:[;|\-]+\s*)?(?:{LABELS})\b|$)"
+            m = re.search(pattern, text, flags=re.I | re.S)
+            if not m:
+                return ""
+            val = re.sub(r"\s+", " ", m.group(1)).strip(" -;|,\n\r\t")
+            return val
 
-        def rx(pattern):
-            m = re.search(pattern, text, flags=re.I)
-            return (m.group(1).strip() if m else "")
-
-        codice = field("codice(?:\s+articolo)?") or rx(r"\bcodice(?:\s+articolo)?\s+(.+?)(?=\s+arrivo\b|\s+n\.\s*arrivo\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
-        arrivo = field("(?:n\.?\s*)?arrivo") or rx(r"\b(?:n\.\s*)?arrivo\s+(.+?)(?=\s+codice\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
-        cliente = field("cliente") or _detect_cliente(text) or rx(r"\bcliente\s+(.+?)(?=\s+codice\b|\s+arrivo\b|\s+pezzi\b|\s+colli\b|\s+buono\b|$)")
-        buono = field("buono") or rx(r"\bbuono\s+((?:BC-)?\d{4}-\d+|BC[-\w]+|\d+)\b")
-        package = field("(?:package|pkg|cassa)") or rx(r"\b(?:package|pkg|cassa)\s+([A-Z0-9\-_/\.]+)")
+        codice = field(r"codice(?:\s+articolo)?")
+        arrivo = field(r"(?:n\.?\s*)?arrivo")
+        cliente = field(r"cliente") or _detect_cliente(text)
+        buono = field(r"buono")
+        package = field(r"(?:package|pkg|cassa)")
 
         pezzi = 1
-        pezzi_field = field("(?:pezzi|colli)")
-        m = re.search(r"(\d+)", pezzi_field) if pezzi_field else re.search(r"\bpezzi\s+(\d+)\b", text, flags=re.I)
-        if not m:
-            m = re.search(r"\bcolli\s+(\d+)\b", text, flags=re.I)
+        pezzi_field = field(r"(?:pezzi|colli)")
+        m = re.search(r"(\d+)", pezzi_field) if pezzi_field else None
         if m:
             try:
                 pezzi = max(1, int(m.group(1)))
@@ -698,11 +707,11 @@ def register_chatbot_routes(app_obj, deps):
                 pezzi = 1
 
         return {
-            "codice": codice.strip(" ,;"),
-            "arrivo": arrivo.strip(" ,;"),
-            "cliente": (cliente or "").strip().upper(),
-            "buono": buono.strip(),
-            "package": package.strip(),
+            "codice": codice.strip(" ,;-|"),
+            "arrivo": arrivo.strip(" ,;-|"),
+            "cliente": (cliente or "").strip(" ,;-|").upper(),
+            "buono": buono.strip(" ,;-|"),
+            "package": package.strip(" ,;-|"),
             "pezzi": pezzi,
         }
 
