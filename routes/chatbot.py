@@ -18,6 +18,7 @@ def register_chatbot_routes(app_obj, deps):
 
     import re
     import html
+    import uuid
     from datetime import datetime, date, timedelta
     from flask import request, jsonify, render_template_string, session, url_for
     from flask_login import login_required, current_user
@@ -40,14 +41,12 @@ def register_chatbot_routes(app_obj, deps):
       .bot-result:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
       .bot-link { display:inline-block; margin-top:5px; font-size: 12px; }
       .chat-input-mobile { position: sticky; bottom: 0; background: #fff; padding-top: 8px; }
-      .camy-form-box { display:none; border:1px solid #ffc107; background:#fffdf2; border-radius:12px; padding:12px; margin-bottom:10px; }
-      .camy-form-box label { font-size:12px; font-weight:600; color:#555; }
       @media (max-width: 768px) {
         body { background: #fff; }
         .chat-card { margin: 0; border-radius: 0; min-height: calc(100vh - 56px); }
         .chat-card .card-header { position: sticky; top: 0; z-index: 3; background: #fff; }
         .chat-card .card-body { padding: 10px; display: flex; flex-direction: column; min-height: calc(100vh - 120px); }
-        .chat-box { height: calc(100vh - 360px); min-height: 320px; border-radius: 10px; padding: 10px; }
+        .chat-box { height: calc(100vh - 285px); min-height: 360px; border-radius: 10px; padding: 10px; }
         .bubble { max-width: 92%; font-size: 14px; }
         .quick { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; }
         .quick button { white-space: nowrap; min-height: 42px; font-size: 13px; }
@@ -64,59 +63,76 @@ def register_chatbot_routes(app_obj, deps):
             <small class="text-muted">Puoi chiedere giacenze, arrivi, DDT, colli, peso, M2 e guide operative.</small>
           </div>
           <div class="d-flex gap-2">
-            <button id="installPwaBtn" type="button" class="btn btn-outline-primary btn-sm" style="display:none;">Installa</button>
+            <button id="installPwaBtn" class="btn btn-outline-primary btn-sm" style="display:none;">Installa</button>
             <a href="{{ url_for('home') }}" class="btn btn-outline-secondary btn-sm">Home</a>
           </div>
         </div>
 
         <div class="card-body">
-          <div class="quick mb-2" id="quickButtons">
-            <button type="button" class="btn btn-sm btn-outline-primary" data-ask="Quante giacenze ho ancora in magazzino?">Giacenze attive</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" data-ask="Totale colli e peso in giacenza">Totale colli/peso</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" data-ask="Entrate oggi">Entrate oggi</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" data-ask="Uscite oggi">Uscite oggi</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" data-fill="Cerca ARRIVO ">Cerca N. arrivo</button>
-            <button type="button" class="btn btn-sm btn-outline-warning" id="openBuonoFormBtn">Prepara Buono</button>
-            <button type="button" class="btn btn-sm btn-outline-success" data-ask="Come creo un DDT?">Guida DDT</button>
-            <button type="button" class="btn btn-sm btn-outline-success" data-ask="Come faccio un buono QR?">Guida Buono QR</button>
-            <button type="button" class="btn btn-sm btn-outline-success" data-ask="Come stampo una etichetta?">Guida Etichette</button>
+          <div class="quick mb-2">
+            <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Quante giacenze ho ancora in magazzino?')">Giacenze attive</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Totale colli e peso in giacenza')">Totale colli/peso</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Entrate oggi')">Entrate oggi</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Uscite oggi')">Uscite oggi</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="fillQuick('Cerca ARRIVO ')">Cerca N. arrivo</button>
+            <button class="btn btn-sm btn-outline-warning" onclick="showCamyBuonoForm()">Prepara Buono</button>
+            <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come creo un DDT?')">Guida DDT</button>
+            <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come faccio un buono QR?')">Guida Buono QR</button>
+            <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come stampo una etichetta?')">Guida Etichette</button>
           </div>
 
-          <div id="camyBuonoFormBox" class="camy-form-box">
+          <div id="camyBuonoPanel" class="mb-2 p-3 border border-warning rounded" style="display:none;background:#fffdf4;">
             <div class="d-flex justify-content-between align-items-center mb-2">
-              <strong>Prepara buono guidato</strong>
-              <button type="button" class="btn btn-sm btn-outline-secondary" id="closeBuonoFormBtn">Chiudi</button>
+              <b>Prepara buono guidato</b>
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="hideCamyBuonoForm()">Chiudi</button>
             </div>
-            <div class="row g-2">
-              <div class="col-md-3"><label>Cliente</label><input id="fCliente" class="form-control form-control-sm" placeholder="FINCANTIERI"></div>
-              <div class="col-md-3"><label>Codice articolo</label><input id="fCodice" class="form-control form-control-sm" placeholder="CB050CF"></div>
-              <div class="col-md-2"><label>N. arrivo</label><input id="fArrivo" class="form-control form-control-sm" placeholder="200/26"></div>
-              <div class="col-md-1"><label>Pezzi</label><input id="fPezzi" type="number" min="1" value="1" class="form-control form-control-sm"></div>
-              <div class="col-md-2"><label>Buono</label><input id="fBuono" class="form-control form-control-sm" placeholder="073-FADEM"></div>
-              <div class="col-md-1"><label>Package</label><input id="fPackage" class="form-control form-control-sm" placeholder=""></div>
+            <div class="row g-2 align-items-end">
+              <div class="col-md-3">
+                <label class="form-label small mb-1">Cliente</label>
+                <input id="camyCliente" class="form-control form-control-sm" placeholder="FINCANTIERI">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small mb-1">Codice articolo</label>
+                <input id="camyCodice" class="form-control form-control-sm" placeholder="CB050CF">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small mb-1">N. arrivo</label>
+                <input id="camyArrivo" class="form-control form-control-sm" placeholder="200/26">
+              </div>
+              <div class="col-md-1">
+                <label class="form-label small mb-1">Pezzi</label>
+                <input id="camyPezzi" type="number" min="1" value="1" class="form-control form-control-sm">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small mb-1">Buono</label>
+                <input id="camyBuono" class="form-control form-control-sm" placeholder="073-FADEM">
+              </div>
+              <div class="col-md-1">
+                <label class="form-label small mb-1">Package</label>
+                <input id="camyPackage" class="form-control form-control-sm" placeholder="">
+              </div>
             </div>
-            <div class="mt-2 d-flex gap-2">
-              <button type="button" class="btn btn-warning btn-sm" id="submitBuonoFormBtn">Prepara proposta</button>
-              <span class="small text-muted align-self-center">CAMY mostrerà una bozza e chiederà conferma prima di modificare.</span>
+            <div class="mt-2 d-flex gap-2 align-items-center">
+              <button type="button" class="btn btn-warning btn-sm" onclick="submitCamyBuonoForm()">Prepara proposta</button>
+              <span class="small text-muted">CAMY mostrerà una bozza e chiederà conferma prima di modificare.</span>
             </div>
           </div>
 
           <div id="chatBox" class="chat-box mb-3">
-            <div class="msg bot"><div class="bubble">Ciao, sono CAMY, l’assistente del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• cerca ARRIVO seguito dal numero<br>• dove si trova il codice ABC123<br>• prepara buono guidato<br>• come creo un DDT?<br>• come faccio un buono QR?<br>• come stampo una etichetta?</div></div>
+            <div class="msg bot"><div class="bubble">Ciao, sono CAMY, l’assistente del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• cerca ARRIVO seguito dal numero<br>• dove si trova il codice ABC123<br>• come creo un DDT?<br>• come faccio un buono QR?<br>• come stampo una etichetta?</div></div>
           </div>
 
-          <form id="chatForm" class="input-group chat-input-mobile" autocomplete="off">
-            <input id="chatInput" type="text" class="form-control" placeholder="Scrivi una domanda...">
-            <button class="btn btn-primary" type="submit">Invia</button>
-          </form>
+          <div class="input-group chat-input-mobile">
+            <input id="chatInput" type="text" class="form-control" placeholder="Scrivi una domanda..." onkeydown="if(event.key==='Enter'){sendMsg();}">
+            <button class="btn btn-primary" onclick="sendMsg()">Invia</button>
+          </div>
         </div>
       </div>
     </div>
 
     <script>
-      window.CAMY_API_URL = "{{ url_for('chatbot_api') }}";
-      window.CAMY_CONFIRM_URL = "{{ url_for('chatbot_buono_conferma') }}";
 
+      // Installazione PWA su smartphone/desktop compatibili
       let deferredInstallPrompt = null;
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
@@ -124,138 +140,122 @@ def register_chatbot_routes(app_obj, deps):
         const btn = document.getElementById('installPwaBtn');
         if (btn) btn.style.display = 'inline-block';
       });
+      document.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('installPwaBtn');
+        if (btn) {
+          btn.addEventListener('click', async () => {
+            if (!deferredInstallPrompt) return;
+            deferredInstallPrompt.prompt();
+            await deferredInstallPrompt.userChoice;
+            deferredInstallPrompt = null;
+            btn.style.display = 'none';
+          });
+        }
+      });
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+        });
+      }
 
-      function addMsg(text, who, isHtml){
+      function addMsg(text, who, isHtml=false){
         const box = document.getElementById('chatBox');
-        if(!box) return null;
         const row = document.createElement('div');
         row.className = 'msg ' + who;
         const bubble = document.createElement('div');
         bubble.className = 'bubble';
-        if(isHtml && who === 'bot') bubble.innerHTML = text;
-        else bubble.textContent = text;
+        if(isHtml && who === 'bot'){
+          bubble.innerHTML = text;
+        } else {
+          bubble.textContent = text;
+        }
         row.appendChild(bubble);
         box.appendChild(row);
         box.scrollTop = box.scrollHeight;
         return row;
       }
-
-      async function sendMsg(textOverride){
-        const input = document.getElementById('chatInput');
-        const text = (textOverride || (input ? input.value : '') || '').trim();
-        if(!text) return;
-        if(input && !textOverride) input.value = '';
-        addMsg(text, 'user', false);
-        const loading = addMsg('Sto cercando...', 'bot', false);
-        try{
-          const res = await fetch(window.CAMY_API_URL, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({message: text})
-          });
-          let data = {};
-          try { data = await res.json(); } catch(e) {}
-          if(loading) loading.remove();
-          if(!res.ok){
-            addMsg((data && data.answer) || 'CAMY ha ricevuto un errore dal server. Controlla i log admin.', 'bot', !!(data && data.html));
-            return;
-          }
-          addMsg((data && data.answer) || 'Non ho trovato una risposta.', 'bot', !!(data && data.html));
-        }catch(e){
-          if(loading) loading.remove();
-          addMsg('CAMY ha avuto un errore di collegamento. Riprova o aggiorna la pagina.', 'bot', false);
-        }
+      function askQuick(text){
+        document.getElementById('chatInput').value = text;
+        sendMsg();
       }
-
-      async function confirmCamyBuono(token){
-        if(!token) return;
-        const loading = addMsg('Confermo e aggiorno il buono...', 'bot', false);
-        try{
-          const res = await fetch(window.CAMY_CONFIRM_URL, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({token: token})
-          });
-          let data = {};
-          try { data = await res.json(); } catch(e) {}
-          if(loading) loading.remove();
-          addMsg((data && data.answer) || 'Operazione completata.', 'bot', !!(data && data.html));
-        }catch(e){
-          if(loading) loading.remove();
-          addMsg('CAMY non è riuscita a confermare il buono. Controlla i log admin.', 'bot', false);
-        }
-      }
-      window.confirmCamyBuono = confirmCamyBuono;
-      window.sendMsg = sendMsg;
-
       function fillQuick(text){
         const input = document.getElementById('chatInput');
-        if(!input) return;
         input.value = text;
         input.focus();
         input.setSelectionRange(input.value.length, input.value.length);
       }
-
-      function buildBuonoCommand(){
-        const val = (id) => (document.getElementById(id)?.value || '').trim();
-        const cliente = val('fCliente');
-        const codice = val('fCodice');
-        const arrivo = val('fArrivo');
-        const pezzi = val('fPezzi') || '1';
-        const buono = val('fBuono');
-        const pkg = val('fPackage');
+      function showCamyBuonoForm(){
+        const panel = document.getElementById('camyBuonoPanel');
+        if(panel){ panel.style.display = 'block'; }
+        const codice = document.getElementById('camyCodice');
+        if(codice){ codice.focus(); }
+      }
+      function hideCamyBuonoForm(){
+        const panel = document.getElementById('camyBuonoPanel');
+        if(panel){ panel.style.display = 'none'; }
+      }
+      function submitCamyBuonoForm(){
+        const get = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+        const codice = get('camyCodice');
+        const arrivo = get('camyArrivo');
+        const pezzi = get('camyPezzi') || '1';
+        const cliente = get('camyCliente');
+        const buono = get('camyBuono');
+        const pkg = get('camyPackage');
         if(!codice || !arrivo){
-          addMsg('Per preparare il buono devi inserire almeno codice articolo e N. arrivo.', 'bot', false);
-          return '';
+          addMsg('Per preparare il buono devi inserire almeno codice articolo e N. arrivo.', 'bot');
+          return;
         }
-        let cmd = `prepara buono guidato | codice: ${codice} | arrivo: ${arrivo} | pezzi: ${pezzi}`;
-        if(cliente) cmd += ` | cliente: ${cliente}`;
-        if(buono) cmd += ` | buono: ${buono}`;
-        if(pkg) cmd += ` | package: ${pkg}`;
-        return cmd;
+        let cmd = `prepara buono guidato codice: ${codice} arrivo: ${arrivo} pezzi: ${pezzi}`;
+        if(cliente) cmd += ` cliente: ${cliente}`;
+        if(buono) cmd += ` buono: ${buono}`;
+        if(pkg) cmd += ` package: ${pkg}`;
+        const input = document.getElementById('chatInput');
+        input.value = cmd;
+        sendMsg();
+      }
+      async function confirmCamyBuono(token){
+        if(!token) return;
+        const loading = addMsg('Confermo e aggiorno il buono...', 'bot');
+        try{
+          const res = await fetch('{{ url_for('chatbot_buono_conferma') }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({token: token})
+          });
+          const data = await res.json();
+          loading.remove();
+          addMsg(data.answer || 'Operazione completata.', 'bot', !!data.html);
+        }catch(e){
+          loading.remove();
+          addMsg('CAMY non è riuscita a confermare il buono. Controlla i log admin.', 'bot');
+        }
       }
 
-      document.addEventListener('DOMContentLoaded', () => {
-        const form = document.getElementById('chatForm');
-        if(form){
-          form.addEventListener('submit', (e) => { e.preventDefault(); sendMsg(); });
-        }
-        const quick = document.getElementById('quickButtons');
-        if(quick){
-          quick.addEventListener('click', (e) => {
-            const btn = e.target.closest('button');
-            if(!btn) return;
-            const ask = btn.getAttribute('data-ask');
-            const fill = btn.getAttribute('data-fill');
-            if(ask) sendMsg(ask);
-            if(fill) fillQuick(fill);
+      async function sendMsg(){
+        const input = document.getElementById('chatInput');
+        const text = input.value.trim();
+        if(!text) return;
+        input.value = '';
+        addMsg(text, 'user');
+        const loading = addMsg('Sto cercando...', 'bot');
+        try{
+          const res = await fetch('{{ url_for('chatbot_api') }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: text})
           });
+          const data = await res.json();
+          loading.remove();
+          addMsg(data.answer || 'Non ho trovato una risposta.', 'bot', !!data.html);
+        }catch(e){
+          loading.remove();
+          addMsg('CAMY ha avuto un errore durante la ricerca. Riprova o controlla i log admin.', 'bot');
         }
-        const box = document.getElementById('camyBuonoFormBox');
-        const openBtn = document.getElementById('openBuonoFormBtn');
-        const closeBtn = document.getElementById('closeBuonoFormBtn');
-        const submitBtn = document.getElementById('submitBuonoFormBtn');
-        if(openBtn && box) openBtn.addEventListener('click', () => { box.style.display = 'block'; document.getElementById('fCodice')?.focus(); });
-        if(closeBtn && box) closeBtn.addEventListener('click', () => { box.style.display = 'none'; });
-        if(submitBtn) submitBtn.addEventListener('click', () => { const cmd = buildBuonoCommand(); if(cmd) sendMsg(cmd); });
-        const installBtn = document.getElementById('installPwaBtn');
-        if(installBtn){
-          installBtn.addEventListener('click', async () => {
-            if(!deferredInstallPrompt) return;
-            deferredInstallPrompt.prompt();
-            await deferredInstallPrompt.userChoice;
-            deferredInstallPrompt = null;
-            installBtn.style.display = 'none';
-          });
-        }
-        if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.register('/service-worker.js').catch(() => {});
-        }
-      });
+      }
     </script>
     {% endblock %}
     """
-
 
     def _esc(v):
         return html.escape(str(v or ""))
@@ -686,7 +686,7 @@ def register_chatbot_routes(app_obj, deps):
     # ============================================================
     def _is_buono_operativo_request(msg):
         low = (msg or "").lower()
-        return any(x in low for x in ["prepara buono", "prepara buono guidato", "crea buono", "aggiungi al buono", "metti nel buono", "buono per"])
+        return any(x in low for x in ["prepara buono", "crea buono", "aggiungi al buono", "metti nel buono", "buono per"])
 
     def _parse_buono_operativo(msg):
         """Estrae i dati principali dal comando CAMY.
@@ -694,44 +694,51 @@ def register_chatbot_routes(app_obj, deps):
         CAMY prepara buono codice ABC123 arrivo 87/26 pezzi 1 cliente RF-DE WAVE buono BC-2026-0001
         """
         text = (msg or "").strip()
-        # Supporta anche formato guidato: codice: ABC | arrivo: 87/26 | pezzi: 1 | cliente: ... | buono: ...
-        fields = {}
-        for key in ["codice", "arrivo", "pezzi", "colli", "cliente", "buono", "package", "pkg", "cassa"]:
-            m = re.search(r"(?:^|[|;,-])\s*" + key + r"\s*:\s*(.+?)(?=\s*[|;]\s*[A-Za-z]+\s*:|$)", text, flags=re.I)
-            if m:
-                fields[key.lower()] = m.group(1).strip(" |;,-")
 
-        def rx(pattern):
-            m = re.search(pattern, text, flags=re.I)
+        # Normalizzo il testo del comando: il form usa "codice: ...", ma accetto anche "codice ..."
+        text = re.sub(r"[|]+", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+
+        def rx(label):
+            # Estrae campi nel formato: codice: ABC oppure codice ABC
+            # Si ferma prima del prossimo campo noto.
+            labels = r"codice(?:\s+articolo)?|arrivo|n\.\s*arrivo|cliente|pezzi|colli|buono|package|pkg|cassa"
+            pat = rf"\b(?:{label})\b\s*[:=\-]?\s*(.+?)(?=\s+\b(?:{labels})\b\s*[:=\-]?|$)"
+            m = re.search(pat, text, flags=re.I)
             return (m.group(1).strip() if m else "")
 
-        codice = rx(r"\bcodice(?:\s+articolo)?\s+(.+?)(?=\s+arrivo\b|\s+n\.\s*arrivo\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
-        arrivo = rx(r"\b(?:n\.\s*)?arrivo\s+(.+?)(?=\s+codice\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
-        cliente = _detect_cliente(text) or rx(r"\bcliente\s+(.+?)(?=\s+codice\b|\s+arrivo\b|\s+pezzi\b|\s+colli\b|\s+buono\b|$)")
-        buono = rx(r"\bbuono\s+((?:BC-)?\d{4}-\d+|BC[-\w]+|\d+)\b")
-        package = rx(r"\b(?:package|pkg|cassa)\s+([A-Z0-9\-_/\.]+)")
+        codice = rx(r"codice(?:\s+articolo)?")
+        arrivo = rx(r"(?:n\.\s*)?arrivo")
+        cliente = _detect_cliente(text) or rx(r"cliente")
+        buono = rx(r"buono")
+        package = rx(r"(?:package|pkg|cassa)")
+
+        # Pulizia campi nel caso l'utente abbia usato trattini/separatori strani
+        for sep in [" cliente ", " arrivo ", " pezzi ", " buono ", " package ", " codice "]:
+            pass
 
         pezzi = 1
-        m = re.search(r"\bpezzi\s+(\d+)\b", text, flags=re.I)
+        m = re.search(r"\bpezzi\s*[:=\-]?\s*(\d+)\b", text, flags=re.I)
         if not m:
-            m = re.search(r"\bcolli\s+(\d+)\b", text, flags=re.I)
+            m = re.search(r"\bcolli\s*[:=\-]?\s*(\d+)\b", text, flags=re.I)
         if m:
             try:
                 pezzi = max(1, int(m.group(1)))
             except Exception:
                 pezzi = 1
-        if fields.get("pezzi") or fields.get("colli"):
-            try:
-                pezzi = max(1, int(float((fields.get("pezzi") or fields.get("colli") or "1").replace(",", "."))))
-            except Exception:
-                pezzi = 1
+
+        def clean(v):
+            v = (v or "").strip(" ,;|\n\t")
+            # se un campo ha inglobato accidentalmente un separatore, lo taglio al primo campo successivo
+            v = re.split(r"\s+(?:codice|arrivo|cliente|pezzi|colli|buono|package|pkg|cassa)\s*[:=\-]?", v, maxsplit=1, flags=re.I)[0]
+            return v.strip(" ,;|\n\t")
 
         return {
-            "codice": codice.strip(" ,;"),
-            "arrivo": arrivo.strip(" ,;"),
-            "cliente": (cliente or "").strip().upper(),
-            "buono": buono.strip(),
-            "package": package.strip(),
+            "codice": clean(codice),
+            "arrivo": clean(arrivo),
+            "cliente": clean(cliente).upper(),
+            "buono": clean(buono),
+            "package": clean(package),
             "pezzi": pezzi,
         }
 
