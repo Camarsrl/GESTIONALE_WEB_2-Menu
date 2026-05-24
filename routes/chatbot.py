@@ -74,14 +74,51 @@ def register_chatbot_routes(app_obj, deps):
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Entrate oggi')">Entrate oggi</button>
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Uscite oggi')">Uscite oggi</button>
             <button class="btn btn-sm btn-outline-primary" onclick="fillQuick('Cerca ARRIVO ')">Cerca N. arrivo</button>
-            <button class="btn btn-sm btn-outline-warning" onclick="fillQuick('CAMY prepara buono codice  arrivo  pezzi  cliente ')">Prepara Buono</button>
+            <button type="button" class="btn btn-sm btn-outline-warning" onclick="toggleCamyBuonoForm()">Prepara Buono</button>
             <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come creo un DDT?')">Guida DDT</button>
             <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come faccio un buono QR?')">Guida Buono QR</button>
             <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come stampo una etichetta?')">Guida Etichette</button>
           </div>
 
+          <div id="camyBuonoForm" class="border border-warning rounded p-3 mb-2" style="display:none;background:#fffdf4;">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <b>Prepara Buono di Prelievo guidato</b>
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleCamyBuonoForm(false)">Chiudi</button>
+            </div>
+            <div class="row g-2 align-items-end">
+              <div class="col-md-2">
+                <label class="form-label small mb-1">Cliente</label>
+                <input id="camyCliente" class="form-control form-control-sm" placeholder="FINCANTIERI">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small mb-1">Codice articolo</label>
+                <input id="camyCodice" class="form-control form-control-sm" placeholder="CB050CF">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small mb-1">N. arrivo</label>
+                <input id="camyArrivo" class="form-control form-control-sm" placeholder="200/26">
+              </div>
+              <div class="col-md-1">
+                <label class="form-label small mb-1">Pezzi</label>
+                <input id="camyPezzi" type="number" min="1" value="1" class="form-control form-control-sm">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small mb-1">Buono</label>
+                <input id="camyBuono" class="form-control form-control-sm" placeholder="073-FADEM">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small mb-1">Package/Cassa</label>
+                <input id="camyPackage" class="form-control form-control-sm" placeholder="PACKAGE 1">
+              </div>
+              <div class="col-md-1 d-grid">
+                <button type="button" class="btn btn-warning btn-sm" onclick="sendCamyBuonoForm()">Prepara</button>
+              </div>
+            </div>
+            <small class="text-muted">CAMY mostrerà una bozza e chiederà conferma prima di modificare.</small>
+          </div>
+
           <div id="chatBox" class="chat-box mb-3">
-            <div class="msg bot"><div class="bubble">Ciao, sono CAMY, l’assistente del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• cerca ARRIVO seguito dal numero<br>• dove si trova il codice ABC123<br>• come creo un DDT?<br>• come faccio un buono QR?<br>• come stampo una etichetta?</div></div>
+            <div class="msg bot"><div class="bubble">Ciao, sono CAMY, l’assistente del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• cerca ARRIVO seguito dal numero<br>• dove si trova il codice ABC123<br>• come creo un DDT?<br>• prepara buono guidato<br>• come faccio un buono QR?<br>• come stampo una etichetta?</div></div>
           </div>
 
           <div class="input-group chat-input-mobile">
@@ -120,8 +157,9 @@ def register_chatbot_routes(app_obj, deps):
         });
       }
 
-      function addMsg(text, who, isHtml=false){
+      window.addMsg = function(text, who, isHtml=false){
         const box = document.getElementById('chatBox');
+        if(!box) return null;
         const row = document.createElement('div');
         row.className = 'msg ' + who;
         const bubble = document.createElement('div');
@@ -135,56 +173,107 @@ def register_chatbot_routes(app_obj, deps):
         box.appendChild(row);
         box.scrollTop = box.scrollHeight;
         return row;
-      }
-      function askQuick(text){
-        document.getElementById('chatInput').value = text;
-        sendMsg();
-      }
-      function fillQuick(text){
+      };
+
+      window.askQuick = function(text){
         const input = document.getElementById('chatInput');
+        if(!input) return;
+        input.value = text;
+        window.sendMsg();
+      };
+
+      window.fillQuick = function(text){
+        const input = document.getElementById('chatInput');
+        if(!input) return;
         input.value = text;
         input.focus();
         input.setSelectionRange(input.value.length, input.value.length);
-      }
-      async function confirmCamyBuono(token){
+      };
+
+      window.toggleCamyBuonoForm = function(force){
+        const panel = document.getElementById('camyBuonoForm');
+        if(!panel) return;
+        const show = (typeof force === 'boolean') ? force : panel.style.display === 'none';
+        panel.style.display = show ? 'block' : 'none';
+        if(show){
+          const cliente = document.getElementById('camyCliente');
+          if(cliente) cliente.focus();
+        }
+      };
+
+      window.sendCamyBuonoForm = function(){
+        const cliente = (document.getElementById('camyCliente')?.value || '').trim();
+        const codice = (document.getElementById('camyCodice')?.value || '').trim();
+        const arrivo = (document.getElementById('camyArrivo')?.value || '').trim();
+        const pezzi = (document.getElementById('camyPezzi')?.value || '1').trim();
+        const buono = (document.getElementById('camyBuono')?.value || '').trim();
+        const pack = (document.getElementById('camyPackage')?.value || '').trim();
+
+        if(!codice || !arrivo){
+          window.addMsg('Per preparare il buono devi inserire almeno Codice articolo e N. arrivo.', 'bot');
+          return;
+        }
+        let text = `prepara buono codice ${codice} arrivo ${arrivo} pezzi ${pezzi}`;
+        if(cliente) text += ` cliente ${cliente}`;
+        if(buono) text += ` buono ${buono}`;
+        if(pack) text += ` package ${pack}`;
+        const input = document.getElementById('chatInput');
+        if(input) input.value = text;
+        window.sendMsg();
+      };
+
+      window.confirmCamyBuono = async function(token){
         if(!token) return;
-        const loading = addMsg('Confermo e aggiorno il buono...', 'bot');
+        const loading = window.addMsg('Confermo e aggiorno il buono...', 'bot');
         try{
-          const res = await fetch('{{ url_for('chatbot_buono_conferma') }}', {
+          const res = await fetch('/chatbot/buono/conferma', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({token: token})
           });
           const data = await res.json();
-          loading.remove();
-          addMsg(data.answer || 'Operazione completata.', 'bot', !!data.html);
+          if(loading) loading.remove();
+          window.addMsg(data.answer || 'Operazione completata.', 'bot', !!data.html);
         }catch(e){
-          loading.remove();
-          addMsg('CAMY non è riuscita a confermare il buono. Controlla i log admin.', 'bot');
+          if(loading) loading.remove();
+          window.addMsg('CAMY non è riuscita a confermare il buono. Controlla i log admin.', 'bot');
         }
-      }
+      };
 
-      async function sendMsg(){
+      window.sendMsg = async function(){
         const input = document.getElementById('chatInput');
+        if(!input) return;
         const text = input.value.trim();
         if(!text) return;
         input.value = '';
-        addMsg(text, 'user');
-        const loading = addMsg('Sto cercando...', 'bot');
+        window.addMsg(text, 'user');
+        const loading = window.addMsg('Sto cercando...', 'bot');
         try{
-          const res = await fetch('{{ url_for('chatbot_api') }}', {
+          const res = await fetch('/chatbot/api', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({message: text})
           });
           const data = await res.json();
-          loading.remove();
-          addMsg(data.answer || 'Non ho trovato una risposta.', 'bot', !!data.html);
+          if(loading) loading.remove();
+          window.addMsg(data.answer || 'Non ho trovato una risposta.', 'bot', !!data.html);
         }catch(e){
-          loading.remove();
-          addMsg('CAMY ha avuto un errore durante la ricerca. Riprova o controlla i log admin.', 'bot');
+          if(loading) loading.remove();
+          window.addMsg('CAMY ha avuto un errore durante la ricerca. Riprova o controlla i log admin.', 'bot');
         }
-      }
+      };
+
+      document.addEventListener('DOMContentLoaded', function(){
+        const input = document.getElementById('chatInput');
+        if(input){
+          input.addEventListener('keydown', function(event){
+            if(event.key === 'Enter'){
+              event.preventDefault();
+              window.sendMsg();
+            }
+          });
+        }
+      });
     </script>
     {% endblock %}
     """
@@ -634,7 +723,7 @@ def register_chatbot_routes(app_obj, deps):
         codice = rx(r"\bcodice(?:\s+articolo)?\s+(.+?)(?=\s+arrivo\b|\s+n\.\s*arrivo\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
         arrivo = rx(r"\b(?:n\.\s*)?arrivo\s+(.+?)(?=\s+codice\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
         cliente = _detect_cliente(text) or rx(r"\bcliente\s+(.+?)(?=\s+codice\b|\s+arrivo\b|\s+pezzi\b|\s+colli\b|\s+buono\b|$)")
-        buono = rx(r"\bbuono\s+((?:BC-)?\d{4}-\d+|BC[-\w]+|\d+)\b")
+        buono = rx(r"\bbuono\s+(.+?)(?=\s+codice\b|\s+arrivo\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+package\b|\s+cassa\b|$)")
         package = rx(r"\b(?:package|pkg|cassa)\s+([A-Z0-9\-_/\.]+)")
 
         pezzi = 1
