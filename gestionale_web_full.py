@@ -43,7 +43,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 # Database (SQLAlchemy)
-from sqlalchemy import create_engine, Column, Integer, String, Text, Float, Date, ForeignKey, Boolean, or_, Identity, text, Index, inspect, case
+from sqlalchemy import create_engine, Column, Integer, String, Text, Float, Date, ForeignKey, Boolean, or_, Identity, text, Index, inspect, case, case
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session, selectinload
 from sqlalchemy.sql import func
 from sqlalchemy.exc import IntegrityError
