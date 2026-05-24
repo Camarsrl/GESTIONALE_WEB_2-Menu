@@ -58,8 +58,8 @@ def register_chatbot_routes(app_obj, deps):
       <div class="card shadow-sm chat-card">
         <div class="card-header d-flex justify-content-between align-items-center">
           <div>
-            <h5 class="mb-0">🤖 Chat gestionale</h5>
-            <small class="text-muted">Puoi chiedere giacenze, arrivi, DDT, colli, peso, M2, posizione.</small>
+            <h5 class="mb-0">🤖 CAMY - Assistente gestionale</h5>
+            <small class="text-muted">Puoi chiedere giacenze, arrivi, DDT, colli, peso, M2 e guide operative.</small>
           </div>
           <div class="d-flex gap-2">
             <button id="installPwaBtn" class="btn btn-outline-primary btn-sm" style="display:none;">Installa</button>
@@ -73,7 +73,6 @@ def register_chatbot_routes(app_obj, deps):
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Totale colli e peso in giacenza')">Totale colli/peso</button>
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Entrate oggi')">Entrate oggi</button>
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Uscite oggi')">Uscite oggi</button>
-            <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Giacenze senza posizione')">Senza posizione</button>
             <button class="btn btn-sm btn-outline-primary" onclick="fillQuick('Cerca ARRIVO ')">Cerca N. arrivo</button>
             <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come creo un DDT?')">Guida DDT</button>
             <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come faccio un buono QR?')">Guida Buono QR</button>
@@ -81,7 +80,7 @@ def register_chatbot_routes(app_obj, deps):
           </div>
 
           <div id="chatBox" class="chat-box mb-3">
-            <div class="msg bot"><div class="bubble">Ciao, sono il chatbot del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• giacenze senza posizione<br>• cerca ARRIVO seguito dal numero<br>• dove si trova il codice ABC123<br>• come creo un DDT?<br>• come faccio un buono QR?<br>• come stampo una etichetta?</div></div>
+            <div class="msg bot"><div class="bubble">Ciao, sono CAMY, l’assistente del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• cerca ARRIVO seguito dal numero<br>• dove si trova il codice ABC123<br>• come creo un DDT?<br>• come faccio un buono QR?<br>• come stampo una etichetta?</div></div>
           </div>
 
           <div class="input-group chat-input-mobile">
@@ -164,7 +163,7 @@ def register_chatbot_routes(app_obj, deps):
           addMsg(data.answer || 'Non ho trovato una risposta.', 'bot', !!data.html);
         }catch(e){
           loading.remove();
-          addMsg('Errore durante la ricerca. Riprova o controlla i log admin.', 'bot');
+          addMsg('CAMY ha avuto un errore durante la ricerca. Riprova o controlla i log admin.', 'bot');
         }
       }
     </script>
@@ -290,6 +289,43 @@ def register_chatbot_routes(app_obj, deps):
         s = re.sub(r"\s+", " ", s).strip()
         return s
 
+    def _strip_cliente_from_term(term, cliente):
+        """Toglie dal testo di ricerca il nome cliente già riconosciuto.
+        Esempio: '24/26 FINCANTIERI' diventa '24/26', così il filtro cliente
+        e il filtro N. arrivo lavorano separati.
+        """
+        s = (term or "").strip()
+        if not s or not cliente:
+            return s
+        variants = set(_cliente_aliases(cliente))
+        variants.add(cliente)
+        for v in list(variants):
+            nv = _norm_txt(v)
+            if nv:
+                variants.add(nv)
+        for v in sorted(variants, key=len, reverse=True):
+            if not v:
+                continue
+            s = re.sub(re.escape(v), " ", s, flags=re.I)
+        s = re.sub(r"\s+", " ", s).strip(" -")
+        return s
+
+    def _is_arrivo_request(msg):
+        low = (msg or "").lower()
+        return bool(re.search(r"\b(n\.?\s*)?arrivo\b", low))
+
+    def _apply_arrivo_filter(q, term):
+        """Filtro robusto per N. arrivo: confronta sia testo normale sia testo normalizzato."""
+        raw = (term or "").strip()
+        if not raw:
+            return q
+        norm = _norm_txt(raw)
+        col_norm = _sql_norm_col(Articolo.n_arrivo)
+        conditions = [Articolo.n_arrivo.ilike(f"%{raw}%")]
+        if norm:
+            conditions.append(col_norm.ilike(f"%{norm}%"))
+        return q.filter(or_(*conditions))
+
     def _fmt_num(v, dec=2):
         try:
             return f"{float(v or 0):.{dec}f}".replace('.', ',')
@@ -390,8 +426,9 @@ def register_chatbot_routes(app_obj, deps):
         return "<br>".join(out)
 
     def _answer_search(db, msg):
-        term = _extract_search_text(msg)
         q_base, cliente = _apply_cliente_if_present(_base_query(db), msg)
+        term = _extract_search_text(msg)
+        term = _strip_cliente_from_term(term, cliente)
 
         if not term or len(term) < 2:
             if cliente:
@@ -413,6 +450,21 @@ def register_chatbot_routes(app_obj, deps):
             if not rows:
                 return f"<b>Nessuna giacenza attiva trovata per {_esc(cliente)}.</b>"
             out = [f"<b>Giacenze attive - {_esc(cliente)}</b><br>Totale righe: {int(total)}<br>Mostro massimo 5 risultati:"]
+            out.extend(_fmt_row_html(a) for a in rows)
+            return "<br>".join(out)
+
+        if _is_arrivo_request(msg):
+            q = _apply_arrivo_filter(q_base, term)
+            rows = q.order_by(Articolo.id_articolo.desc()).limit(5).all()
+            if not rows:
+                dettaglio = f"{term}"
+                if cliente:
+                    dettaglio += f" - {cliente}"
+                return f"Non ho trovato arrivi per: {_esc(dettaglio)}"
+            titolo = f"<b>Arrivo {_esc(term)}</b>"
+            if cliente:
+                titolo += f" - {_esc(cliente)}"
+            out = [titolo + " (mostro massimo 5):"]
             out.extend(_fmt_row_html(a) for a in rows)
             return "<br>".join(out)
 
@@ -457,7 +509,7 @@ def register_chatbot_routes(app_obj, deps):
                 "4. Clicca su <b>Crea DDT</b> o <b>Finalizza DDT</b>, in base alla procedura disponibile.<br>"
                 "5. Controlla destinatario, colli, peso, data uscita, mezzo e numero DDT.<br>"
                 "6. Conferma/finalizza solo dopo aver verificato i dati.<br><br>"
-                "Per sicurezza, il chatbot può guidarti, ma la finalizzazione deve sempre essere controllata da un operatore."
+                "Per sicurezza, CAMY può guidarti, ma la finalizzazione deve sempre essere controllata da un operatore."
             )
 
         if any(w in low for w in ["buono qr", "buoni qr", "buono di carico", "qr"]):
@@ -543,12 +595,12 @@ def register_chatbot_routes(app_obj, deps):
 
     def _answer_help():
         return (
-            "Posso aiutarti a cercare nel gestionale. Prova con:<br>"
+            "Sono CAMY e posso aiutarti a cercare nel gestionale. Prova con:<br>"
             "• quante giacenze DE WAVE SAMA<br>"
             "• totale colli e peso in giacenza<br>"
             "• entrate oggi<br>"
             "• uscite oggi<br>"
-            "• giacenze senza posizione<br>"
+            ""
             "• cerca ARRIVO seguito dal numero<br>"
             "• cerca DDT 123<br>"
             "• dove si trova ABC123"
