@@ -74,10 +74,47 @@ def register_chatbot_routes(app_obj, deps):
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Entrate oggi')">Entrate oggi</button>
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Uscite oggi')">Uscite oggi</button>
             <button class="btn btn-sm btn-outline-primary" onclick="fillQuick('Cerca ARRIVO ')">Cerca N. arrivo</button>
-            <button class="btn btn-sm btn-outline-warning" onclick="fillQuick('CAMY prepara buono codice  arrivo  pezzi  cliente ')">Prepara Buono</button>
+            <button type="button" class="btn btn-sm btn-outline-warning" onclick="showPreparaBuonoForm()">Prepara Buono</button>
             <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come creo un DDT?')">Guida DDT</button>
             <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come faccio un buono QR?')">Guida Buono QR</button>
             <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come stampo una etichetta?')">Guida Etichette</button>
+          </div>
+
+          <div id="camyBuonoForm" class="border border-warning rounded p-3 mb-2" style="display:none; background:#fffdf2;">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <b>Prepara Buono di Prelievo guidato</b>
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="hidePreparaBuonoForm()">Chiudi</button>
+            </div>
+            <div class="row g-2 align-items-end">
+              <div class="col-md-2">
+                <label class="form-label small mb-1">Cliente</label>
+                <input id="camyCliente" class="form-control form-control-sm" placeholder="FINCANTIERI">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small mb-1">Codice articolo</label>
+                <input id="camyCodice" class="form-control form-control-sm" placeholder="CB050CF">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small mb-1">N. arrivo</label>
+                <input id="camyArrivo" class="form-control form-control-sm" placeholder="200/26">
+              </div>
+              <div class="col-md-1">
+                <label class="form-label small mb-1">Pezzi</label>
+                <input id="camyPezzi" class="form-control form-control-sm" type="number" min="1" value="1">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small mb-1">N. buono</label>
+                <input id="camyBuono" class="form-control form-control-sm" placeholder="073-FADEM">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small mb-1">Package/Cassa</label>
+                <input id="camyPackage" class="form-control form-control-sm" placeholder="1">
+              </div>
+              <div class="col-md-1 d-grid">
+                <button type="button" class="btn btn-warning btn-sm" onclick="submitPreparaBuonoForm()">Prepara</button>
+              </div>
+            </div>
+            <small class="text-muted">CAMY prepara una proposta per Buono di Prelievo. I colli non vengono divisi.</small>
           </div>
 
           <div id="chatBox" class="chat-box mb-3">
@@ -118,6 +155,40 @@ def register_chatbot_routes(app_obj, deps):
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/service-worker.js').catch(() => {});
         });
+      }
+
+      function showPreparaBuonoForm(){
+        const form = document.getElementById('camyBuonoForm');
+        if(form){ form.style.display = 'block'; }
+        const cliente = document.getElementById('camyCliente');
+        if(cliente){ cliente.focus(); }
+      }
+      function hidePreparaBuonoForm(){
+        const form = document.getElementById('camyBuonoForm');
+        if(form){ form.style.display = 'none'; }
+      }
+      function _camyVal(id){
+        const el = document.getElementById(id);
+        return el ? el.value.trim() : '';
+      }
+      function submitPreparaBuonoForm(){
+        const cliente = _camyVal('camyCliente');
+        const codice = _camyVal('camyCodice');
+        const arrivo = _camyVal('camyArrivo');
+        const pezzi = _camyVal('camyPezzi') || '1';
+        const buono = _camyVal('camyBuono');
+        const pack = _camyVal('camyPackage');
+        if(!codice || !arrivo){
+          addMsg('Per preparare il buono devi inserire almeno Codice articolo e N. arrivo.', 'bot');
+          return;
+        }
+        let msg = `CAMY prepara buono codice ${codice} arrivo ${arrivo} pezzi ${pezzi}`;
+        if(cliente) msg += ` cliente ${cliente}`;
+        if(buono) msg += ` buono ${buono}`;
+        if(pack) msg += ` package ${pack}`;
+        document.getElementById('chatInput').value = msg;
+        hidePreparaBuonoForm();
+        sendMsg();
       }
 
       function addMsg(text, who, isHtml=false){
@@ -842,26 +913,16 @@ def register_chatbot_routes(app_obj, deps):
         if multi or pezzi_req < total_pezzi:
             residuo_codice = _remove_requested_code(art.codice_articolo, data.get("codice"))
             out.append("<b>Cosa farà dopo conferma:</b><br>")
-            out.append("• creerà una riga per il Buono di Prelievo con il codice richiesto e il package/cassa se presente;<br>")
+            out.append("• creerà una riga per il buono con il codice richiesto e il package/cassa se presente;<br>")
             out.append(f"• lascerà in giacenza la riga residua con codice: <b>{_esc(residuo_codice or '-')}</b>;<br>")
-            out.append("• varierà pezzi e peso in proporzione, lasciando i colli invariati;<br>")
+            out.append("• varierà pezzi e peso in proporzione;<br>")
             out.append("• riporterà il numero buono sulla riga inserita nel buono.<br><br>")
         out.append(f"<button class='btn btn-warning btn-sm' onclick=\"confirmCamyBuono('{token}')\">Conferma proposta CAMY</button>")
         return "".join(out)
 
     def _conferma_buono_operativo(db, token):
-        """Conferma CAMY per BUONO DI PRELIEVO.
-
-        Importante:
-        - NON crea BuonoCarico QR;
-        - prepara/splitta la riga in giacenza;
-        - apre il BUONO DI PRELIEVO classico selezionando la riga corretta;
-        - i colli NON vengono divisi: il pallet resta sempre 1 collo sulla riga nuova
-          e 1 collo sulla riga residua.
-        """
         if _user_role() not in ("admin", "magazzino"):
             return "Operazione non autorizzata."
-
         pend = dict(session.get("camy_pending") or {})
         data = pend.get(token)
         if not data:
@@ -874,15 +935,36 @@ def register_chatbot_routes(app_obj, deps):
             return "La riga risulta già uscita: operazione annullata."
 
         cliente = validate_cliente_or_raise(data.get("cliente") or art.cliente)
+        buono = _trova_buono_chat(db, data.get("buono")) if data.get("buono") else None
+        if buono and normalize_text_key(buono.cliente) != normalize_text_key(cliente):
+            return "Il buono indicato appartiene a un cliente diverso. Operazione annullata."
+        if not buono:
+            buono = BuonoCarico(
+                codice_buono=_next_codice_buono_chat(db),
+                cliente=cliente,
+                fornitore=art.fornitore or "",
+                codice_articolo="",
+                descrizione="",
+                n_arrivo="",
+                n_ddt_ingresso="",
+                data_ingresso=art.data_ingresso or "",
+                codice_entrata="",
+                pallet_previsti=0,
+                peso_previsto=0.0,
+                stato="DA CARICARE",
+                note="Creato da CAMY",
+                created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                created_by=(getattr(current_user, "id", "") or session.get("username") or "").strip().upper()
+            )
+            db.add(buono)
+            db.flush()
 
         pezzi_req = int(data.get("pezzi_req") or 1)
         total_pezzi = int(data.get("total_pezzi") or 1)
         peso_req = float(data.get("peso_req") or 0)
         peso_residuo = float(data.get("peso_residuo") or 0)
         codice_buono = data.get("codice_buono") or data.get("codice") or art.codice_articolo or ""
-        buono_n = (data.get("buono") or "").strip()
         n_arrivo_base = strip_arrivo_progressivo(art.n_arrivo)
-
         codice_entrata = ensure_codice_entrata(
             getattr(art, "codice_entrata", None),
             n_arrivo=n_arrivo_base or art.n_arrivo,
@@ -893,14 +975,12 @@ def register_chatbot_routes(app_obj, deps):
         if not (getattr(art, "codice_entrata", "") or "").strip():
             art.codice_entrata = codice_entrata
 
-        # Colli: NON si dividono. Il collo rappresenta il pallet/cassa fisica.
-        colli_originali = _as_int_safe(getattr(art, "n_colli", None), 1) or 1
-
+        # Split: se richiesta parziale o riga con più codici, creo nuova riga per il buono
         split_needed = bool(data.get("multi")) or pezzi_req < total_pezzi
         if split_needed:
             residuo_codice = _remove_requested_code(art.codice_articolo, data.get("codice"))
             residuo_pezzi = max(0, total_pezzi - pezzi_req)
-
+            # Riga nuova collegata al buono
             nuova = Articolo(
                 codice_articolo=codice_buono,
                 descrizione=art.descrizione,
@@ -910,12 +990,12 @@ def register_chatbot_routes(app_obj, deps):
                 protocollo=art.protocollo,
                 ordine=art.ordine,
                 commessa=art.commessa,
-                buono_n=buono_n,
+                buono_n=buono.codice_buono,
                 n_arrivo=art.n_arrivo,
                 ns_rif=art.ns_rif,
                 serial_number=art.serial_number,
                 pezzo=str(pezzi_req),
-                n_colli=colli_originali,  # sempre invariato
+                n_colli=pezzi_req,
                 peso=peso_req,
                 larghezza=art.larghezza,
                 lunghezza=art.lunghezza,
@@ -924,7 +1004,7 @@ def register_chatbot_routes(app_obj, deps):
                 m3=art.m3,
                 posizione=art.posizione,
                 stato=art.stato,
-                note=((art.note or "") + "\nSplit creato da CAMY per buono di prelievo.").strip(),
+                note=((art.note or "") + "\nSplit creato da CAMY per buono.").strip(),
                 mezzi_in_uscita=art.mezzi_in_uscita,
                 data_ingresso=art.data_ingresso,
                 n_ddt_ingresso=art.n_ddt_ingresso,
@@ -936,58 +1016,59 @@ def register_chatbot_routes(app_obj, deps):
             db.add(nuova)
             db.flush()
 
-            # Riga origine: resta in giacenza come residuo, ma il collo NON cambia.
+            # Riga origine rimane residua in giacenza senza il codice appena richiesto
             art.codice_articolo = residuo_codice
             art.pezzo = str(residuo_pezzi) if residuo_pezzi else ""
-            art.n_colli = colli_originali  # sempre invariato
+            art.n_colli = residuo_pezzi
             art.peso = peso_residuo
-
             id_articolo_buono = nuova.id_articolo
+            art_buono = nuova
         else:
-            art.buono_n = buono_n
+            art.buono_n = buono.codice_buono
             id_articolo_buono = art.id_articolo
+            art_buono = art
+
+        db.add(BuonoCaricoRiga(
+            buono_id=buono.id,
+            id_articolo=id_articolo_buono,
+            cliente=cliente,
+            fornitore=art_buono.fornitore or "",
+            codice_articolo=codice_buono,
+            descrizione=art_buono.descrizione or "",
+            n_arrivo=n_arrivo_base or (art_buono.n_arrivo or ""),
+            n_ddt_ingresso=art_buono.n_ddt_ingresso or "",
+            data_ingresso=art_buono.data_ingresso or "",
+            codice_entrata=codice_entrata,
+            colli_previsti=pezzi_req,
+            peso_previsto=peso_req,
+        ))
+
+        buono.fornitore = _add_summary_chat(buono.fornitore, art_buono.fornitore, sep=" / ", limit=500)
+        buono.codice_articolo = _add_summary_chat(getattr(buono, "codice_articolo", ""), codice_buono, sep="; ", limit=500)
+        buono.descrizione = _add_summary_chat(getattr(buono, "descrizione", ""), art_buono.descrizione, sep="; ", limit=800)
+        buono.n_arrivo = _add_summary_chat(buono.n_arrivo, n_arrivo_base or art_buono.n_arrivo, sep="; ", limit=500)
+        buono.n_ddt_ingresso = _add_summary_chat(buono.n_ddt_ingresso, art_buono.n_ddt_ingresso, sep="; ", limit=500)
+        buono.codice_entrata = _add_summary_chat(buono.codice_entrata, codice_entrata, sep="; ", limit=1500)
+        buono.pallet_previsti = int(buono.pallet_previsti or 0) + pezzi_req
+        buono.peso_previsto = float(buono.peso_previsto or 0) + peso_req
 
         db.commit()
-
         pend.pop(token, None)
         session["camy_pending"] = pend
         session.modified = True
 
         try:
-            link = url_for("chatbot_apri_buono_prelievo", articolo_id=id_articolo_buono)
+            link = url_for("dettaglio_buono_carico", buono_id=buono.id)
         except Exception:
-            link = f"/chatbot/buono/prelievo/{id_articolo_buono}"
-
+            link = f"/buoni_carico/{buono.id}"
         return (
-            f"<b>Operazione CAMY pronta per Buono di Prelievo.</b><br>"
-            f"Riga da inserire nel buono: <b>ID {_esc(id_articolo_buono)}</b><br>"
-            f"Codice: <b>{_esc(codice_buono)}</b><br>"
-            f"Pezzi: <b>{pezzi_req}</b><br>"
-            f"Colli: <b>{colli_originali}</b> <span class='text-muted'>(non divisi)</span><br>"
-            f"Peso: <b>{_esc(_fmt_num(peso_req))} kg</b><br>"
-            f"<a class='btn btn-sm btn-primary mt-2' href='{_esc(link)}'>Apri Buono di Prelievo</a>"
+            f"<b>Operazione CAMY completata.</b><br>"
+            f"Buono: <b>{_esc(buono.codice_buono)}</b><br>"
+            f"Codice aggiunto: <b>{_esc(codice_buono)}</b><br>"
+            f"Pezzi/colli aggiunti: <b>{pezzi_req}</b><br>"
+            f"Peso aggiunto: <b>{_esc(_fmt_num(peso_req))} kg</b><br>"
+            f"<a class='btn btn-sm btn-primary mt-2' href='{_esc(link)}'>Apri buono</a>"
         )
-
-
-    @app.route("/chatbot/buono/prelievo/<int:articolo_id>", methods=["GET"])
-    @login_required
-    def chatbot_apri_buono_prelievo(articolo_id):
-        """Bridge CAMY -> Buono di Prelievo.
-        Apre il buono di prelievo classico simulando la selezione della riga in Giacenze.
-        """
-        return render_template_string("""
-        <!doctype html>
-        <html lang="it">
-        <head><meta charset="utf-8"><title>Apertura Buono di Prelievo</title></head>
-        <body>
-          <form id="f" method="post" action="{{ url_for('buono_preview') }}">
-            <input type="hidden" name="ids" value="{{ articolo_id }}">
-          </form>
-          <script>document.getElementById('f').submit();</script>
-          <p>Apro il Buono di Prelievo...</p>
-        </body>
-        </html>
-        """, articolo_id=articolo_id)
 
     def _answer_help():
         return (
