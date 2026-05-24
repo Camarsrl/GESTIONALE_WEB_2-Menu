@@ -74,11 +74,11 @@ def register_chatbot_routes(app_obj, deps):
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Entrate oggi')">Entrate oggi</button>
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Uscite oggi')">Uscite oggi</button>
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Giacenze senza posizione')">Senza posizione</button>
-            <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Cerca ARRIVO 24/25')">Cerca N. arrivo</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="fillQuick('Cerca ARRIVO ')">Cerca N. arrivo</button>
           </div>
 
           <div id="chatBox" class="chat-box mb-3">
-            <div class="msg bot"><div class="bubble">Ciao, sono il chatbot del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• giacenze senza posizione<br>• cerca ARRIVO 24/25<br>• dove si trova il codice ABC123</div></div>
+            <div class="msg bot"><div class="bubble">Ciao, sono il chatbot del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• giacenze senza posizione<br>• cerca ARRIVO seguito dal numero<br>• dove si trova il codice ABC123</div></div>
           </div>
 
           <div class="input-group chat-input-mobile">
@@ -137,6 +137,12 @@ def register_chatbot_routes(app_obj, deps):
         document.getElementById('chatInput').value = text;
         sendMsg();
       }
+      function fillQuick(text){
+        const input = document.getElementById('chatInput');
+        input.value = text;
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
       async function sendMsg(){
         const input = document.getElementById('chatInput');
         const text = input.value.trim();
@@ -194,9 +200,39 @@ def register_chatbot_routes(app_obj, deps):
             today.strftime("%d-%m-%Y"),
         ]
 
+    def _cliente_aliases(cliente):
+        """Alias per clienti con nomi scritti in modi diversi nel DB o nella domanda."""
+        cli = (cliente or "").strip().upper()
+        aliases = {cli}
+        n = _norm_txt(cli)
+
+        # RF-DE WAVE può comparire scritto anche come RF DE WAVE, RFDEWAVE o DE WAVE RF.
+        if n in {"RFDEWAVE", "DEWAVERF"} or ("RF" in n and "DEWAVE" in n):
+            aliases.update({
+                "RF-DE WAVE", "RF DE WAVE", "RFDEWAVE",
+                "DE WAVE RF", "DE-WAVE RF", "DEWAVERF"
+            })
+
+        # DE WAVE SAMA deve restare distinto da DE WAVE.
+        if n == "DEWAVESAMA":
+            aliases.update({"DE WAVE SAMA", "DE-WAVE SAMA", "DEWAVESAMA"})
+
+        # DE WAVE base, ma senza includere SAMA/RF.
+        if n == "DEWAVE":
+            aliases.update({"DE WAVE", "DE-WAVE", "DEWAVE"})
+
+        return [a for a in aliases if a]
+
+    def _sql_norm_col(col):
+        """Normalizza una colonna SQL come _norm_txt: maiuscolo e senza spazi/punteggiatura."""
+        expr = func.upper(func.coalesce(col, ""))
+        for ch in [" ", "-", "_", "/", "\\", ".", "'"]:
+            expr = func.replace(expr, ch, "")
+        return expr
+
     def _detect_cliente(msg):
-        """Riconosce il cliente nel testo dando priorità ai nomi più lunghi.
-        Evita che 'DE WAVE' venga preso prima di 'DE WAVE SAMA'.
+        """Riconosce il cliente dando priorità ai nomi più lunghi e agli alias.
+        Evita confusione tra DE WAVE, DE WAVE SAMA e RF-DE WAVE.
         """
         if _user_role() == "client":
             return (getattr(current_user, "id", "") or "").strip().upper()
@@ -207,16 +243,32 @@ def register_chatbot_routes(app_obj, deps):
         except Exception:
             clienti = []
 
-        clienti = sorted([c for c in clienti if c], key=lambda x: len(_norm_txt(x)), reverse=True)
+        # Aggiungo RF-DE WAVE se per qualche motivo non compare negli utenti.
+        if not any(_norm_txt(c) in {"RFDEWAVE", "DEWAVERF"} for c in clienti):
+            clienti.append("RF-DE WAVE")
+
+        candidates = []
         for cli in clienti:
-            if _norm_txt(cli) and _norm_txt(cli) in msg_norm:
-                return cli.upper()
+            for alias in _cliente_aliases(cli):
+                an = _norm_txt(alias)
+                if an:
+                    candidates.append((len(an), cli.upper(), an))
+
+        candidates.sort(reverse=True)
+        for _, cli, alias_norm in candidates:
+            if alias_norm and alias_norm in msg_norm:
+                return cli
         return ""
 
     def _apply_cliente_if_present(q, msg):
         cli = _detect_cliente(msg)
         if cli and _user_role() != "client":
-            q = q.filter(func.upper(Articolo.cliente) == cli.upper())
+            alias_norms = sorted({_norm_txt(a) for a in _cliente_aliases(cli) if _norm_txt(a)})
+            if alias_norms:
+                col_norm = _sql_norm_col(Articolo.cliente)
+                q = q.filter(or_(*[col_norm == n for n in alias_norms]))
+            else:
+                q = q.filter(func.upper(Articolo.cliente) == cli.upper())
         return q, cli
 
     def _extract_search_text(msg):
@@ -336,11 +388,33 @@ def register_chatbot_routes(app_obj, deps):
 
     def _answer_search(db, msg):
         term = _extract_search_text(msg)
+        q_base, cliente = _apply_cliente_if_present(_base_query(db), msg)
+
         if not term or len(term) < 2:
-            return "Scrivimi cosa devo cercare, ad esempio: cerca ARRIVO 24/25 oppure cerca codice ABC123."
+            if cliente:
+                q = _active_filter(q_base)
+                rows = q.order_by(Articolo.id_articolo.desc()).limit(5).all()
+                total = q.with_entities(func.count(Articolo.id_articolo)).scalar() or 0
+                if not rows:
+                    return f"<b>Nessuna giacenza attiva trovata per {_esc(cliente)}.</b>"
+                out = [f"<b>Giacenze attive - {_esc(cliente)}</b><br>Totale righe: {int(total)}<br>Mostro massimo 5 risultati:"]
+                out.extend(_fmt_row_html(a) for a in rows)
+                return "<br>".join(out)
+            return "Scrivimi cosa devo cercare, ad esempio: cerca ARRIVO 123/25 oppure cerca codice ABC123."
+
+        term_norm = _norm_txt(term)
+        if cliente and term_norm in {_norm_txt(a) for a in _cliente_aliases(cliente)}:
+            q = _active_filter(q_base)
+            rows = q.order_by(Articolo.id_articolo.desc()).limit(5).all()
+            total = q.with_entities(func.count(Articolo.id_articolo)).scalar() or 0
+            if not rows:
+                return f"<b>Nessuna giacenza attiva trovata per {_esc(cliente)}.</b>"
+            out = [f"<b>Giacenze attive - {_esc(cliente)}</b><br>Totale righe: {int(total)}<br>Mostro massimo 5 risultati:"]
+            out.extend(_fmt_row_html(a) for a in rows)
+            return "<br>".join(out)
 
         like = f"%{term}%"
-        q = _base_query(db).filter(or_(
+        q = q_base.filter(or_(
             Articolo.codice_articolo.ilike(like),
             Articolo.descrizione.ilike(like),
             Articolo.n_arrivo.ilike(like),
@@ -374,7 +448,7 @@ def register_chatbot_routes(app_obj, deps):
             "• entrate oggi<br>"
             "• uscite oggi<br>"
             "• giacenze senza posizione<br>"
-            "• cerca ARRIVO 24/25<br>"
+            "• cerca ARRIVO seguito dal numero<br>"
             "• cerca DDT 123<br>"
             "• dove si trova ABC123"
         )
