@@ -75,10 +75,13 @@ def register_chatbot_routes(app_obj, deps):
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Uscite oggi')">Uscite oggi</button>
             <button class="btn btn-sm btn-outline-primary" onclick="askQuick('Giacenze senza posizione')">Senza posizione</button>
             <button class="btn btn-sm btn-outline-primary" onclick="fillQuick('Cerca ARRIVO ')">Cerca N. arrivo</button>
+            <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come creo un DDT?')">Guida DDT</button>
+            <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come faccio un buono QR?')">Guida Buono QR</button>
+            <button class="btn btn-sm btn-outline-success" onclick="askQuick('Come stampo una etichetta?')">Guida Etichette</button>
           </div>
 
           <div id="chatBox" class="chat-box mb-3">
-            <div class="msg bot"><div class="bubble">Ciao, sono il chatbot del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• giacenze senza posizione<br>• cerca ARRIVO seguito dal numero<br>• dove si trova il codice ABC123</div></div>
+            <div class="msg bot"><div class="bubble">Ciao, sono il chatbot del gestionale. Scrivimi ad esempio:<br>• quante giacenze DE WAVE SAMA<br>• totale colli e peso in giacenza<br>• entrate oggi<br>• uscite oggi<br>• giacenze senza posizione<br>• cerca ARRIVO seguito dal numero<br>• dove si trova il codice ABC123<br>• come creo un DDT?<br>• come faccio un buono QR?<br>• come stampo una etichetta?</div></div>
           </div>
 
           <div class="input-group chat-input-mobile">
@@ -440,6 +443,104 @@ def register_chatbot_routes(app_obj, deps):
         out.extend(_fmt_row_html(a) for a in rows)
         return "<br>".join(out)
 
+
+    def _answer_guida_operativa(msg):
+        """Risposte guida passo-passo per usare il gestionale."""
+        low = (msg or "").lower()
+
+        if any(w in low for w in ["ddt", "documento di trasporto", "uscita merce", "scaricare merce", "scarico merce"]):
+            return (
+                "<b>Guida DDT / uscita merce</b><br>"
+                "1. Vai in <b>Giacenze</b>.<br>"
+                "2. Cerca il cliente, il codice articolo, il N. arrivo oppure il DDT ingresso.<br>"
+                "3. Seleziona la riga o le righe da scaricare.<br>"
+                "4. Clicca su <b>Crea DDT</b> o <b>Finalizza DDT</b>, in base alla procedura disponibile.<br>"
+                "5. Controlla destinatario, colli, peso, data uscita, mezzo e numero DDT.<br>"
+                "6. Conferma/finalizza solo dopo aver verificato i dati.<br><br>"
+                "Per sicurezza, il chatbot può guidarti, ma la finalizzazione deve sempre essere controllata da un operatore."
+            )
+
+        if any(w in low for w in ["buono qr", "buoni qr", "buono di carico", "qr"]):
+            return (
+                "<b>Guida Buono QR</b><br>"
+                "1. Vai nella sezione <b>Buoni QR</b>.<br>"
+                "2. Crea un nuovo buono oppure apri un buono esistente.<br>"
+                "3. Aggiungi gli articoli/arrivi da caricare.<br>"
+                "4. Durante il carico, scansiona il QR dei pallet.<br>"
+                "5. Il gestionale ti avvisa se un pallet non appartiene al buono selezionato.<br>"
+                "6. Alla fine controlla il riepilogo: scansionati, mancanti e non validi."
+            )
+
+        if any(w in low for w in ["verifica entrata", "verifico entrata", "entrata", "barcode", "codice entrata"]):
+            return (
+                "<b>Guida Verifica Entrata / Barcode</b><br>"
+                "1. Scansiona o apri il codice entrata/QR.<br>"
+                "2. Controlla che le righe collegate siano corrette.<br>"
+                "3. Verifica cliente, N. arrivo, DDT ingresso, colli e descrizione.<br>"
+                "4. Se ci sono dati provvisori, completa la riga senza modificare il codice entrata.<br>"
+                "5. Non cancellare il barcode/QR se devi solo correggere dati descrittivi."
+            )
+
+        if any(w in low for w in ["etichetta", "etichette", "stampa", "stampare"]):
+            return (
+                "<b>Guida Etichette</b><br>"
+                "1. Vai nella funzione <b>Etichette</b> o nella sezione collegata all’entrata.<br>"
+                "2. Inserisci cliente, fornitore, N. arrivo, data ingresso e colli.<br>"
+                "3. Controlla il formato etichetta selezionato.<br>"
+                "4. Genera l’anteprima PDF se attiva.<br>"
+                "5. Stampa una pagina per collo e verifica che il progressivo sia corretto."
+            )
+
+        if any(w in low for w in ["import", "importo", "pdf", "ocr", "excel", "file"]):
+            return (
+                "<b>Guida Import PDF / Excel</b><br>"
+                "1. Vai nella sezione di importazione.<br>"
+                "2. Carica il file PDF o Excel del cliente.<br>"
+                "3. Controlla l’anteprima dei dati letti dal gestionale.<br>"
+                "4. Correggi eventuali campi mancanti prima di confermare.<br>"
+                "5. Importa solo dopo aver verificato cliente, codice articolo, colli, peso, DDT e data ingresso."
+            )
+
+        if any(w in low for w in ["backup", "salvataggio", "ripristino", "restore"]):
+            return (
+                "<b>Guida Backup</b><br>"
+                "1. Il backup automatico leggero viene controllato dal gestionale in automatico.<br>"
+                "2. Dalla pagina admin puoi anche creare un backup manuale.<br>"
+                "3. Il backup leggero salva dati/configurazioni senza appesantire con tutti i media.<br>"
+                "4. Prima di modifiche importanti è sempre meglio creare un backup manuale."
+            )
+
+        if any(w in low for w in ["filtro", "filtri", "cercare", "cerco", "giacenze"]):
+            return (
+                "<b>Guida ricerca giacenze</b><br>"
+                "Puoi cercare per cliente, codice articolo, N. arrivo, DDT, seriale, lotto, fornitore o posizione.<br>"
+                "Per vedere solo ciò che è ancora presente, usa il filtro delle giacenze attive o chiedimi: "
+                "<i>quante giacenze ha RF-DE WAVE</i>."
+            )
+
+        return (
+            "<b>Guida gestionale</b><br>"
+            "Posso spiegarti come usare le funzioni principali. Prova a chiedere:<br>"
+            "• come creo un DDT?<br>"
+            "• come faccio un buono QR?<br>"
+            "• come verifico un’entrata?<br>"
+            "• come stampo un’etichetta?<br>"
+            "• come importo un PDF?<br>"
+            "• come faccio un backup?"
+        )
+
+    def _is_guida_request(msg):
+        low = (msg or "").lower()
+        parole_guida = [
+            "come ", "spiegami", "guida", "istruzioni", "procedura", "cosa devo fare",
+            "come faccio", "come creo", "come si fa", "aiutami a", "mi spieghi"
+        ]
+        argomenti = [
+            "ddt", "buono", "qr", "entrata", "etichetta", "etichette", "backup",
+            "import", "pdf", "excel", "barcode", "filtro", "giacenze", "stampa"
+        ]
+        return any(p in low for p in parole_guida) and any(a in low for a in argomenti)
+
     def _answer_help():
         return (
             "Posso aiutarti a cercare nel gestionale. Prova con:<br>"
@@ -477,7 +578,9 @@ def register_chatbot_routes(app_obj, deps):
                 "cosa ho", "merce in giacenza"
             ]
 
-            if any(w in low for w in ["aiuto", "help", "cosa puoi fare"]):
+            if _is_guida_request(msg):
+                answer = _answer_guida_operativa(msg)
+            elif any(w in low for w in ["aiuto", "help", "cosa puoi fare"]):
                 answer = _answer_help()
             elif any(w in low for w in ["senza posizione", "manca posizione", "non hanno posizione", "non ha posizione"]):
                 answer = _answer_senza_posizione(db, msg)
