@@ -793,19 +793,55 @@ def register_chatbot_routes(app_obj, deps):
         if not codice or not arrivo:
             return [], "Per preparare il buono mi servono sempre <b>codice articolo</b> e <b>N. arrivo</b>."
 
-        q = _active_filter(_base_query(db))
         code_like = f"%{codice}%"
-        q = q.filter(or_(Articolo.codice_articolo.ilike(code_like), Articolo.descrizione.ilike(code_like), Articolo.note.ilike(code_like)))
-        q = _apply_arrivo_filter(q, arrivo)
-        if cliente and _user_role() != "client":
-            alias_norms = sorted({_norm_txt(a) for a in _cliente_aliases(cliente) if _norm_txt(a)})
-            if alias_norms:
-                col_norm = _sql_norm_col(Articolo.cliente)
-                q = q.filter(or_(*[col_norm == n for n in alias_norms]))
+
+        def _apply_buono_common_filters(q):
+            q = q.filter(or_(
+                Articolo.codice_articolo.ilike(code_like),
+                Articolo.descrizione.ilike(code_like),
+                Articolo.note.ilike(code_like)
+            ))
+            q = _apply_arrivo_filter(q, arrivo)
+            if cliente and _user_role() != "client":
+                alias_norms = sorted({_norm_txt(a) for a in _cliente_aliases(cliente) if _norm_txt(a)})
+                if alias_norms:
+                    col_norm = _sql_norm_col(Articolo.cliente)
+                    q = q.filter(or_(*[col_norm == n for n in alias_norms]))
+            return q
+
+        # 1) Prima cerco solo righe ancora attive/in giacenza.
+        q = _apply_buono_common_filters(_active_filter(_base_query(db)))
         rows = q.order_by(Articolo.id_articolo.asc()).limit(20).all()
-        if not rows:
-            return [], f"Non ho trovato righe attive con codice <b>{_esc(codice)}</b> e arrivo <b>{_esc(arrivo)}</b>."
-        return rows, ""
+        if rows:
+            return rows, ""
+
+        # 2) Se non trovo righe attive, controllo se il codice/arrivo è già uscito.
+        #    Così CAMY non risponde più solo "non trovato", ma avvisa che la merce è già stata scaricata.
+        q_usciti = _apply_buono_common_filters(_base_query(db)).filter(or_(
+            Articolo.data_uscita != None,
+            Articolo.data_uscita != "",
+            Articolo.n_ddt_uscita != None,
+            Articolo.n_ddt_uscita != ""
+        ))
+        usciti = q_usciti.order_by(Articolo.id_articolo.desc()).limit(5).all()
+        if usciti:
+            out = [
+                f"⚠️ <b>Attenzione: il codice {_esc(codice)} con arrivo {_esc(arrivo)} risulta già uscito.</b><br>",
+                "Non preparo il Buono di Prelievo per evitare doppio scarico.<br><br>",
+                "<b>Righe trovate già uscite:</b>"
+            ]
+            for a in usciti:
+                out.append(
+                    "<div class='bot-result'>"
+                    f"ID {_esc(a.id_articolo)} | Cliente: {_esc(a.cliente or '-')}<br>"
+                    f"Codice: {_esc(a.codice_articolo or '-')}<br>"
+                    f"N. arrivo: {_esc(a.n_arrivo or '-')}<br>"
+                    f"Data uscita: {_esc(a.data_uscita or '-')} | DDT uscita: {_esc(a.n_ddt_uscita or '-')}"
+                    "</div>"
+                )
+            return [], "<br>".join(out)
+
+        return [], f"Non ho trovato righe attive con codice <b>{_esc(codice)}</b> e arrivo <b>{_esc(arrivo)}</b>."
 
     def _trova_buono_chat(db, valore):
         raw = str(valore or "").strip()
