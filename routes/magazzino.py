@@ -30,6 +30,15 @@ def register_magazzino_routes(app_obj, deps):
             page = request.args.get('page', 1, type=int)
             args = request.args
 
+            # ✅ Memorizza l'ultima lista Giacenze vista con i filtri attivi.
+            # Serve per tornare alla stessa ricerca dopo Salva Modifiche.
+            try:
+                if request.method == 'GET':
+                    session['giacenze_return_url'] = request.full_path
+                    session.modified = True
+            except Exception:
+                pass
+
             # 1) Query Base
             qs = (
                 db.query(Articolo)
