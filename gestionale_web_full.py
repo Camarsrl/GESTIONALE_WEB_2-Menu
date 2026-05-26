@@ -3046,6 +3046,7 @@ GIACENZE_HTML = """
 </div>
 
 <form method="POST">
+<input type="hidden" name="return_url" value="{{ request.full_path }}">
 
 {% if buono_carico_attivo %}
 <input type="hidden" name="buono_carico_id" value="{{ buono_carico_attivo }}">
@@ -3140,7 +3141,7 @@ GIACENZE_HTML = """
                     </td>
                     <td class="text-center">
                         {% if session.get('role') == 'admin' %}
-                        <a href="{{ url_for('edit_articolo', id=r.id_articolo, return_url=(current_return_url or request.full_path)) }}" class="btn btn-outline-primary btn-sm py-0 px-1" title="Modifica">✏️</a>
+                        <a href="{{ url_for('edit_articolo', id=r.id_articolo, return_url=request.full_path) }}" class="btn btn-outline-primary btn-sm py-0 px-1" title="Modifica">✏️</a>
                         <a href="{{ url_for('allegati_articolo', id_articolo=r.id_articolo) }}" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Documenti e Foto">📎</a>
                         {% if not r.data_uscita and not r.n_ddt_uscita %}
                         <a href="{{ url_for('scarico_parziale', id_articolo=r.id_articolo) }}" class="btn btn-warning btn-sm py-0 px-1 fw-bold text-nowrap" title="Scarico parziale pezzi">📤 Scarico</a>
@@ -3527,7 +3528,7 @@ BULK_EDIT_HTML = """
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h3><i class="bi bi-ui-checks"></i> Modifica Multipla ({{ rows|length }} articoli)</h3>
-        <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
+        <a href="{{ return_url or url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
     </div>
 
     <div class="alert alert-warning shadow-sm">
@@ -3538,6 +3539,7 @@ BULK_EDIT_HTML = """
 
     <form method="POST" enctype="multipart/form-data">
         <input type="hidden" name="save_bulk" value="true">
+        <input type="hidden" name="return_url" value="{{ return_url or '' }}">
         {% for id in ids_csv.split(',') %}
         <input type="hidden" name="ids" value="{{ id }}">
         {% endfor %}
@@ -7612,22 +7614,11 @@ def edit_articolo(id):
     # Esempio: se si stava lavorando sull'arrivo 200/26, dopo Salva torna alla stessa lista filtrata.
     return_url = (request.values.get('return_url') or '').strip()
     if not return_url:
-        return_url = (session.get('giacenze_return_url') or '').strip()
-    if not return_url:
         ref = (request.referrer or '').strip()
         if '/giacenze' in ref:
             return_url = ref
     if not return_url:
         return_url = url_for('giacenze')
-
-    # Se arrivo da una lista filtrata, salvo l'URL anche in sessione: dopo il POST
-    # il form potrà tornare sempre alla stessa ricerca anche se il browser perde il referrer.
-    try:
-        if return_url and '/giacenze' in return_url:
-            session['giacenze_return_url'] = return_url
-            session.modified = True
-    except Exception:
-        pass
     try:
         art = db.query(Articolo).options(selectinload(Articolo.attachments)).filter(Articolo.id_articolo == id).first()
         if not art:
@@ -7945,6 +7936,29 @@ def elimina_record(table, id):
 @require_admin
 def bulk_edit():
     db = SessionLocal()
+
+    def _safe_return_url(value=None):
+        """Torna alla lista filtrata di provenienza, evitando redirect esterni."""
+        val = (value or "").strip()
+        if val.startswith("/giacenze"):
+            return val
+        try:
+            ref = (request.referrer or "").strip()
+            if "/giacenze" in ref:
+                # Se è URL assoluto dello stesso sito, tengo solo path + query.
+                from urllib.parse import urlparse
+                p = urlparse(ref)
+                if p.path == "/giacenze":
+                    return p.path + (("?" + p.query) if p.query else "")
+        except Exception:
+            pass
+        val = (session.get("last_giacenze_url") or "").strip()
+        if val.startswith("/giacenze"):
+            return val
+        return url_for("giacenze")
+
+    return_url = _safe_return_url(request.values.get("return_url"))
+
     try:
         # Recupera ID (da form POST o query string GET)
         ids = request.form.getlist('ids') or request.args.getlist('ids')
@@ -7954,7 +7968,7 @@ def bulk_edit():
 
         if not ids:
             flash("Nessun articolo selezionato.", "warning")
-            return redirect(url_for('giacenze'))
+            return redirect(return_url)
 
         articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
 
@@ -8079,20 +8093,21 @@ def bulk_edit():
                 f"Aggiornati {len(articoli)} articoli e caricati {count_uploaded} file (copiati su ciascun articolo).",
                 "success"
             )
-            return redirect(url_for('giacenze'))
+            return redirect(return_url)
 
         return render_template(
             'bulk_edit.html',
             rows=articoli,
             ids_csv=",".join(map(str, ids)),
-            fields=editable_fields
+            fields=editable_fields,
+            return_url=return_url
         )
 
     except Exception as e:
         db.rollback()
         print(f"ERRORE BULK: {e}")
         flash(f"Errore: {e}", "danger")
-        return redirect(url_for('giacenze'))
+        return redirect(return_url)
     finally:
         db.close()
 
