@@ -3140,7 +3140,7 @@ GIACENZE_HTML = """
                     </td>
                     <td class="text-center">
                         {% if session.get('role') == 'admin' %}
-                        <a href="{{ url_for('edit_articolo', id=r.id_articolo, return_url=request.full_path) }}" class="btn btn-outline-primary btn-sm py-0 px-1" title="Modifica">✏️</a>
+                        <a href="{{ url_for('edit_articolo', id=r.id_articolo, return_url=(current_return_url or request.full_path)) }}" class="btn btn-outline-primary btn-sm py-0 px-1" title="Modifica">✏️</a>
                         <a href="{{ url_for('allegati_articolo', id_articolo=r.id_articolo) }}" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Documenti e Foto">📎</a>
                         {% if not r.data_uscita and not r.n_ddt_uscita %}
                         <a href="{{ url_for('scarico_parziale', id_articolo=r.id_articolo) }}" class="btn btn-warning btn-sm py-0 px-1 fw-bold text-nowrap" title="Scarico parziale pezzi">📤 Scarico</a>
@@ -7612,11 +7612,22 @@ def edit_articolo(id):
     # Esempio: se si stava lavorando sull'arrivo 200/26, dopo Salva torna alla stessa lista filtrata.
     return_url = (request.values.get('return_url') or '').strip()
     if not return_url:
+        return_url = (session.get('giacenze_return_url') or '').strip()
+    if not return_url:
         ref = (request.referrer or '').strip()
         if '/giacenze' in ref:
             return_url = ref
     if not return_url:
         return_url = url_for('giacenze')
+
+    # Se arrivo da una lista filtrata, salvo l'URL anche in sessione: dopo il POST
+    # il form potrà tornare sempre alla stessa ricerca anche se il browser perde il referrer.
+    try:
+        if return_url and '/giacenze' in return_url:
+            session['giacenze_return_url'] = return_url
+            session.modified = True
+    except Exception:
+        pass
     try:
         art = db.query(Articolo).options(selectinload(Articolo.attachments)).filter(Articolo.id_articolo == id).first()
         if not art:
