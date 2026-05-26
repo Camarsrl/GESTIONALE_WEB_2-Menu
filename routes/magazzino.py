@@ -236,7 +236,8 @@ def register_magazzino_routes(app_obj, deps):
                 total_m2=it_num(total_m2, 2),
                 total_peso=it_num(total_peso, 2),
                 today=date.today(),
-                search_params=search_params
+                search_params=search_params,
+                current_return_url=request.full_path
             )
 
         except Exception as e:
