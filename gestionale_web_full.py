@@ -3140,7 +3140,7 @@ GIACENZE_HTML = """
                     </td>
                     <td class="text-center">
                         {% if session.get('role') == 'admin' %}
-                        <a href="{{ url_for('edit_articolo', id=r.id_articolo) }}" class="btn btn-outline-primary btn-sm py-0 px-1" title="Modifica">✏️</a>
+                        <a href="{{ url_for('edit_articolo', id=r.id_articolo, return_url=request.full_path) }}" class="btn btn-outline-primary btn-sm py-0 px-1" title="Modifica">✏️</a>
                         <a href="{{ url_for('allegati_articolo', id_articolo=r.id_articolo) }}" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Documenti e Foto">📎</a>
                         {% if not r.data_uscita and not r.n_ddt_uscita %}
                         <a href="{{ url_for('scarico_parziale', id_articolo=r.id_articolo) }}" class="btn btn-warning btn-sm py-0 px-1 fw-bold text-nowrap" title="Scarico parziale pezzi">📤 Scarico</a>
@@ -3269,10 +3269,11 @@ EDIT_HTML = """
         <i class="bi bi-pencil-square"></i> 
         {% if row.id_articolo %}Modifica Articolo #{{ row.id_articolo }}{% else %}Nuovo Articolo{% endif %}
     </h3>
-    <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Torna alla Lista</a>
+    <a href="{{ return_url or url_for('giacenze') }}" class="btn btn-secondary">Torna alla Lista</a>
 </div>
 
 <form method="post" enctype="multipart/form-data" class="card p-4 shadow-sm mb-4">
+    <input type="hidden" name="return_url" value="{{ return_url or '' }}">
     <div class="row g-3">
         <div class="col-md-3">
             <label class="form-label fw-bold">Codice Articolo</label>
@@ -7607,11 +7608,20 @@ def duplica_articolo(id_articolo):
 def edit_articolo(id):
     db = SessionLocal()
     cliente_form = get_clienti_utenti()
+    # Mantiene il filtro/pagina di provenienza quando si salva una modifica.
+    # Esempio: se si stava lavorando sull'arrivo 200/26, dopo Salva torna alla stessa lista filtrata.
+    return_url = (request.values.get('return_url') or '').strip()
+    if not return_url:
+        ref = (request.referrer or '').strip()
+        if '/giacenze' in ref:
+            return_url = ref
+    if not return_url:
+        return_url = url_for('giacenze')
     try:
         art = db.query(Articolo).options(selectinload(Articolo.attachments)).filter(Articolo.id_articolo == id).first()
         if not art:
             flash("Articolo non trovato", "danger")
-            return redirect(url_for('giacenze'))
+            return redirect(return_url)
 
         # Sicurezza HARD: un client non puo' accedere/modificare articoli di altri clienti
         if session.get('role') == 'client':
@@ -7711,7 +7721,7 @@ def edit_articolo(id):
                 flash("Articolo aggiornato con successo.", "success")
 
             db.commit()
-            return redirect(url_for('giacenze'))
+            return redirect(return_url)
 
         # GET: Mostra template modifica
         # Gli allegati devono essere già caricati prima che la sessione DB venga chiusa.
@@ -7720,12 +7730,12 @@ def edit_articolo(id):
             art.attachments = list(art.attachments or [])
         except Exception:
             pass
-        return render_template('edit.html', row=art, clienti_validi=get_clienti_utenti())
+        return render_template('edit.html', row=art, clienti_validi=get_clienti_utenti(), return_url=return_url)
 
     except Exception as e:
         db.rollback()
         flash(f"Errore modifica: {e}", "danger")
-        return redirect(url_for('giacenze'))
+        return redirect(return_url)
     finally:
         db.close()
 
@@ -7734,11 +7744,18 @@ def edit_articolo(id):
 def edit_record(id_articolo):
     db = SessionLocal()
     cliente_form = get_clienti_utenti()
+    return_url = (request.values.get('return_url') or '').strip()
+    if not return_url:
+        ref = (request.referrer or '').strip()
+        if '/giacenze' in ref:
+            return_url = ref
+    if not return_url:
+        return_url = url_for('giacenze')
     try:
         art = db.query(Articolo).options(selectinload(Articolo.attachments)).filter(Articolo.id_articolo == id_articolo).first()
         if not art:
             flash("Articolo non trovato", "danger")
-            return redirect(url_for('giacenze'))
+            return redirect(return_url)
 
         if request.method == 'POST':
             # --- SALVATAGGIO MODIFICHE ---
@@ -7798,13 +7815,13 @@ def edit_record(id_articolo):
                 flash("Modifiche salvate.", "success")
 
             db.commit()
-            return redirect(url_for('giacenze'))
+            return redirect(return_url)
 
-        return render_template('edit.html', row=art, clienti_validi=get_clienti_utenti())
+        return render_template('edit.html', row=art, clienti_validi=get_clienti_utenti(), return_url=return_url)
     except Exception as e:
         db.rollback()
         flash(f"Errore: {e}", "danger")
-        return redirect(url_for('giacenze'))
+        return redirect(return_url)
     finally:
         db.close()
 
@@ -7812,6 +7829,13 @@ def edit_record(id_articolo):
 @login_required
 def edit_row(id):
     db = SessionLocal()
+    return_url = (request.values.get('return_url') or '').strip()
+    if not return_url:
+        ref = (request.referrer or '').strip()
+        if '/giacenze' in ref:
+            return_url = ref
+    if not return_url:
+        return_url = url_for('giacenze')
     row = db.get(Articolo, id)
     if not row:
         abort(404)
@@ -7841,9 +7865,9 @@ def edit_row(id):
                 db.add(Attachment(articolo_id=id, kind=kind, filename=safe_name))
         db.commit()
         flash('Riga salvata', 'success')
-        return redirect(url_for('giacenze'))
+        return redirect(return_url)
 
-    return render_template('edit.html', row=row, fields=get_all_fields_map().items(), clienti_validi=get_clienti_utenti())
+    return render_template('edit.html', row=row, fields=get_all_fields_map().items(), clienti_validi=get_clienti_utenti(), return_url=return_url)
 
 
 
