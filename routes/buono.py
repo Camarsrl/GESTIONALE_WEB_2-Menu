@@ -97,6 +97,45 @@ def register_buono_routes(app_obj, deps):
         new_val = re.sub(r"\s{2,}", " ", new_val).strip()
         return new_val
 
+    def _extract_package_context(*values):
+        """Estrae riferimenti logistici da conservare sulla riga residua.
+
+        Nello scarico parziale del Buono di Prelievo il pallet/cassa/package
+        identifica il collo fisico, quindi NON deve sparire dalla riga rimasta
+        in giacenza anche se viene tolto un codice dal buono.
+        """
+        found = []
+        seen = set()
+        patterns = [
+            r"\b(?:N\.?\s*)?(?:PACKAGE|PKG)\s*[:#\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
+            r"\bPALLET\s*[:#\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
+            r"\bCASSA\s*[:#\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
+            r"\bCASE\s*[:#\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
+        ]
+        for value in values:
+            txt = str(value or "")
+            for pat in patterns:
+                for m in re.finditer(pat, txt, flags=re.I):
+                    label = re.sub(r"\s+", " ", m.group(0).strip())
+                    key = _norm_for_match(label)
+                    if key and key not in seen:
+                        seen.add(key)
+                        found.append(label)
+        return found
+
+    def _preserve_package_context(residuo, *sources):
+        """Riaggiunge package/pallet/cassa se la rimozione del codice lo ha tolto."""
+        residuo = (residuo or "").strip()
+        labels = _extract_package_context(*sources)
+        if not labels:
+            return residuo
+        current_norm = _norm_for_match(residuo)
+        da_aggiungere = [x for x in labels if _norm_for_match(x) not in current_norm]
+        if not da_aggiungere:
+            return residuo
+        extra = " / ".join(da_aggiungere)
+        return f"{residuo} / {extra}".strip(" /") if residuo else extra
+
     @app.route('/buono/preview', methods=['POST'])
     @login_required
     def buono_preview():
@@ -236,12 +275,16 @@ def register_buono_routes(app_obj, deps):
                         # Poi aggiorno la riga originale lasciando solo il residuo.
                         # Se il parziale è solo quantitativo, codice e descrizione devono restare sulla riga in giacenza.
                         if cod_parziale:
-                            r.codice_articolo = _remove_selected_from_cell(old_cod, codice_scelto)
+                            codice_residuo = _remove_selected_from_cell(old_cod, codice_scelto)
+                            # Mantiene sulla riga residua eventuale N. package / pallet / cassa.
+                            r.codice_articolo = _preserve_package_context(codice_residuo, old_cod, codice_scelto)
                         else:
                             r.codice_articolo = old_cod
 
                         if desc_parziale:
-                            r.descrizione = _remove_selected_from_cell(old_desc, descr_scelta)
+                            descr_residua = _remove_selected_from_cell(old_desc, descr_scelta)
+                            # Mantiene sulla riga residua eventuale N. package / pallet / cassa anche se scritto in descrizione.
+                            r.descrizione = _preserve_package_context(descr_residua, old_desc, descr_scelta)
                         else:
                             r.descrizione = old_desc
 
