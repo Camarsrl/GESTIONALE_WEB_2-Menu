@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 """
 Camar - Gestionale Web – build aggiornata (Ottobre 2025)
