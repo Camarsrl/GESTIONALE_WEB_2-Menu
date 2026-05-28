@@ -9261,6 +9261,15 @@ SCARICO_PARZIALE_HTML = """
 
             <form method="POST" onsubmit="return confirm('Confermi lo scarico parziale?');">
                 <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Codice da mettere nel buono/scarico</label>
+                        <textarea name="codice_scarico" class="form-control" rows="2">{{ art.codice_articolo or '' }}</textarea>
+                        <div class="form-text">Se la riga contiene più codici, lascia qui solo quello da prelevare. Nella riga residua resteranno eventuali riferimenti PACKAGE / PALLET / CASSA.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Descrizione da mettere nel buono/scarico</label>
+                        <textarea name="descrizione_scarico" class="form-control" rows="2">{{ art.descrizione or '' }}</textarea>
+                    </div>
                     <div class="col-md-3">
                         <label class="form-label fw-bold">Pezzi da scaricare</label>
                         <input type="text" name="pezzi_scarico" class="form-control" required autofocus>
@@ -9359,6 +9368,48 @@ def scarico_parziale(id_articolo):
             except Exception:
                 return 0.0
 
+        def _split_materiale_tokens(value):
+            """Divide codici/descrizioni mantenendo leggibili separatori comuni."""
+            raw = (value or '').strip()
+            if not raw:
+                return []
+            parts = re.split(r"\s*(?:;|\n|\+|,|\s/\s)\s*", raw)
+            return [p.strip() for p in parts if p and p.strip()]
+
+        def _is_marker_package_pallet_cassa(value):
+            s = (value or '').strip().upper()
+            return bool(re.search(r"\b(PACKAGE|PKG|PALLET|CASSA|CASE|COLLO)\b", s))
+
+        def _remove_requested_preserve_markers(original, requested):
+            """Rimuove il codice/descrizione prelevato dalla riga residua,
+            ma NON elimina riferimenti PACKAGE / PALLET / CASSA.
+            """
+            original = (original or '').strip()
+            requested = (requested or '').strip()
+            if not original or not requested or requested == original:
+                # Se il testo è identico non azzeriamo eventuali package/pallet/cassa presenti.
+                parts = _split_materiale_tokens(original)
+                markers = [p for p in parts if _is_marker_package_pallet_cassa(p)]
+                return ' ; '.join(markers) if markers else ('' if requested == original else original)
+
+            req_norm = normalize_text_key(requested) if 'normalize_text_key' in globals() else re.sub(r'[^A-Z0-9]+', '', requested.upper())
+            kept = []
+            for part in _split_materiale_tokens(original):
+                part_norm = normalize_text_key(part) if 'normalize_text_key' in globals() else re.sub(r'[^A-Z0-9]+', '', part.upper())
+                if _is_marker_package_pallet_cassa(part):
+                    kept.append(part)
+                    continue
+                if req_norm and (part_norm == req_norm or req_norm in part_norm or part_norm in req_norm):
+                    continue
+                kept.append(part)
+            if kept:
+                return ' ; '.join(kept)
+
+            cleaned = re.sub(re.escape(requested), '', original, flags=re.I)
+            cleaned = re.sub(r"\s*(;|,|\+)\s*(;|,|\+)+", "; ", cleaned)
+            cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ;,+-/")
+            return cleaned
+
         pezzi_disponibili = _num_float(art.pezzo)
         peso_disponibile = _num_float(art.peso)
 
@@ -9377,6 +9428,8 @@ def scarico_parziale(id_articolo):
             n_ddt_uscita_val = (request.form.get('n_ddt_uscita') or '').strip()
             buono_val = (request.form.get('buono_n') or '').strip()
             note_extra = (request.form.get('note_extra') or '').strip()
+            codice_scarico_val = (request.form.get('codice_scarico') or art.codice_articolo or '').strip()
+            descrizione_scarico_val = (request.form.get('descrizione_scarico') or art.descrizione or '').strip()
 
             if pezzi_scarico <= 0:
                 flash("Inserisci un numero di pezzi da scaricare maggiore di zero.", "danger")
@@ -9408,6 +9461,8 @@ def scarico_parziale(id_articolo):
                 art.data_uscita = data_uscita_val
                 art.n_ddt_uscita = n_ddt_uscita_val
                 art.buono_n = buono_val or art.buono_n
+                art.codice_articolo = codice_scarico_val or art.codice_articolo
+                art.descrizione = descrizione_scarico_val or art.descrizione
                 art.peso = _fmt_peso(peso_scarico)
                 art.note = (
                     (art.note or '').strip()
@@ -9428,6 +9483,8 @@ def scarico_parziale(id_articolo):
                     continue
                 setattr(scarico, col.name, getattr(art, col.name))
 
+            scarico.codice_articolo = codice_scarico_val or scarico.codice_articolo
+            scarico.descrizione = descrizione_scarico_val or scarico.descrizione
             scarico.pezzo = _fmt_num(pezzi_scarico)
             scarico.peso = _fmt_peso(peso_scarico)
             scarico.data_uscita = data_uscita_val
@@ -9439,6 +9496,8 @@ def scarico_parziale(id_articolo):
                 + (f" - {note_extra}" if note_extra else "")
             ).strip(" |")
 
+            art.codice_articolo = _remove_requested_preserve_markers(art.codice_articolo, codice_scarico_val)
+            art.descrizione = _remove_requested_preserve_markers(art.descrizione, descrizione_scarico_val)
             art.pezzo = _fmt_num(pezzi_residui)
             art.peso = _fmt_peso(peso_residuo)
             art.data_uscita = ''
