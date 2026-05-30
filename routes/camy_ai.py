@@ -219,7 +219,7 @@ def register_camy_ai_routes(app_obj, deps):
               return;
             }
 
-            msg += '\n\nScarico parziale:\nCodice: ' + requestedCode + '\nDescrizione: ' + (requestedDescr || '-') + '\nPezzi: ' + requestedPezzi;
+            msg += String.fromCharCode(10,10) + 'Scarico parziale:' + String.fromCharCode(10) + 'Codice: ' + requestedCode + String.fromCharCode(10) + 'Descrizione: ' + (requestedDescr || '-') + String.fromCharCode(10) + 'Pezzi: ' + requestedPezzi;
           }
 
           if(!confirm(msg)) return;
