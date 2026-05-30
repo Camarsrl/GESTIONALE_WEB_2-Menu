@@ -246,15 +246,31 @@ def register_camy_ai_routes(app_obj, deps):
           }
         };
 
-        // Gestione robusta dei bottoni: i pulsanti rapidi compilano solo il campo,
-        // non inviano automaticamente. L'invio parte solo con INVIA o con Enter.
+        // Gestione robusta dei bottoni:
+        // - i pulsanti rapidi compilano solo il campo, senza inviare;
+        // - i pulsanti Automatico/Manuale dentro la risposta funzionano anche se l'onclick inline viene bloccato.
         document.addEventListener('click', function(ev){
-          var btn = ev.target && ev.target.closest ? ev.target.closest('[data-camy-fill],[data-camy-send]') : null;
-          if(!btn) return;
+          var target = ev.target && ev.target.closest ? ev.target.closest('[data-camy-fill],[data-camy-send],[data-camy-confirm]') : null;
+          if(!target) return;
           ev.preventDefault();
           ev.stopPropagation();
-          if(btn.hasAttribute('data-camy-fill')) window.camyAiFill(btn.getAttribute('data-camy-fill') || '');
-          else if(btn.hasAttribute('data-camy-send')) window.camyAiSend();
+
+          if(target.hasAttribute('data-camy-confirm')){
+            var token = target.getAttribute('data-camy-token') || '';
+            var mode = target.getAttribute('data-camy-mode') || 'auto';
+            var askPartial = (target.getAttribute('data-camy-partial') || '').toLowerCase() === 'true';
+            window.camyAiConfirm(token, mode, askPartial);
+            return;
+          }
+
+          if(target.hasAttribute('data-camy-fill')){
+            window.camyAiFill(target.getAttribute('data-camy-fill') || '');
+            return;
+          }
+
+          if(target.hasAttribute('data-camy-send')){
+            window.camyAiSend();
+          }
         });
 
         var input = getInput();
@@ -722,10 +738,13 @@ def register_camy_ai_routes(app_obj, deps):
 
     def _apply_buono_choice_buttons(token, ask_partial=False):
         partial_flag = "true" if ask_partial else "false"
+        safe_token = _esc(token)
         return (
             "<div class='mt-2 d-flex flex-wrap gap-2'>"
-            f"<button type='button' class='btn btn-sm btn-success' onclick=\"camyAiConfirm('{_esc(token)}','auto',{partial_flag})\">Automatico</button>"
-            f"<button type='button' class='btn btn-sm btn-outline-primary' onclick=\"camyAiConfirm('{_esc(token)}','manual',{partial_flag})\">Manuale</button>"
+            f"<button type='button' class='btn btn-sm btn-success' "
+            f"data-camy-confirm='1' data-camy-token='{safe_token}' data-camy-mode='auto' data-camy-partial='{partial_flag}'>Automatico</button>"
+            f"<button type='button' class='btn btn-sm btn-outline-primary' "
+            f"data-camy-confirm='1' data-camy-token='{safe_token}' data-camy-mode='manual' data-camy-partial='{partial_flag}'>Manuale</button>"
             "</div>"
         )
 
