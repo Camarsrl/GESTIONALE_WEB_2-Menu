@@ -159,15 +159,30 @@ def register_camy_ai_routes(app_obj, deps):
         }
       }
 
-      async function camyAiConfirm(token){
+      async function camyAiConfirm(token, mode){
         if(!token) return;
-        if(!confirm('Confermi l’operazione proposta da CAMY AI?')) return;
+        mode = mode || 'auto';
+        let manualBuono = '';
+        let msg = 'Confermi l’operazione proposta da CAMY AI?';
+        if(mode === 'manual'){
+          manualBuono = prompt('Inserisci il N. Buono manuale, esempio 45/26:');
+          if(manualBuono === null) return;
+          manualBuono = manualBuono.trim();
+          if(!manualBuono){
+            camyAiAdd('Numero buono manuale non inserito. Operazione annullata.', 'bot');
+            return;
+          }
+          msg = 'Confermi l’assegnazione del Buono manuale ' + manualBuono + '?';
+        } else {
+          msg = 'Confermi l’assegnazione automatica del prossimo N. Buono?';
+        }
+        if(!confirm(msg)) return;
         const loading = camyAiAdd('Confermo l’operazione...', 'bot');
         try{
           const res = await fetch('{{ url_for('camy_ai_confirm') }}', {
             method:'POST',
             headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({token:token})
+            body:JSON.stringify({token:token, mode:mode, manual_buono:manualBuono})
           });
           const data = await res.json();
           loading.remove();
@@ -449,7 +464,7 @@ def register_camy_ai_routes(app_obj, deps):
             "• Cerca N. arrivo 542/26.<br>"
             "• Dove si trova il codice ABC123?<br>"
             "• Totale colli, peso, M2 e M3 di De Wave.<br>"
-            "• Prepara buono arrivo 542/26 buono 45/26.<br>"
+            "• Prepara buono arrivo 542/26.<br>"
             "• Scarico parziale ID 12345.<br><br>"
             "Le operazioni che modificano dati richiedono sempre conferma."
         )
@@ -628,10 +643,12 @@ def register_camy_ai_routes(app_obj, deps):
         session["camy_ai_pending_ops"] = data
         session.modified = True
 
-    def _apply_confirm_button(label, token):
+    def _apply_buono_choice_buttons(token):
         return (
-            f"<button type='button' class='btn btn-sm btn-success mt-2' "
-            f"onclick=\"camyAiConfirm('{_esc(token)}')\">{_esc(label)}</button>"
+            "<div class='mt-2 d-flex flex-wrap gap-2'>"
+            f"<button type='button' class='btn btn-sm btn-success' onclick=\"camyAiConfirm('{_esc(token)}','auto')\">Automatico</button>"
+            f"<button type='button' class='btn btn-sm btn-outline-primary' onclick=\"camyAiConfirm('{_esc(token)}','manual')\">Manuale</button>"
+            "</div>"
         )
 
     def _answer_prepare_buono(db, msg):
@@ -670,22 +687,23 @@ def register_camy_ai_routes(app_obj, deps):
                 "Restringi la ricerca con N. arrivo, codice articolo, DDT o ID."
             )
 
-        buono = _extract_buono_number(msg, db=db, consume=False)
+        prossimo_auto = _peek_next_buono_number(db)
         manual_buono = _extract_manual_buono_number(msg)
         token = _make_token()
         ids = [int(r.id_articolo) for r in rows]
         _save_pending_op(token, {
             "type": "set_buono",
             "ids": ids,
-            "buono": buono,
             "manual_buono": manual_buono,
         })
 
+        scelta_manual = f"<br>Numero manuale letto dal messaggio: <b>{_esc(manual_buono)}</b>" if manual_buono else ""
         riepilogo = [
             f"<b>Proposta Buono di Prelievo</b><br>",
-            f"N. buono proposto: <b>{_esc(buono)}</b><br>",
             f"Righe selezionate: <b>{len(ids)}</b><br>",
-            "Alla conferma CAMY assegnerà il progressivo definitivo e lo imposterà sulle righe indicate. Nessuno scarico definitivo verrà eseguito automaticamente.<br>"
+            f"Vuoi inserire il N. Buono <b>automaticamente</b> o <b>manualmente</b>?<br>",
+            f"Prossimo numero automatico previsto: <b>{_esc(prossimo_auto)}</b>{scelta_manual}<br>",
+            "CAMY imposterà il numero scelto sulle righe indicate solo dopo conferma. Nessuno scarico definitivo verrà eseguito automaticamente.<br>"
         ]
         for r in rows[:8]:
             riepilogo.append(
@@ -697,7 +715,7 @@ def register_camy_ai_routes(app_obj, deps):
             )
         if len(rows) > 8:
             riepilogo.append(f"<br>Altre righe non mostrate: {len(rows) - 8}.")
-        riepilogo.append(_apply_confirm_button("Conferma Buono", token))
+        riepilogo.append(_apply_buono_choice_buttons(token))
         return "".join(riepilogo)
 
     def _answer_scarico_parziale(db, msg):
@@ -754,8 +772,17 @@ def register_camy_ai_routes(app_obj, deps):
         try:
             if op.get("type") == "set_buono":
                 ids = [int(x) for x in op.get("ids") or [] if str(x).isdigit()]
-                manual_buono = (op.get("manual_buono") or "").strip()
-                buono = manual_buono or _next_buono_number(db)
+                mode = (data.get("mode") or "auto").strip().lower()
+                manual_from_request = (data.get("manual_buono") or "").strip()
+                manual_from_message = (op.get("manual_buono") or "").strip()
+
+                if mode == "manual":
+                    buono = manual_from_request or manual_from_message
+                    if not buono:
+                        return jsonify({"answer": "Numero buono manuale mancante.", "html": False}), 400
+                else:
+                    buono = _next_buono_number(db)
+
                 if not ids or not buono:
                     return jsonify({"answer": "Dati operazione incompleti.", "html": False}), 400
 
