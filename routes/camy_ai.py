@@ -91,14 +91,14 @@ def register_camy_ai_routes(app_obj, deps):
           </div>
 
           <div class="camy-ai-quick mb-2">
-            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Quante giacenze attive ho?">Giacenze attive</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Totale colli peso M2 e M3 in giacenza">Totali</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Cerca N. arrivo ">Cerca arrivo</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Mostrami articoli DOGANALI cliente ">Dogana</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Cerca DDT ">Cerca DDT</button>
-            <button type="button" class="btn btn-sm btn-outline-warning" data-camy-fill="Prepara buono arrivo ">Prepara Buono</button>
-            <button type="button" class="btn btn-sm btn-outline-warning" data-camy-fill="Scarico parziale ID ">Scarico parziale</button>
-            <button type="button" class="btn btn-sm btn-outline-success" data-camy-fill="Cosa puoi fare?">Aiuto</button>
+            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?prefill=Quante%20giacenze%20attive%20ho%3F">Giacenze attive</a>
+            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?prefill=Totale%20colli%20peso%20M2%20e%20M3%20in%20giacenza">Totali</a>
+            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?prefill=Cerca%20N.%20arrivo%20">Cerca arrivo</a>
+            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?prefill=Mostrami%20articoli%20DOGANALI%20cliente%20">Dogana</a>
+            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?prefill=Cerca%20DDT%20">Cerca DDT</a>
+            <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Prepara%20buono%20arrivo%20">Prepara Buono</a>
+            <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Scarico%20parziale%20ID%20">Scarico parziale</a>
+            <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Cosa%20puoi%20fare%3F">Aiuto</a>
           </div>
 
           <div id="camyAiBox" class="camy-ai-box mb-3">
@@ -1422,6 +1422,7 @@ def register_camy_ai_routes(app_obj, deps):
     def camy_ai():
         endpoints = set(app.view_functions.keys())
         q = (request.args.get("q") or "").strip()
+        prefill = (request.args.get("prefill") or "").strip()
         initial_answer = ""
         if q:
             db = SessionLocal()
@@ -1440,7 +1441,7 @@ def register_camy_ai_routes(app_obj, deps):
             endpoints=endpoints,
             initial_user_msg=q,
             initial_bot_answer=initial_answer,
-            initial_input_value=""
+            initial_input_value=("" if q else prefill)
         )
 
     @app.route("/camy-ai/api", methods=["POST"])
