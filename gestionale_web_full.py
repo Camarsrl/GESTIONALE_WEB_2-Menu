@@ -3632,9 +3632,18 @@ BUONO_PREVIEW_HTML = """
         <input type="hidden" name="action" id="action_field" value="preview">
 
         <div class="row g-3 bg-light p-3 rounded border mb-3">
-            <div class="col-md-2">
+            <div class="col-md-3">
                 <label class="form-label small fw-bold">N. Buono</label>
-                <input name="buono_n" class="form-control" value="{{ meta.buono_n }}">
+                <div class="input-group">
+                    <select name="buono_mode" id="buono_mode" class="form-select" style="max-width:130px" onchange="toggleBuonoMode()">
+                        <option value="auto" selected>Automatico</option>
+                        <option value="manuale">Manuale</option>
+                    </select>
+                    <input name="buono_n" id="buono_n" class="form-control fw-bold" value="{{ meta.buono_n }}">
+                </div>
+                <div class="form-text">
+                    Automatico: propone il prossimo numero disponibile. Manuale: puoi modificarlo tu.
+                </div>
             </div>
             <div class="col-md-2">
                 <label class="form-label small fw-bold">Data Em.</label>
@@ -3718,6 +3727,21 @@ BUONO_PREVIEW_HTML = """
 </div>
 
 <script>
+function toggleBuonoMode() {
+    const mode = document.getElementById('buono_mode');
+    const input = document.getElementById('buono_n');
+    if (!mode || !input) return;
+    if (mode.value === 'auto') {
+        input.value = "{{ meta.buono_n_auto or meta.buono_n }}";
+        input.classList.add('bg-light');
+    } else {
+        input.classList.remove('bg-light');
+        input.focus();
+        input.select();
+    }
+}
+document.addEventListener('DOMContentLoaded', toggleBuonoMode);
+
 function submitBuono(actionType) {
     const form = document.getElementById('buono-form');
     document.getElementById('action_field').value = actionType;
