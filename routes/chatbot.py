@@ -778,37 +778,86 @@ def register_chatbot_routes(app_obj, deps):
         cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ;,+-/")
         return cleaned or original
 
-    def _has_multiple_descriptions(value):
+    def _split_multi_parts(value):
+        """Divide codici/descrizioni multiple mantenendo solo parti non vuote."""
         txt = (value or "").strip()
         if not txt:
-            return False
-        return bool(re.search(r"\s*(;|\+|\n|,|\s/\s)\s*", txt))
+            return []
+        return [p.strip() for p in re.split(r"\s*(?:;|\+|\n|,|\s/\s)\s*", txt) if p and p.strip()]
+
+    def _has_multiple_descriptions(value):
+        return len(_split_multi_parts(value)) > 1
 
     def _remove_requested_description(original, requested):
-        """Rimuove la descrizione richiesta lasciando la descrizione residua corretta."""
+        """Rimuove la descrizione richiesta lasciando la descrizione residua corretta.
+
+        Regola di sicurezza:
+        se non riesce a calcolare una descrizione residua attendibile, NON lascia il campo vuoto.
+        In quel caso mantiene la descrizione originale, così la riga residua resta compilata
+        e può essere corretta manualmente.
+        """
         original = (original or "").strip()
         requested = (requested or "").strip()
-        if not original or not requested:
+        if not original:
+            return ""
+        if not requested:
             return original
 
-        parts = [p.strip() for p in re.split(r"\s*(?:;|\+|\n|,|\s/\s)\s*", original) if p.strip()]
+        parts = _split_multi_parts(original)
         req_norm = _norm_txt(requested)
 
         # Prima prova: elemento separato uguale alla descrizione scelta.
         kept = [p for p in parts if _norm_txt(p) != req_norm]
         if parts and len(kept) != len(parts):
-            return " ; ".join(kept).strip()
+            residuo = " ; ".join(kept).strip()
+            return residuo or original
 
         # Seconda prova: se la descrizione scelta è contenuta in un elemento multi-descrizione.
         kept = [p for p in parts if req_norm not in _norm_txt(p)]
         if parts and len(kept) != len(parts):
-            return " ; ".join(kept).strip()
+            residuo = " ; ".join(kept).strip()
+            return residuo or original
 
         # Fallback: rimozione testuale semplice, senza distruggere tutta la descrizione.
         cleaned = re.sub(re.escape(requested), "", original, flags=re.I)
         cleaned = re.sub(r"\s*(;|,|\+)\s*(;|,|\+)+", "; ", cleaned)
         cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ;,+-/")
-        return cleaned
+        return cleaned or original
+
+    def _descrizione_residua_da_codice(original_codici, original_descrizione, codice_richiesto, descrizione_richiesta):
+        """Calcola la descrizione da lasciare sulla riga residua.
+
+        1) Se la descrizione richiesta è indicata, la rimuove dalla descrizione originale.
+        2) Se codice e descrizione hanno lo stesso numero di elementi, usa la stessa posizione
+           del codice richiesto per togliere la descrizione corrispondente.
+        3) Se il risultato sarebbe vuoto, mantiene la descrizione originale per evitare righe residue
+           senza descrizione.
+        """
+        original_descrizione = (original_descrizione or "").strip()
+        if not original_descrizione:
+            return ""
+
+        if descrizione_richiesta:
+            residuo = _remove_requested_description(original_descrizione, descrizione_richiesta)
+            return residuo or original_descrizione
+
+        cod_parts = _split_multi_parts(original_codici)
+        desc_parts = _split_multi_parts(original_descrizione)
+        req_norm = _norm_txt(codice_richiesto)
+
+        if req_norm and len(cod_parts) > 1 and len(cod_parts) == len(desc_parts):
+            remove_idx = None
+            for i, c in enumerate(cod_parts):
+                cn = _norm_txt(c)
+                if cn == req_norm or req_norm in cn:
+                    remove_idx = i
+                    break
+            if remove_idx is not None:
+                residuo_parts = [d for i, d in enumerate(desc_parts) if i != remove_idx and d.strip()]
+                residuo = " ; ".join(residuo_parts).strip()
+                return residuo or original_descrizione
+
+        return original_descrizione
 
     def _detect_package_from_row(art, codice):
         text = " ".join([
@@ -1033,7 +1082,7 @@ def register_chatbot_routes(app_obj, deps):
         ]
         if multi or pezzi_req < total_pezzi:
             residuo_codice = _remove_requested_code(art.codice_articolo, data.get("codice"))
-            residuo_descrizione = _remove_requested_description(art.descrizione, data.get("descrizione")) if data.get("descrizione") else art.descrizione
+            residuo_descrizione = _descrizione_residua_da_codice(art.codice_articolo, art.descrizione, data.get("codice"), data.get("descrizione"))
             out.append("<b>Cosa farà dopo conferma:</b><br>")
             out.append("• creerà una riga per il buono con il codice e la descrizione richiesti, più il package/cassa se presente;<br>")
             out.append(f"• lascerà in giacenza la riga residua con codice: <b>{_esc(residuo_codice or '-')}</b>;<br>")
@@ -1090,7 +1139,7 @@ def register_chatbot_routes(app_obj, deps):
         split_needed = bool(data.get("multi")) or pezzi_req < total_pezzi
         if split_needed:
             residuo_codice = _remove_requested_code(art.codice_articolo, data.get("codice"))
-            residuo_descrizione = _remove_requested_description(art.descrizione, data.get("descrizione")) if data.get("descrizione") else art.descrizione
+            residuo_descrizione = _descrizione_residua_da_codice(art.codice_articolo, art.descrizione, data.get("codice"), data.get("descrizione"))
             residuo_pezzi = max(0, total_pezzi - pezzi_req)
 
             # Riga nuova da inserire nel BUONO DI PRELIEVO.
