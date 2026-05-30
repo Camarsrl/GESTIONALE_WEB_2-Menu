@@ -881,6 +881,34 @@ def register_chatbot_routes(app_obj, deps):
             parts.append(value)
         return sep.join(parts)[:limit]
 
+
+    def _next_buono_prelievo_chat(db):
+        """Prossimo N. Buono di Prelievo per CAMY, coerente con il modulo buono."""
+        yy = date.today().strftime("%y")
+        max_current_year = 0
+        max_any = 0
+        try:
+            rows = db.query(Articolo.buono_n).filter(Articolo.buono_n != None).all()
+        except Exception:
+            rows = []
+        for row in rows:
+            raw = row[0] if isinstance(row, (tuple, list)) else row
+            txt = str(raw or "").strip()
+            if not txt:
+                continue
+            m = re.search(r"(\d{1,6})", txt)
+            if not m:
+                continue
+            try:
+                n = int(m.group(1))
+            except Exception:
+                continue
+            max_any = max(max_any, n)
+            if re.search(rf"(?:/|-|\b){re.escape(yy)}\b", txt):
+                max_current_year = max(max_current_year, n)
+        base = max_current_year or max_any
+        return f"{base + 1:03d}/{yy}"
+
     def _answer_buono_operativo(db, msg):
         if _user_role() not in ("admin", "magazzino"):
             return "CAMY operativa sui buoni è disponibile solo per utenti admin o magazzino."
@@ -985,7 +1013,7 @@ def register_chatbot_routes(app_obj, deps):
         peso_req = float(data.get("peso_req") or 0)
         peso_residuo = float(data.get("peso_residuo") or 0)
         codice_buono = data.get("codice_buono") or data.get("codice") or art.codice_articolo or ""
-        n_buono = (data.get("buono") or "").strip()
+        n_buono = (data.get("buono") or "").strip() or _next_buono_prelievo_chat(db)
         n_arrivo_base = strip_arrivo_progressivo(art.n_arrivo)
         colli_originali = 1  # CAMY: pallet/collo non divisibile, entrambe le righe restano con colli = 1
 
