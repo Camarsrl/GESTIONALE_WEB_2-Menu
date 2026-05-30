@@ -91,14 +91,14 @@ def register_camy_ai_routes(app_obj, deps):
           </div>
 
           <div class="camy-ai-quick mb-2">
-            <button type="button" class="btn btn-sm btn-outline-primary" onclick="camyAiAsk('Quante giacenze attive ho?')">Giacenze attive</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" onclick="camyAiAsk('Totale colli peso M2 e M3 in giacenza')">Totali</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" onclick="camyAiFill('Cerca N. arrivo ')">Cerca arrivo</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" onclick="camyAiFill('Mostrami articoli DOGANALI cliente ')">Dogana</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" onclick="camyAiFill('Cerca DDT ')">Cerca DDT</button>
-            <button type="button" class="btn btn-sm btn-outline-warning" onclick="camyAiFill('Prepara buono arrivo ')">Prepara Buono</button>
-            <button type="button" class="btn btn-sm btn-outline-warning" onclick="camyAiFill('Scarico parziale ID ')">Scarico parziale</button>
-            <button type="button" class="btn btn-sm btn-outline-success" onclick="camyAiAsk('Cosa puoi fare?')">Aiuto</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-ask="Quante giacenze attive ho?" onclick="camyAiAsk('Quante giacenze attive ho?')">Giacenze attive</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-ask="Totale colli peso M2 e M3 in giacenza" onclick="camyAiAsk('Totale colli peso M2 e M3 in giacenza')">Totali</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Cerca N. arrivo " onclick="camyAiFill('Cerca N. arrivo ')">Cerca arrivo</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Mostrami articoli DOGANALI cliente " onclick="camyAiFill('Mostrami articoli DOGANALI cliente ')">Dogana</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Cerca DDT " onclick="camyAiFill('Cerca DDT ')">Cerca DDT</button>
+            <button type="button" class="btn btn-sm btn-outline-warning" data-camy-fill="Prepara buono arrivo " onclick="camyAiFill('Prepara buono arrivo ')">Prepara Buono</button>
+            <button type="button" class="btn btn-sm btn-outline-warning" data-camy-fill="Scarico parziale ID " onclick="camyAiFill('Scarico parziale ID ')">Scarico parziale</button>
+            <button type="button" class="btn btn-sm btn-outline-success" data-camy-ask="Cosa puoi fare?" onclick="camyAiAsk('Cosa puoi fare?')">Aiuto</button>
           </div>
 
           <div id="camyAiBox" class="camy-ai-box mb-3">
@@ -107,127 +107,162 @@ def register_camy_ai_routes(app_obj, deps):
 
           <div class="input-group camy-ai-input">
             <input id="camyAiInput" type="text" class="form-control" placeholder="Scrivi una domanda a CAMY AI..." onkeydown="if(event.key==='Enter'){camyAiSend();}">
-            <button type="button" class="btn btn-primary" onclick="camyAiSend()">Invia</button>
+            <button type="button" class="btn btn-primary" data-camy-send="1" onclick="camyAiSend()">Invia</button>
           </div>
         </div>
       </div>
     </div>
 
     <script>
-      window.camyAiAdd = function(text, who, isHtml=false){
-        const box = document.getElementById('camyAiBox');
-        const row = document.createElement('div');
-        row.className = 'camy-ai-msg ' + who;
-        const bubble = document.createElement('div');
-        bubble.className = 'camy-ai-bubble';
-        if(isHtml && who === 'bot') bubble.innerHTML = text;
-        else bubble.textContent = text;
-        row.appendChild(bubble);
-        box.appendChild(row);
-        box.scrollTop = box.scrollHeight;
-        return row;
-      };
-      window.camyAiAsk = function(text){
-        document.getElementById('camyAiInput').value = text;
-        camyAiSend();
-      };
-      window.camyAiFill = function(text){
-        const input = document.getElementById('camyAiInput');
-        input.value = text;
-        input.focus();
-        input.setSelectionRange(input.value.length, input.value.length);
-      };
-      window.camyAiSend = async function(){
-        const input = document.getElementById('camyAiInput');
-        const text = input.value.trim();
-        if(!text) return;
-        input.value = '';
-        camyAiAdd(text, 'user');
-        const loading = camyAiAdd('CAMY AI sta analizzando...', 'bot');
-        try{
-          const res = await fetch('/camy-ai/api', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({message:text})
+      (function(){
+        function getBox(){ return document.getElementById('camyAiBox'); }
+        function getInput(){ return document.getElementById('camyAiInput'); }
+
+        window.camyAiAdd = function(text, who, isHtml){
+          var box = getBox();
+          if(!box){ return null; }
+          var row = document.createElement('div');
+          row.className = 'camy-ai-msg ' + (who || 'bot');
+          var bubble = document.createElement('div');
+          bubble.className = 'camy-ai-bubble';
+          if(isHtml && who === 'bot') bubble.innerHTML = text || '';
+          else bubble.textContent = text || '';
+          row.appendChild(bubble);
+          box.appendChild(row);
+          box.scrollTop = box.scrollHeight;
+          return row;
+        };
+
+        window.camyAiAsk = function(text){
+          var input = getInput();
+          if(!input) return;
+          input.value = text || '';
+          window.camyAiSend();
+        };
+
+        window.camyAiFill = function(text){
+          var input = getInput();
+          if(!input) return;
+          input.value = text || '';
+          input.focus();
+          try { input.setSelectionRange(input.value.length, input.value.length); } catch(e){}
+        };
+
+        window.camyAiSend = async function(){
+          var input = getInput();
+          if(!input) return;
+          var text = (input.value || '').trim();
+          if(!text) return;
+          input.value = '';
+          window.camyAiAdd(text, 'user', false);
+          var loading = window.camyAiAdd('CAMY AI sta analizzando...', 'bot', false);
+          try{
+            var res = await fetch('/camy-ai/api', {
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({message:text})
+            });
+            var data = await res.json();
+            if(loading) loading.remove();
+            window.camyAiAdd(data.answer || 'Non ho trovato una risposta.', 'bot', !!data.html);
+          }catch(e){
+            if(loading) loading.remove();
+            window.camyAiAdd('CAMY AI ha avuto un errore. Controlla i log admin.', 'bot', false);
+          }
+        };
+
+        window.camyAiConfirm = async function(token, mode, askPartial){
+          if(!token) return;
+          mode = mode || 'auto';
+          var manualBuono = '';
+          var requestedCode = '';
+          var requestedDescr = '';
+          var requestedPezzi = '';
+          var msg = 'Confermi l’operazione proposta da CAMY AI?';
+
+          if(mode === 'manual'){
+            manualBuono = prompt('Inserisci il N. Buono manuale, esempio 45/26:');
+            if(manualBuono === null) return;
+            manualBuono = (manualBuono || '').trim();
+            if(!manualBuono){
+              window.camyAiAdd('Numero buono manuale non inserito. Operazione annullata.', 'bot', false);
+              return;
+            }
+            msg = 'Confermi l’assegnazione del Buono manuale ' + manualBuono + '?';
+          } else {
+            msg = 'Confermi l’assegnazione automatica del prossimo N. Buono?';
+          }
+
+          if(askPartial){
+            requestedCode = prompt('La riga contiene più codici. Inserisci il CODICE che deve uscire nel Buono:');
+            if(requestedCode === null) return;
+            requestedCode = (requestedCode || '').trim();
+            if(!requestedCode){
+              window.camyAiAdd('Codice da prelevare non inserito. Operazione annullata.', 'bot', false);
+              return;
+            }
+
+            requestedDescr = prompt('Inserisci la DESCRIZIONE corretta da mettere nella riga del Buono:');
+            if(requestedDescr === null) return;
+            requestedDescr = (requestedDescr || '').trim();
+
+            requestedPezzi = prompt('Inserisci i PEZZI da mettere nella riga del Buono:');
+            if(requestedPezzi === null) return;
+            requestedPezzi = (requestedPezzi || '').trim();
+            if(!requestedPezzi){
+              window.camyAiAdd('Pezzi da prelevare non inseriti. Operazione annullata.', 'bot', false);
+              return;
+            }
+
+            msg += '\n\nScarico parziale:\nCodice: ' + requestedCode + '\nDescrizione: ' + (requestedDescr || '-') + '\nPezzi: ' + requestedPezzi;
+          }
+
+          if(!confirm(msg)) return;
+          var loading = window.camyAiAdd('Confermo l’operazione...', 'bot', false);
+          try{
+            var res = await fetch('/camy-ai/confirm', {
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({
+                token:token,
+                mode:mode,
+                manual_buono:manualBuono,
+                requested_code:requestedCode,
+                requested_descr:requestedDescr,
+                requested_pezzi:requestedPezzi
+              })
+            });
+            var data = await res.json();
+            if(loading) loading.remove();
+            window.camyAiAdd(data.answer || 'Operazione completata.', 'bot', !!data.html);
+          }catch(e){
+            if(loading) loading.remove();
+            window.camyAiAdd('CAMY AI non è riuscita a confermare. Controlla i log admin.', 'bot', false);
+          }
+        };
+
+        // Gestione robusta dei bottoni anche se l'onclick inline non parte su alcuni browser.
+        document.addEventListener('click', function(ev){
+          var btn = ev.target && ev.target.closest ? ev.target.closest('[data-camy-ask],[data-camy-fill],[data-camy-send]') : null;
+          if(!btn) return;
+          ev.preventDefault();
+          if(btn.hasAttribute('data-camy-ask')) window.camyAiAsk(btn.getAttribute('data-camy-ask') || '');
+          else if(btn.hasAttribute('data-camy-fill')) window.camyAiFill(btn.getAttribute('data-camy-fill') || '');
+          else if(btn.hasAttribute('data-camy-send')) window.camyAiSend();
+        });
+
+        var input = getInput();
+        if(input){
+          input.addEventListener('keydown', function(ev){
+            if(ev.key === 'Enter'){
+              ev.preventDefault();
+              window.camyAiSend();
+            }
           });
-          const data = await res.json();
-          loading.remove();
-          camyAiAdd(data.answer || 'Non ho trovato una risposta.', 'bot', !!data.html);
-        }catch(e){
-          loading.remove();
-          camyAiAdd('CAMY AI ha avuto un errore. Controlla i log admin.', 'bot');
-        }
-      };
-
-      window.camyAiConfirm = async function(token, mode, askPartial){
-        if(!token) return;
-        mode = mode || 'auto';
-        let manualBuono = '';
-        let requestedCode = '';
-        let requestedDescr = '';
-        let requestedPezzi = '';
-        let msg = 'Confermi l’operazione proposta da CAMY AI?';
-
-        if(mode === 'manual'){
-          manualBuono = prompt('Inserisci il N. Buono manuale, esempio 45/26:');
-          if(manualBuono === null) return;
-          manualBuono = manualBuono.trim();
-          if(!manualBuono){
-            camyAiAdd('Numero buono manuale non inserito. Operazione annullata.', 'bot');
-            return;
-          }
-          msg = 'Confermi l’assegnazione del Buono manuale ' + manualBuono + '?';
-        } else {
-          msg = 'Confermi l’assegnazione automatica del prossimo N. Buono?';
         }
 
-        if(askPartial){
-          requestedCode = prompt('La riga contiene più codici. Inserisci il CODICE che deve uscire nel Buono:');
-          if(requestedCode === null) return;
-          requestedCode = requestedCode.trim();
-          if(!requestedCode){
-            camyAiAdd('Codice da prelevare non inserito. Operazione annullata.', 'bot');
-            return;
-          }
-
-          requestedDescr = prompt('Inserisci la DESCRIZIONE corretta da mettere nella riga del Buono:');
-          if(requestedDescr === null) return;
-          requestedDescr = requestedDescr.trim();
-
-          requestedPezzi = prompt('Inserisci i PEZZI da mettere nella riga del Buono:');
-          if(requestedPezzi === null) return;
-          requestedPezzi = requestedPezzi.trim();
-          if(!requestedPezzi){
-            camyAiAdd('Pezzi da prelevare non inseriti. Operazione annullata.', 'bot');
-            return;
-          }
-
-          msg += '\n\nScarico parziale:\nCodice: ' + requestedCode + '\nDescrizione: ' + (requestedDescr || '-') + '\nPezzi: ' + requestedPezzi;
-        }
-
-        if(!confirm(msg)) return;
-        const loading = camyAiAdd('Confermo l’operazione...', 'bot');
-        try{
-          const res = await fetch('/camy-ai/confirm', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({
-              token:token,
-              mode:mode,
-              manual_buono:manualBuono,
-              requested_code:requestedCode,
-              requested_descr:requestedDescr,
-              requested_pezzi:requestedPezzi
-            })
-          });
-          const data = await res.json();
-          loading.remove();
-          camyAiAdd(data.answer || 'Operazione completata.', 'bot', !!data.html);
-        }catch(e){
-          loading.remove();
-          camyAiAdd('CAMY AI non è riuscita a confermare. Controlla i log admin.', 'bot');
-        }
-      };
+        window.camyAiReady = true;
+      })();
     </script>
     {% endblock %}
     """
