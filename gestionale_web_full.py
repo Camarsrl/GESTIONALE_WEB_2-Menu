@@ -2094,6 +2094,7 @@ a.btn {
 <a class="btn btn-primary btn-sm" href="{{ url_for('buoni_carico') }}">🧾 Buoni Carico</a>
 {% endif %}</li>
                 <li class="nav-item"><a class="nav-link" href="{{ url_for('chatbot') }}">🤖 Chat</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('camy_ai') }}">🧠 CAMY AI</a></li>
                 {% if session.get('role') == 'admin' %}
                 <li class="nav-item"><a class="nav-link" href="{{ url_for('import_excel') }}">📥 Import Excel</a></li>
                 {% endif %}
@@ -9656,18 +9657,6 @@ except Exception as e:
     print(f"[WARN] modulo allegati non registrato: {e}")
 
 
-
-
-# ========================================================
-#  REGISTRAZIONE MODULO CAMY AI
-# ========================================================
-try:
-    from routes.camy_ai import register_camy_ai_routes
-    register_camy_ai_routes(app, globals())
-except Exception as e:
-    scrivi_log_errore("Modulo CAMY AI non registrato", e)
-    print(f"[WARN] modulo CAMY AI non registrato: {e}")
-
 # ========================================================
 #  PWA / SMARTPHONE
 # ========================================================
@@ -9737,14 +9726,14 @@ self.addEventListener('fetch', event => {
   const url = new URL(req.url);
 
   // Non mettere mai in cache POST, API e file allegati.
-  if (req.method !== 'GET' || url.pathname.startsWith('/chatbot/api') || url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/')) {
+  if (req.method !== 'GET' || url.pathname.startsWith('/chatbot/api') || url.pathname.startsWith('/camy-ai/api') || url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/')) {
     return;
   }
 
   event.respondWith(
     fetch(req).then(resp => {
       const copy = resp.clone();
-      if (resp.ok && (url.pathname === '/chatbot' || url.pathname === '/login' || url.pathname === '/manifest.webmanifest')) {
+      if (resp.ok && (url.pathname === '/chatbot' || url.pathname === '/camy-ai' || url.pathname === '/login' || url.pathname === '/manifest.webmanifest')) {
         caches.open(CACHE_NAME).then(cache => cache.put(req, copy)).catch(() => null);
       }
       return resp;
@@ -9793,6 +9782,18 @@ try:
 except Exception as e:
     scrivi_log_errore("Modulo API clienti non registrato", e)
     print(f"[WARN] modulo API clienti non registrato: {e}")
+
+
+# ========================================================
+#  REGISTRAZIONE MODULO CAMY AI
+# ========================================================
+try:
+    from routes.camy_ai import register_camy_ai_routes
+    register_camy_ai_routes(app, globals())
+    print("[OK] modulo CAMY AI registrato")
+except Exception as e:
+    scrivi_log_errore("Modulo CAMY AI non registrato", e)
+    print(f"[WARN] modulo CAMY AI non registrato: {e}")
 
 # ========================================================
 #  REGISTRAZIONE MODULO CHATBOT
