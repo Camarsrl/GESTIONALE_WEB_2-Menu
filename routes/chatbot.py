@@ -94,6 +94,10 @@ def register_chatbot_routes(app_obj, deps):
                 <label class="form-label small mb-1">Codice articolo</label>
                 <input id="camyCodice" class="form-control form-control-sm" placeholder="CB050CF">
               </div>
+              <div class="col-md-3">
+                <label class="form-label small mb-1">Descrizione</label>
+                <input id="camyDescrizione" class="form-control form-control-sm" placeholder="Descrizione corretta">
+              </div>
               <div class="col-md-2">
                 <label class="form-label small mb-1">N. arrivo</label>
                 <input id="camyArrivo" class="form-control form-control-sm" placeholder="200/26">
@@ -174,6 +178,7 @@ def register_chatbot_routes(app_obj, deps):
       function submitPreparaBuonoForm(){
         const cliente = _camyVal('camyCliente');
         const codice = _camyVal('camyCodice');
+        const descrizione = _camyVal('camyDescrizione');
         const arrivo = _camyVal('camyArrivo');
         const pezzi = _camyVal('camyPezzi') || '1';
         const buono = _camyVal('camyBuono');
@@ -182,7 +187,9 @@ def register_chatbot_routes(app_obj, deps):
           addMsg('Per preparare il buono devi inserire almeno Codice articolo e N. arrivo.', 'bot');
           return;
         }
-        let msg = `CAMY prepara buono codice ${codice} arrivo ${arrivo} pezzi ${pezzi}`;
+        let msg = `CAMY prepara buono codice ${codice}`;
+        if(descrizione) msg += ` descrizione ${descrizione}`;
+        msg += ` arrivo ${arrivo} pezzi ${pezzi}`;
         if(cliente) msg += ` cliente ${cliente}`;
         if(buono) msg += ` buono ${buono}`;
         if(pack) msg += ` package ${pack}`;
@@ -694,7 +701,7 @@ def register_chatbot_routes(app_obj, deps):
     def _parse_buono_operativo(msg):
         """Estrae i dati principali dal comando CAMY.
         Formato consigliato:
-        CAMY prepara buono codice ABC123 arrivo 87/26 pezzi 1 cliente RF-DE WAVE buono BC-2026-0001
+        CAMY prepara buono codice ABC123 descrizione VALVOLA INOX arrivo 87/26 pezzi 1 cliente RF-DE WAVE buono 073/26
         """
         text = (msg or "").strip()
 
@@ -702,9 +709,10 @@ def register_chatbot_routes(app_obj, deps):
             m = re.search(pattern, text, flags=re.I)
             return (m.group(1).strip() if m else "")
 
-        codice = rx(r"\bcodice(?:\s+articolo)?\s+(.+?)(?=\s+arrivo\b|\s+n\.\s*arrivo\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
-        arrivo = rx(r"\b(?:n\.\s*)?arrivo\s+(.+?)(?=\s+codice\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
-        cliente = _detect_cliente(text) or rx(r"\bcliente\s+(.+?)(?=\s+codice\b|\s+arrivo\b|\s+pezzi\b|\s+colli\b|\s+buono\b|$)")
+        codice = rx(r"\bcodice(?:\s+articolo)?\s+(.+?)(?=\s+descrizione\b|\s+descr\b|\s+arrivo\b|\s+n\.\s*arrivo\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
+        descrizione = rx(r"\b(?:descrizione|descr)\s+(.+?)(?=\s+arrivo\b|\s+n\.\s*arrivo\b|\s+codice\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
+        arrivo = rx(r"\b(?:n\.\s*)?arrivo\s+(.+?)(?=\s+codice\b|\s+descrizione\b|\s+descr\b|\s+cliente\b|\s+pezzi\b|\s+colli\b|\s+buono\b|\s+package\b|\s+cassa\b|$)")
+        cliente = _detect_cliente(text) or rx(r"\bcliente\s+(.+?)(?=\s+codice\b|\s+descrizione\b|\s+descr\b|\s+arrivo\b|\s+pezzi\b|\s+colli\b|\s+buono\b|$)")
         buono = rx(r"\bbuono\s+((?:BC-)?\d{4}-\d+|BC[-\w]+|\d+)\b")
         package = rx(r"\b(?:package|pkg|cassa)\s+([A-Z0-9\-_/\.]+)")
 
@@ -720,6 +728,7 @@ def register_chatbot_routes(app_obj, deps):
 
         return {
             "codice": codice.strip(" ,;"),
+            "descrizione": descrizione.strip(" ,;"),
             "arrivo": arrivo.strip(" ,;"),
             "cliente": (cliente or "").strip().upper(),
             "buono": buono.strip(),
@@ -769,6 +778,38 @@ def register_chatbot_routes(app_obj, deps):
         cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ;,+-/")
         return cleaned or original
 
+    def _has_multiple_descriptions(value):
+        txt = (value or "").strip()
+        if not txt:
+            return False
+        return bool(re.search(r"\s*(;|\+|\n|,|\s/\s)\s*", txt))
+
+    def _remove_requested_description(original, requested):
+        """Rimuove la descrizione richiesta lasciando la descrizione residua corretta."""
+        original = (original or "").strip()
+        requested = (requested or "").strip()
+        if not original or not requested:
+            return original
+
+        parts = [p.strip() for p in re.split(r"\s*(?:;|\+|\n|,|\s/\s)\s*", original) if p.strip()]
+        req_norm = _norm_txt(requested)
+
+        # Prima prova: elemento separato uguale alla descrizione scelta.
+        kept = [p for p in parts if _norm_txt(p) != req_norm]
+        if parts and len(kept) != len(parts):
+            return " ; ".join(kept).strip()
+
+        # Seconda prova: se la descrizione scelta è contenuta in un elemento multi-descrizione.
+        kept = [p for p in parts if req_norm not in _norm_txt(p)]
+        if parts and len(kept) != len(parts):
+            return " ; ".join(kept).strip()
+
+        # Fallback: rimozione testuale semplice, senza distruggere tutta la descrizione.
+        cleaned = re.sub(re.escape(requested), "", original, flags=re.I)
+        cleaned = re.sub(r"\s*(;|,|\+)\s*(;|,|\+)+", "; ", cleaned)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ;,+-/")
+        return cleaned
+
     def _detect_package_from_row(art, codice):
         text = " ".join([
             str(getattr(art, "codice_articolo", "") or ""),
@@ -788,12 +829,14 @@ def register_chatbot_routes(app_obj, deps):
 
     def _find_articolo_per_buono(db, data):
         codice = (data.get("codice") or "").strip()
+        descrizione = (data.get("descrizione") or "").strip()
         arrivo = (data.get("arrivo") or "").strip()
         cliente = (data.get("cliente") or "").strip()
         if not codice or not arrivo:
             return [], "Per preparare il buono mi servono sempre <b>codice articolo</b> e <b>N. arrivo</b>."
 
         code_like = f"%{codice}%"
+        descr_like = f"%{descrizione}%" if descrizione else ""
 
         def _apply_buono_common_filters(q):
             q = q.filter(or_(
@@ -801,6 +844,11 @@ def register_chatbot_routes(app_obj, deps):
                 Articolo.descrizione.ilike(code_like),
                 Articolo.note.ilike(code_like)
             ))
+            if descrizione:
+                q = q.filter(or_(
+                    Articolo.descrizione.ilike(descr_like),
+                    Articolo.note.ilike(descr_like)
+                ))
             q = _apply_arrivo_filter(q, arrivo)
             if cliente and _user_role() != "client":
                 alias_norms = sorted({_norm_txt(a) for a in _cliente_aliases(cliente) if _norm_txt(a)})
@@ -930,7 +978,13 @@ def register_chatbot_routes(app_obj, deps):
         if pezzi_req > total_pezzi:
             return f"La riga ID {_esc(art.id_articolo)} ha solo {total_pezzi} pezzi/colli disponibili. Non posso prepararne {pezzi_req}."
 
-        multi = _has_multiple_codes(getattr(art, "codice_articolo", "")) or (_norm_txt(data["codice"]) not in _norm_txt(getattr(art, "codice_articolo", "")))
+        descrizione_buono = (data.get("descrizione") or "").strip() or (art.descrizione or "")
+        multi_codice = _has_multiple_codes(getattr(art, "codice_articolo", "")) or (_norm_txt(data["codice"]) not in _norm_txt(getattr(art, "codice_articolo", "")))
+        multi_descrizione = bool(data.get("descrizione")) and (
+            _has_multiple_descriptions(getattr(art, "descrizione", ""))
+            or _norm_txt(data.get("descrizione")) != _norm_txt(getattr(art, "descrizione", ""))
+        )
+        multi = multi_codice or multi_descrizione
         peso_tot = _as_float_safe(getattr(art, "peso", None), 0.0)
         peso_req = round((peso_tot * pezzi_req / total_pezzi), 3) if total_pezzi else peso_tot
         peso_residuo = round(max(0.0, peso_tot - peso_req), 3)
@@ -945,6 +999,8 @@ def register_chatbot_routes(app_obj, deps):
             "articolo_id": int(art.id_articolo),
             "codice": data.get("codice"),
             "codice_buono": codice_buono,
+            "descrizione": data.get("descrizione"),
+            "descrizione_buono": descrizione_buono,
             "arrivo": data.get("arrivo"),
             "cliente": data.get("cliente") or (art.cliente or ""),
             "buono": data.get("buono"),
@@ -968,6 +1024,7 @@ def register_chatbot_routes(app_obj, deps):
             f"Cliente: <b>{_esc(pending['cliente'])}</b><br>",
             f"Riga origine: ID <b>{_esc(art.id_articolo)}</b><br>",
             f"Codice richiesto: <b>{_esc(codice_buono)}</b><br>",
+            f"Descrizione richiesta: <b>{_esc(descrizione_buono)}</b><br>",
             f"N. arrivo: <b>{_esc(art.n_arrivo)}</b><br>",
             f"Pezzi richiesti: <b>{pezzi_req}</b> su {total_pezzi}<br>",
             f"Peso da assegnare al buono: <b>{_esc(_fmt_num(peso_req))} kg</b><br>",
@@ -976,9 +1033,11 @@ def register_chatbot_routes(app_obj, deps):
         ]
         if multi or pezzi_req < total_pezzi:
             residuo_codice = _remove_requested_code(art.codice_articolo, data.get("codice"))
+            residuo_descrizione = _remove_requested_description(art.descrizione, data.get("descrizione")) if data.get("descrizione") else art.descrizione
             out.append("<b>Cosa farà dopo conferma:</b><br>")
-            out.append("• creerà una riga per il buono con il codice richiesto e il package/cassa se presente;<br>")
+            out.append("• creerà una riga per il buono con il codice e la descrizione richiesti, più il package/cassa se presente;<br>")
             out.append(f"• lascerà in giacenza la riga residua con codice: <b>{_esc(residuo_codice or '-')}</b>;<br>")
+            out.append(f"• lascerà in giacenza la descrizione residua: <b>{_esc(residuo_descrizione or '-')}</b>;<br>")
             out.append("• varierà pezzi e peso in proporzione;<br>")
             out.append("• riporterà il numero buono sulla riga inserita nel buono.<br><br>")
         out.append(f"<button class='btn btn-warning btn-sm' onclick=\"confirmCamyBuono('{token}')\">Conferma proposta CAMY</button>")
@@ -1013,6 +1072,7 @@ def register_chatbot_routes(app_obj, deps):
         peso_req = float(data.get("peso_req") or 0)
         peso_residuo = float(data.get("peso_residuo") or 0)
         codice_buono = data.get("codice_buono") or data.get("codice") or art.codice_articolo or ""
+        descrizione_buono = (data.get("descrizione_buono") or data.get("descrizione") or art.descrizione or "").strip()
         n_buono = (data.get("buono") or "").strip() or _next_buono_prelievo_chat(db)
         n_arrivo_base = strip_arrivo_progressivo(art.n_arrivo)
         colli_originali = 1  # CAMY: pallet/collo non divisibile, entrambe le righe restano con colli = 1
@@ -1030,13 +1090,14 @@ def register_chatbot_routes(app_obj, deps):
         split_needed = bool(data.get("multi")) or pezzi_req < total_pezzi
         if split_needed:
             residuo_codice = _remove_requested_code(art.codice_articolo, data.get("codice"))
+            residuo_descrizione = _remove_requested_description(art.descrizione, data.get("descrizione")) if data.get("descrizione") else art.descrizione
             residuo_pezzi = max(0, total_pezzi - pezzi_req)
 
             # Riga nuova da inserire nel BUONO DI PRELIEVO.
             # NOTA: i colli NON si dividono. Il pallet resta 1 collo anche se si divide il materiale.
             nuova = Articolo(
                 codice_articolo=codice_buono,
-                descrizione=art.descrizione,
+                descrizione=descrizione_buono,
                 cliente=cliente,
                 fornitore=art.fornitore,
                 magazzino=art.magazzino,
@@ -1072,6 +1133,7 @@ def register_chatbot_routes(app_obj, deps):
             # Riga origine: resta in giacenza come residuo, senza il codice richiesto.
             # Anche qui i colli NON si dividono.
             art.codice_articolo = residuo_codice
+            art.descrizione = residuo_descrizione
             art.pezzo = str(residuo_pezzi) if residuo_pezzi else ""
             art.n_colli = colli_originali
             art.peso = peso_residuo
@@ -1080,6 +1142,8 @@ def register_chatbot_routes(app_obj, deps):
         else:
             # Riga intera: preparo la stessa riga per Buono di Prelievo.
             art.buono_n = n_buono
+            if data.get("descrizione"):
+                art.descrizione = descrizione_buono
             id_articolo_prelievo = art.id_articolo
             art_prelievo = art
 
@@ -1097,6 +1161,7 @@ def register_chatbot_routes(app_obj, deps):
             f"<b>Operazione CAMY completata per Buono di Prelievo.</b><br>"
             f"Riga pronta: ID <b>{_esc(id_articolo_prelievo)}</b><br>"
             f"Codice: <b>{_esc(codice_buono)}</b><br>"
+            f"Descrizione: <b>{_esc(descrizione_buono)}</b><br>"
             f"Pezzi: <b>{pezzi_req}</b><br>"
             f"Colli: <b>{_esc(getattr(art_prelievo, 'n_colli', '') or '')}</b> (non divisi)<br>"
             f"Peso: <b>{_esc(_fmt_num(peso_req))} kg</b><br>"
