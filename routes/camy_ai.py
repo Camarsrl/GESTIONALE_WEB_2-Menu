@@ -91,24 +91,29 @@ def register_camy_ai_routes(app_obj, deps):
           </div>
 
           <div class="camy-ai-quick mb-2">
-            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-ask="Quante giacenze attive ho?" onclick="camyAiAsk('Quante giacenze attive ho?')">Giacenze attive</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-ask="Totale colli peso M2 e M3 in giacenza" onclick="camyAiAsk('Totale colli peso M2 e M3 in giacenza')">Totali</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Cerca N. arrivo " onclick="camyAiFill('Cerca N. arrivo ')">Cerca arrivo</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Mostrami articoli DOGANALI cliente " onclick="camyAiFill('Mostrami articoli DOGANALI cliente ')">Dogana</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Cerca DDT " onclick="camyAiFill('Cerca DDT ')">Cerca DDT</button>
-            <button type="button" class="btn btn-sm btn-outline-warning" data-camy-fill="Prepara buono arrivo " onclick="camyAiFill('Prepara buono arrivo ')">Prepara Buono</button>
-            <button type="button" class="btn btn-sm btn-outline-warning" data-camy-fill="Scarico parziale ID " onclick="camyAiFill('Scarico parziale ID ')">Scarico parziale</button>
-            <button type="button" class="btn btn-sm btn-outline-success" data-camy-ask="Cosa puoi fare?" onclick="camyAiAsk('Cosa puoi fare?')">Aiuto</button>
+            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?q=Quante%20giacenze%20attive%20ho%3F" data-camy-ask="Quante giacenze attive ho?">Giacenze attive</a>
+            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?q=Totale%20colli%20peso%20M2%20e%20M3%20in%20giacenza" data-camy-ask="Totale colli peso M2 e M3 in giacenza">Totali</a>
+            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?q=Cerca%20N.%20arrivo%20" data-camy-fill="Cerca N. arrivo ">Cerca arrivo</a>
+            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?q=Mostrami%20articoli%20DOGANALI%20cliente%20" data-camy-fill="Mostrami articoli DOGANALI cliente ">Dogana</a>
+            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?q=Cerca%20DDT%20" data-camy-fill="Cerca DDT ">Cerca DDT</a>
+            <a class="btn btn-sm btn-outline-warning" href="/camy-ai?q=Prepara%20buono%20arrivo%20" data-camy-fill="Prepara buono arrivo ">Prepara Buono</a>
+            <a class="btn btn-sm btn-outline-warning" href="/camy-ai?q=Scarico%20parziale%20ID%20" data-camy-fill="Scarico parziale ID ">Scarico parziale</a>
+            <a class="btn btn-sm btn-outline-success" href="/camy-ai?q=Cosa%20puoi%20fare%3F" data-camy-ask="Cosa puoi fare?">Aiuto</a>
           </div>
 
           <div id="camyAiBox" class="camy-ai-box mb-3">
-            <div class="camy-ai-msg bot"><div class="camy-ai-bubble">Ciao, sono CAMY AI. Puoi scrivermi ad esempio:<br>• mostrami le giacenze Fincantieri in dogana<br>• cerca N. arrivo 542/26<br>• totale colli e peso di De Wave<br>• dove si trova il codice ABC123<br>• articoli entrati a maggio<br><br>Posso preparare Buoni di Prelievo con conferma e aiutarti ad aprire lo Scarico Parziale.</div></div>
+            {% if initial_user_msg %}
+              <div class="camy-ai-msg user"><div class="camy-ai-bubble">{{ initial_user_msg }}</div></div>
+              <div class="camy-ai-msg bot"><div class="camy-ai-bubble">{{ initial_bot_answer|safe }}</div></div>
+            {% else %}
+              <div class="camy-ai-msg bot"><div class="camy-ai-bubble">Ciao, sono CAMY AI. Puoi scrivermi ad esempio:<br>• mostrami le giacenze Fincantieri in dogana<br>• cerca N. arrivo 542/26<br>• totale colli e peso di De Wave<br>• dove si trova il codice ABC123<br>• articoli entrati a maggio<br><br>Posso preparare Buoni di Prelievo con conferma e aiutarti ad aprire lo Scarico Parziale.</div></div>
+            {% endif %}
           </div>
 
-          <div class="input-group camy-ai-input">
-            <input id="camyAiInput" type="text" class="form-control" placeholder="Scrivi una domanda a CAMY AI..." onkeydown="if(event.key==='Enter'){camyAiSend();}">
-            <button type="button" class="btn btn-primary" data-camy-send="1" onclick="camyAiSend()">Invia</button>
-          </div>
+          <form class="input-group camy-ai-input" method="get" action="/camy-ai">
+            <input id="camyAiInput" name="q" type="text" class="form-control" placeholder="Scrivi una domanda a CAMY AI..." value="{{ initial_input_value or '' }}">
+            <button type="submit" class="btn btn-primary" data-camy-send="1">Invia</button>
+          </form>
         </div>
       </div>
     </div>
@@ -1392,11 +1397,50 @@ def register_camy_ai_routes(app_obj, deps):
         finally:
             db.close()
 
+    def _process_camy_message(db, msg):
+        low = (msg or "").lower()
+        if any(x in low for x in ["aiuto", "help", "cosa puoi fare", "cosa sai fare"]):
+            return _answer_help(), True, {}
+
+        if any(x in low for x in ["prepara buono", "crea buono", "buono di prelievo"]):
+            return _answer_prepare_buono(db, msg), True, {}
+
+        if "scarico parziale" in low or "scarica parziale" in low:
+            return _answer_scarico_parziale(db, msg), True, {}
+
+        filters = _extract_intent(msg)
+        action = (filters.get("action") or "search").lower()
+        if action == "totals":
+            answer = _answer_totals(db, filters)
+        else:
+            answer = _answer_search(db, filters)
+        return answer, True, filters
+
     @app.route("/camy-ai", methods=["GET"])
     @login_required
     def camy_ai():
         endpoints = set(app.view_functions.keys())
-        return render_template_string(CAMY_AI_HTML, endpoints=endpoints)
+        q = (request.args.get("q") or "").strip()
+        initial_answer = ""
+        if q:
+            db = SessionLocal()
+            try:
+                initial_answer, _, _ = _process_camy_message(db, q)
+            except Exception as e:
+                try:
+                    scrivi_log_errore("Errore CAMY AI GET", e)
+                except Exception:
+                    pass
+                initial_answer = "CAMY AI ha avuto un errore. Ho registrato il dettaglio nei log admin."
+            finally:
+                db.close()
+        return render_template_string(
+            CAMY_AI_HTML,
+            endpoints=endpoints,
+            initial_user_msg=q,
+            initial_bot_answer=initial_answer,
+            initial_input_value=""
+        )
 
     @app.route("/camy-ai/api", methods=["POST"])
     @login_required
@@ -1408,23 +1452,8 @@ def register_camy_ai_routes(app_obj, deps):
 
         db = SessionLocal()
         try:
-            low = msg.lower()
-            if any(x in low for x in ["aiuto", "help", "cosa puoi fare", "cosa sai fare"]):
-                return jsonify({"answer": _answer_help(), "html": True})
-
-            if any(x in low for x in ["prepara buono", "crea buono", "buono di prelievo"]):
-                return jsonify({"answer": _answer_prepare_buono(db, msg), "html": True})
-
-            if "scarico parziale" in low or "scarica parziale" in low:
-                return jsonify({"answer": _answer_scarico_parziale(db, msg), "html": True})
-
-            filters = _extract_intent(msg)
-            action = (filters.get("action") or "search").lower()
-            if action == "totals":
-                answer = _answer_totals(db, filters)
-            else:
-                answer = _answer_search(db, filters)
-            return jsonify({"answer": answer, "html": True, "filters": filters})
+            answer, is_html, filters = _process_camy_message(db, msg)
+            return jsonify({"answer": answer, "html": is_html, "filters": filters})
         except Exception as e:
             try:
                 scrivi_log_errore("Errore CAMY AI", e)
