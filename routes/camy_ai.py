@@ -775,6 +775,40 @@ def register_camy_ai_routes(app_obj, deps):
         parts = [str(p or "").strip() for p in (parts or []) if str(p or "").strip()]
         return " / ".join(parts)
 
+    def _extract_logistic_refs(value):
+        """Estrae riferimenti logistici da conservare sia sulla riga Buono sia sulla residua.
+
+        Esempi riconosciuti: N. PACKAGE 12, PACKAGE 12, PKG 12, CASSA 3, PALLET A1, CASE 4.
+        """
+        txt = str(value or "")
+        if not txt.strip():
+            return []
+        patterns = [
+            r"\b(?:N\.?\s*)?(?:PACKAGE|PKG|CASSA|PALLET|CASE)\s*[:#\.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
+        ]
+        out, seen = [], set()
+        for pat in patterns:
+            for m in re.finditer(pat, txt, flags=re.I):
+                label = re.sub(r"\s+", " ", m.group(0).strip())
+                key = _norm_part(label)
+                if key and key not in seen:
+                    seen.add(key)
+                    out.append(label)
+        return out
+
+    def _append_refs_if_missing(value, refs):
+        """Aggiunge PACKAGE/CASSA/PALLET se non già presenti nel testo."""
+        value = str(value or "").strip()
+        refs = [str(r or "").strip() for r in (refs or []) if str(r or "").strip()]
+        if not refs:
+            return value
+        current_norm = _norm_part(value)
+        missing = [r for r in refs if _norm_part(r) and _norm_part(r) not in current_norm]
+        if not missing:
+            return value
+        extra = " / ".join(missing)
+        return f"{value} / {extra}".strip(" /") if value else extra
+
     def _row_needs_partial_details(row):
         """True se la riga sembra contenere più codici/descrizioni e quindi serve scegliere cosa prelevare."""
         try:
@@ -873,9 +907,13 @@ def register_camy_ai_routes(app_obj, deps):
 
         Ritorna (new_row, info_dict) se fa split, altrimenti (None, info_dict).
         """
-        code_parts = _split_multi_values(getattr(row, "codice_articolo", ""), allow_dash=True)
-        desc_parts = _split_multi_values(getattr(row, "descrizione", ""), allow_dash=True)
+        original_code_value = getattr(row, "codice_articolo", "") or ""
+        original_desc_value = getattr(row, "descrizione", "") or ""
+        code_parts = _split_multi_values(original_code_value, allow_dash=True)
+        desc_parts = _split_multi_values(original_desc_value, allow_dash=True)
         pezzi_parts = _split_multi_values(getattr(row, "pezzo", ""))
+        code_logistic_refs = _extract_logistic_refs(original_code_value)
+        desc_logistic_refs = _extract_logistic_refs(original_desc_value)
 
         requested_code = (requested_code or "").strip()
         requested_descr = (requested_descr or "").strip()
@@ -916,19 +954,15 @@ def register_camy_ai_routes(app_obj, deps):
             resid_pezzi_parts = [str(int(resid)) if abs(resid - int(resid)) < 0.0001 else str(round(resid, 3))]
 
         new_row = _copy_articolo_for_partial(row)
-        new_row.codice_articolo = selected_code
-        new_row.descrizione = selected_desc
+        # Se nella riga originale sono presenti N. PACKAGE / CASSA / PALLET,
+        # devono restare sia sulla riga nuova del Buono sia sulla riga residua.
+        new_row.codice_articolo = _append_refs_if_missing(selected_code, code_logistic_refs)
+        new_row.descrizione = _append_refs_if_missing(selected_desc, desc_logistic_refs)
         new_row.pezzo = selected_pezzi
         new_row.buono_n = buono
-
-        # Se l'utente indica pezzi numerici, provo a valorizzare n_colli della riga nuova
-        # solo quando il campo n_colli originale sembra riferito ai pezzi totali.
-        sel_int = _safe_int_or_none(selected_pezzi)
-        if sel_int is not None:
-            try:
-                new_row.n_colli = sel_int
-            except Exception:
-                pass
+        # Regola operativa: lo scarico parziale divide i pezzi, non il collo fisico.
+        # La riga del Buono e la riga residua devono restare sempre a 1 collo.
+        new_row.n_colli = 1
 
         # Peso proporzionale, se possibile.
         try:
@@ -944,19 +978,17 @@ def register_camy_ai_routes(app_obj, deps):
             pass
 
         # Aggiorno la riga vecchia con solo il residuo non uscito.
-        row.codice_articolo = _join_multi_values(resid_code_parts)
+        # Mantengo sempre eventuali riferimenti PACKAGE/CASSA/PALLET anche sulla residua.
+        row.codice_articolo = _append_refs_if_missing(_join_multi_values(resid_code_parts), code_logistic_refs)
         if desc_parts:
-            row.descrizione = _join_multi_values(resid_desc_parts)
+            row.descrizione = _append_refs_if_missing(_join_multi_values(resid_desc_parts), desc_logistic_refs)
+        else:
+            row.descrizione = _append_refs_if_missing(getattr(row, "descrizione", ""), desc_logistic_refs)
         if resid_pezzi_parts:
             row.pezzo = _join_multi_values(resid_pezzi_parts)
 
-        # Se i pezzi residui sono numerici, aggiorno anche n_colli.
-        try:
-            nums = [_safe_int_or_none(x) for x in resid_pezzi_parts]
-            if nums and all(v is not None for v in nums):
-                row.n_colli = sum(nums)
-        except Exception:
-            pass
+        # Regola operativa: anche la riga residua resta sempre 1 collo.
+        row.n_colli = 1
 
         # La riga residua non deve avere il buono del materiale uscito.
         row.buono_n = ""
