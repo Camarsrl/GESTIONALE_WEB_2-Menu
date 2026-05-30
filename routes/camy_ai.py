@@ -91,14 +91,14 @@ def register_camy_ai_routes(app_obj, deps):
           </div>
 
           <div class="camy-ai-quick mb-2">
-            <button class="btn btn-sm btn-outline-primary" onclick="camyAiAsk('Quante giacenze attive ho?')">Giacenze attive</button>
-            <button class="btn btn-sm btn-outline-primary" onclick="camyAiAsk('Totale colli peso M2 e M3 in giacenza')">Totali</button>
-            <button class="btn btn-sm btn-outline-primary" onclick="camyAiFill('Cerca N. arrivo ')">Cerca arrivo</button>
-            <button class="btn btn-sm btn-outline-primary" onclick="camyAiFill('Mostrami articoli DOGANALI cliente ')">Dogana</button>
-            <button class="btn btn-sm btn-outline-primary" onclick="camyAiFill('Cerca DDT ')">Cerca DDT</button>
-            <button class="btn btn-sm btn-outline-warning" onclick="camyAiFill('Prepara buono arrivo ')">Prepara Buono</button>
-            <button class="btn btn-sm btn-outline-warning" onclick="camyAiFill('Scarico parziale ID ')">Scarico parziale</button>
-            <button class="btn btn-sm btn-outline-success" onclick="camyAiAsk('Cosa puoi fare?')">Aiuto</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="camyAiAsk('Quante giacenze attive ho?')">Giacenze attive</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="camyAiAsk('Totale colli peso M2 e M3 in giacenza')">Totali</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="camyAiFill('Cerca N. arrivo ')">Cerca arrivo</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="camyAiFill('Mostrami articoli DOGANALI cliente ')">Dogana</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="camyAiFill('Cerca DDT ')">Cerca DDT</button>
+            <button type="button" class="btn btn-sm btn-outline-warning" onclick="camyAiFill('Prepara buono arrivo ')">Prepara Buono</button>
+            <button type="button" class="btn btn-sm btn-outline-warning" onclick="camyAiFill('Scarico parziale ID ')">Scarico parziale</button>
+            <button type="button" class="btn btn-sm btn-outline-success" onclick="camyAiAsk('Cosa puoi fare?')">Aiuto</button>
           </div>
 
           <div id="camyAiBox" class="camy-ai-box mb-3">
@@ -107,14 +107,14 @@ def register_camy_ai_routes(app_obj, deps):
 
           <div class="input-group camy-ai-input">
             <input id="camyAiInput" type="text" class="form-control" placeholder="Scrivi una domanda a CAMY AI..." onkeydown="if(event.key==='Enter'){camyAiSend();}">
-            <button class="btn btn-primary" onclick="camyAiSend()">Invia</button>
+            <button type="button" class="btn btn-primary" onclick="camyAiSend()">Invia</button>
           </div>
         </div>
       </div>
     </div>
 
     <script>
-      function camyAiAdd(text, who, isHtml=false){
+      window.camyAiAdd = function(text, who, isHtml=false){
         const box = document.getElementById('camyAiBox');
         const row = document.createElement('div');
         row.className = 'camy-ai-msg ' + who;
@@ -126,18 +126,18 @@ def register_camy_ai_routes(app_obj, deps):
         box.appendChild(row);
         box.scrollTop = box.scrollHeight;
         return row;
-      }
-      function camyAiAsk(text){
+      };
+      window.camyAiAsk = function(text){
         document.getElementById('camyAiInput').value = text;
         camyAiSend();
-      }
-      function camyAiFill(text){
+      };
+      window.camyAiFill = function(text){
         const input = document.getElementById('camyAiInput');
         input.value = text;
         input.focus();
         input.setSelectionRange(input.value.length, input.value.length);
-      }
-      async function camyAiSend(){
+      };
+      window.camyAiSend = async function(){
         const input = document.getElementById('camyAiInput');
         const text = input.value.trim();
         if(!text) return;
@@ -145,7 +145,7 @@ def register_camy_ai_routes(app_obj, deps):
         camyAiAdd(text, 'user');
         const loading = camyAiAdd('CAMY AI sta analizzando...', 'bot');
         try{
-          const res = await fetch('{{ url_for('camy_ai_api') }}', {
+          const res = await fetch('/camy-ai/api', {
             method:'POST',
             headers:{'Content-Type':'application/json'},
             body:JSON.stringify({message:text})
@@ -157,9 +157,9 @@ def register_camy_ai_routes(app_obj, deps):
           loading.remove();
           camyAiAdd('CAMY AI ha avuto un errore. Controlla i log admin.', 'bot');
         }
-      }
+      };
 
-      async function camyAiConfirm(token, mode, askPartial){
+      window.camyAiConfirm = async function(token, mode, askPartial){
         if(!token) return;
         mode = mode || 'auto';
         let manualBuono = '';
@@ -208,7 +208,7 @@ def register_camy_ai_routes(app_obj, deps):
         if(!confirm(msg)) return;
         const loading = camyAiAdd('Confermo l’operazione...', 'bot');
         try{
-          const res = await fetch('{{ url_for('camy_ai_confirm') }}', {
+          const res = await fetch('/camy-ai/confirm', {
             method:'POST',
             headers:{'Content-Type':'application/json'},
             body:JSON.stringify({
@@ -227,7 +227,7 @@ def register_camy_ai_routes(app_obj, deps):
           loading.remove();
           camyAiAdd('CAMY AI non è riuscita a confermare. Controlla i log admin.', 'bot');
         }
-      }
+      };
     </script>
     {% endblock %}
     """
