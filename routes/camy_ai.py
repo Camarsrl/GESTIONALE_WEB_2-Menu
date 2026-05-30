@@ -91,14 +91,14 @@ def register_camy_ai_routes(app_obj, deps):
           </div>
 
           <div class="camy-ai-quick mb-2">
-            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?q=Quante%20giacenze%20attive%20ho%3F" data-camy-ask="Quante giacenze attive ho?">Giacenze attive</a>
-            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?q=Totale%20colli%20peso%20M2%20e%20M3%20in%20giacenza" data-camy-ask="Totale colli peso M2 e M3 in giacenza">Totali</a>
-            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?q=Cerca%20N.%20arrivo%20" data-camy-fill="Cerca N. arrivo ">Cerca arrivo</a>
-            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?q=Mostrami%20articoli%20DOGANALI%20cliente%20" data-camy-fill="Mostrami articoli DOGANALI cliente ">Dogana</a>
-            <a class="btn btn-sm btn-outline-primary" href="/camy-ai?q=Cerca%20DDT%20" data-camy-fill="Cerca DDT ">Cerca DDT</a>
-            <a class="btn btn-sm btn-outline-warning" href="/camy-ai?q=Prepara%20buono%20arrivo%20" data-camy-fill="Prepara buono arrivo ">Prepara Buono</a>
-            <a class="btn btn-sm btn-outline-warning" href="/camy-ai?q=Scarico%20parziale%20ID%20" data-camy-fill="Scarico parziale ID ">Scarico parziale</a>
-            <a class="btn btn-sm btn-outline-success" href="/camy-ai?q=Cosa%20puoi%20fare%3F" data-camy-ask="Cosa puoi fare?">Aiuto</a>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Quante giacenze attive ho?">Giacenze attive</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Totale colli peso M2 e M3 in giacenza">Totali</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Cerca N. arrivo ">Cerca arrivo</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Mostrami articoli DOGANALI cliente ">Dogana</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-camy-fill="Cerca DDT ">Cerca DDT</button>
+            <button type="button" class="btn btn-sm btn-outline-warning" data-camy-fill="Prepara buono arrivo ">Prepara Buono</button>
+            <button type="button" class="btn btn-sm btn-outline-warning" data-camy-fill="Scarico parziale ID ">Scarico parziale</button>
+            <button type="button" class="btn btn-sm btn-outline-success" data-camy-fill="Cosa puoi fare?">Aiuto</button>
           </div>
 
           <div id="camyAiBox" class="camy-ai-box mb-3">
@@ -246,13 +246,14 @@ def register_camy_ai_routes(app_obj, deps):
           }
         };
 
-        // Gestione robusta dei bottoni anche se l'onclick inline non parte su alcuni browser.
+        // Gestione robusta dei bottoni: i pulsanti rapidi compilano solo il campo,
+        // non inviano automaticamente. L'invio parte solo con INVIA o con Enter.
         document.addEventListener('click', function(ev){
-          var btn = ev.target && ev.target.closest ? ev.target.closest('[data-camy-ask],[data-camy-fill],[data-camy-send]') : null;
+          var btn = ev.target && ev.target.closest ? ev.target.closest('[data-camy-fill],[data-camy-send]') : null;
           if(!btn) return;
           ev.preventDefault();
-          if(btn.hasAttribute('data-camy-ask')) window.camyAiAsk(btn.getAttribute('data-camy-ask') || '');
-          else if(btn.hasAttribute('data-camy-fill')) window.camyAiFill(btn.getAttribute('data-camy-fill') || '');
+          ev.stopPropagation();
+          if(btn.hasAttribute('data-camy-fill')) window.camyAiFill(btn.getAttribute('data-camy-fill') || '');
           else if(btn.hasAttribute('data-camy-send')) window.camyAiSend();
         });
 
