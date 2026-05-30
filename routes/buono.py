@@ -136,6 +136,42 @@ def register_buono_routes(app_obj, deps):
         extra = " / ".join(da_aggiungere)
         return f"{residuo} / {extra}".strip(" /") if residuo else extra
 
+
+    def _next_buono_number(db):
+        """Genera automaticamente il prossimo N. buono.
+
+        Formato usato: 001/26, 002/26, ...
+        Legge i buoni già presenti in Articolo.buono_n e incrementa il numero più alto
+        riferito all'anno corrente; se non trova riferimenti all'anno, incrementa comunque
+        il numero più alto disponibile.
+        """
+        yy = datetime.today().strftime("%y")
+        max_current_year = 0
+        max_any = 0
+        try:
+            values = db.query(Articolo.buono_n).filter(Articolo.buono_n != None).all()
+        except Exception:
+            values = []
+
+        for row in values:
+            raw = row[0] if isinstance(row, (tuple, list)) else row
+            txt = str(raw or "").strip()
+            if not txt:
+                continue
+            m = re.search(r"(\d{1,6})", txt)
+            if not m:
+                continue
+            try:
+                n = int(m.group(1))
+            except Exception:
+                continue
+            max_any = max(max_any, n)
+            if re.search(rf"(?:/|-|\b){re.escape(yy)}\b", txt):
+                max_current_year = max(max_current_year, n)
+
+        base = max_current_year or max_any
+        return f"{base + 1:03d}/{yy}"
+
     @app.route('/buono/preview', methods=['POST'])
     @login_required
     def buono_preview():
@@ -162,11 +198,14 @@ def register_buono_routes(app_obj, deps):
 
             commessa_auto = next((r.commessa for r in rows if r.commessa), "")
             fornitore_auto = next((r.fornitore for r in rows if r.fornitore), "")
-            buono_n_auto = next((r.buono_n for r in rows if r.buono_n), "")
+            buono_n_esistente = next((r.buono_n for r in rows if r.buono_n), "")
+            buono_n_auto = buono_n_esistente or _next_buono_number(db)
             ordine_auto = next((r.ordine for r in rows if r.ordine), "")
 
             meta = {
                 "buono_n": buono_n_auto,
+                "buono_n_auto": buono_n_auto,
+                "buono_n_esistente": buono_n_esistente,
                 "data_em": datetime.today().strftime("%d/%m/%Y"),
                 "commessa": commessa_auto,
                 "fornitore": fornitore_auto,
@@ -188,7 +227,12 @@ def register_buono_routes(app_obj, deps):
             rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
 
             action = req_data.get('action')
+            buono_mode = (req_data.get('buono_mode') or 'auto').strip().lower()
             bn = (req_data.get('buono_n') or '').strip()
+            if buono_mode == 'auto' or not bn:
+                # Se l'utente lascia automatico, oppure non compila il numero manuale,
+                # assegno il prossimo numero disponibile prima di salvare/generare il PDF.
+                bn = _next_buono_number(db)
             scarico_parziale_eseguito = False
 
             for r in rows:
@@ -307,12 +351,8 @@ def register_buono_routes(app_obj, deps):
                         "Scarico parziale salvato. Pezzi, note e N. buono sono stati inseriti solo sulla nuova riga prelevata; la riga residua resta pulita.",
                         "success"
                     )
-                    try:
-                        return redirect(url_for('giacenze', buono_n=bn))
-                    except Exception:
-                        return redirect(url_for('giacenze'))
-
-                flash("Buono salvato correttamente.", "success")
+                else:
+                    flash("Buono salvato correttamente.", "success")
 
             pdf_bio = _generate_buono_pdf(req_data, rows)
 
