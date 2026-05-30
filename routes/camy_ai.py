@@ -159,11 +159,15 @@ def register_camy_ai_routes(app_obj, deps):
         }
       }
 
-      async function camyAiConfirm(token, mode){
+      async function camyAiConfirm(token, mode, askPartial){
         if(!token) return;
         mode = mode || 'auto';
         let manualBuono = '';
+        let requestedCode = '';
+        let requestedDescr = '';
+        let requestedPezzi = '';
         let msg = 'Confermi l’operazione proposta da CAMY AI?';
+
         if(mode === 'manual'){
           manualBuono = prompt('Inserisci il N. Buono manuale, esempio 45/26:');
           if(manualBuono === null) return;
@@ -176,13 +180,45 @@ def register_camy_ai_routes(app_obj, deps):
         } else {
           msg = 'Confermi l’assegnazione automatica del prossimo N. Buono?';
         }
+
+        if(askPartial){
+          requestedCode = prompt('La riga contiene più codici. Inserisci il CODICE che deve uscire nel Buono:');
+          if(requestedCode === null) return;
+          requestedCode = requestedCode.trim();
+          if(!requestedCode){
+            camyAiAdd('Codice da prelevare non inserito. Operazione annullata.', 'bot');
+            return;
+          }
+
+          requestedDescr = prompt('Inserisci la DESCRIZIONE corretta da mettere nella riga del Buono:');
+          if(requestedDescr === null) return;
+          requestedDescr = requestedDescr.trim();
+
+          requestedPezzi = prompt('Inserisci i PEZZI da mettere nella riga del Buono:');
+          if(requestedPezzi === null) return;
+          requestedPezzi = requestedPezzi.trim();
+          if(!requestedPezzi){
+            camyAiAdd('Pezzi da prelevare non inseriti. Operazione annullata.', 'bot');
+            return;
+          }
+
+          msg += '\n\nScarico parziale:\nCodice: ' + requestedCode + '\nDescrizione: ' + (requestedDescr || '-') + '\nPezzi: ' + requestedPezzi;
+        }
+
         if(!confirm(msg)) return;
         const loading = camyAiAdd('Confermo l’operazione...', 'bot');
         try{
           const res = await fetch('{{ url_for('camy_ai_confirm') }}', {
             method:'POST',
             headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({token:token, mode:mode, manual_buono:manualBuono})
+            body:JSON.stringify({
+              token:token,
+              mode:mode,
+              manual_buono:manualBuono,
+              requested_code:requestedCode,
+              requested_descr:requestedDescr,
+              requested_pezzi:requestedPezzi
+            })
           });
           const data = await res.json();
           loading.remove();
@@ -643,28 +679,51 @@ def register_camy_ai_routes(app_obj, deps):
         session["camy_ai_pending_ops"] = data
         session.modified = True
 
-    def _apply_buono_choice_buttons(token):
+    def _apply_buono_choice_buttons(token, ask_partial=False):
+        partial_flag = "true" if ask_partial else "false"
         return (
             "<div class='mt-2 d-flex flex-wrap gap-2'>"
-            f"<button type='button' class='btn btn-sm btn-success' onclick=\"camyAiConfirm('{_esc(token)}','auto')\">Automatico</button>"
-            f"<button type='button' class='btn btn-sm btn-outline-primary' onclick=\"camyAiConfirm('{_esc(token)}','manual')\">Manuale</button>"
+            f"<button type='button' class='btn btn-sm btn-success' onclick=\"camyAiConfirm('{_esc(token)}','auto',{partial_flag})\">Automatico</button>"
+            f"<button type='button' class='btn btn-sm btn-outline-primary' onclick=\"camyAiConfirm('{_esc(token)}','manual',{partial_flag})\">Manuale</button>"
             "</div>"
         )
 
 
-    def _split_multi_values(value):
+    def _split_multi_values(value, allow_dash=False):
         """Divide campi multipli mantenendo l'ordine: codice / descrizione / pezzi."""
         s = str(value or "").strip()
         if not s:
             return []
-        # Prima divido solo su separatori abbastanza sicuri.
-        parts = re.split(r"\s*(?:;|\+|\n|\r|,|\s+/\s+)\s*", s)
+
+        # Separatori sicuri: slash anche senza spazi, punto e virgola, +, a capo, virgola.
+        parts = re.split(r"\s*(?:;|\+|\n|\r|,|/)\s*", s)
         parts = [p.strip() for p in parts if p and p.strip()]
+
+        # Caso frequente nel gestionale: codici o descrizioni uniti con trattino.
+        # Non dividiamo codici numerici tipo 1691045-0025-1-000.
+        if len(parts) == 1 and allow_dash and "-" in s:
+            dash_parts = [p.strip() for p in re.split(r"\s*-\s*", s) if p.strip()]
+            if len(dash_parts) > 1:
+                alpha_parts = sum(1 for p in dash_parts if re.search(r"[A-Za-z]", p))
+                long_parts = sum(1 for p in dash_parts if len(p) >= 3)
+                if alpha_parts >= 2 and long_parts >= 2:
+                    parts = dash_parts
+
         return parts if parts else ([s] if s else [])
 
     def _join_multi_values(parts):
         parts = [str(p or "").strip() for p in (parts or []) if str(p or "").strip()]
         return " / ".join(parts)
+
+    def _row_needs_partial_details(row):
+        """True se la riga sembra contenere più codici/descrizioni e quindi serve scegliere cosa prelevare."""
+        try:
+            code_parts = _split_multi_values(getattr(row, "codice_articolo", ""), allow_dash=True)
+            desc_parts = _split_multi_values(getattr(row, "descrizione", ""), allow_dash=True)
+            pezzi_parts = _split_multi_values(getattr(row, "pezzo", ""))
+            return len(code_parts) > 1 or len(desc_parts) > 1 or len(pezzi_parts) > 1
+        except Exception:
+            return False
 
     def _norm_part(value):
         return re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
@@ -754,8 +813,8 @@ def register_camy_ai_routes(app_obj, deps):
 
         Ritorna (new_row, info_dict) se fa split, altrimenti (None, info_dict).
         """
-        code_parts = _split_multi_values(getattr(row, "codice_articolo", ""))
-        desc_parts = _split_multi_values(getattr(row, "descrizione", ""))
+        code_parts = _split_multi_values(getattr(row, "codice_articolo", ""), allow_dash=True)
+        desc_parts = _split_multi_values(getattr(row, "descrizione", ""), allow_dash=True)
         pezzi_parts = _split_multi_values(getattr(row, "pezzo", ""))
 
         requested_code = (requested_code or "").strip()
@@ -778,13 +837,23 @@ def register_camy_ai_routes(app_obj, deps):
         )
         selected_pezzi = (
             requested_pezzi
-            or (pezzi_parts[idx] if idx < len(pezzi_parts) else (getattr(row, "pezzo", "") or ""))
+            or (pezzi_parts[idx] if idx < len(pezzi_parts) else "")
         )
+
+        # Se il campo pezzi non è multiplo ma l'utente indica i pezzi da prelevare,
+        # calcolo il residuo numerico sulla riga originale.
+        original_pezzo_num = _safe_float_or_none(getattr(row, "pezzo", ""))
+        selected_pezzo_num = _safe_float_or_none(selected_pezzi)
+        if not pezzi_parts and requested_pezzi:
+            selected_pezzi = requested_pezzi
 
         # Residuo: tolgo gli elementi corrispondenti all'indice scelto.
         resid_code_parts = [p for i, p in enumerate(code_parts) if i != idx]
         resid_desc_parts = [p for i, p in enumerate(desc_parts) if i != idx] if desc_parts else []
         resid_pezzi_parts = [p for i, p in enumerate(pezzi_parts) if i != idx] if pezzi_parts else []
+        if not resid_pezzi_parts and original_pezzo_num is not None and selected_pezzo_num is not None:
+            resid = max(0, original_pezzo_num - selected_pezzo_num)
+            resid_pezzi_parts = [str(int(resid)) if abs(resid - int(resid)) < 0.0001 else str(round(resid, 3))]
 
         new_row = _copy_articolo_for_partial(row)
         new_row.codice_articolo = selected_code
@@ -818,7 +887,7 @@ def register_camy_ai_routes(app_obj, deps):
         row.codice_articolo = _join_multi_values(resid_code_parts)
         if desc_parts:
             row.descrizione = _join_multi_values(resid_desc_parts)
-        if pezzi_parts:
+        if resid_pezzi_parts:
             row.pezzo = _join_multi_values(resid_pezzi_parts)
 
         # Se i pezzi residui sono numerici, aggiorno anche n_colli.
@@ -885,6 +954,7 @@ def register_camy_ai_routes(app_obj, deps):
         requested_code = (filters.get("codice_articolo") or "").strip()
         requested_descr = _extract_requested_descrizione(msg)
         requested_pezzi = _extract_requested_pezzi(msg)
+        needs_partial_details = any(_row_needs_partial_details(r) for r in rows) and not (requested_code or requested_descr)
 
         token = _make_token()
         ids = [int(r.id_articolo) for r in rows]
@@ -895,6 +965,7 @@ def register_camy_ai_routes(app_obj, deps):
             "requested_code": requested_code,
             "requested_descr": requested_descr,
             "requested_pezzi": requested_pezzi,
+            "needs_partial_details": bool(needs_partial_details),
         })
 
         scelta_manual = f"<br>Numero manuale letto dal messaggio: <b>{_esc(manual_buono)}</b>" if manual_buono else ""
@@ -907,6 +978,12 @@ def register_camy_ai_routes(app_obj, deps):
                 f"Pezzi: <b>{_esc(requested_pezzi or '-')}</b><br>"
                 "Se la riga contiene più codici, CAMY creerà una nuova riga per il materiale in uscita "
                 "e lascerà sulla riga originale solo codice, descrizione e pezzi residui."
+            )
+        elif needs_partial_details:
+            dettagli_parziale = (
+                "<br><b>Scarico parziale rilevato:</b> la riga contiene più codici/descrizioni.<br>"
+                "Alla conferma CAMY ti chiederà <b>codice, descrizione e pezzi</b> da mettere nel Buono, "
+                "poi creerà una nuova riga e lascerà sulla riga originale solo il residuo."
             )
 
         riepilogo = [
@@ -926,7 +1003,7 @@ def register_camy_ai_routes(app_obj, deps):
             )
         if len(rows) > 8:
             riepilogo.append(f"<br>Altre righe non mostrate: {len(rows) - 8}.")
-        riepilogo.append(_apply_buono_choice_buttons(token))
+        riepilogo.append(_apply_buono_choice_buttons(token, ask_partial=needs_partial_details))
         return "".join(riepilogo)
 
     def _answer_scarico_parziale(db, msg):
@@ -1002,9 +1079,15 @@ def register_camy_ai_routes(app_obj, deps):
                 if not rows:
                     return jsonify({"answer": "Nessuna riga trovata da aggiornare.", "html": False}), 404
 
-                requested_code = (op.get("requested_code") or "").strip()
-                requested_descr = (op.get("requested_descr") or "").strip()
-                requested_pezzi = (op.get("requested_pezzi") or "").strip()
+                requested_code = (data.get("requested_code") or op.get("requested_code") or "").strip()
+                requested_descr = (data.get("requested_descr") or op.get("requested_descr") or "").strip()
+                requested_pezzi = (data.get("requested_pezzi") or op.get("requested_pezzi") or "").strip()
+
+                if op.get("needs_partial_details") and not (requested_code or requested_descr):
+                    return jsonify({
+                        "answer": "La riga contiene più codici: per creare il Buono parziale devi indicare almeno il codice o la descrizione da prelevare.",
+                        "html": False
+                    }), 400
 
                 updated = 0
                 created = 0
@@ -1024,6 +1107,18 @@ def register_camy_ai_routes(app_obj, deps):
                         updated += 1
                         split_infos.append(info)
                     else:
+                        # Se la riga è multipla ma CAMY non ha trovato il codice da separare,
+                        # non assegno il Buono alla riga originale per evitare giacenze errate.
+                        if info.get("is_multi") and (requested_code or requested_descr):
+                            db.rollback()
+                            return jsonify({
+                                "answer": (
+                                    "Non sono riuscita a trovare nella riga il codice/descrizione indicato per lo scarico parziale.<br>"
+                                    "Controlla che il codice sia scritto esattamente come in giacenza e ripeti l'operazione."
+                                ),
+                                "html": True
+                            }), 400
+
                         # Caso normale: una riga singola viene assegnata direttamente al Buono.
                         r.buono_n = buono
                         updated += 1
