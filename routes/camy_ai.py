@@ -500,19 +500,113 @@ def register_camy_ai_routes(app_obj, deps):
     def _operation_denied():
         return "Operazione non consentita: solo admin/magazzino possono preparare modifiche operative."
 
-    def _extract_buono_number(msg):
-        m = re.search(r"\bbuono\s+([A-Z0-9./\-_]+)", msg or "", re.I)
-        if m:
-            return m.group(1).strip()
+    def _extract_manual_buono_number(msg):
+        """Estrae solo un numero buono scritto davvero dall'utente.
+        Evita l'errore classico: 'Prepara buono arrivo 3578' non deve diventare buono='arrivo'.
+        Formati accettati:
+        - n buono 45/26
+        - buono n 45/26
+        - numero buono 45/26
+        - buono 45/26
+        """
+        s = msg or ""
+        patterns = [
+            r"\b(?:n\.?\s*buono|buono\s*n\.?|numero\s+buono)\s*[:\-]?\s*([A-Z0-9][A-Z0-9./\-_]{1,30})",
+            r"\bbuono\s+((?:BP[-_/]?)?\d{1,6}\s*/\s*\d{2,4})\b",
+        ]
+        for pat in patterns:
+            for m in re.finditer(pat, s, re.I):
+                val = (m.group(1) or "").strip().replace(" ", "")
+                if val and val.lower() not in ("arrivo", "codice", "id", "ddt", "prelievo"):
+                    return val
+        return ""
+
+    def _ensure_progressivi_buoni_table(db):
+        """Crea la tabella dei progressivi Buoni di Prelievo se manca."""
         try:
-            # Se nel gestionale esiste una funzione progressivo buono, usala.
-            if "next_buono_number" in globals():
-                return next_buono_number()
-            if "peek_next_buono_number" in globals():
-                return peek_next_buono_number()
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS progressivi_buoni_prelievo (
+                    anno VARCHAR(4) PRIMARY KEY,
+                    last_num INTEGER NOT NULL
+                )
+            """))
+            db.commit()
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
+    def _max_buono_num_from_articoli(db, anno):
+        """Legge i buoni già presenti e ricava il massimo numero dell'anno.
+        Serve per non ripartire da 1 su database già popolati.
+        """
+        max_n = 0
+        try:
+            rows = (
+                db.query(Articolo.buono_n)
+                .filter(Articolo.buono_n != None)
+                .filter(Articolo.buono_n != "")
+                .all()
+            )
+            # accetta 45/26, BP-45/26, B45/26 ecc.
+            pat = re.compile(r"(?:^|[^0-9])(\d{1,6})\s*/\s*" + re.escape(str(anno)) + r"(?:\D|$)", re.I)
+            for (val,) in rows:
+                s = str(val or "")
+                for m in pat.finditer(s):
+                    try:
+                        max_n = max(max_n, int(m.group(1)))
+                    except Exception:
+                        pass
         except Exception:
             pass
-        return "DA ASSEGNARE"
+        return max_n
+
+    def _peek_next_buono_number(db):
+        """Anteprima del prossimo N. Buono senza incrementare il progressivo."""
+        anno = str(date.today().year)[-2:]
+        _ensure_progressivi_buoni_table(db)
+        try:
+            row = db.execute(text("SELECT last_num FROM progressivi_buoni_prelievo WHERE anno=:anno"), {"anno": anno}).fetchone()
+            last_num = int(row[0]) if row and row[0] is not None else 0
+        except Exception:
+            last_num = 0
+        if last_num <= 0:
+            last_num = _max_buono_num_from_articoli(db, anno)
+        return f"{last_num + 1:02d}/{anno}"
+
+    def _next_buono_number(db):
+        """Incrementa e salva il prossimo progressivo Buono di Prelievo."""
+        anno = str(date.today().year)[-2:]
+        _ensure_progressivi_buoni_table(db)
+        try:
+            row = db.execute(text("SELECT last_num FROM progressivi_buoni_prelievo WHERE anno=:anno"), {"anno": anno}).fetchone()
+            last_num = int(row[0]) if row and row[0] is not None else 0
+            if last_num <= 0:
+                last_num = _max_buono_num_from_articoli(db, anno)
+            new_num = last_num + 1
+            if row:
+                db.execute(text("UPDATE progressivi_buoni_prelievo SET last_num=:n WHERE anno=:anno"), {"n": new_num, "anno": anno})
+            else:
+                db.execute(text("INSERT INTO progressivi_buoni_prelievo (anno, last_num) VALUES (:anno, :n)"), {"anno": anno, "n": new_num})
+            db.commit()
+            return f"{new_num:02d}/{anno}"
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            # Fallback sicuro: usa il massimo già presente + 1, senza bloccare CAMY.
+            last_num = _max_buono_num_from_articoli(db, anno)
+            return f"{last_num + 1:02d}/{anno}"
+
+    def _extract_buono_number(msg, db=None, consume=False):
+        manual = _extract_manual_buono_number(msg)
+        if manual:
+            return manual
+        if db is not None:
+            return _next_buono_number(db) if consume else _peek_next_buono_number(db)
+        return "AUTOMATICO"
 
     def _make_token():
         import uuid
@@ -576,20 +670,22 @@ def register_camy_ai_routes(app_obj, deps):
                 "Restringi la ricerca con N. arrivo, codice articolo, DDT o ID."
             )
 
-        buono = _extract_buono_number(msg)
+        buono = _extract_buono_number(msg, db=db, consume=False)
+        manual_buono = _extract_manual_buono_number(msg)
         token = _make_token()
         ids = [int(r.id_articolo) for r in rows]
         _save_pending_op(token, {
             "type": "set_buono",
             "ids": ids,
             "buono": buono,
+            "manual_buono": manual_buono,
         })
 
         riepilogo = [
             f"<b>Proposta Buono di Prelievo</b><br>",
-            f"N. buono: <b>{_esc(buono)}</b><br>",
+            f"N. buono proposto: <b>{_esc(buono)}</b><br>",
             f"Righe selezionate: <b>{len(ids)}</b><br>",
-            "CAMY imposterà il N. buono sulle righe indicate. Nessuno scarico definitivo verrà eseguito automaticamente.<br>"
+            "Alla conferma CAMY assegnerà il progressivo definitivo e lo imposterà sulle righe indicate. Nessuno scarico definitivo verrà eseguito automaticamente.<br>"
         ]
         for r in rows[:8]:
             riepilogo.append(
@@ -658,7 +754,8 @@ def register_camy_ai_routes(app_obj, deps):
         try:
             if op.get("type") == "set_buono":
                 ids = [int(x) for x in op.get("ids") or [] if str(x).isdigit()]
-                buono = (op.get("buono") or "").strip()
+                manual_buono = (op.get("manual_buono") or "").strip()
+                buono = manual_buono or _next_buono_number(db)
                 if not ids or not buono:
                     return jsonify({"answer": "Dati operazione incompleti.", "html": False}), 400
 
