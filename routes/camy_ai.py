@@ -44,7 +44,7 @@ def register_camy_ai_routes(app_obj, deps):
     import html
     from datetime import date, datetime
 
-    from flask import request, jsonify, render_template_string, session, url_for
+    from flask import request, jsonify, render_template_string, session, url_for, send_file, abort
     from flask_login import login_required, current_user
     from sqlalchemy import or_, func
 
@@ -1006,6 +1006,175 @@ def register_camy_ai_routes(app_obj, deps):
         riepilogo.append(_apply_buono_choice_buttons(token, ask_partial=needs_partial_details))
         return "".join(riepilogo)
 
+    def _safe_pdf_filename(value):
+        s = str(value or "").strip()
+        s = re.sub(r"[^A-Za-z0-9._-]+", "_", s)
+        return s.strip("_") or "buono"
+
+    def _fmt_date_pdf(value):
+        s = str(value or "").strip()
+        if not s:
+            return ""
+        try:
+            return datetime.strptime(s[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+        except Exception:
+            return s
+
+    def _generate_buono_pdf(db, buono):
+        """Genera il PDF del Buono di Prelievo CAMY e restituisce (filename, path)."""
+        buono = str(buono or "").strip()
+        if not buono:
+            return "", None
+
+        rows = (
+            db.query(Articolo)
+            .filter(Articolo.buono_n == buono)
+            .order_by(Articolo.id_articolo.asc())
+            .all()
+        )
+        if not rows:
+            return "", None
+
+        try:
+            base_dir = DOCS_DIR
+        except Exception:
+            base_dir = MEDIA_DIR / "docs"
+        base_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = f"buono_prelievo_{_safe_pdf_filename(buono)}.pdf"
+        pdf_path = base_dir / filename
+
+        try:
+            from reportlab.lib.pagesizes import A4, landscape
+            from reportlab.lib import colors
+            from reportlab.lib.units import mm
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        except Exception:
+            # Se ReportLab non è disponibile, segnalo tramite log e non blocco il buono.
+            return "", None
+
+        styles = getSampleStyleSheet()
+        normal = ParagraphStyle(
+            "camy_normal",
+            parent=styles["Normal"],
+            fontSize=7,
+            leading=8,
+            wordWrap="CJK",
+        )
+        title_style = ParagraphStyle(
+            "camy_title",
+            parent=styles["Heading1"],
+            fontSize=16,
+            leading=18,
+            alignment=1,
+            spaceAfter=8,
+        )
+        small = ParagraphStyle(
+            "camy_small",
+            parent=styles["Normal"],
+            fontSize=8,
+            leading=10,
+        )
+
+        doc = SimpleDocTemplate(
+            str(pdf_path),
+            pagesize=landscape(A4),
+            rightMargin=10 * mm,
+            leftMargin=10 * mm,
+            topMargin=10 * mm,
+            bottomMargin=10 * mm,
+        )
+
+        story = []
+        story.append(Paragraph(f"BUONO DI PRELIEVO N. {html.escape(buono)}", title_style))
+        story.append(Paragraph(f"Generato da CAMY AI il {datetime.now().strftime('%d/%m/%Y %H:%M')}", small))
+        story.append(Spacer(1, 6))
+
+        clienti = sorted({(getattr(r, 'cliente', '') or '').strip() for r in rows if (getattr(r, 'cliente', '') or '').strip()})
+        fornitori = sorted({(getattr(r, 'fornitore', '') or '').strip() for r in rows if (getattr(r, 'fornitore', '') or '').strip()})
+        story.append(Paragraph(f"Cliente/i: {html.escape(', '.join(clienti) or '-')}", small))
+        story.append(Paragraph(f"Fornitore/i: {html.escape(', '.join(fornitori) or '-')}", small))
+        story.append(Spacer(1, 8))
+
+        data = [[
+            Paragraph("ID", normal),
+            Paragraph("Codice", normal),
+            Paragraph("Descrizione", normal),
+            Paragraph("Pz", normal),
+            Paragraph("Colli", normal),
+            Paragraph("Peso", normal),
+            Paragraph("N. Arrivo", normal),
+            Paragraph("DDT Ing.", normal),
+            Paragraph("Magazzino", normal),
+            Paragraph("Posizione", normal),
+            Paragraph("Data Ing.", normal),
+        ]]
+
+        tot_colli = 0
+        tot_peso = 0.0
+        for r in rows:
+            try:
+                tot_colli += int(getattr(r, "n_colli", 0) or 0)
+            except Exception:
+                pass
+            try:
+                tot_peso += float(getattr(r, "peso", 0) or 0)
+            except Exception:
+                pass
+            data.append([
+                Paragraph(str(getattr(r, "id_articolo", "") or ""), normal),
+                Paragraph(html.escape(str(getattr(r, "codice_articolo", "") or "")), normal),
+                Paragraph(html.escape(str(getattr(r, "descrizione", "") or "")), normal),
+                Paragraph(html.escape(str(getattr(r, "pezzo", "") or "")), normal),
+                Paragraph(html.escape(str(getattr(r, "n_colli", "") or "")), normal),
+                Paragraph(_fmt_num(getattr(r, "peso", 0)), normal),
+                Paragraph(html.escape(str(getattr(r, "n_arrivo", "") or "")), normal),
+                Paragraph(html.escape(str(getattr(r, "n_ddt_ingresso", "") or "")), normal),
+                Paragraph(html.escape(str(getattr(r, "magazzino", "") or "")), normal),
+                Paragraph(html.escape(str(getattr(r, "posizione", "") or "")), normal),
+                Paragraph(html.escape(_fmt_date_pdf(getattr(r, "data_ingresso", "") or "")), normal),
+            ])
+
+        table = Table(
+            data,
+            repeatRows=1,
+            colWidths=[13*mm, 38*mm, 65*mm, 14*mm, 15*mm, 20*mm, 30*mm, 25*mm, 25*mm, 25*mm, 22*mm],
+        )
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+            ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
+            ("VALIGN", (0,0), (-1,-1), "TOP"),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 7),
+            ("LEFTPADDING", (0,0), (-1,-1), 3),
+            ("RIGHTPADDING", (0,0), (-1,-1), 3),
+        ]))
+        story.append(table)
+        story.append(Spacer(1, 8))
+        story.append(Paragraph(f"Totale righe: {len(rows)} - Totale colli: {tot_colli} - Totale peso: {_fmt_num(tot_peso)} kg", small))
+        story.append(Spacer(1, 16))
+        story.append(Paragraph("Firma magazzino: ________________________________", small))
+
+        doc.build(story)
+        return filename, pdf_path
+
+    @app.route("/camy-ai/buono-pdf/<path:filename>", methods=["GET"])
+    @login_required
+    def camy_ai_buono_pdf(filename):
+        if not _can_operate():
+            abort(403)
+        safe_name = _safe_pdf_filename(filename)
+        if not safe_name.lower().endswith(".pdf"):
+            abort(404)
+        try:
+            pdf_path = DOCS_DIR / safe_name
+        except Exception:
+            pdf_path = MEDIA_DIR / "docs" / safe_name
+        if not pdf_path.exists():
+            abort(404)
+        return send_file(str(pdf_path), as_attachment=True, download_name=safe_name)
+
     def _answer_scarico_parziale(db, msg):
         if not _can_operate():
             return _operation_denied()
@@ -1129,6 +1298,22 @@ def register_camy_ai_routes(app_obj, deps):
                 session["camy_ai_pending_ops"] = pending
                 session.modified = True
 
+                pdf_link_html = ""
+                try:
+                    pdf_filename, pdf_path = _generate_buono_pdf(db, buono)
+                    if pdf_filename and pdf_path:
+                        pdf_url = url_for("camy_ai_buono_pdf", filename=pdf_filename)
+                        pdf_link_html = (
+                            f"<br><a class='btn btn-sm btn-danger mt-2' href='{_esc(pdf_url)}' target='_blank'>"
+                            "Scarica PDF Buono di Prelievo</a>"
+                        )
+                except Exception as pdf_err:
+                    try:
+                        scrivi_log_errore("Errore generazione PDF Buono CAMY AI", pdf_err)
+                    except Exception:
+                        pass
+                    pdf_link_html = "<br><span class='text-warning'>Buono aggiornato, ma PDF non generato. Controlla i log admin.</span>"
+
                 extra = ""
                 if created:
                     dettagli = []
@@ -1154,8 +1339,9 @@ def register_camy_ai_routes(app_obj, deps):
                         f"<b>Buono aggiornato.</b><br>"
                         f"N. buono: <b>{_esc(buono)}</b><br>"
                         f"Righe elaborate: {updated}<br>"
-                        f"{extra}<br>"
-                        "Ora puoi aprire le giacenze e generare/stampare il Buono di Prelievo."
+                        f"{extra}"
+                        f"{pdf_link_html}<br>"
+                        "Il PDF del Buono di Prelievo è stato generato direttamente da CAMY."
                     ),
                     "html": True
                 })
