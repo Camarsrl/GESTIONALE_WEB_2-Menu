@@ -726,15 +726,42 @@ def register_import_pdf_routes(app_obj, deps):
         lines = [_clean_spaces(l) for l in full_text.splitlines() if _clean_spaces(l)]
         meta = _profile_fix_meta(_extract_meta(lines, full_text), lines, full_text)
 
-        rows = []
-        rows.extend(_parse_atotech(lines))
-        rows.extend(_parse_comefri(lines))
-        rows.extend(_parse_amico(lines))
-        rows.extend(_parse_halton(lines))
-        rows.extend(_parse_marine_interiors(lines))
-        rows.extend(_parse_fertubi_dewave(lines))
-        rows.extend(_parse_fincantieri_generic(lines))
-        rows.extend(_parse_generic(lines))
+        # ------------------------------------------------------------
+        # ESTRAZIONE RIGHE - FIX DUPLICATI OCR
+        # ------------------------------------------------------------
+        # Prima proviamo i parser specifici per cliente/formato.
+        # Se un parser specifico trova righe, NON aggiungiamo anche il parser generico,
+        # perché sui PDF OCR la stessa riga può essere letta sia dal parser dedicato
+        # sia da _parse_generic(), creando doppioni in anteprima e poi in import.
+        specific_rows = []
+        specific_rows.extend(_parse_atotech(lines))
+        specific_rows.extend(_parse_comefri(lines))
+        specific_rows.extend(_parse_amico(lines))
+        specific_rows.extend(_parse_halton(lines))
+        specific_rows.extend(_parse_marine_interiors(lines))
+        specific_rows.extend(_parse_fertubi_dewave(lines))
+        specific_rows.extend(_parse_fincantieri_generic(lines))
+
+        generic_rows = []
+        if not specific_rows:
+            generic_rows = _parse_generic(lines)
+
+        rows = specific_rows if specific_rows else generic_rows
+
+        def _row_signature_for_dedup(r):
+            """Firma robusta per evitare doppioni OCR.
+            Non usa solo la descrizione completa perché l'OCR può leggerla in modo leggermente diverso.
+            """
+            codice = _norm(r.get('codice') or '')
+            descr = _norm(r.get('descrizione') or '')
+            lotto = _norm(r.get('lotto') or '')
+            seriale = _norm(r.get('serial_number') or '')
+            # Se il codice è presente, è la chiave più affidabile.
+            # Lotto/seriale distinguono eventuali righe uguali ma realmente diverse.
+            if codice:
+                return ('COD', codice, lotto, seriale)
+            # Senza codice uso descrizione + lotto/seriale.
+            return ('DESC', descr, lotto, seriale)
 
         # pulizia righe improbabili / preferenza codice articolo vero
         cleaned = []
@@ -746,11 +773,13 @@ def register_import_pdf_routes(app_obj, deps):
                 continue
             if descr.upper() in {'CLIENTE', 'FORNITORE', 'DESTINATARIO', 'MITTENTE'}:
                 continue
-            # evita righe duplicate palesi
-            sig = (codice, descr, r.get('colli') or 0, r.get('pezzi') or 0, r.get('lotto') or '', r.get('serial_number') or '')
+
+            # evita righe duplicate generate dall'OCR o dal doppio parser
+            sig = _row_signature_for_dedup(r)
             if sig in seen:
                 continue
             seen.add(sig)
+
             r['descrizione'] = descr
             cleaned.append(r)
 
