@@ -651,6 +651,199 @@ def register_camy_ai_routes(app_obj, deps):
             "</div>"
         )
 
+
+    def _split_multi_values(value):
+        """Divide campi multipli mantenendo l'ordine: codice / descrizione / pezzi."""
+        s = str(value or "").strip()
+        if not s:
+            return []
+        # Prima divido solo su separatori abbastanza sicuri.
+        parts = re.split(r"\s*(?:;|\+|\n|\r|,|\s+/\s+)\s*", s)
+        parts = [p.strip() for p in parts if p and p.strip()]
+        return parts if parts else ([s] if s else [])
+
+    def _join_multi_values(parts):
+        parts = [str(p or "").strip() for p in (parts or []) if str(p or "").strip()]
+        return " / ".join(parts)
+
+    def _norm_part(value):
+        return re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
+
+    def _find_requested_index(parts, requested):
+        req = _norm_part(requested)
+        if not parts or not req:
+            return -1
+        # 1) match esatto normalizzato
+        for i, p in enumerate(parts):
+            if _norm_part(p) == req:
+                return i
+        # 2) match contenuto, utile se il codice ha spazi o testo aggiuntivo
+        for i, p in enumerate(parts):
+            np = _norm_part(p)
+            if req and (req in np or np in req):
+                return i
+        return -1
+
+    def _extract_requested_pezzi(msg):
+        s = msg or ""
+        patterns = [
+            r"\b(?:pezzi|pezzo|pz|qta|qtà|quantita|quantità)\s*[:\-]?\s*([0-9]+(?:[,.][0-9]+)?)",
+            r"\b([0-9]+(?:[,.][0-9]+)?)\s*(?:pezzi|pezzo|pz)\b",
+        ]
+        for pat in patterns:
+            m = re.search(pat, s, re.I)
+            if m:
+                return (m.group(1) or "").strip().replace(",", ".")
+        return ""
+
+    def _extract_requested_descrizione(msg):
+        s = msg or ""
+        patterns = [
+            r"\b(?:descrizione|desc)\s*[:\-]?\s*(.+?)(?=\s+(?:pezzi|pezzo|pz|qta|qtà|quantita|quantità|buono|n\.?\s*buono|automatico|manuale)\b|$)",
+        ]
+        for pat in patterns:
+            m = re.search(pat, s, re.I)
+            if m:
+                return (m.group(1) or "").strip(" ;,.-")
+        return ""
+
+    def _safe_int_or_none(value):
+        s = str(value or "").strip().replace(",", ".")
+        if not s:
+            return None
+        try:
+            return int(float(s))
+        except Exception:
+            return None
+
+    def _safe_float_or_none(value):
+        s = str(value or "").strip().replace(",", ".")
+        if not s:
+            return None
+        try:
+            return float(s)
+        except Exception:
+            return None
+
+    def _copy_articolo_for_partial(src):
+        """Copia una riga Articolo senza id e senza allegati per creare la riga del prelievo."""
+        new = Articolo()
+        try:
+            for col in Articolo.__table__.columns:
+                name = col.name
+                if name == "id_articolo":
+                    continue
+                if hasattr(src, name):
+                    setattr(new, name, getattr(src, name))
+        except Exception:
+            # Fallback sui campi principali se l'introspezione non fosse disponibile.
+            for name in [
+                "codice_articolo", "descrizione", "cliente", "fornitore", "magazzino",
+                "protocollo", "ordine", "commessa", "buono_n", "n_arrivo", "ns_rif",
+                "serial_number", "pezzo", "n_colli", "peso", "larghezza", "lunghezza",
+                "altezza", "m2", "m3", "posizione", "stato", "note", "mezzi_in_uscita",
+                "data_ingresso", "n_ddt_ingresso", "data_uscita", "n_ddt_uscita",
+                "codice_entrata", "lotto"
+            ]:
+                if hasattr(src, name):
+                    setattr(new, name, getattr(src, name))
+        return new
+
+    def _prepare_partial_split_for_buono(row, buono, requested_code="", requested_descr="", requested_pezzi=""):
+        """Crea la nuova riga per il Buono e aggiorna la riga originale con il residuo.
+
+        Ritorna (new_row, info_dict) se fa split, altrimenti (None, info_dict).
+        """
+        code_parts = _split_multi_values(getattr(row, "codice_articolo", ""))
+        desc_parts = _split_multi_values(getattr(row, "descrizione", ""))
+        pezzi_parts = _split_multi_values(getattr(row, "pezzo", ""))
+
+        requested_code = (requested_code or "").strip()
+        requested_descr = (requested_descr or "").strip()
+        requested_pezzi = (requested_pezzi or "").strip()
+
+        idx = _find_requested_index(code_parts, requested_code)
+        if idx < 0 and requested_descr:
+            idx = _find_requested_index(desc_parts, requested_descr)
+
+        # Se non ho un codice/descrizione richiesti o non c'è una riga multipla, non faccio split.
+        is_multi = len(code_parts) > 1 or len(desc_parts) > 1 or len(pezzi_parts) > 1
+        if idx < 0 or not is_multi:
+            return None, {"reason": "no_split", "is_multi": is_multi, "idx": idx}
+
+        selected_code = code_parts[idx] if idx < len(code_parts) else requested_code
+        selected_desc = (
+            requested_descr
+            or (desc_parts[idx] if idx < len(desc_parts) else (getattr(row, "descrizione", "") or ""))
+        )
+        selected_pezzi = (
+            requested_pezzi
+            or (pezzi_parts[idx] if idx < len(pezzi_parts) else (getattr(row, "pezzo", "") or ""))
+        )
+
+        # Residuo: tolgo gli elementi corrispondenti all'indice scelto.
+        resid_code_parts = [p for i, p in enumerate(code_parts) if i != idx]
+        resid_desc_parts = [p for i, p in enumerate(desc_parts) if i != idx] if desc_parts else []
+        resid_pezzi_parts = [p for i, p in enumerate(pezzi_parts) if i != idx] if pezzi_parts else []
+
+        new_row = _copy_articolo_for_partial(row)
+        new_row.codice_articolo = selected_code
+        new_row.descrizione = selected_desc
+        new_row.pezzo = selected_pezzi
+        new_row.buono_n = buono
+
+        # Se l'utente indica pezzi numerici, provo a valorizzare n_colli della riga nuova
+        # solo quando il campo n_colli originale sembra riferito ai pezzi totali.
+        sel_int = _safe_int_or_none(selected_pezzi)
+        if sel_int is not None:
+            try:
+                new_row.n_colli = sel_int
+            except Exception:
+                pass
+
+        # Peso proporzionale, se possibile.
+        try:
+            original_peso = float(getattr(row, "peso", None) or 0)
+            all_nums = [_safe_float_or_none(x) for x in pezzi_parts]
+            if original_peso and all_nums and all(v is not None for v in all_nums):
+                total_pz = sum(all_nums)
+                sel_pz = _safe_float_or_none(selected_pezzi)
+                if total_pz and sel_pz is not None:
+                    new_row.peso = round(original_peso * sel_pz / total_pz, 3)
+                    row.peso = round(original_peso - float(new_row.peso or 0), 3)
+        except Exception:
+            pass
+
+        # Aggiorno la riga vecchia con solo il residuo non uscito.
+        row.codice_articolo = _join_multi_values(resid_code_parts)
+        if desc_parts:
+            row.descrizione = _join_multi_values(resid_desc_parts)
+        if pezzi_parts:
+            row.pezzo = _join_multi_values(resid_pezzi_parts)
+
+        # Se i pezzi residui sono numerici, aggiorno anche n_colli.
+        try:
+            nums = [_safe_int_or_none(x) for x in resid_pezzi_parts]
+            if nums and all(v is not None for v in nums):
+                row.n_colli = sum(nums)
+        except Exception:
+            pass
+
+        # La riga residua non deve avere il buono del materiale uscito.
+        row.buono_n = ""
+
+        return new_row, {
+            "reason": "split",
+            "idx": idx,
+            "selected_code": selected_code,
+            "selected_desc": selected_desc,
+            "selected_pezzi": selected_pezzi,
+            "residue_codes": row.codice_articolo,
+            "residue_desc": row.descrizione,
+            "residue_pezzi": row.pezzo,
+        }
+
+
     def _answer_prepare_buono(db, msg):
         if not _can_operate():
             return _operation_denied()
@@ -689,21 +882,39 @@ def register_camy_ai_routes(app_obj, deps):
 
         prossimo_auto = _peek_next_buono_number(db)
         manual_buono = _extract_manual_buono_number(msg)
+        requested_code = (filters.get("codice_articolo") or "").strip()
+        requested_descr = _extract_requested_descrizione(msg)
+        requested_pezzi = _extract_requested_pezzi(msg)
+
         token = _make_token()
         ids = [int(r.id_articolo) for r in rows]
         _save_pending_op(token, {
             "type": "set_buono",
             "ids": ids,
             "manual_buono": manual_buono,
+            "requested_code": requested_code,
+            "requested_descr": requested_descr,
+            "requested_pezzi": requested_pezzi,
         })
 
         scelta_manual = f"<br>Numero manuale letto dal messaggio: <b>{_esc(manual_buono)}</b>" if manual_buono else ""
+        dettagli_parziale = ""
+        if requested_code or requested_descr or requested_pezzi:
+            dettagli_parziale = (
+                "<br><b>Dati scarico parziale letti:</b> "
+                f"Codice: <b>{_esc(requested_code or '-')}</b> | "
+                f"Descrizione: <b>{_esc(requested_descr or '-')}</b> | "
+                f"Pezzi: <b>{_esc(requested_pezzi or '-')}</b><br>"
+                "Se la riga contiene più codici, CAMY creerà una nuova riga per il materiale in uscita "
+                "e lascerà sulla riga originale solo codice, descrizione e pezzi residui."
+            )
+
         riepilogo = [
             f"<b>Proposta Buono di Prelievo</b><br>",
             f"Righe selezionate: <b>{len(ids)}</b><br>",
             f"Vuoi inserire il N. Buono <b>automaticamente</b> o <b>manualmente</b>?<br>",
-            f"Prossimo numero automatico previsto: <b>{_esc(prossimo_auto)}</b>{scelta_manual}<br>",
-            "CAMY imposterà il numero scelto sulle righe indicate solo dopo conferma. Nessuno scarico definitivo verrà eseguito automaticamente.<br>"
+            f"Prossimo numero automatico previsto: <b>{_esc(prossimo_auto)}</b>{scelta_manual}{dettagli_parziale}<br>",
+            "CAMY applicherà la modifica solo dopo conferma. Nessuno scarico definitivo verrà eseguito automaticamente.<br>"
         ]
         for r in rows[:8]:
             riepilogo.append(
@@ -791,19 +1002,64 @@ def register_camy_ai_routes(app_obj, deps):
                 if not rows:
                     return jsonify({"answer": "Nessuna riga trovata da aggiornare.", "html": False}), 404
 
+                requested_code = (op.get("requested_code") or "").strip()
+                requested_descr = (op.get("requested_descr") or "").strip()
+                requested_pezzi = (op.get("requested_pezzi") or "").strip()
+
+                updated = 0
+                created = 0
+                split_infos = []
+
                 for r in rows:
-                    r.buono_n = buono
+                    new_row, info = _prepare_partial_split_for_buono(
+                        r,
+                        buono,
+                        requested_code=requested_code,
+                        requested_descr=requested_descr,
+                        requested_pezzi=requested_pezzi,
+                    )
+                    if new_row is not None:
+                        db.add(new_row)
+                        created += 1
+                        updated += 1
+                        split_infos.append(info)
+                    else:
+                        # Caso normale: una riga singola viene assegnata direttamente al Buono.
+                        r.buono_n = buono
+                        updated += 1
+
                 db.commit()
 
                 pending.pop(token, None)
                 session["camy_ai_pending_ops"] = pending
                 session.modified = True
 
+                extra = ""
+                if created:
+                    dettagli = []
+                    for info in split_infos[:5]:
+                        dettagli.append(
+                            "<div class='camy-ai-result'>"
+                            f"Uscito: <b>{_esc(info.get('selected_code') or '-')}</b> | "
+                            f"Descrizione: {_esc(info.get('selected_desc') or '-')} | "
+                            f"Pezzi: {_esc(info.get('selected_pezzi') or '-')}<br>"
+                            f"Residuo riga originale: {_esc(info.get('residue_codes') or '-')} | "
+                            f"{_esc(info.get('residue_desc') or '-')} | "
+                            f"Pezzi residui: {_esc(info.get('residue_pezzi') or '-')}"
+                            "</div>"
+                        )
+                    extra = (
+                        f"<br>Righe nuove create per scarico parziale: <b>{created}</b><br>"
+                        "La riga originale è rimasta in giacenza con solo il materiale residuo."
+                        + "".join(dettagli)
+                    )
+
                 return jsonify({
                     "answer": (
                         f"<b>Buono aggiornato.</b><br>"
                         f"N. buono: <b>{_esc(buono)}</b><br>"
-                        f"Righe aggiornate: {len(rows)}<br>"
+                        f"Righe elaborate: {updated}<br>"
+                        f"{extra}<br>"
                         "Ora puoi aprire le giacenze e generare/stampare il Buono di Prelievo."
                     ),
                     "html": True
