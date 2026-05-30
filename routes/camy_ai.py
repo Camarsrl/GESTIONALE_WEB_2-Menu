@@ -1081,7 +1081,7 @@ def register_camy_ai_routes(app_obj, deps):
             return s
 
     def _generate_buono_pdf(db, buono):
-        """Genera il PDF del Buono di Prelievo CAMY e restituisce (filename, path)."""
+        """Genera il PDF del Buono di Prelievo CAMY usando lo stesso layout standard del gestionale."""
         buono = str(buono or "").strip()
         if not buono:
             return "", None
@@ -1101,120 +1101,140 @@ def register_camy_ai_routes(app_obj, deps):
             base_dir = MEDIA_DIR / "docs"
         base_dir.mkdir(parents=True, exist_ok=True)
 
-        filename = f"buono_prelievo_{_safe_pdf_filename(buono)}.pdf"
+        filename = f"Buono_{_safe_pdf_filename(buono)}.pdf"
         pdf_path = base_dir / filename
 
         try:
-            from reportlab.lib.pagesizes import A4, landscape
+            from pathlib import Path as _Path
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib import colors
             from reportlab.lib.units import mm
-            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.enums import TA_CENTER
         except Exception:
-            # Se ReportLab non è disponibile, segnalo tramite log e non blocco il buono.
             return "", None
 
+        def _h(value):
+            return html.escape(str(value or ""))
+
+        def _qta(row):
+            val = getattr(row, "pezzo", None)
+            if val is None or str(val).strip() == "":
+                val = getattr(row, "n_colli", "")
+            s = str(val or "").strip()
+            if not s:
+                return ""
+            try:
+                f = float(s.replace(".", "").replace(",", ".") if "," in s else s)
+                if abs(f - int(f)) < 0.000001:
+                    return str(int(f))
+                return str(round(f, 3)).replace(".", ",")
+            except Exception:
+                return s
+
+        def _first_attr(attr):
+            for r in rows:
+                v = getattr(r, attr, "")
+                if v is not None and str(v).strip():
+                    return str(v).strip()
+            return ""
+
         styles = getSampleStyleSheet()
-        normal = ParagraphStyle(
-            "camy_normal",
-            parent=styles["Normal"],
-            fontSize=7,
-            leading=8,
-            wordWrap="CJK",
-        )
-        title_style = ParagraphStyle(
-            "camy_title",
-            parent=styles["Heading1"],
-            fontSize=16,
-            leading=18,
-            alignment=1,
-            spaceAfter=8,
-        )
-        small = ParagraphStyle(
-            "camy_small",
-            parent=styles["Normal"],
-            fontSize=8,
-            leading=10,
-        )
+        s_norm = ParagraphStyle("camy_buono_norm", parent=styles["Normal"], fontSize=9, leading=11, textColor=colors.black)
+        s_bold = ParagraphStyle("camy_buono_bold", parent=s_norm, fontName="Helvetica-Bold")
+        s_title = ParagraphStyle("camy_buono_title", parent=styles["Heading1"], alignment=TA_CENTER, fontSize=16, leading=18, spaceAfter=10, textColor=colors.black)
+        s_note = ParagraphStyle("camy_buono_note", parent=s_norm, fontSize=9, textColor=colors.darkblue)
 
         doc = SimpleDocTemplate(
             str(pdf_path),
-            pagesize=landscape(A4),
-            rightMargin=10 * mm,
+            pagesize=A4,
             leftMargin=10 * mm,
+            rightMargin=10 * mm,
             topMargin=10 * mm,
             bottomMargin=10 * mm,
         )
-
         story = []
-        story.append(Paragraph(f"BUONO DI PRELIEVO N. {html.escape(buono)}", title_style))
-        story.append(Paragraph(f"Generato da CAMY AI il {datetime.now().strftime('%d/%m/%Y %H:%M')}", small))
-        story.append(Spacer(1, 6))
 
-        clienti = sorted({(getattr(r, 'cliente', '') or '').strip() for r in rows if (getattr(r, 'cliente', '') or '').strip()})
-        fornitori = sorted({(getattr(r, 'fornitore', '') or '').strip() for r in rows if (getattr(r, 'fornitore', '') or '').strip()})
-        story.append(Paragraph(f"Cliente/i: {html.escape(', '.join(clienti) or '-')}", small))
-        story.append(Paragraph(f"Fornitore/i: {html.escape(', '.join(fornitori) or '-')}", small))
-        story.append(Spacer(1, 8))
+        # Logo uguale al gestionale standard.
+        try:
+            if "LOGO_PATH" in globals() and LOGO_PATH and _Path(LOGO_PATH).exists():
+                story.append(Image(str(LOGO_PATH), width=50 * mm, height=16 * mm, hAlign="CENTER"))
+            else:
+                story.append(Paragraph("<b>Ca.mar. srl</b>", s_title))
+        except Exception:
+            story.append(Paragraph("<b>Ca.mar. srl</b>", s_title))
 
-        data = [[
-            Paragraph("ID", normal),
-            Paragraph("Codice", normal),
-            Paragraph("Descrizione", normal),
-            Paragraph("Pz", normal),
-            Paragraph("Colli", normal),
-            Paragraph("Peso", normal),
-            Paragraph("N. Arrivo", normal),
-            Paragraph("DDT Ing.", normal),
-            Paragraph("Magazzino", normal),
-            Paragraph("Posizione", normal),
-            Paragraph("Data Ing.", normal),
+        story.append(Spacer(1, 5 * mm))
+        story.append(Paragraph("BUONO DI PRELIEVO", s_title))
+        story.append(Spacer(1, 5 * mm))
+
+        cliente = _first_attr("cliente")
+        fornitore = _first_attr("fornitore")
+        commessa = _first_attr("commessa")
+        ordine = _first_attr("ordine")
+        protocolli = []
+        seen_prot = set()
+        for r in rows:
+            p = str(getattr(r, "protocollo", "") or "").strip()
+            if p and p not in seen_prot:
+                seen_prot.add(p)
+                protocolli.append(p)
+        protocollo = ", ".join(protocolli)
+
+        meta_data = [
+            [Paragraph("<b>Data Emissione:</b>", s_bold), Paragraph(datetime.today().strftime("%d/%m/%Y"), s_norm)],
+            [Paragraph("<b>Cliente:</b>", s_bold), Paragraph(_h(cliente), s_norm)],
+            [Paragraph("<b>Fornitore:</b>", s_bold), Paragraph(_h(fornitore), s_norm)],
+            [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(_h(commessa), s_norm)],
+            [Paragraph("<b>Ordine:</b>", s_bold), Paragraph(_h(ordine), s_norm)],
+            [Paragraph("<b>Protocollo:</b>", s_bold), Paragraph(_h(protocollo), s_norm)],
+            [Paragraph("<b>N. Buono:</b>", s_bold), Paragraph(_h(buono), s_norm)],
+        ]
+
+        t_meta = Table(meta_data, colWidths=[40 * mm, 140 * mm])
+        t_meta.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("BACKGROUND", (0, 0), (0, -1), colors.whitesmoke),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("PADDING", (0, 0), (-1, -1), 5),
+        ]))
+        story.append(t_meta)
+        story.append(Spacer(1, 8 * mm))
+
+        table_data = [[
+            Paragraph("<b>Codice</b>", s_bold),
+            Paragraph("<b>Descrizione</b>", s_bold),
+            Paragraph("<b>Q.tà</b>", s_bold),
+            Paragraph("<b>N.Arr</b>", s_bold),
         ]]
 
-        tot_colli = 0
-        tot_peso = 0.0
         for r in rows:
-            try:
-                tot_colli += int(getattr(r, "n_colli", 0) or 0)
-            except Exception:
-                pass
-            try:
-                tot_peso += float(getattr(r, "peso", 0) or 0)
-            except Exception:
-                pass
-            data.append([
-                Paragraph(str(getattr(r, "id_articolo", "") or ""), normal),
-                Paragraph(html.escape(str(getattr(r, "codice_articolo", "") or "")), normal),
-                Paragraph(html.escape(str(getattr(r, "descrizione", "") or "")), normal),
-                Paragraph(html.escape(str(getattr(r, "pezzo", "") or "")), normal),
-                Paragraph(html.escape(str(getattr(r, "n_colli", "") or "")), normal),
-                Paragraph(_fmt_num(getattr(r, "peso", 0)), normal),
-                Paragraph(html.escape(str(getattr(r, "n_arrivo", "") or "")), normal),
-                Paragraph(html.escape(str(getattr(r, "n_ddt_ingresso", "") or "")), normal),
-                Paragraph(html.escape(str(getattr(r, "magazzino", "") or "")), normal),
-                Paragraph(html.escape(str(getattr(r, "posizione", "") or "")), normal),
-                Paragraph(html.escape(_fmt_date_pdf(getattr(r, "data_ingresso", "") or "")), normal),
+            table_data.append([
+                Paragraph(_h(getattr(r, "codice_articolo", "")), s_norm),
+                Paragraph(_h(getattr(r, "descrizione", "")), s_norm),
+                Paragraph(_h(_qta(r)), s_norm),
+                Paragraph(_h(getattr(r, "n_arrivo", "")), s_norm),
             ])
+            note_user = str(getattr(r, "note", "") or "").strip()
+            if note_user:
+                table_data.append(["", Paragraph(f"<i>Note: {_h(note_user)}</i>", s_note), "", ""])
 
-        table = Table(
-            data,
-            repeatRows=1,
-            colWidths=[13*mm, 38*mm, 65*mm, 14*mm, 15*mm, 20*mm, 30*mm, 25*mm, 25*mm, 25*mm, 22*mm],
-        )
-        table.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
-            ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
-            ("VALIGN", (0,0), (-1,-1), "TOP"),
-            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
-            ("FONTSIZE", (0,0), (-1,-1), 7),
-            ("LEFTPADDING", (0,0), (-1,-1), 3),
-            ("RIGHTPADDING", (0,0), (-1,-1), 3),
+        t = Table(table_data, colWidths=[40 * mm, 100 * mm, 15 * mm, 25 * mm], repeatRows=1)
+        t.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("PADDING", (0, 0), (-1, -1), 4),
         ]))
-        story.append(table)
-        story.append(Spacer(1, 8))
-        story.append(Paragraph(f"Totale righe: {len(rows)} - Totale colli: {tot_colli} - Totale peso: {_fmt_num(tot_peso)} kg", small))
-        story.append(Spacer(1, 16))
-        story.append(Paragraph("Firma magazzino: ________________________________", small))
+        story.append(t)
+
+        story.append(Spacer(1, 20 * mm))
+        sig_data = [[
+            Paragraph("Firma Magazzino:<br/><br/>__________________", s_norm),
+            Paragraph("Firma Cliente:<br/><br/>__________________", s_norm),
+        ]]
+        story.append(Table(sig_data, colWidths=[90 * mm, 90 * mm]))
 
         doc.build(story)
         return filename, pdf_path
