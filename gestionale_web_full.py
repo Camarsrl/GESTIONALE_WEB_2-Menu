@@ -9656,6 +9656,18 @@ except Exception as e:
     print(f"[WARN] modulo allegati non registrato: {e}")
 
 
+
+
+# ========================================================
+#  REGISTRAZIONE MODULO CAMY AI
+# ========================================================
+try:
+    from routes.camy_ai import register_camy_ai_routes
+    register_camy_ai_routes(app, globals())
+except Exception as e:
+    scrivi_log_errore("Modulo CAMY AI non registrato", e)
+    print(f"[WARN] modulo CAMY AI non registrato: {e}")
+
 # ========================================================
 #  PWA / SMARTPHONE
 # ========================================================
