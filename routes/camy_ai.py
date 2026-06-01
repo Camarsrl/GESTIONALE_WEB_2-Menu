@@ -998,6 +998,81 @@ def register_camy_ai_routes(app_obj, deps):
                 conds.append(col_norm.ilike(f"%{n}%"))
         return q.filter(or_(*conds))
 
+
+    def _extract_search_fragments_from_message(msg):
+        """Estrae frammenti utili da testi complessi con codici/package.
+        Serve quando il comando contiene valori tipo:
+        YP/567CA-YP/567DA-PACKAGE N.117
+        In questi casi CAMY deve poter ritrovare la riga anche se il campo codice
+        in giacenza contiene prefissi/suffissi diversi.
+        """
+        s = str(msg or "").upper()
+        fragments = []
+        # Codici tecnici con slash, es. YP/567CA, XD/568A
+        for m in re.finditer(r"\b[A-Z]{1,6}\s*/\s*[A-Z0-9]{2,20}\b", s):
+            fragments.append(re.sub(r"\s+", "", m.group(0)))
+        # Riferimenti package/cassa/pallet con numero
+        for m in re.finditer(r"\b(?:N\.?\s*)?(?:PACKAGE|PKG|CASSA|PALLET|CASE)\s*[:#\.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*", s, re.I):
+            fragments.append(re.sub(r"\s+", " ", m.group(0)).strip())
+        # Numero package scritto solo come N.117
+        for m in re.finditer(r"\bN\.?\s*([0-9]{1,6})\b", s, re.I):
+            fragments.append(m.group(1))
+        out, seen = [], set()
+        for f in fragments:
+            f = str(f or "").strip(" ,;:-")
+            key = _norm_part(f)
+            if key and key not in seen:
+                seen.add(key)
+                out.append(f)
+        return out
+
+    def _build_flexible_text_query(q, values):
+        """Cerca valori complessi su codice, descrizione e n.arrivo."""
+        values = [str(v or "").strip() for v in (values or []) if str(v or "").strip()]
+        if not values:
+            return q
+        conds = []
+        for v in values:
+            n = _norm(v)
+            for col in (Articolo.codice_articolo, Articolo.descrizione, Articolo.n_arrivo):
+                conds.append(col.ilike(f"%{v}%"))
+                if n:
+                    conds.append(_sql_norm_col(col).ilike(f"%{n}%"))
+        return q.filter(or_(*conds))
+
+    def _query_rows_for_buono(db, q, msg, filters, multi_ids=None, multi_codici=None, multi_arrivi=None):
+        """Esegue la ricerca principale e applica fallback robusti.
+        Priorità:
+        1) query costruita dal comando;
+        2) solo N. arrivo se il codice complesso restringe troppo;
+        3) frammenti codice/package su codice/descrizione/n.arrivo.
+        """
+        rows_all = q.order_by(Articolo.id_articolo.asc()).limit(50).all()
+
+        # Fallback più importante: se l'utente scrive arrivo + codice complesso
+        # e la ricerca combinata non trova nulla, provo l'arrivo da solo.
+        if not rows_all and (filters.get("n_arrivo") or "").strip():
+            q2 = _apply_norm_equals_or_like(_base_query(db), Articolo.n_arrivo, filters.get("n_arrivo"))
+            q2 = _active_filter(q2)
+            rows_all = q2.order_by(Articolo.id_articolo.asc()).limit(50).all()
+
+        # Fallback su più arrivi anche se ne è stato letto uno solo o con punteggiatura.
+        if not rows_all and multi_arrivi:
+            q2 = _build_multi_like_query(_base_query(db), Articolo.n_arrivo, multi_arrivi)
+            q2 = _active_filter(q2)
+            rows_all = q2.order_by(Articolo.id_articolo.asc()).limit(50).all()
+
+        # Fallback su frammenti tecnici e package/cassa/pallet.
+        if not rows_all:
+            fragments = _extract_search_fragments_from_message(msg)
+            if fragments:
+                q3 = _build_flexible_text_query(_base_query(db), fragments)
+                q3 = _active_filter(q3)
+                rows_all = q3.order_by(Articolo.id_articolo.asc()).limit(50).all()
+
+        return rows_all
+
+
     def _safe_int_or_none(value):
         s = str(value or "").strip().replace(",", ".")
         if not s:
@@ -1179,7 +1254,15 @@ def register_camy_ai_routes(app_obj, deps):
                 "• Prepara buono ID 256498 256499 256500"
             )
 
-        rows_all = q.order_by(Articolo.id_articolo.asc()).limit(50).all()
+        rows_all = _query_rows_for_buono(
+            db,
+            q,
+            msg,
+            filters,
+            multi_ids=multi_ids,
+            multi_codici=multi_codici,
+            multi_arrivi=multi_arrivi,
+        )
         rows_uscite = [r for r in rows_all if _is_articolo_uscito(r)]
         rows = [r for r in rows_all if not _is_articolo_uscito(r)]
 
