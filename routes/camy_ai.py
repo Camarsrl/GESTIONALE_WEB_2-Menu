@@ -943,27 +943,38 @@ def register_camy_ai_routes(app_obj, deps):
 
     def _extract_multi_values_after_keywords(msg, keywords):
         """Estrae valori multipli dopo parole chiave come codici/arrivi.
-        Si ferma prima di parole operative note per non prendere note o altri campi.
+        Versione robusta: ordina le parole chiave dalla più lunga alla più corta
+        e si ferma prima di campi come CLIENTE, DESCRIZIONE, PEZZI, NOTE.
         """
         s = msg or ""
+        # Importante: prima le keyword più lunghe, così "codici articolo" non diventa "codici" + "articolo".
+        keywords = sorted([str(k or "").strip() for k in keywords if str(k or "").strip()], key=len, reverse=True)
         kw = "|".join(re.escape(k) for k in keywords)
-        pat = rf"\b(?:{kw})\b\s*[:\-]?\s*(.+?)(?=\s+\b(?:con\s+note|note|nota|buono|automatico|manuale|descrizione|pezzi|pezzo|pz|qta|qtà|quantita|quantità)\b|$)"
+        stop_words = (
+            "con\\s+note|note|nota|buono|automatico|manuale|cliente|fornitore|descrizione|desc|"
+            "pezzi|pezzo|pz|qta|qtà|quantita|quantità|ordine|commessa|protocollo|ddt|stato|magazzino|posizione"
+        )
+        pat = rf"\b(?:{kw})\b\s*[:\-]?\s*(.+?)(?=\s+\b(?:{stop_words})\b|$)"
         m = re.search(pat, s, re.I | re.S)
         if not m:
             return []
         block = (m.group(1) or "").strip()
-        # Ogni token può essere separato da virgola, punto e virgola, slash, a capo o spazi.
-        raw = re.split(r"[\s,;\n\r]+", block)
-        stop = {"CON", "NOTE", "NOTA", "BUONO", "AUTOMATICO", "MANUALE", "PEZZI", "PEZZO", "PZ", "QTA", "QTA'", "DESCRIZIONE"}
+
+        # Se il blocco contiene codici uniti da trattino, non spezziamo solo per spazi.
+        # Dividiamo su virgola, punto e virgola, a capo; poi ogni elemento può contenere trattini/slash.
+        raw = re.split(r"[,;\n\r]+", block)
+        if len(raw) == 1:
+            raw = re.split(r"\s+", block)
+
+        stop = {"CON", "NOTE", "NOTA", "BUONO", "AUTOMATICO", "MANUALE", "PEZZI", "PEZZO", "PZ", "QTA", "QTÀ", "QUANTITA", "QUANTITÀ", "DESCRIZIONE", "DESC", "CLIENTE", "FORNITORE", "ARTICOLO", "ARTICOLI", "CODICE", "CODICI"}
         out, seen = [], set()
         for x in raw:
-            val = x.strip().strip(".,;:-")
+            val = x.strip().strip(".,;:")
             if not val:
                 continue
             up = val.upper()
             if up in stop:
-                break
-            # Evita di prendere parole troppo generiche.
+                continue
             if len(val) < 2:
                 continue
             key = _norm_part(val)
@@ -997,81 +1008,6 @@ def register_camy_ai_routes(app_obj, deps):
             if n:
                 conds.append(col_norm.ilike(f"%{n}%"))
         return q.filter(or_(*conds))
-
-
-    def _extract_search_fragments_from_message(msg):
-        """Estrae frammenti utili da testi complessi con codici/package.
-        Serve quando il comando contiene valori tipo:
-        YP/567CA-YP/567DA-PACKAGE N.117
-        In questi casi CAMY deve poter ritrovare la riga anche se il campo codice
-        in giacenza contiene prefissi/suffissi diversi.
-        """
-        s = str(msg or "").upper()
-        fragments = []
-        # Codici tecnici con slash, es. YP/567CA, XD/568A
-        for m in re.finditer(r"\b[A-Z]{1,6}\s*/\s*[A-Z0-9]{2,20}\b", s):
-            fragments.append(re.sub(r"\s+", "", m.group(0)))
-        # Riferimenti package/cassa/pallet con numero
-        for m in re.finditer(r"\b(?:N\.?\s*)?(?:PACKAGE|PKG|CASSA|PALLET|CASE)\s*[:#\.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*", s, re.I):
-            fragments.append(re.sub(r"\s+", " ", m.group(0)).strip())
-        # Numero package scritto solo come N.117
-        for m in re.finditer(r"\bN\.?\s*([0-9]{1,6})\b", s, re.I):
-            fragments.append(m.group(1))
-        out, seen = [], set()
-        for f in fragments:
-            f = str(f or "").strip(" ,;:-")
-            key = _norm_part(f)
-            if key and key not in seen:
-                seen.add(key)
-                out.append(f)
-        return out
-
-    def _build_flexible_text_query(q, values):
-        """Cerca valori complessi su codice, descrizione e n.arrivo."""
-        values = [str(v or "").strip() for v in (values or []) if str(v or "").strip()]
-        if not values:
-            return q
-        conds = []
-        for v in values:
-            n = _norm(v)
-            for col in (Articolo.codice_articolo, Articolo.descrizione, Articolo.n_arrivo):
-                conds.append(col.ilike(f"%{v}%"))
-                if n:
-                    conds.append(_sql_norm_col(col).ilike(f"%{n}%"))
-        return q.filter(or_(*conds))
-
-    def _query_rows_for_buono(db, q, msg, filters, multi_ids=None, multi_codici=None, multi_arrivi=None):
-        """Esegue la ricerca principale e applica fallback robusti.
-        Priorità:
-        1) query costruita dal comando;
-        2) solo N. arrivo se il codice complesso restringe troppo;
-        3) frammenti codice/package su codice/descrizione/n.arrivo.
-        """
-        rows_all = q.order_by(Articolo.id_articolo.asc()).limit(50).all()
-
-        # Fallback più importante: se l'utente scrive arrivo + codice complesso
-        # e la ricerca combinata non trova nulla, provo l'arrivo da solo.
-        if not rows_all and (filters.get("n_arrivo") or "").strip():
-            q2 = _apply_norm_equals_or_like(_base_query(db), Articolo.n_arrivo, filters.get("n_arrivo"))
-            q2 = _active_filter(q2)
-            rows_all = q2.order_by(Articolo.id_articolo.asc()).limit(50).all()
-
-        # Fallback su più arrivi anche se ne è stato letto uno solo o con punteggiatura.
-        if not rows_all and multi_arrivi:
-            q2 = _build_multi_like_query(_base_query(db), Articolo.n_arrivo, multi_arrivi)
-            q2 = _active_filter(q2)
-            rows_all = q2.order_by(Articolo.id_articolo.asc()).limit(50).all()
-
-        # Fallback su frammenti tecnici e package/cassa/pallet.
-        if not rows_all:
-            fragments = _extract_search_fragments_from_message(msg)
-            if fragments:
-                q3 = _build_flexible_text_query(_base_query(db), fragments)
-                q3 = _active_filter(q3)
-                rows_all = q3.order_by(Articolo.id_articolo.asc()).limit(50).all()
-
-        return rows_all
-
 
     def _safe_int_or_none(value):
         s = str(value or "").strip().replace(",", ".")
@@ -1118,6 +1054,8 @@ def register_camy_ai_routes(app_obj, deps):
     def _prepare_partial_split_for_buono(row, buono, requested_code="", requested_descr="", requested_pezzi=""):
         """Crea la nuova riga per il Buono e aggiorna la riga originale con il residuo.
 
+        Versione corretta: se nella richiesta sono presenti più codici da prelevare,
+        CAMY li mette tutti nella riga del Buono e lascia sulla riga originale solo i codici residui.
         Ritorna (new_row, info_dict) se fa split, altrimenti (None, info_dict).
         """
         original_code_value = getattr(row, "codice_articolo", "") or ""
@@ -1132,49 +1070,86 @@ def register_camy_ai_routes(app_obj, deps):
         requested_descr = (requested_descr or "").strip()
         requested_pezzi = (requested_pezzi or "").strip()
 
-        idx = _find_requested_index(code_parts, requested_code)
-        if idx < 0 and requested_descr:
-            idx = _find_requested_index(desc_parts, requested_descr)
-
-        # Se non ho un codice/descrizione richiesti o non c'è una riga multipla, non faccio split.
         is_multi = len(code_parts) > 1 or len(desc_parts) > 1 or len(pezzi_parts) > 1
-        if idx < 0 or not is_multi:
-            return None, {"reason": "no_split", "is_multi": is_multi, "idx": idx}
 
-        selected_code = code_parts[idx] if idx < len(code_parts) else requested_code
-        selected_desc = (
-            requested_descr
-            or (desc_parts[idx] if idx < len(desc_parts) else (getattr(row, "descrizione", "") or ""))
-        )
-        selected_pezzi = (
-            requested_pezzi
-            or (pezzi_parts[idx] if idx < len(pezzi_parts) else "")
-        )
+        # Codici richiesti: possono essere uno o più, separati da trattino, slash, virgola, ecc.
+        requested_code_parts = _split_multi_values(requested_code, allow_dash=True) if requested_code else []
+        # Tolgo eventuali parole generiche finite nel parser.
+        requested_code_parts = [p for p in requested_code_parts if _norm_part(p) not in {"CODICE", "CODICI", "ARTICOLO", "ARTICOLI"}]
 
-        # Se il campo pezzi non è multiplo ma l'utente indica i pezzi da prelevare,
-        # calcolo il residuo numerico sulla riga originale.
+        selected_indices = []
+        for rc in requested_code_parts:
+            idx = _find_requested_index(code_parts, rc)
+            if idx >= 0 and idx not in selected_indices:
+                selected_indices.append(idx)
+
+        # Compatibilità con il vecchio caso singolo.
+        if not selected_indices and requested_code:
+            idx = _find_requested_index(code_parts, requested_code)
+            if idx >= 0:
+                selected_indices.append(idx)
+
+        # Se non trovo il codice ma trovo la descrizione, uso la descrizione per individuare la parte.
+        desc_selected_indices = []
+        if requested_descr:
+            d_idx = _find_requested_index(desc_parts, requested_descr)
+            if d_idx >= 0:
+                desc_selected_indices.append(d_idx)
+                if not selected_indices and d_idx < len(code_parts):
+                    selected_indices.append(d_idx)
+
+        if not selected_indices or not is_multi:
+            return None, {"reason": "no_split", "is_multi": is_multi, "idx": selected_indices[0] if selected_indices else -1}
+
+        selected_indices = sorted(set(selected_indices))
+
+        # Codici in uscita: tutti quelli richiesti.
+        selected_code_parts = [code_parts[i] for i in selected_indices if i < len(code_parts)]
+        selected_code = _join_multi_values(selected_code_parts) or requested_code
+
+        # Descrizione in uscita: se l'utente l'ha indicata, ha priorità.
+        if requested_descr:
+            selected_desc = requested_descr
+        else:
+            selected_desc_parts = [desc_parts[i] for i in selected_indices if i < len(desc_parts)]
+            selected_desc = _join_multi_values(selected_desc_parts) or (getattr(row, "descrizione", "") or "")
+
+        # Pezzi in uscita.
+        if requested_pezzi:
+            selected_pezzi = requested_pezzi
+        else:
+            selected_pezzi_parts = [pezzi_parts[i] for i in selected_indices if i < len(pezzi_parts)]
+            selected_pezzi = _join_multi_values(selected_pezzi_parts)
+
         original_pezzo_num = _safe_float_or_none(getattr(row, "pezzo", ""))
         selected_pezzo_num = _safe_float_or_none(selected_pezzi)
-        if not pezzi_parts and requested_pezzi:
-            selected_pezzi = requested_pezzi
 
-        # Residuo: tolgo gli elementi corrispondenti all'indice scelto.
-        resid_code_parts = [p for i, p in enumerate(code_parts) if i != idx]
-        resid_desc_parts = [p for i, p in enumerate(desc_parts) if i != idx] if desc_parts else []
-        resid_pezzi_parts = [p for i, p in enumerate(pezzi_parts) if i != idx] if pezzi_parts else []
+        # Residuo codici: elimino tutti gli indici usciti.
+        resid_code_parts = [p for i, p in enumerate(code_parts) if i not in selected_indices]
+
+        # Residuo descrizioni:
+        # - se l'utente ha indicato una descrizione precisa, tolgo quella descrizione;
+        # - altrimenti tolgo le descrizioni con gli stessi indici dei codici usciti.
+        if desc_parts:
+            if desc_selected_indices:
+                resid_desc_parts = [p for i, p in enumerate(desc_parts) if i not in set(desc_selected_indices)]
+            else:
+                resid_desc_parts = [p for i, p in enumerate(desc_parts) if i not in selected_indices]
+        else:
+            resid_desc_parts = []
+
+        # Residuo pezzi.
+        resid_pezzi_parts = [p for i, p in enumerate(pezzi_parts) if i not in selected_indices] if pezzi_parts else []
         if not resid_pezzi_parts and original_pezzo_num is not None and selected_pezzo_num is not None:
             resid = max(0, original_pezzo_num - selected_pezzo_num)
             resid_pezzi_parts = [str(int(resid)) if abs(resid - int(resid)) < 0.0001 else str(round(resid, 3))]
 
         new_row = _copy_articolo_for_partial(row)
-        # Se nella riga originale sono presenti N. PACKAGE / CASSA / PALLET,
-        # devono restare sia sulla riga nuova del Buono sia sulla riga residua.
+        # PACKAGE / CASSA / PALLET restano sia sulla riga Buono sia sulla residua.
         new_row.codice_articolo = _append_refs_if_missing(selected_code, code_logistic_refs)
         new_row.descrizione = _append_refs_if_missing(selected_desc, desc_logistic_refs)
         new_row.pezzo = selected_pezzi
         new_row.buono_n = buono
-        # Regola operativa: lo scarico parziale divide i pezzi, non il collo fisico.
-        # La riga del Buono e la riga residua devono restare sempre a 1 collo.
         new_row.n_colli = 1
 
         # Peso proporzionale, se possibile.
@@ -1190,8 +1165,6 @@ def register_camy_ai_routes(app_obj, deps):
         except Exception:
             pass
 
-        # Aggiorno la riga vecchia con solo il residuo non uscito.
-        # Mantengo sempre eventuali riferimenti PACKAGE/CASSA/PALLET anche sulla residua.
         row.codice_articolo = _append_refs_if_missing(_join_multi_values(resid_code_parts), code_logistic_refs)
         if desc_parts:
             row.descrizione = _append_refs_if_missing(_join_multi_values(resid_desc_parts), desc_logistic_refs)
@@ -1200,15 +1173,12 @@ def register_camy_ai_routes(app_obj, deps):
         if resid_pezzi_parts:
             row.pezzo = _join_multi_values(resid_pezzi_parts)
 
-        # Regola operativa: anche la riga residua resta sempre 1 collo.
         row.n_colli = 1
-
-        # La riga residua non deve avere il buono del materiale uscito.
         row.buono_n = ""
 
         return new_row, {
             "reason": "split",
-            "idx": idx,
+            "idx": selected_indices,
             "selected_code": selected_code,
             "selected_desc": selected_desc,
             "selected_pezzi": selected_pezzi,
@@ -1216,6 +1186,7 @@ def register_camy_ai_routes(app_obj, deps):
             "residue_desc": row.descrizione,
             "residue_pezzi": row.pezzo,
         }
+
 
 
     def _answer_prepare_buono(db, msg):
@@ -1254,15 +1225,7 @@ def register_camy_ai_routes(app_obj, deps):
                 "• Prepara buono ID 256498 256499 256500"
             )
 
-        rows_all = _query_rows_for_buono(
-            db,
-            q,
-            msg,
-            filters,
-            multi_ids=multi_ids,
-            multi_codici=multi_codici,
-            multi_arrivi=multi_arrivi,
-        )
+        rows_all = q.order_by(Articolo.id_articolo.asc()).limit(50).all()
         rows_uscite = [r for r in rows_all if _is_articolo_uscito(r)]
         rows = [r for r in rows_all if not _is_articolo_uscito(r)]
 
