@@ -96,8 +96,11 @@ def register_camy_ai_routes(app_obj, deps):
             <a class="btn btn-sm btn-outline-primary" href="/camy-ai?prefill=Cerca%20N.%20arrivo%20">Cerca arrivo</a>
             <a class="btn btn-sm btn-outline-primary" href="/camy-ai?prefill=Mostrami%20articoli%20DOGANALI%20cliente%20">Dogana</a>
             <a class="btn btn-sm btn-outline-primary" href="/camy-ai?prefill=Cerca%20DDT%20">Cerca DDT</a>
+            {% if can_operate %}
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Prepara%20buono%20arrivo%20">Prepara Buono</a>
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Scarico%20parziale%20ID%20">Scarico parziale</a>
+            <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Aggiungi%20al%20buono%20">Aggiungi a Buono</a>
+            {% endif %}
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Cosa%20puoi%20fare%3F">Aiuto</a>
           </div>
 
@@ -186,7 +189,9 @@ def register_camy_ai_routes(app_obj, deps):
           var noteBuono = '';
           var msg = 'Confermi l’operazione proposta da CAMY AI?';
 
-          if(mode === 'manual'){
+          if(mode === 'existing'){
+            msg = 'Confermi l\'aggiunta delle righe al Buono esistente?';
+          } else if(mode === 'manual'){
             manualBuono = prompt('Inserisci il N. Buono manuale, esempio 45/26:');
             if(manualBuono === null) return;
             manualBuono = (manualBuono || '').trim();
@@ -758,6 +763,17 @@ def register_camy_ai_routes(app_obj, deps):
         )
 
 
+    def _apply_add_existing_buono_button(token, ask_partial=False):
+        partial_flag = "true" if ask_partial else "false"
+        safe_token = _esc(token)
+        return (
+            "<div class='mt-2 d-flex flex-wrap gap-2'>"
+            f"<button type='button' class='btn btn-sm btn-success' "
+            f"data-camy-confirm='1' data-camy-token='{safe_token}' data-camy-mode='existing' data-camy-partial='{partial_flag}'>Conferma aggiunta al Buono</button>"
+            "</div>"
+        )
+
+
     def _split_multi_values(value, allow_dash=False):
         """Divide campi multipli mantenendo l'ordine: codice / descrizione / pezzi."""
         s = str(value or "").strip()
@@ -1189,6 +1205,153 @@ def register_camy_ai_routes(app_obj, deps):
 
 
 
+    def _extract_existing_buono_target(msg):
+        """Estrae il N. Buono esistente per comandi tipo:
+        - Aggiungi al buono 073-FADEM il codice ABC123
+        - Aggiungi righe al buono 45/26 ID 123 456
+        """
+        s = msg or ""
+        patterns = [
+            r"\baggiung\w*\s+(?:righe?\s+)?(?:al|nel|a)\s+buono\s+([A-Z0-9][A-Z0-9./\-_]{1,40})",
+            r"\bbuono\s+(?:esistente\s+)?([A-Z0-9][A-Z0-9./\-_]{1,40})",
+        ]
+        stop = {"ID", "IDS", "CODICE", "CODICI", "ARRIVO", "ARRIVI", "CLIENTE", "NOTE", "NOTA"}
+        for pat in patterns:
+            m = re.search(pat, s, re.I)
+            if m:
+                val = (m.group(1) or "").strip().strip(".,;:")
+                if val and val.upper() not in stop:
+                    return val
+        return ""
+
+    def _message_without_existing_buono_target(msg, buono):
+        """Rimuove dal testo il riferimento al buono per non confonderlo con ID/codici/arrivi."""
+        s = msg or ""
+        if not buono:
+            return s
+        s = re.sub(r"\baggiung\w*\s+(?:righe?\s+)?(?:al|nel|a)\s+buono\s+" + re.escape(buono), "Aggiungi ", s, flags=re.I)
+        s = re.sub(r"\bbuono\s+(?:esistente\s+)?" + re.escape(buono), " ", s, flags=re.I)
+        return s
+
+    def _answer_add_to_existing_buono(db, msg):
+        if not _can_operate():
+            return _operation_denied()
+
+        buono_target = _extract_existing_buono_target(msg)
+        if not buono_target:
+            return (
+                "Per aggiungere righe a un Buono esistente indicami il N. Buono.<br>"
+                "Esempi:<br>"
+                "• Aggiungi al buono 073-FADEM ID 256505 256506<br>"
+                "• Aggiungi al buono 073-FADEM codice CB051CF<br>"
+                "• Aggiungi al buono 073-FADEM arrivo 200/26"
+            )
+
+        clean_msg = _message_without_existing_buono_target(msg, buono_target)
+        filters = _extract_intent(clean_msg)
+        filters["only_active"] = True
+
+        multi_ids = _extract_multi_ids(clean_msg)
+        multi_codici = _extract_multi_codici(clean_msg)
+        multi_arrivi = _extract_multi_arrivi(clean_msg)
+        has_key = any((filters.get(k) or "").strip() for k in ("n_arrivo", "codice_articolo", "ddt", "serial_number", "lotto"))
+
+        if multi_ids:
+            q = _base_query(db).filter(Articolo.id_articolo.in_(multi_ids))
+            q = _active_filter(q)
+        elif len(multi_codici) > 1:
+            q = _build_multi_like_query(_base_query(db), Articolo.codice_articolo, multi_codici)
+            q = _active_filter(q)
+        elif len(multi_arrivi) > 1:
+            q = _build_multi_like_query(_base_query(db), Articolo.n_arrivo, multi_arrivi)
+            q = _active_filter(q)
+        elif has_key:
+            q = _apply_filters(_base_query(db), filters)
+        else:
+            return (
+                f"Ho riconosciuto il Buono <b>{_esc(buono_target)}</b>, ma manca il riferimento delle righe da aggiungere.<br>"
+                "Puoi indicare ID, codice, arrivo, DDT, seriale o lotto."
+            )
+
+        rows_all = q.order_by(Articolo.id_articolo.asc()).limit(50).all()
+        rows_uscite = [r for r in rows_all if _is_articolo_uscito(r)]
+        rows_non_uscite = [r for r in rows_all if not _is_articolo_uscito(r)]
+        rows_gia_buono = [r for r in rows_non_uscite if str(getattr(r, "buono_n", "") or "").strip() == buono_target]
+        rows = [r for r in rows_non_uscite if str(getattr(r, "buono_n", "") or "").strip() != buono_target]
+
+        if not rows and (rows_uscite or rows_gia_buono):
+            out = ["<b>Nessuna nuova riga da aggiungere.</b>"]
+            if rows_gia_buono:
+                out.append("<br><b>Righe già presenti nel Buono:</b><br>" + "<br>".join(f"ID {_esc(r.id_articolo)} | Codice: {_esc(r.codice_articolo or '-')}" for r in rows_gia_buono[:10]))
+            if rows_uscite:
+                out.append("<br><b>Righe escluse perché già uscite:</b><br>" + "<br>".join(_uscito_info(r) for r in rows_uscite[:10]))
+            return "".join(out)
+
+        if not rows:
+            return "Non ho trovato righe attive compatibili da aggiungere al Buono."
+
+        if len(rows) > 30:
+            return (
+                f"Ho trovato {len(rows)} righe. Per sicurezza non aggiungo più di 30 righe da CAMY AI.<br>"
+                "Restringi la ricerca con N. arrivo, codice articolo, DDT o ID."
+            )
+
+        requested_code = (filters.get("codice_articolo") or "").strip()
+        requested_descr = _extract_requested_descrizione(clean_msg)
+        requested_pezzi = _extract_requested_pezzi(clean_msg)
+        note_buono = _extract_note_buono(clean_msg)
+        needs_partial_details = any(_row_needs_partial_details(r) for r in rows) and not (requested_code or requested_descr)
+
+        token = _make_token()
+        ids = [int(r.id_articolo) for r in rows]
+        _save_pending_op(token, {
+            "type": "set_buono",
+            "ids": ids,
+            "manual_buono": buono_target,
+            "requested_code": requested_code,
+            "requested_descr": requested_descr,
+            "requested_pezzi": requested_pezzi,
+            "note_buono": note_buono,
+            "needs_partial_details": bool(needs_partial_details),
+        })
+
+        riepilogo = [
+            f"<b>Aggiunta a Buono esistente</b><br>",
+            f"N. Buono: <b>{_esc(buono_target)}</b><br>",
+            f"Righe da aggiungere: <b>{len(ids)}</b><br>",
+        ]
+        if rows_gia_buono:
+            riepilogo.append("<br><b>Già presenti nel Buono e quindi non duplicate:</b><br>" + "<br>".join(f"ID {_esc(r.id_articolo)} | Codice: {_esc(r.codice_articolo or '-')}" for r in rows_gia_buono[:8]) + "<br>")
+        if rows_uscite:
+            riepilogo.append("<br><b>Righe già uscite e quindi escluse:</b><br>" + "<br>".join(_uscito_info(r) for r in rows_uscite[:8]) + "<br>")
+        if requested_code or requested_descr or requested_pezzi:
+            riepilogo.append(
+                "<br><b>Dati scarico parziale letti:</b> "
+                f"Codice: <b>{_esc(requested_code or '-')}</b> | "
+                f"Descrizione: <b>{_esc(requested_descr or '-')}</b> | "
+                f"Pezzi: <b>{_esc(requested_pezzi or '-')}</b><br>"
+            )
+        elif needs_partial_details:
+            riepilogo.append(
+                "<br><b>Scarico parziale rilevato:</b> alla conferma CAMY ti chiederà codice, descrizione e pezzi da aggiungere al Buono.<br>"
+            )
+        if note_buono:
+            riepilogo.append(f"<br><b>Nota da salvare in giacenze:</b> {_esc(note_buono)}<br>")
+
+        for r in rows[:8]:
+            riepilogo.append(
+                f"<div class='camy-ai-result'>"
+                f"ID {_esc(r.id_articolo)} | Cliente: {_esc(r.cliente or '-')} | Codice: {_esc(r.codice_articolo or '-')}<br>"
+                f"Descrizione: {_esc((r.descrizione or '-')[:120])}<br>"
+                f"N. arrivo: {_esc(r.n_arrivo or '-')} | Colli: {_esc(r.n_colli or 0)} | Buono attuale: {_esc(r.buono_n or '-')}"
+                f"</div>"
+            )
+        if len(rows) > 8:
+            riepilogo.append(f"<br>Altre righe non mostrate: {len(rows) - 8}.")
+        riepilogo.append(_apply_add_existing_buono_button(token, ask_partial=needs_partial_details))
+        return "".join(riepilogo)
+
+
     def _answer_prepare_buono(db, msg):
         if not _can_operate():
             return _operation_denied()
@@ -1580,6 +1743,10 @@ def register_camy_ai_routes(app_obj, deps):
                     buono = manual_from_request or manual_from_message
                     if not buono:
                         return jsonify({"answer": "Numero buono manuale mancante.", "html": False}), 400
+                elif mode == "existing":
+                    buono = manual_from_message or manual_from_request
+                    if not buono:
+                        return jsonify({"answer": "Numero buono esistente mancante.", "html": False}), 400
                 else:
                     buono = _next_buono_number(db)
 
@@ -1730,6 +1897,9 @@ def register_camy_ai_routes(app_obj, deps):
         if any(x in low for x in ["aiuto", "help", "cosa puoi fare", "cosa sai fare"]):
             return _answer_help(), True, {}
 
+        if "aggiungi" in low and "buono" in low:
+            return _answer_add_to_existing_buono(db, msg), True, {}
+
         if any(x in low for x in ["prepara buono", "crea buono", "buono di prelievo"]):
             return _answer_prepare_buono(db, msg), True, {}
 
@@ -1768,7 +1938,8 @@ def register_camy_ai_routes(app_obj, deps):
             endpoints=endpoints,
             initial_user_msg=q,
             initial_bot_answer=initial_answer,
-            initial_input_value=("" if q else prefill)
+            initial_input_value=("" if q else prefill),
+            can_operate=_can_operate()
         )
 
     @app.route("/camy-ai/api", methods=["POST"])
