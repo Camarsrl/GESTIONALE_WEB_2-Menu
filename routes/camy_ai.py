@@ -183,6 +183,7 @@ def register_camy_ai_routes(app_obj, deps):
           var requestedCode = '';
           var requestedDescr = '';
           var requestedPezzi = '';
+          var noteBuono = '';
           var msg = 'Confermi l’operazione proposta da CAMY AI?';
 
           if(mode === 'manual'){
@@ -222,6 +223,13 @@ def register_camy_ai_routes(app_obj, deps):
             msg += String.fromCharCode(10,10) + 'Scarico parziale:' + String.fromCharCode(10) + 'Codice: ' + requestedCode + String.fromCharCode(10) + 'Descrizione: ' + (requestedDescr || '-') + String.fromCharCode(10) + 'Pezzi: ' + requestedPezzi;
           }
 
+          noteBuono = prompt('Vuoi inserire una nota da salvare nella tabella Giacenze? Lascia vuoto se non serve:', '');
+          if(noteBuono === null) noteBuono = '';
+          noteBuono = (noteBuono || '').trim();
+          if(noteBuono){
+            msg += String.fromCharCode(10,10) + 'Note giacenza: ' + noteBuono;
+          }
+
           if(!confirm(msg)) return;
           var loading = window.camyAiAdd('Confermo l’operazione...', 'bot', false);
           try{
@@ -234,7 +242,8 @@ def register_camy_ai_routes(app_obj, deps):
                 manual_buono:manualBuono,
                 requested_code:requestedCode,
                 requested_descr:requestedDescr,
-                requested_pezzi:requestedPezzi
+                requested_pezzi:requestedPezzi,
+                note_buono:noteBuono
               })
             });
             var data = await res.json();
@@ -860,6 +869,135 @@ def register_camy_ai_routes(app_obj, deps):
                 return (m.group(1) or "").strip(" ;,.-")
         return ""
 
+
+    def _extract_note_buono(msg):
+        """Estrae eventuali note scritte direttamente nel messaggio CAMY.
+        Esempi:
+        - Prepara buono arrivo 123 note materiale urgente
+        - Crea buono ID 10 note: ritirare domani
+        """
+        s = msg or ""
+        patterns = [
+            r"\b(?:note|nota)\s*[:\-]?\s*(.+?)(?=\s+(?:buono|automatico|manuale|codice|descrizione|pezzi|pezzo|pz|qta|qtà|quantita|quantità)\b|$)",
+        ]
+        for pat in patterns:
+            m = re.search(pat, s, re.I)
+            if m:
+                return (m.group(1) or "").strip(" ;,.-")
+        return ""
+
+    def _merge_note(existing, new_note):
+        """Aggiunge una nota senza cancellare eventuali note già presenti."""
+        existing = str(existing or "").strip()
+        new_note = str(new_note or "").strip()
+        if not new_note:
+            return existing
+        if not existing:
+            return new_note
+        if _norm_part(new_note) in _norm_part(existing):
+            return existing
+        return existing + "\n" + new_note
+
+    def _is_articolo_uscito(row):
+        """True se la riga risulta già uscita e non deve essere inserita in un Buono."""
+        try:
+            data_uscita = str(getattr(row, "data_uscita", "") or "").strip()
+            ddt_uscita = str(getattr(row, "n_ddt_uscita", "") or "").strip()
+            return bool(data_uscita or ddt_uscita)
+        except Exception:
+            return False
+
+    def _uscito_info(row):
+        return (
+            f"ID {_esc(getattr(row, 'id_articolo', '') or '')} | "
+            f"Codice: {_esc(getattr(row, 'codice_articolo', '') or '-')} | "
+            f"DDT uscita: {_esc(getattr(row, 'n_ddt_uscita', '') or '-')} | "
+            f"Data uscita: {_esc(getattr(row, 'data_uscita', '') or '-')}"
+        )
+
+
+    def _extract_multi_ids(msg):
+        """Estrae più ID scritti nello stesso comando CAMY.
+        Esempi:
+        - Prepara buono ID 256505 256890 257120
+        - Prepara buono ids: 256505, 256890, 257120
+        """
+        s = msg or ""
+        out = []
+        # Cerca blocchi dopo ID/IDS fino a una parola operativa successiva.
+        for m in re.finditer(r"\bIDS?\b\s*[:\-]?\s*([0-9\s,;./\-]+)", s, re.I):
+            block = m.group(1) or ""
+            for n in re.findall(r"\b\d{2,}\b", block):
+                try:
+                    val = int(n)
+                    if val not in out:
+                        out.append(val)
+                except Exception:
+                    pass
+        # Compatibilità con il vecchio comando singolo: "ID 123".
+        if not out:
+            m = re.search(r"\bID\s*(\d+)\b", s or "", re.I)
+            if m:
+                out.append(int(m.group(1)))
+        return out
+
+    def _extract_multi_values_after_keywords(msg, keywords):
+        """Estrae valori multipli dopo parole chiave come codici/arrivi.
+        Si ferma prima di parole operative note per non prendere note o altri campi.
+        """
+        s = msg or ""
+        kw = "|".join(re.escape(k) for k in keywords)
+        pat = rf"\b(?:{kw})\b\s*[:\-]?\s*(.+?)(?=\s+\b(?:con\s+note|note|nota|buono|automatico|manuale|descrizione|pezzi|pezzo|pz|qta|qtà|quantita|quantità)\b|$)"
+        m = re.search(pat, s, re.I | re.S)
+        if not m:
+            return []
+        block = (m.group(1) or "").strip()
+        # Ogni token può essere separato da virgola, punto e virgola, slash, a capo o spazi.
+        raw = re.split(r"[\s,;\n\r]+", block)
+        stop = {"CON", "NOTE", "NOTA", "BUONO", "AUTOMATICO", "MANUALE", "PEZZI", "PEZZO", "PZ", "QTA", "QTA'", "DESCRIZIONE"}
+        out, seen = [], set()
+        for x in raw:
+            val = x.strip().strip(".,;:-")
+            if not val:
+                continue
+            up = val.upper()
+            if up in stop:
+                break
+            # Evita di prendere parole troppo generiche.
+            if len(val) < 2:
+                continue
+            key = _norm_part(val)
+            if key and key not in seen:
+                seen.add(key)
+                out.append(val)
+        return out
+
+    def _extract_multi_codici(msg):
+        """Estrae più codici articolo da un comando esplicito.
+        Esempio: Prepara buono codici ABC123 DEF456 GHI789
+        """
+        return _extract_multi_values_after_keywords(msg, ["codici", "codice articoli", "codice articolo", "codice"])
+
+    def _extract_multi_arrivi(msg):
+        """Estrae più N. arrivo da un comando esplicito.
+        Esempio: Prepara buono arrivi 3578 4120 3987
+        """
+        return _extract_multi_values_after_keywords(msg, ["arrivi", "n arrivi", "n. arrivi", "n arrivo", "n. arrivo", "arrivo"])
+
+    def _build_multi_like_query(q, column, values):
+        """Applica un filtro OR per più valori sullo stesso campo."""
+        values = [str(v or "").strip() for v in (values or []) if str(v or "").strip()]
+        if not values:
+            return q
+        conds = []
+        col_norm = _sql_norm_col(column)
+        for v in values:
+            n = _norm(v)
+            conds.append(column.ilike(f"%{v}%"))
+            if n:
+                conds.append(col_norm.ilike(f"%{n}%"))
+        return q.filter(or_(*conds))
+
     def _safe_int_or_none(value):
         s = str(value or "").strip().replace(",", ".")
         if not s:
@@ -1013,11 +1151,21 @@ def register_camy_ai_routes(app_obj, deps):
         filters["only_active"] = True
 
         # Evito modifiche troppo generiche: serve almeno un riferimento preciso.
+        # Ora CAMY supporta anche un Buono unico con più ID, più codici o più arrivi.
+        multi_ids = _extract_multi_ids(msg)
+        multi_codici = _extract_multi_codici(msg)
+        multi_arrivi = _extract_multi_arrivi(msg)
+
         has_key = any((filters.get(k) or "").strip() for k in ("n_arrivo", "codice_articolo", "ddt", "serial_number", "lotto"))
-        mid = re.search(r"\bID\s*(\d+)\b", msg or "", re.I)
-        if mid:
-            ids = [int(mid.group(1))]
-            q = _base_query(db).filter(Articolo.id_articolo.in_(ids))
+
+        if multi_ids:
+            q = _base_query(db).filter(Articolo.id_articolo.in_(multi_ids))
+            q = _active_filter(q)
+        elif len(multi_codici) > 1:
+            q = _build_multi_like_query(_base_query(db), Articolo.codice_articolo, multi_codici)
+            q = _active_filter(q)
+        elif len(multi_arrivi) > 1:
+            q = _build_multi_like_query(_base_query(db), Articolo.n_arrivo, multi_arrivi)
             q = _active_filter(q)
         elif has_key:
             q = _apply_filters(_base_query(db), filters)
@@ -1026,18 +1174,30 @@ def register_camy_ai_routes(app_obj, deps):
                 "Per preparare un Buono di Prelievo mi serve un riferimento preciso.<br>"
                 "Esempi:<br>"
                 "• Prepara buono arrivo 3578 buono 45/26<br>"
-                "• Prepara buono codice ABC123 buono 45/26<br>"
-                "• Prepara buono ID 256498 buono 45/26"
+                "• Prepara buono arrivi 3578 4120 3987<br>"
+                "• Prepara buono codici ABC123 DEF456 GHI789<br>"
+                "• Prepara buono ID 256498 256499 256500"
             )
 
-        rows = q.order_by(Articolo.id_articolo.asc()).limit(30).all()
+        rows_all = q.order_by(Articolo.id_articolo.asc()).limit(50).all()
+        rows_uscite = [r for r in rows_all if _is_articolo_uscito(r)]
+        rows = [r for r in rows_all if not _is_articolo_uscito(r)]
+
+        if not rows and rows_uscite:
+            dettagli = "<br>".join(_uscito_info(r) for r in rows_uscite[:10])
+            return (
+                "<b>Operazione annullata.</b><br>"
+                "Le righe trovate risultano già uscite, quindi CAMY non può inserirle nel Buono di Prelievo.<br>"
+                + dettagli
+            )
+
         if not rows:
             return "Non ho trovato righe attive compatibili per preparare il buono."
 
         total = len(rows)
-        if total > 20:
+        if total > 30:
             return (
-                f"Ho trovato {total} righe. Per sicurezza non preparo un buono con più di 20 righe da CAMY AI.<br>"
+                f"Ho trovato {total} righe. Per sicurezza non preparo un buono con più di 30 righe da CAMY AI.<br>"
                 "Restringi la ricerca con N. arrivo, codice articolo, DDT o ID."
             )
 
@@ -1046,6 +1206,7 @@ def register_camy_ai_routes(app_obj, deps):
         requested_code = (filters.get("codice_articolo") or "").strip()
         requested_descr = _extract_requested_descrizione(msg)
         requested_pezzi = _extract_requested_pezzi(msg)
+        note_buono = _extract_note_buono(msg)
         needs_partial_details = any(_row_needs_partial_details(r) for r in rows) and not (requested_code or requested_descr)
 
         token = _make_token()
@@ -1057,6 +1218,7 @@ def register_camy_ai_routes(app_obj, deps):
             "requested_code": requested_code,
             "requested_descr": requested_descr,
             "requested_pezzi": requested_pezzi,
+            "note_buono": note_buono,
             "needs_partial_details": bool(needs_partial_details),
         })
 
@@ -1078,11 +1240,34 @@ def register_camy_ai_routes(app_obj, deps):
                 "poi creerà una nuova riga e lascerà sulla riga originale solo il residuo."
             )
 
+        dettagli_usciti = ""
+        if rows_uscite:
+            dettagli_usciti = (
+                "<br><b>Attenzione:</b> alcune righe sono già uscite e verranno escluse dal Buono:<br>"
+                + "<br>".join(_uscito_info(r) for r in rows_uscite[:8])
+                + "<br>"
+            )
+
+        dettagli_note = ""
+        if note_buono:
+            dettagli_note = f"<br><b>Nota da salvare in giacenze:</b> {_esc(note_buono)}<br>"
+
+        dettagli_multi = ""
+        if multi_ids or len(multi_codici) > 1 or len(multi_arrivi) > 1:
+            parti = []
+            if multi_ids:
+                parti.append("ID: " + ", ".join(_esc(x) for x in multi_ids))
+            if len(multi_codici) > 1:
+                parti.append("Codici: " + ", ".join(_esc(x) for x in multi_codici))
+            if len(multi_arrivi) > 1:
+                parti.append("Arrivi: " + ", ".join(_esc(x) for x in multi_arrivi))
+            dettagli_multi = "<br><b>Buono multiplo:</b> " + " | ".join(parti) + "<br>"
+
         riepilogo = [
             f"<b>Proposta Buono di Prelievo</b><br>",
             f"Righe selezionate: <b>{len(ids)}</b><br>",
             f"Vuoi inserire il N. Buono <b>automaticamente</b> o <b>manualmente</b>?<br>",
-            f"Prossimo numero automatico previsto: <b>{_esc(prossimo_auto)}</b>{scelta_manual}{dettagli_parziale}<br>",
+            f"Prossimo numero automatico previsto: <b>{_esc(prossimo_auto)}</b>{scelta_manual}{dettagli_multi}{dettagli_parziale}{dettagli_note}{dettagli_usciti}<br>",
             "CAMY applicherà la modifica solo dopo conferma. Nessuno scarico definitivo verrà eseguito automaticamente.<br>"
         ]
         for r in rows[:8]:
@@ -1356,13 +1541,27 @@ def register_camy_ai_routes(app_obj, deps):
                     return jsonify({"answer": "Dati operazione incompleti.", "html": False}), 400
 
                 q = _base_query(db).filter(Articolo.id_articolo.in_(ids))
-                rows = q.all()
-                if not rows:
+                rows_all = q.all()
+                if not rows_all:
                     return jsonify({"answer": "Nessuna riga trovata da aggiornare.", "html": False}), 404
+
+                rows_uscite = [r for r in rows_all if _is_articolo_uscito(r)]
+                rows = [r for r in rows_all if not _is_articolo_uscito(r)]
+
+                if not rows and rows_uscite:
+                    return jsonify({
+                        "answer": (
+                            "<b>Operazione annullata.</b><br>"
+                            "Tutte le righe selezionate risultano già uscite e non sono state inserite nel Buono.<br>"
+                            + "<br>".join(_uscito_info(r) for r in rows_uscite[:10])
+                        ),
+                        "html": True
+                    }), 400
 
                 requested_code = (data.get("requested_code") or op.get("requested_code") or "").strip()
                 requested_descr = (data.get("requested_descr") or op.get("requested_descr") or "").strip()
                 requested_pezzi = (data.get("requested_pezzi") or op.get("requested_pezzi") or "").strip()
+                note_buono = (data.get("note_buono") or op.get("note_buono") or "").strip()
 
                 if op.get("needs_partial_details") and not (requested_code or requested_descr):
                     return jsonify({
@@ -1383,6 +1582,8 @@ def register_camy_ai_routes(app_obj, deps):
                         requested_pezzi=requested_pezzi,
                     )
                     if new_row is not None:
+                        if note_buono:
+                            new_row.note = _merge_note(getattr(new_row, "note", ""), note_buono)
                         db.add(new_row)
                         created += 1
                         updated += 1
@@ -1402,6 +1603,8 @@ def register_camy_ai_routes(app_obj, deps):
 
                         # Caso normale: una riga singola viene assegnata direttamente al Buono.
                         r.buono_n = buono
+                        if note_buono:
+                            r.note = _merge_note(getattr(r, "note", ""), note_buono)
                         updated += 1
 
                 db.commit()
@@ -1427,6 +1630,13 @@ def register_camy_ai_routes(app_obj, deps):
                     pdf_link_html = "<br><span class='text-warning'>Buono aggiornato, ma PDF non generato. Controlla i log admin.</span>"
 
                 extra = ""
+                if rows_uscite:
+                    extra += (
+                        "<br><b>Righe escluse perché già uscite:</b><br>"
+                        + "<br>".join(_uscito_info(r) for r in rows_uscite[:10])
+                    )
+                if note_buono:
+                    extra += f"<br>Note salvate in giacenze: <b>{_esc(note_buono)}</b><br>"
                 if created:
                     dettagli = []
                     for info in split_infos[:5]:
@@ -1440,7 +1650,7 @@ def register_camy_ai_routes(app_obj, deps):
                             f"Pezzi residui: {_esc(info.get('residue_pezzi') or '-')}"
                             "</div>"
                         )
-                    extra = (
+                    extra += (
                         f"<br>Righe nuove create per scarico parziale: <b>{created}</b><br>"
                         "La riga originale è rimasta in giacenza con solo il materiale residuo."
                         + "".join(dettagli)
