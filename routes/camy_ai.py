@@ -190,7 +190,7 @@ def register_camy_ai_routes(app_obj, deps):
           var msg = 'Confermi l’operazione proposta da CAMY AI?';
 
           if(mode === 'existing'){
-            msg = 'Confermi l\'aggiunta delle righe al Buono esistente?';
+            msg = "Confermi l'aggiunta delle righe al Buono esistente?";
           } else if(mode === 'manual'){
             manualBuono = prompt('Inserisci il N. Buono manuale, esempio 45/26:');
             if(manualBuono === null) return;
