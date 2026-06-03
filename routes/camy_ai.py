@@ -1155,10 +1155,20 @@ def register_camy_ai_routes(app_obj, deps):
             resid_desc_parts = []
 
         # Residuo pezzi.
-        resid_pezzi_parts = [p for i, p in enumerate(pezzi_parts) if i not in selected_indices] if pezzi_parts else []
-        if not resid_pezzi_parts and original_pezzo_num is not None and selected_pezzo_num is not None:
+        # Regola operativa CAMY:
+        # - se il campo Pezzi della riga originale è un numero unico (es. 5),
+        #   e l'utente indica i pezzi da mettere nel Buono (es. pezzi 2),
+        #   la riga nuova prende 2 e la riga residua deve diventare 3.
+        # - non bisogna lasciare il valore originale sulla residua solo perché
+        #   il codice selezionato non è il primo della lista.
+        if len(pezzi_parts) <= 1 and original_pezzo_num is not None and selected_pezzo_num is not None:
             resid = max(0, original_pezzo_num - selected_pezzo_num)
             resid_pezzi_parts = [str(int(resid)) if abs(resid - int(resid)) < 0.0001 else str(round(resid, 3))]
+        else:
+            resid_pezzi_parts = [p for i, p in enumerate(pezzi_parts) if i not in selected_indices] if pezzi_parts else []
+            if not resid_pezzi_parts and original_pezzo_num is not None and selected_pezzo_num is not None:
+                resid = max(0, original_pezzo_num - selected_pezzo_num)
+                resid_pezzi_parts = [str(int(resid)) if abs(resid - int(resid)) < 0.0001 else str(round(resid, 3))]
 
         new_row = _copy_articolo_for_partial(row)
         # PACKAGE / CASSA / PALLET restano sia sulla riga Buono sia sulla residua.
