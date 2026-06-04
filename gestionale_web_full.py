@@ -5475,11 +5475,9 @@ templates = {
 # ========================================================
 # CONFIGURAZIONE FINALE (SENZA RICREARE L'APP)
 # ========================================================
-# Prima carica i template dalla cartella /templates.
-# Così templates/giacenze.html aggiornato viene usato al posto del GIACENZE_HTML interno.
 app.jinja_loader = ChoiceLoader([
-    FileSystemLoader(str(APP_DIR / 'templates')),
-    DictLoader(templates)
+    DictLoader(templates),
+    FileSystemLoader(str(APP_DIR / 'templates'))
 ])
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.jinja_env.globals['getattr'] = getattr
@@ -9183,11 +9181,9 @@ def _genera_pdf_etichetta(articoli, formato, anteprima=False):
 
 
 # --- CONFIGURAZIONE FINALE E AVVIO ---
-# Prima carica i template dalla cartella /templates.
-# Così templates/giacenze.html aggiornato viene usato al posto del GIACENZE_HTML interno.
 app.jinja_loader = ChoiceLoader([
-    FileSystemLoader(str(APP_DIR / 'templates')),
-    DictLoader(templates)
+    DictLoader(templates),
+    FileSystemLoader(str(APP_DIR / 'templates'))
 ])
 app.jinja_env.globals['getattr'] = getattr
 app.jinja_env.filters['fmt_date'] = fmt_date
