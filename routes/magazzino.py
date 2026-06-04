@@ -256,5 +256,349 @@ def register_magazzino_routes(app_obj, deps):
             db.close()
 
     # ==============================================================================
+    #  CONFRONTA INVENTARIO
+    # ==============================================================================
+
+    CONFRONTA_INVENTARIO_HTML = """
+    {% extends 'base.html' %}
+    {% block content %}
+    <div class="container-fluid py-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">📋 Confronta Inventario</h4>
+        <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm">Torna al Magazzino</a>
+      </div>
+
+      <div class="alert alert-info">
+        Carica il file Excel dell'inventario. Il confronto cambia in base al cliente:<br>
+        <b>GALVANO TECNICA</b>: Codice articolo + Pezzi + Peso + Lotto<br>
+        <b>DUFERCO</b>: Seriali + Colli<br>
+        <b>FINCANTIERI</b>: Codice articolo + Colli
+      </div>
+
+      <div class="card shadow-sm mb-3">
+        <div class="card-body">
+          <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label">Cliente</label>
+              <input type="text" name="cliente" class="form-control" placeholder="Es. FINCANTIERI / DUFERCO / GALVANO TECNICA" value="{{ cliente or '' }}" required>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">File inventario Excel</label>
+              <input type="file" name="file_inventario" accept=".xlsx,.xls,.csv" class="form-control" required>
+            </div>
+            <div class="col-md-3">
+              <button type="submit" class="btn btn-primary w-100">Confronta</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {% if error %}
+        <div class="alert alert-danger">{{ error|safe }}</div>
+      {% endif %}
+
+      {% if summary %}
+        <div class="row g-2 mb-3">
+          <div class="col-md-3"><div class="card"><div class="card-body py-2"><b>OK</b><br>{{ summary.ok }}</div></div></div>
+          <div class="col-md-3"><div class="card"><div class="card-body py-2"><b>Differenze</b><br>{{ summary.diff }}</div></div></div>
+          <div class="col-md-3"><div class="card"><div class="card-body py-2"><b>Mancanti in inventario</b><br>{{ summary.missing }}</div></div></div>
+          <div class="col-md-3"><div class="card"><div class="card-body py-2"><b>Extra nel file</b><br>{{ summary.extra }}</div></div></div>
+        </div>
+        {% if download_url %}
+          <a href="{{ download_url }}" class="btn btn-success btn-sm mb-3">📥 Scarica risultato Excel</a>
+        {% endif %}
+      {% endif %}
+
+      {% if rows %}
+      <div class="table-responsive" style="max-height:70vh; overflow:auto;">
+        <table class="table table-sm table-bordered table-striped align-middle">
+          <thead class="table-light" style="position:sticky; top:0; z-index:1;">
+            <tr>
+              {% for h in headers %}<th>{{ h }}</th>{% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in rows %}
+            <tr class="{% if r['Stato'] == 'OK' %}table-success{% elif r['Stato'] == 'DIFFERENZA' %}table-warning{% elif 'MANCANTE' in r['Stato'] %}table-danger{% else %}table-info{% endif %}">
+              {% for h in headers %}<td>{{ r[h] }}</td>{% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+    {% endblock %}
+    """
+
+    def _cmp_norm_value(v):
+        return re.sub(r'[^A-Z0-9]+', '', str(v or '').strip().upper())
+
+    def _cmp_num(v):
+        if v is None:
+            return 0.0
+        s = str(v).strip()
+        if not s or s.lower() in ('nan', 'none'):
+            return 0.0
+        try:
+            # Gestisce sia 1.234,56 sia 1234.56
+            if ',' in s and '.' in s:
+                s = s.replace('.', '').replace(',', '.')
+            else:
+                s = s.replace(',', '.')
+            return float(s)
+        except Exception:
+            return 0.0
+
+    def _cmp_fmt(v):
+        try:
+            f = float(v or 0)
+            if abs(f - int(f)) < 0.00001:
+                return str(int(f))
+            return (f"{f:.3f}").rstrip('0').rstrip('.').replace('.', ',')
+        except Exception:
+            return str(v or '')
+
+    def _cmp_header_key(v):
+        return re.sub(r'[^A-Z0-9]+', '', str(v or '').strip().upper())
+
+    def _cmp_find_col(columns, aliases):
+        mapped = { _cmp_header_key(c): c for c in columns }
+        alias_keys = [_cmp_header_key(a) for a in aliases]
+        for ak in alias_keys:
+            if ak in mapped:
+                return mapped[ak]
+        for ak in alias_keys:
+            for k, original in mapped.items():
+                if ak and (ak in k or k in ak):
+                    return original
+        return None
+
+    def _cmp_profile(cliente):
+        cn = _cmp_norm_value(cliente)
+        if 'GALVANO' in cn:
+            return {
+                'nome': 'GALVANO TECNICA',
+                'key_fields': ['codice_articolo', 'lotto'],
+                'metrics': ['pezzo', 'peso'],
+                'labels': {'codice_articolo': 'Codice', 'lotto': 'Lotto', 'pezzo': 'Pezzi', 'peso': 'Peso'}
+            }
+        if 'DUFERCO' in cn:
+            return {
+                'nome': 'DUFERCO',
+                'key_fields': ['serial_number'],
+                'metrics': ['n_colli'],
+                'labels': {'serial_number': 'Seriale', 'n_colli': 'Colli'}
+            }
+        if 'FINCANTIERI' in cn:
+            return {
+                'nome': 'FINCANTIERI',
+                'key_fields': ['codice_articolo'],
+                'metrics': ['n_colli'],
+                'labels': {'codice_articolo': 'Codice', 'n_colli': 'Colli'}
+            }
+        return {
+            'nome': cliente or 'GENERALE',
+            'key_fields': ['codice_articolo'],
+            'metrics': ['n_colli'],
+            'labels': {'codice_articolo': 'Codice', 'n_colli': 'Colli'}
+        }
+
+    def _cmp_key_from_values(values, key_fields):
+        return tuple(_cmp_norm_value(values.get(k, '')) for k in key_fields)
+
+    def _cmp_display_key(values, key_fields):
+        return ' | '.join(str(values.get(k, '') or '').strip() for k in key_fields)
+
+    def _cmp_read_inventory_file(file_storage):
+        import pandas as pd
+        filename = (getattr(file_storage, 'filename', '') or '').lower()
+        if filename.endswith('.csv'):
+            return pd.read_csv(file_storage, dtype=str).fillna('')
+        return pd.read_excel(file_storage, dtype=str).fillna('')
+
+    def _cmp_aliases():
+        return {
+            'codice_articolo': ['codice articolo', 'codice_articolo', 'codice', 'cod art', 'codice art', 'article code', 'item code', 'part number', 'pn'],
+            'pezzo': ['pezzi', 'pezzo', 'pz', 'qta', 'qtà', 'quantita', 'quantità', 'quantity', 'qty'],
+            'peso': ['peso', 'kg', 'peso kg', 'weight'],
+            'lotto': ['lotto', 'lot', 'batch'],
+            'serial_number': ['seriale', 'serial', 'serial number', 'serial_number', 's/n', 'sn'],
+            'n_colli': ['colli', 'n colli', 'n_colli', 'numero colli', 'package', 'packages', 'pallet', 'pallets']
+        }
+
+    def _cmp_aggregate_db(db, cliente, profile):
+        q = db.query(Articolo)
+        cn = normalize_text_key(cliente)
+        if cn:
+            q = q.filter(normalized_sql_text(Articolo.cliente) == cn)
+        q = q.filter(or_(Articolo.data_uscita == None, Articolo.data_uscita == ''))
+        q = q.filter(or_(Articolo.n_ddt_uscita == None, Articolo.n_ddt_uscita == ''))
+
+        data = {}
+        for r in q.all():
+            vals = {
+                'codice_articolo': getattr(r, 'codice_articolo', '') or '',
+                'lotto': getattr(r, 'lotto', '') or '',
+                'serial_number': getattr(r, 'serial_number', '') or '',
+                'pezzo': getattr(r, 'pezzo', '') or '',
+                'peso': getattr(r, 'peso', '') or '',
+                'n_colli': getattr(r, 'n_colli', '') or '',
+            }
+            key = _cmp_key_from_values(vals, profile['key_fields'])
+            if not any(key):
+                continue
+            item = data.setdefault(key, {'display': _cmp_display_key(vals, profile['key_fields']), 'ids': [], 'values': {m: 0.0 for m in profile['metrics']}})
+            item['ids'].append(str(getattr(r, 'id_articolo', '')))
+            for m in profile['metrics']:
+                item['values'][m] += _cmp_num(vals.get(m))
+        return data
+
+    def _cmp_aggregate_file(df, profile):
+        aliases = _cmp_aliases()
+        col_map = {}
+        missing = []
+        for f in profile['key_fields'] + profile['metrics']:
+            c = _cmp_find_col(df.columns, aliases.get(f, [f]))
+            if c is None:
+                missing.append(profile['labels'].get(f, f))
+            else:
+                col_map[f] = c
+        if missing:
+            raise ValueError('Nel file Excel mancano queste colonne: ' + ', '.join(missing))
+
+        data = {}
+        for _, row in df.iterrows():
+            vals = {f: (row.get(col_map[f], '') if f in col_map else '') for f in profile['key_fields'] + profile['metrics']}
+            key = _cmp_key_from_values(vals, profile['key_fields'])
+            if not any(key):
+                continue
+            item = data.setdefault(key, {'display': _cmp_display_key(vals, profile['key_fields']), 'values': {m: 0.0 for m in profile['metrics']}})
+            for m in profile['metrics']:
+                item['values'][m] += _cmp_num(vals.get(m))
+        return data, col_map
+
+    def _cmp_compare(db_data, inv_data, profile):
+        rows = []
+        all_keys = sorted(set(db_data.keys()) | set(inv_data.keys()), key=lambda k: str(k))
+        for key in all_keys:
+            d = db_data.get(key)
+            i = inv_data.get(key)
+            if d and i:
+                diffs = []
+                rec = {
+                    'Stato': 'OK',
+                    'Chiave confronto': d.get('display') or i.get('display'),
+                    'ID Gestionale': ', '.join(d.get('ids', [])[:12])
+                }
+                for m in profile['metrics']:
+                    gv = d['values'].get(m, 0.0)
+                    iv = i['values'].get(m, 0.0)
+                    rec[f"Gestionale {profile['labels'].get(m, m)}"] = _cmp_fmt(gv)
+                    rec[f"Inventario {profile['labels'].get(m, m)}"] = _cmp_fmt(iv)
+                    tolerance = 0.02 if m == 'peso' else 0.0001
+                    if abs(gv - iv) > tolerance:
+                        diffs.append(profile['labels'].get(m, m))
+                if diffs:
+                    rec['Stato'] = 'DIFFERENZA'
+                    rec['Note'] = 'Differenza su: ' + ', '.join(diffs)
+                else:
+                    rec['Note'] = ''
+                rows.append(rec)
+            elif d and not i:
+                rec = {'Stato': 'MANCANTE IN INVENTARIO', 'Chiave confronto': d.get('display'), 'ID Gestionale': ', '.join(d.get('ids', [])[:12])}
+                for m in profile['metrics']:
+                    rec[f"Gestionale {profile['labels'].get(m, m)}"] = _cmp_fmt(d['values'].get(m, 0.0))
+                    rec[f"Inventario {profile['labels'].get(m, m)}"] = '0'
+                rec['Note'] = 'Presente nel gestionale ma non nel file inventario'
+                rows.append(rec)
+            elif i and not d:
+                rec = {'Stato': 'EXTRA NEL FILE', 'Chiave confronto': i.get('display'), 'ID Gestionale': ''}
+                for m in profile['metrics']:
+                    rec[f"Gestionale {profile['labels'].get(m, m)}"] = '0'
+                    rec[f"Inventario {profile['labels'].get(m, m)}"] = _cmp_fmt(i['values'].get(m, 0.0))
+                rec['Note'] = 'Presente nel file inventario ma non trovato in giacenza'
+                rows.append(rec)
+        return rows
+
+    @app.route('/confronta-inventario', methods=['GET', 'POST'])
+    @login_required
+    def confronta_inventario():
+        if session.get('role') not in ('admin', 'magazzino'):
+            return "Accesso negato", 403
+        error = None
+        rows = []
+        headers = []
+        summary = None
+        download_url = None
+        cliente = ''
+
+        if request.method == 'POST':
+            db = SessionLocal()
+            try:
+                cliente = (request.form.get('cliente') or '').strip()
+                file_inv = request.files.get('file_inventario')
+                if not cliente:
+                    raise ValueError('Indica il cliente da confrontare.')
+                if not file_inv or not (file_inv.filename or '').strip():
+                    raise ValueError('Carica un file Excel inventario.')
+
+                profile = _cmp_profile(cliente)
+                df = _cmp_read_inventory_file(file_inv)
+                db_data = _cmp_aggregate_db(db, cliente, profile)
+                inv_data, col_map = _cmp_aggregate_file(df, profile)
+                rows = _cmp_compare(db_data, inv_data, profile)
+
+                # Ordine: prima differenze e mancanti, poi OK.
+                order = {'DIFFERENZA': 0, 'MANCANTE IN INVENTARIO': 1, 'EXTRA NEL FILE': 2, 'OK': 3}
+                rows.sort(key=lambda r: (order.get(r.get('Stato'), 9), r.get('Chiave confronto', '')))
+
+                headers = list(rows[0].keys()) if rows else ['Stato', 'Chiave confronto', 'Note']
+                summary = {
+                    'ok': sum(1 for r in rows if r.get('Stato') == 'OK'),
+                    'diff': sum(1 for r in rows if r.get('Stato') == 'DIFFERENZA'),
+                    'missing': sum(1 for r in rows if r.get('Stato') == 'MANCANTE IN INVENTARIO'),
+                    'extra': sum(1 for r in rows if r.get('Stato') == 'EXTRA NEL FILE'),
+                }
+
+                # Salva risultato Excel in docs.
+                import pandas as pd
+                safe_cliente = re.sub(r'[^A-Za-z0-9_-]+', '_', cliente).strip('_') or 'cliente'
+                filename = f"confronto_inventario_{safe_cliente}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                out_dir = DOCS_DIR if 'DOCS_DIR' in globals() else MEDIA_DIR
+                out_dir.mkdir(parents=True, exist_ok=True)
+                out_path = out_dir / filename
+                pd.DataFrame(rows).to_excel(out_path, index=False)
+                download_url = url_for('scarica_confronto_inventario', filename=filename)
+
+            except Exception as e:
+                error = str(e)
+            finally:
+                db.close()
+
+        return render_template_string(
+            CONFRONTA_INVENTARIO_HTML,
+            cliente=cliente,
+            error=error,
+            rows=rows,
+            headers=headers,
+            summary=summary,
+            download_url=download_url,
+        )
+
+    @app.route('/confronta-inventario/download/<path:filename>', methods=['GET'])
+    @login_required
+    def scarica_confronto_inventario(filename):
+        if session.get('role') not in ('admin', 'magazzino'):
+            return "Accesso negato", 403
+        safe = secure_filename(filename)
+        base = DOCS_DIR if 'DOCS_DIR' in globals() else MEDIA_DIR
+        path = base / safe
+        if not path.exists():
+            abort(404)
+        return send_file(path, as_attachment=True, download_name=safe)
+
+
+    # ==============================================================================
     #  3. FUNZIONE ELIMINA (Risolve l'errore 'endpoint elimina_record')
     # ==============================================================================
