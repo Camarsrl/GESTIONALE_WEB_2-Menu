@@ -5441,7 +5441,7 @@ templates = {
         'home.html': HOME_HTML,
         'scan_entrata.html': SCAN_ENTRATA_HTML,
         'dettaglio_entrata.html': DETTAGLIO_ENTRATA_HTML,
-        'giacenze.html': GIACENZE_HTML,
+        # 'giacenze.html': GIACENZE_HTML,  # DISATTIVATO: usa templates/giacenze.html esterno
         
         
         'edit.html': EDIT_HTML,  
