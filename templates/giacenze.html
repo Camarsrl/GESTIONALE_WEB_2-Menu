@@ -28,11 +28,9 @@
         <a href="{{ url_for('calcola_costi') }}" class="btn btn-warning btn-sm mag-btn-compact"><i class="bi bi-calculator"></i> Calcoli</a>
         <a href="{{ url_for('export_excel') }}{% if request.query_string %}?{{ request.query_string.decode('utf-8') }}{% endif %}" class="btn btn-success btn-sm mag-btn-compact"><i class="bi bi-file-earmark-excel"></i> Excel Filtri</a>
 
-        {% if session.get('role') in ['admin', 'magazzino'] or session.get('user') == 'OPS' %}
-        <a href="{{ url_for('confronta_inventario') }}" class="btn btn-primary btn-sm mag-btn-compact fw-bold">
+        <a href="{{ url_for('confronta_inventario') }}" class="btn btn-primary btn-sm mag-btn-compact fw-bold" title="Confronta inventario">
             <i class="bi bi-clipboard-check"></i> Confronta Inventario
         </a>
-        {% endif %}
 
         <form action="{{ url_for('report_inventario_excel') }}" method="POST" class="d-inline-block">
             <div class="input-group input-group-sm">
