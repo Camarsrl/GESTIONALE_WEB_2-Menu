@@ -28,7 +28,8 @@
         <a href="{{ url_for('calcola_costi') }}" class="btn btn-warning btn-sm mag-btn-compact"><i class="bi bi-calculator"></i> Calcoli</a>
         <a href="{{ url_for('export_excel') }}{% if request.query_string %}?{{ request.query_string.decode('utf-8') }}{% endif %}" class="btn btn-success btn-sm mag-btn-compact"><i class="bi bi-file-earmark-excel"></i> Excel Filtri</a>
 
-        <a href="{{ url_for('confronta_inventario') }}" class="btn btn-primary btn-sm mag-btn-compact fw-bold" title="Confronta inventario">
+        <!-- Pulsante visibile agli utenti interni. La route controlla comunque i permessi lato server. -->
+        <a href="{{ url_for('confronta_inventario') }}" class="btn btn-primary btn-sm mag-btn-compact fw-bold" title="Confronta file inventario con giacenze">
             <i class="bi bi-clipboard-check"></i> Confronta Inventario
         </a>
 
