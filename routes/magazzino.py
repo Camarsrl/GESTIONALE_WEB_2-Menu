@@ -695,10 +695,18 @@ def register_magazzino_routes(app_obj, deps):
         db.commit()
         return {'scarichi': scarichi, 'carichi': carichi, 'aggiornati': aggiornati, 'skipped': skipped}
 
+    def _can_use_confronta_inventario():
+        try:
+            role = (session.get('role') or '').strip().lower()
+            user = (getattr(current_user, 'id', '') or session.get('user') or session.get('username') or '').strip().upper()
+            return role in ('admin', 'magazzino') or user in ('OPS', 'ADMIN', 'CUSTOMS', 'TAZIO', 'DIEGO', 'MAGAZZINO', 'WAREHOUSE', 'MAG1')
+        except Exception:
+            return False
+
     @app.route('/confronta-inventario', methods=['GET', 'POST'])
     @login_required
     def confronta_inventario():
-        if session.get('role') not in ('admin', 'magazzino'):
+        if not _can_use_confronta_inventario():
             return "Accesso negato", 403
         error = None
         rows = []
@@ -778,7 +786,7 @@ def register_magazzino_routes(app_obj, deps):
     @app.route('/confronta-inventario/applica/<path:token>', methods=['POST'])
     @login_required
     def applica_correzione_inventario(token):
-        if session.get('role') not in ('admin', 'magazzino'):
+        if not _can_use_confronta_inventario():
             return "Accesso negato", 403
         db = SessionLocal()
         try:
@@ -809,7 +817,7 @@ def register_magazzino_routes(app_obj, deps):
     @app.route('/confronta-inventario/download/<path:filename>', methods=['GET'])
     @login_required
     def scarica_confronto_inventario(filename):
-        if session.get('role') not in ('admin', 'magazzino'):
+        if not _can_use_confronta_inventario():
             return "Accesso negato", 403
         safe = secure_filename(filename)
         base = DOCS_DIR if 'DOCS_DIR' in globals() else MEDIA_DIR
