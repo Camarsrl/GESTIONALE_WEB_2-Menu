@@ -270,7 +270,7 @@ def register_magazzino_routes(app_obj, deps):
 
       <div class="alert alert-info">
         Carica il file Excel dell'inventario. Il confronto cambia in base al cliente:<br>
-        <b>GALVANO TECNICA</b>: Codice articolo + Pezzi + Lotto + Descrizione<br>
+        <b>GALVANO TECNICA</b>: Codice articolo + Pezzi (Lotto e Descrizione solo informativi; i Colli non vengono modificati)<br>
         <b>FINCANTIERI / DE WAVE / RF-DE WAVE / MARINE INTERIORS</b>: Codice articolo (Marca pezzo) + Protocollo + Arrivo + Descrizione + Colli<br>
         <b>DUFERCO</b>: Seriale + Colli + Descrizione
       </div>
@@ -389,9 +389,15 @@ def register_magazzino_routes(app_obj, deps):
         if 'GALVANO' in cn:
             return {
                 'nome': 'GALVANO TECNICA',
-                'key_fields': ['codice_articolo', 'lotto'],
+                # REGOLA GALVANO:
+                # la corrispondenza deve avvenire SOLO per codice articolo.
+                # Lotto e descrizione restano informativi, perché se il lotto è vuoto/diverso
+                # non deve creare una riga nuova di CARICO INVENTARIALE.
+                # La correzione inventariale deve aggiornare SOLO i pezzi.
+                # I colli devono rimanere invariati sulle righe originali.
+                'key_fields': ['codice_articolo'],
                 'metrics': ['pezzo'],
-                'extra_fields': ['descrizione'],
+                'extra_fields': ['lotto', 'descrizione'],
                 'labels': {'codice_articolo': 'Codice', 'lotto': 'Lotto', 'pezzo': 'Pezzi', 'peso': 'Peso', 'descrizione': 'Descrizione'}
             }
         if 'DUFERCO' in cn:
@@ -590,6 +596,7 @@ def register_magazzino_routes(app_obj, deps):
         - MANCANTE IN INVENTARIO: scarico inventariale sulle righe attive del gestionale.
         - EXTRA NEL FILE: carico inventariale creando una nuova riga.
         - DIFFERENZA: aggiorna quantità/colli/peso secondo inventario e registra nota.
+        - GALVANO TECNICA: aggiorna solo i pezzi; i colli non vengono mai modificati.
         """
         profile = snapshot.get('profile') or {}
         cliente = snapshot.get('cliente') or ''
@@ -626,6 +633,8 @@ def register_magazzino_routes(app_obj, deps):
                     if (getattr(art, 'data_uscita', '') or '').strip() or (getattr(art, 'n_ddt_uscita', '') or '').strip():
                         skipped += 1
                         continue
+                    # Scarico inventariale: segna l'uscita ma NON azzera i pezzi
+                    # e NON modifica i colli. I dati originali devono restare leggibili.
                     art.data_uscita = today
                     art.n_ddt_uscita = 'SCARICO INVENTARIALE'
                     art.note = _append_inventory_note(getattr(art, 'note', ''), f"SCARICO INVENTARIALE da confronto inventario del {today} - utente {user or '-'}")
@@ -653,7 +662,10 @@ def register_magazzino_routes(app_obj, deps):
                     except Exception:
                         art.n_colli = 0
                 else:
-                    art.n_colli = 1
+                    # Per GALVANO TECNICA i colli NON devono essere creati/modificati
+                    # dalla correzione inventariale. Se il file inventario non confronta i colli,
+                    # lasciamo il campo vuoto invece di impostare automaticamente 1.
+                    art.n_colli = None
                 if 'peso' in metrics:
                     art.peso = float(values.get('peso', 0) or 0)
                 db.add(art)
@@ -675,6 +687,9 @@ def register_magazzino_routes(app_obj, deps):
                 inv_values = i.get('values') or {}
                 db_values = d.get('values') or {}
                 for m in metrics:
+                    # Sicurezza: per GALVANO TECNICA non modificare mai i colli.
+                    if (cliente or '').strip().upper().find('GALVANO') >= 0 and m == 'n_colli':
+                        continue
                     gv = float(db_values.get(m, 0) or 0)
                     iv = float(inv_values.get(m, 0) or 0)
                     tolerance = 0.02 if m == 'peso' else 0.0001
