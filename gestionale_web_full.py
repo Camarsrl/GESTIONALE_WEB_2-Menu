@@ -9364,6 +9364,11 @@ def scarico_parziale(id_articolo):
             flash("Questa riga risulta già scaricata: non posso fare uno scarico parziale.", "warning")
             return redirect(url_for('giacenze'))
 
+        # Salvo subito i valori originali: servono per non perdere codice/descrizione
+        # quando creo la nuova riga di scarico e quando aggiorno la riga residua.
+        codice_originale = (art.codice_articolo or '').strip()
+        descrizione_originale = (art.descrizione or '').strip()
+
         def _num_float(v):
             try:
                 if v is None:
@@ -9412,11 +9417,13 @@ def scarico_parziale(id_articolo):
             """
             original = (original or '').strip()
             requested = (requested or '').strip()
-            if not original or not requested or requested == original:
-                # Se il testo è identico non azzeriamo eventuali package/pallet/cassa presenti.
-                parts = _split_materiale_tokens(original)
-                markers = [p for p in parts if _is_marker_package_pallet_cassa(p)]
-                return ' ; '.join(markers) if markers else ('' if requested == original else original)
+            if not original or not requested:
+                return original
+            if requested == original:
+                # Se il testo scelto è identico alla riga originale NON svuotiamo la riga residua.
+                # Nello scarico parziale di pezzi dello stesso articolo, il residuo deve mantenere
+                # codice articolo e descrizione uguali alla riga iniziale.
+                return original
 
             req_norm = normalize_text_key(requested) if 'normalize_text_key' in globals() else re.sub(r'[^A-Z0-9]+', '', requested.upper())
             kept = []
@@ -9454,8 +9461,8 @@ def scarico_parziale(id_articolo):
             n_ddt_uscita_val = (request.form.get('n_ddt_uscita') or '').strip()
             buono_val = (request.form.get('buono_n') or '').strip()
             note_extra = (request.form.get('note_extra') or '').strip()
-            codice_scarico_val = (request.form.get('codice_scarico') or art.codice_articolo or '').strip()
-            descrizione_scarico_val = (request.form.get('descrizione_scarico') or art.descrizione or '').strip()
+            codice_scarico_val = (request.form.get('codice_scarico') or codice_originale or art.codice_articolo or '').strip()
+            descrizione_scarico_val = (request.form.get('descrizione_scarico') or descrizione_originale or art.descrizione or '').strip()
 
             if pezzi_scarico <= 0:
                 flash("Inserisci un numero di pezzi da scaricare maggiore di zero.", "danger")
@@ -9477,10 +9484,16 @@ def scarico_parziale(id_articolo):
                 flash("Data uscita e numero DDT sono obbligatori.", "danger")
                 return redirect(url_for('scarico_parziale', id_articolo=id_articolo))
 
-            scarico_totale = (
-                abs(pezzi_scarico - pezzi_disponibili) < 0.000001
-                and abs(peso_scarico - peso_disponibile) < 0.000001
-            )
+            # La decisione tra scarico TOTALE e PARZIALE deve dipendere dai PEZZI,
+            # non dal peso. Prima confrontava anche il peso: se per errore veniva
+            # inserito il peso totale, il gestionale trattava lo scarico come totale
+            # e NON creava la nuova riga di uscita.
+            scarico_totale = abs(pezzi_scarico - pezzi_disponibili) < 0.000001
+
+            # Se lo scarico è parziale ma il peso inserito è uguale/superiore al peso totale,
+            # calcolo automaticamente il peso proporzionale per evitare residuo a zero.
+            if not scarico_totale and peso_scarico >= peso_disponibile:
+                peso_scarico = peso_disponibile * (pezzi_scarico / pezzi_disponibili)
 
             # Scarico totale: aggiorno direttamente la riga originale
             if scarico_totale:
@@ -9509,8 +9522,9 @@ def scarico_parziale(id_articolo):
                     continue
                 setattr(scarico, col.name, getattr(art, col.name))
 
-            scarico.codice_articolo = codice_scarico_val or scarico.codice_articolo
-            scarico.descrizione = descrizione_scarico_val or scarico.descrizione
+            # La nuova riga di scarico deve sempre avere codice e descrizione.
+            scarico.codice_articolo = codice_scarico_val or codice_originale or scarico.codice_articolo
+            scarico.descrizione = descrizione_scarico_val or descrizione_originale or scarico.descrizione
             scarico.pezzo = _fmt_num(pezzi_scarico)
             scarico.peso = _fmt_peso(peso_scarico)
             scarico.data_uscita = data_uscita_val
@@ -9522,8 +9536,13 @@ def scarico_parziale(id_articolo):
                 + (f" - {note_extra}" if note_extra else "")
             ).strip(" |")
 
-            art.codice_articolo = _remove_requested_preserve_markers(art.codice_articolo, codice_scarico_val)
-            art.descrizione = _remove_requested_preserve_markers(art.descrizione, descrizione_scarico_val)
+            residuo_codice = _remove_requested_preserve_markers(codice_originale or art.codice_articolo, codice_scarico_val)
+            residuo_descrizione = _remove_requested_preserve_markers(descrizione_originale or art.descrizione, descrizione_scarico_val)
+
+            # Se lo scarico è di una parte dei pezzi dello stesso articolo, la riga residua
+            # NON deve rimanere vuota: conserva codice e descrizione originali.
+            art.codice_articolo = (residuo_codice or codice_originale or art.codice_articolo or '').strip()
+            art.descrizione = (residuo_descrizione or descrizione_originale or art.descrizione or '').strip()
             art.pezzo = _fmt_num(pezzi_residui)
             art.peso = _fmt_peso(peso_residuo)
             art.data_uscita = ''
