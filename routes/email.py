@@ -377,6 +377,49 @@ def register_email_routes(app_obj, deps):
                     save_rubrica_email(data)
                     flash("Gruppo salvato.", "success")
 
+            elif action == 'add_email_to_group':
+                gruppo = (request.form.get('gruppo') or '').strip()
+                raw_email = (request.form.get('nuovo_destinatario') or '').strip()
+                nome_contatto = (request.form.get('nome_contatto') or '').strip()
+
+                if not gruppo:
+                    flash("Nome gruppo obbligatorio.", "warning")
+                elif gruppo not in data.get("gruppi", {}):
+                    flash("Gruppo non trovato.", "warning")
+                elif not raw_email:
+                    flash("Inserisci almeno un destinatario da aggiungere al gruppo.", "warning")
+                else:
+                    nuove_email = _parse_emails(raw_email)
+                    if not nuove_email:
+                        flash("Inserisci un indirizzo email valido.", "warning")
+                    else:
+                        gruppo_emails = list(data.get("gruppi", {}).get(gruppo, []) or [])
+                        esistenti = {str(e).strip().lower() for e in gruppo_emails if str(e).strip()}
+                        aggiunte = []
+
+                        for e in nuove_email:
+                            e = (e or '').strip()
+                            if not e:
+                                continue
+                            if e.lower() not in esistenti:
+                                gruppo_emails.append(e)
+                                esistenti.add(e.lower())
+                                aggiunte.append(e)
+
+                        data["gruppi"][gruppo] = gruppo_emails
+
+                        # Se indicato il nome, salvo anche il destinatario nei contatti.
+                        if nome_contatto and nuove_email:
+                            data.setdefault("contatti", {})
+                            data["contatti"][nome_contatto] = {"email": nuove_email[0]}
+
+                        save_rubrica_email(data)
+
+                        if aggiunte:
+                            flash(f"Aggiunto/i {len(aggiunte)} destinatario/i al gruppo {gruppo}.", "success")
+                        else:
+                            flash("Il destinatario era già presente nel gruppo.", "info")
+
             elif action == 'delete_group':
                 gruppo = (request.form.get('gruppo') or '').strip()
                 if gruppo in data.get("gruppi", {}):
