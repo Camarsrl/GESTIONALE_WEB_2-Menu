@@ -4677,7 +4677,28 @@ RUBRICA_EMAIL_HTML = """
               <div id="c{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#accGruppi">
                 <div class="accordion-body">
                   <div class="small text-muted mb-2">Email:</div>
-                  <div class="border rounded p-2 small" style="white-space: pre-wrap;">{{ emails|join('; ') }}</div>
+                  <div class="border rounded p-2 small mb-2" style="white-space: pre-wrap;">{{ emails|join('; ') }}</div>
+
+                  <button class="btn btn-outline-primary btn-sm mb-2" type="button"
+                          data-bs-toggle="collapse" data-bs-target="#modificaGruppo{{ loop.index }}">
+                    <i class="bi bi-pencil-square"></i> Modifica gruppo
+                  </button>
+
+                  <div class="collapse" id="modificaGruppo{{ loop.index }}">
+                    <form method="post" class="border rounded p-2 bg-light mb-2">
+                      <input type="hidden" name="action" value="add_email_to_group">
+                      <input type="hidden" name="gruppo" value="{{ g }}">
+                      <label class="form-label small fw-bold mb-1">Aggiungi destinatario al gruppo</label>
+                      <input class="form-control form-control-sm mb-2" name="nome_contatto"
+                             placeholder="Nome contatto opzionale">
+                      <input class="form-control form-control-sm mb-2" name="nuovo_destinatario"
+                             placeholder="nuova@email.it oppure più email separate da ;">
+                      <button class="btn btn-primary btn-sm w-100">
+                        <i class="bi bi-plus-circle"></i> Aggiungi al gruppo
+                      </button>
+                    </form>
+                  </div>
+
                   <form method="post" class="mt-2">
                     <input type="hidden" name="action" value="delete_group">
                     <input type="hidden" name="gruppo" value="{{ g }}">
