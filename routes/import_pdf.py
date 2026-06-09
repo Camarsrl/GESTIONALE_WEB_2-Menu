@@ -281,28 +281,124 @@ def register_import_pdf_routes(app_obj, deps):
             }
 
         def _parse_atotech(lines):
+            """Parser Atotech/Galvano più controllato.
+
+            Problema corretto:
+            - il parser generico prendeva anche numeri di intestazione
+              (P.IVA, telefono, ordine interno, ecc.) come codici articolo.
+            - Atotech va letto solo dalla tabella articoli, cioè dalle righe
+              con codice nel formato 1681575-0025-1-000.
+            """
             rows = []
             current = None
-            for ln in lines:
-                m = re.search(r"\b(\d{7}-\d{4}-\d+-\d+)\b\s+(.+?)\s+(?:CAN|PAL|BOX|CRT|UN)\s+(\d+)\s+(\d+(?:,\d+)?)\s+(\d+(?:,\d+)?)\s+(KG|PZ|NR|UN)\s+(\d+(?:,\d+)?)", ln, re.I)
+
+            codice_re = re.compile(r"\b(\d{6,8}-\d{4}-\d+-\d+)\b")
+            stop_re = re.compile(
+                r"\b(TOTALE\s+COLLI|TOTALI\s+PESI|CAUSALE\s+DEL\s+TRASPORTO|FIRMA|PESO\s+NETTO|PESO\s+LORDO)\b",
+                re.I
+            )
+
+            def _descr_from_first_line(line, codice):
+                rest = _clean_spaces(line.replace(codice, " ", 1))
+                # taglia via eventuale coda numerica/imballo già presente sulla stessa riga
+                rest = re.split(r"\b(?:SAC|CAN|PAL|BOX|CRT|UN|KG)\b\s+\d+\b", rest, maxsplit=1, flags=re.I)[0]
+                rest = re.sub(r"\bLotto\b.*$", "", rest, flags=re.I)
+                return _clean_spaces(rest)
+
+            def _finish_current():
+                if not current:
+                    return
+                block = _clean_spaces(" ".join(current.pop("_block", [])))
+
+                # Lotto
+                mlot = re.search(r"\bLOTTO\b\s*([A-Z0-9\-./]+)", block, re.I)
+                if mlot:
+                    current["lotto"] = mlot.group(1).strip()
+
+                # Imballo + colli + pesi + UM + quantità.
+                # Esempi:
+                # SAC 6 150,00 153,00 KG 150,00
+                # CAN 3 75,00 78,45 KG 75,00
+                m = re.search(
+                    r"\b(SAC|CAN|PAL|BOX|CRT|UN|KG)\b\s+(\d{1,5})\s+"
+                    r"(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)\s+"
+                    r"(KG|PZ|NR|UN|N)\b\s+(-?\d+(?:[.,]\d+)?)",
+                    block,
+                    re.I
+                )
                 if m:
-                    codice = m.group(1)
-                    descr = m.group(2)
-                    colli = _to_int(m.group(3)) or 0
-                    um = m.group(6).upper()
-                    qta = _to_float_it(m.group(7)) or 0
-                    pezzi_articolo = ''
-                    mc = re.match(r"^(\d{6,8})-(\d{4})-(\d+)-", codice)
-                    if mc:
-                        pezzi_articolo = mc.group(3).lstrip('0') or mc.group(3)
-                    current = _base_row(codice, descr, colli, qta, um, pezzi_articolo)
+                    current["colli"] = _to_int(m.group(2)) or current.get("colli") or 0
+                    current["um"] = (m.group(5) or "").upper()
+                    current["pezzi"] = _to_float_it(m.group(6)) or current.get("pezzi") or 0
+                else:
+                    # fallback: cerca almeno "SAC 1 25,00 25,50 KG 25,00"
+                    m2 = re.search(
+                        r"\b(SAC|CAN|PAL|BOX|CRT)\b\s+(\d{1,5}).{0,60}?\b(KG|PZ|NR|UN|N)\b\s+(-?\d+(?:[.,]\d+)?)",
+                        block,
+                        re.I
+                    )
+                    if m2:
+                        current["colli"] = _to_int(m2.group(2)) or current.get("colli") or 0
+                        current["um"] = (m2.group(3) or "").upper()
+                        current["pezzi"] = _to_float_it(m2.group(4)) or current.get("pezzi") or 0
+
+                # Pezzi articolo da codice: 1681575-0025-1-000 -> 1
+                mc = re.match(r"^(\d{6,8})-(\d{4})-(\d+)-", current.get("codice") or "")
+                if mc:
+                    current["pezzi_articolo"] = mc.group(3).lstrip("0") or mc.group(3)
+
+                # Evita righe prive di vero codice articolo Atotech
+                if re.fullmatch(r"\d{6,8}-\d{4}-\d+-\d+", current.get("codice") or ""):
                     rows.append(current)
+
+            for ln in lines:
+                line = _clean_spaces(ln)
+                if not line:
                     continue
+
+                # dopo i totali non ci sono più articoli: evita timbri, note e dati trasporto
+                if stop_re.search(line):
+                    _finish_current()
+                    current = None
+                    break
+
+                m_code = codice_re.search(line)
+                if m_code:
+                    _finish_current()
+                    codice = m_code.group(1).strip()
+                    descr = _descr_from_first_line(line, codice)
+                    current = _base_row(
+                        codice=codice,
+                        descrizione=descr,
+                        colli=0,
+                        pezzi=0,
+                        um="",
+                        pezzi_articolo="",
+                        lotto="",
+                        serial_number=""
+                    )
+                    current["_block"] = [line]
+                    continue
+
                 if current is not None:
-                    mlot = re.search(r"\bLOTTO\b\s*([A-Z0-9\-./]+)", ln, re.I)
-                    if mlot:
-                        current['lotto'] = mlot.group(1).strip()
-            return rows
+                    current["_block"].append(line)
+
+            _finish_current()
+
+            # dedup conservando righe con stesso codice ma lotto diverso.
+            # Se stesso codice e stesso lotto appaiono due volte nel PDF, le quantità/colli vengono sommate.
+            merged = {}
+            for r in rows:
+                key = ((r.get("codice") or "").upper(), (r.get("lotto") or "").upper())
+                if key not in merged:
+                    merged[key] = dict(r)
+                else:
+                    merged[key]["colli"] = to_int_eu(merged[key].get("colli")) + to_int_eu(r.get("colli"))
+                    try:
+                        merged[key]["pezzi"] = float(merged[key].get("pezzi") or 0) + float(r.get("pezzi") or 0)
+                    except Exception:
+                        pass
+            return list(merged.values())
 
         def _parse_comefri(lines):
             rows = []
@@ -515,6 +611,8 @@ def register_import_pdf_routes(app_obj, deps):
         def _parse_generic(lines):
             extracted_rows = []
             last_row = None
+            full_for_profile = "\n".join(lines)
+            is_atotech_doc = bool(re.search(r"ATOTECH|MKS", full_for_profile, re.I))
             for line in lines:
                 if last_row is not None:
                     m_lotto = re.search(r"\bLOTTO\b\s*[:\-]?\s*([A-Z0-9\-./]+)", line, flags=re.I)
@@ -530,6 +628,14 @@ def register_import_pdf_routes(app_obj, deps):
                     continue
 
                 codice = _first_code_in_line(line)
+
+                # Nei PDF Atotech/Galvano il generico non deve prendere P.IVA,
+                # telefono, ordine interno, DDT o altri numeri di intestazione.
+                # Lasciamo passare solo i veri codici articolo Atotech.
+                if is_atotech_doc:
+                    if not re.fullmatch(r"\d{6,8}-\d{4}-\d+-\d+", codice or ""):
+                        continue
+
                 if not codice and not re.search(r"\bPEDANE\b", line, re.I):
                     continue
 
