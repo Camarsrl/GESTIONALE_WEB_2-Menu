@@ -727,12 +727,13 @@ def register_import_pdf_routes(app_obj, deps):
         meta = _profile_fix_meta(_extract_meta(lines, full_text), lines, full_text)
 
         # ------------------------------------------------------------
-        # ESTRAZIONE RIGHE - FIX DUPLICATI OCR
+        # ESTRAZIONE RIGHE - FIX CODICI ARTICOLO + DUPLICATI OCR
         # ------------------------------------------------------------
-        # Prima proviamo i parser specifici per cliente/formato.
-        # Se un parser specifico trova righe, NON aggiungiamo anche il parser generico,
-        # perché sui PDF OCR la stessa riga può essere letta sia dal parser dedicato
-        # sia da _parse_generic(), creando doppioni in anteprima e poi in import.
+        # I parser specifici leggono bene molti formati, ma su alcuni PDF possono
+        # trovare solo righe generiche (es. PEDANE / intestazioni) e saltare i veri
+        # codici articolo. Per questo il parser generico viene eseguito sempre.
+        # I duplicati vengono comunque eliminati più sotto con _row_signature_for_dedup(),
+        # dando priorità al codice articolo come chiave affidabile.
         specific_rows = []
         specific_rows.extend(_parse_atotech(lines))
         specific_rows.extend(_parse_comefri(lines))
@@ -742,11 +743,9 @@ def register_import_pdf_routes(app_obj, deps):
         specific_rows.extend(_parse_fertubi_dewave(lines))
         specific_rows.extend(_parse_fincantieri_generic(lines))
 
-        generic_rows = []
-        if not specific_rows:
-            generic_rows = _parse_generic(lines)
+        generic_rows = _parse_generic(lines)
 
-        rows = specific_rows if specific_rows else generic_rows
+        rows = specific_rows + generic_rows
 
         def _row_signature_for_dedup(r):
             """Firma robusta per evitare doppioni OCR.
