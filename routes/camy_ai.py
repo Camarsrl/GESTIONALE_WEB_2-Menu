@@ -63,6 +63,9 @@ def register_camy_ai_routes(app_obj, deps):
       .camy-ai-result { border-top:1px solid #eee; padding-top:8px; margin-top:8px; }
       .camy-ai-result:first-child { border-top:0; padding-top:0; margin-top:0; }
       .camy-ai-input { position:sticky; bottom:0; background:white; padding-top:8px; }
+      .camy-voice-btn.listening { animation: camyPulse 1s infinite; }
+      @keyframes camyPulse { 0%{opacity:1;} 50%{opacity:.45;} 100%{opacity:1;} }
+      .camy-speak-wrap { font-size:13px; color:#666; margin-top:6px; }
       @media (max-width:768px){
         .camy-ai-card { margin:0; border-radius:0; }
         .camy-ai-box { height:calc(100vh - 280px); min-height:360px; }
@@ -100,6 +103,9 @@ def register_camy_ai_routes(app_obj, deps):
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Prepara%20buono%20arrivo%20">Prepara Buono</a>
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Scarico%20parziale%20ID%20">Scarico parziale</a>
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Aggiungi%20al%20buono%20">Aggiungi a Buono</a>
+            <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Crea%20DDT%20arrivo%20">Crea DDT</a>
+            <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Confronta%20inventario%20cliente%20">Confronta Inventario</a>
+            <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Crea%20report%20Excel%20giacenze%20cliente%20">Report Excel</a>
             {% endif %}
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Cosa%20puoi%20fare%3F">Aiuto</a>
           </div>
@@ -114,9 +120,14 @@ def register_camy_ai_routes(app_obj, deps):
           </div>
 
           <form class="input-group camy-ai-input" method="get" action="/camy-ai">
-            <input id="camyAiInput" name="q" type="text" class="form-control" placeholder="Scrivi una domanda a CAMY AI..." value="{{ initial_input_value or '' }}">
+            <input id="camyAiInput" name="q" type="text" class="form-control" placeholder="Scrivi o detta una domanda a CAMY AI..." value="{{ initial_input_value or '' }}">
+            <button id="camyVoiceBtn" type="button" class="btn btn-outline-danger camy-voice-btn" title="Detta a CAMY" data-camy-voice="1">🎤</button>
             <button type="submit" class="btn btn-primary" data-camy-send="1">Invia</button>
           </form>
+          <div class="camy-speak-wrap">
+            <label><input type="checkbox" id="camySpeakAnswer"> Leggi risposta ad alta voce</label>
+            <span id="camyVoiceStatus" class="ms-2"></span>
+          </div>
         </div>
       </div>
     </div>
@@ -125,6 +136,55 @@ def register_camy_ai_routes(app_obj, deps):
       (function(){
         function getBox(){ return document.getElementById('camyAiBox'); }
         function getInput(){ return document.getElementById('camyAiInput'); }
+        function getVoiceBtn(){ return document.getElementById('camyVoiceBtn'); }
+        function getVoiceStatus(){ return document.getElementById('camyVoiceStatus'); }
+        function setVoiceStatus(txt){ var s=getVoiceStatus(); if(s) s.textContent = txt || ''; }
+
+        window.camyAiSpeak = function(text){
+          try{
+            var cb = document.getElementById('camySpeakAnswer');
+            if(!cb || !cb.checked || !('speechSynthesis' in window)) return;
+            var clean = (text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+            if(!clean) return;
+            window.speechSynthesis.cancel();
+            var utter = new SpeechSynthesisUtterance(clean);
+            utter.lang = 'it-IT';
+            utter.rate = 1;
+            window.speechSynthesis.speak(utter);
+          }catch(e){}
+        };
+
+        window.camyAiStartVoice = function(){
+          var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+          var input = getInput();
+          var btn = getVoiceBtn();
+          if(!SpeechRecognition){
+            setVoiceStatus('Microfono non supportato da questo browser. Usa Chrome o Edge.');
+            return;
+          }
+          try{
+            var rec = new SpeechRecognition();
+            rec.lang = 'it-IT';
+            rec.interimResults = false;
+            rec.maxAlternatives = 1;
+            if(btn) btn.classList.add('listening');
+            setVoiceStatus('Sto ascoltando...');
+            rec.onresult = function(event){
+              var spoken = event.results && event.results[0] && event.results[0][0] ? event.results[0][0].transcript : '';
+              if(input && spoken){
+                input.value = spoken;
+                input.focus();
+              }
+              setVoiceStatus('Testo inserito. Premi Invia oppure modifica la frase.');
+            };
+            rec.onerror = function(){ setVoiceStatus('Non sono riuscita a sentire bene. Riprova.'); };
+            rec.onend = function(){ if(btn) btn.classList.remove('listening'); };
+            rec.start();
+          }catch(e){
+            if(btn) btn.classList.remove('listening');
+            setVoiceStatus('Microfono non avviato. Controlla i permessi del browser.');
+          }
+        };
 
         window.camyAiAdd = function(text, who, isHtml){
           var box = getBox();
@@ -173,6 +233,7 @@ def register_camy_ai_routes(app_obj, deps):
             var data = await res.json();
             if(loading) loading.remove();
             window.camyAiAdd(data.answer || 'Non ho trovato una risposta.', 'bot', !!data.html);
+            window.camyAiSpeak(data.answer || 'Non ho trovato una risposta.');
           }catch(e){
             if(loading) loading.remove();
             window.camyAiAdd('CAMY AI ha avuto un errore. Controlla i log admin.', 'bot', false);
@@ -264,10 +325,15 @@ def register_camy_ai_routes(app_obj, deps):
         // - i pulsanti rapidi compilano solo il campo, senza inviare;
         // - i pulsanti Automatico/Manuale dentro la risposta funzionano anche se l'onclick inline viene bloccato.
         document.addEventListener('click', function(ev){
-          var target = ev.target && ev.target.closest ? ev.target.closest('[data-camy-fill],[data-camy-send],[data-camy-confirm]') : null;
+          var target = ev.target && ev.target.closest ? ev.target.closest('[data-camy-fill],[data-camy-send],[data-camy-confirm],[data-camy-voice]') : null;
           if(!target) return;
           ev.preventDefault();
           ev.stopPropagation();
+
+          if(target.hasAttribute('data-camy-voice')){
+            window.camyAiStartVoice();
+            return;
+          }
 
           if(target.hasAttribute('data-camy-confirm')){
             var token = target.getAttribute('data-camy-token') || '';
@@ -572,7 +638,10 @@ def register_camy_ai_routes(app_obj, deps):
             "• Dove si trova il codice ABC123?<br>"
             "• Totale colli, peso, M2 e M3 di De Wave.<br>"
             "• Prepara buono arrivo 542/26.<br>"
-            "• Scarico parziale ID 12345.<br><br>"
+            "• Scarico parziale ID 12345.<br>"
+            "• Crea DDT arrivo 38/26.<br>"
+            "• Crea report Excel giacenze Fincantieri.<br>"
+            "• Confronta inventario Galvano Tecnica.<br><br>"
             "Le operazioni che modificano dati richiedono sempre conferma."
         )
 
@@ -1902,10 +1971,111 @@ def register_camy_ai_routes(app_obj, deps):
         finally:
             db.close()
 
+
+    def _filters_to_query_params(filters):
+        """Converte i filtri CAMY nei parametri usati da Giacenze/Export Excel."""
+        params = []
+        mapping = {
+            "cliente": "cliente",
+            "codice_articolo": "codice_articolo",
+            "descrizione": "descrizione",
+            "n_arrivo": "n_arrivo",
+            "ddt": "n_ddt_ingresso",
+            "stato": "stato",
+            "fornitore": "fornitore",
+            "serial_number": "serial_number",
+            "lotto": "lotto",
+            "posizione": "posizione",
+        }
+        for k, dest in mapping.items():
+            v = (filters.get(k) or "").strip() if isinstance(filters.get(k), str) else filters.get(k)
+            if v:
+                params.append((dest, str(v)))
+        if filters.get("only_active"):
+            params.append(("solo_giacenza", "1"))
+        if filters.get("date_from"):
+            if (filters.get("date_field") or "data_ingresso") == "data_uscita":
+                params.append(("data_usc_da", filters.get("date_from")))
+            else:
+                params.append(("data_ing_da", filters.get("date_from")))
+        if filters.get("date_to"):
+            if (filters.get("date_field") or "data_ingresso") == "data_uscita":
+                params.append(("data_usc_a", filters.get("date_to")))
+            else:
+                params.append(("data_ing_a", filters.get("date_to")))
+        try:
+            from urllib.parse import urlencode
+            return urlencode(params)
+        except Exception:
+            return "&".join([str(a) + "=" + str(b) for a, b in params])
+
+    def _answer_prepare_ddt(db, msg):
+        if not _can_operate():
+            return _operation_denied()
+        filters = _extract_intent(msg)
+        if not any((filters.get(k) or "").strip() for k in ("n_arrivo", "codice_articolo", "ddt", "serial_number", "lotto", "cliente")):
+            return (
+                "Per preparare un DDT indicami almeno arrivo, codice, DDT, seriale, lotto o cliente.<br>"
+                "Esempio: <b>Crea DDT arrivo 38/26</b>"
+            )
+        filters["only_active"] = True
+        rows = _apply_filters(_base_query(db), filters).order_by(Articolo.id_articolo.desc()).limit(200).all()
+        rows = [r for r in rows if not str(getattr(r, 'data_uscita', '') or '').strip() and not str(getattr(r, 'n_ddt_uscita', '') or '').strip()]
+        if not rows:
+            return "Non ho trovato righe attive compatibili per preparare il DDT."
+        ids = ",".join(str(r.id_articolo) for r in rows)
+        riepilogo = [f"<b>Proposta DDT</b><br>Righe trovate: <b>{len(rows)}</b><br>"]
+        for r in rows[:10]:
+            riepilogo.append(
+                f"ID {_esc(r.id_articolo)} | Codice: {_esc(r.codice_articolo or '-')} | "
+                f"Descrizione: {_esc((r.descrizione or '-')[:80])} | Colli: {_esc(r.n_colli or 0)} | "
+                f"N. arrivo: {_esc(r.n_arrivo or '-')}<br>"
+            )
+        if len(rows) > 10:
+            riepilogo.append(f"... altre {len(rows)-10} righe.<br>")
+        riepilogo.append(
+            "<br><b>Conferma:</b> apro l'anteprima DDT. Nella schermata successiva potrai scegliere destinatario e mezzo uscita.<br>"
+            f"<form method='POST' action='{url_for('ddt_preview')}' style='margin-top:8px;'>"
+            f"<input type='hidden' name='ids' value='{_esc(ids)}'>"
+            "<button class='btn btn-sm btn-success'>Apri anteprima DDT</button>"
+            "</form>"
+        )
+        return "".join(riepilogo)
+
+    def _answer_report_excel(db, msg):
+        filters = _extract_intent(msg)
+        qs = _filters_to_query_params(filters)
+        export_url = url_for('export_excel') + (('?' + qs) if qs else '')
+        giacenze_url = url_for('giacenze') + (('?' + qs) if qs else '')
+        total = _apply_filters(_base_query(db), filters).with_entities(func.count(Articolo.id_articolo)).scalar() or 0
+        return (
+            f"<b>Report Excel pronto</b><br>Righe compatibili: <b>{int(total)}</b><br>"
+            f"<a class='btn btn-sm btn-success mt-2' href='{export_url}'>Scarica Excel</a> "
+            f"<a class='btn btn-sm btn-outline-primary mt-2' href='{giacenze_url}'>Vedi filtro in Giacenze</a>"
+        )
+
+    def _answer_confronta_inventario_camy(msg):
+        if not _can_operate():
+            return _operation_denied()
+        return (
+            "<b>Confronto inventario</b><br>"
+            "Ti apro la funzione dedicata: carica il file inventario, scegli il cliente e CAMY ti mostrerà le differenze prima di applicare eventuali correzioni.<br>"
+            f"<a class='btn btn-sm btn-primary mt-2' href='{url_for('confronta_inventario')}'>Apri Confronta Inventario</a>"
+        )
+
     def _process_camy_message(db, msg):
         low = (msg or "").lower()
         if any(x in low for x in ["aiuto", "help", "cosa puoi fare", "cosa sai fare"]):
             return _answer_help(), True, {}
+
+        if any(x in low for x in ["confronta inventario", "inventario"]):
+            return _answer_confronta_inventario_camy(msg), True, {}
+
+        if any(x in low for x in ["report excel", "crea report", "scarica excel", "esporta excel", "excel giacenze"]):
+            return _answer_report_excel(db, msg), True, {}
+
+        if any(x in low for x in ["crea ddt", "prepara ddt", "genera ddt"]):
+            return _answer_prepare_ddt(db, msg), True, {}
 
         if "aggiungi" in low and "buono" in low:
             return _answer_add_to_existing_buono(db, msg), True, {}
