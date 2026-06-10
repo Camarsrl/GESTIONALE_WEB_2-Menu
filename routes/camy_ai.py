@@ -46,7 +46,7 @@ def register_camy_ai_routes(app_obj, deps):
 
     from flask import request, jsonify, render_template_string, session, url_for, send_file, abort
     from flask_login import login_required, current_user
-    from sqlalchemy import or_, func
+    from sqlalchemy import or_, func, text
 
     CAMY_AI_HTML = """
     {% extends "base.html" %}
@@ -2009,36 +2009,121 @@ def register_camy_ai_routes(app_obj, deps):
         except Exception:
             return "&".join([str(a) + "=" + str(b) for a, b in params])
 
+    def _extract_ddt_buono_target(msg):
+        """Estrae il N. Buono quando CAMY deve aprire il DDT partendo da un Buono.
+        Esempi validi:
+        - Crea DDT buono 073-FADEM
+        - Crea DDT dal buono 45/26
+        - Apri DDT per buono BP-12/26
+        """
+        s = msg or ""
+        patterns = [
+            r"\b(?:crea|prepara|apri|genera)?\s*(?:ddt)?\s*(?:dal|del|da|per)?\s*buono\s+([A-Z0-9][A-Z0-9./\-_]{1,50})",
+            r"\bbuono\s*(?:n\.?|numero)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9./\-_]{1,50})",
+        ]
+        stop = {"ARRIVO", "CODICE", "DDT", "CLIENTE", "ID", "IDS", "SCARICO", "PARZIALE"}
+        for pat in patterns:
+            m = re.search(pat, s, re.I)
+            if m:
+                val = (m.group(1) or "").strip().strip(".,;:")
+                if val and val.upper() not in stop:
+                    return val
+        return ""
+
     def _answer_prepare_ddt(db, msg):
         if not _can_operate():
             return _operation_denied()
-        filters = _extract_intent(msg)
-        if not any((filters.get(k) or "").strip() for k in ("n_arrivo", "codice_articolo", "ddt", "serial_number", "lotto", "cliente")):
+
+        if 'ddt_preview' not in app.view_functions:
             return (
-                "Per preparare un DDT indicami almeno arrivo, codice, DDT, seriale, lotto o cliente.<br>"
-                "Esempio: <b>Crea DDT arrivo 38/26</b>"
+                "La schermata DDT non risulta registrata nel gestionale. "
+                "Controlla che la route <b>/ddt/preview</b> sia attiva prima di usare CAMY per aprire il DDT."
             )
+
+        buono_target = _extract_ddt_buono_target(msg)
+        filters = _extract_intent(msg)
         filters["only_active"] = True
-        rows = _apply_filters(_base_query(db), filters).order_by(Articolo.id_articolo.desc()).limit(200).all()
-        rows = [r for r in rows if not str(getattr(r, 'data_uscita', '') or '').strip() and not str(getattr(r, 'n_ddt_uscita', '') or '').strip()]
+
+        if buono_target:
+            q = _base_query(db)
+            q = _active_filter(q)
+            # Prima provo corrispondenza esatta, poi parziale.
+            rows = (
+                q.filter(func.upper(func.trim(Articolo.buono_n)) == buono_target.upper())
+                 .order_by(Articolo.id_articolo.asc())
+                 .limit(200)
+                 .all()
+            )
+            if not rows:
+                rows = (
+                    q.filter(Articolo.buono_n.ilike(f"%{buono_target}%"))
+                     .order_by(Articolo.id_articolo.asc())
+                     .limit(200)
+                     .all()
+                )
+            criterio = f"Buono <b>{_esc(buono_target)}</b>"
+        else:
+            if not any((filters.get(k) or "").strip() for k in ("n_arrivo", "codice_articolo", "ddt", "serial_number", "lotto", "cliente")):
+                return (
+                    "Per aprire la schermata DDT indicami almeno un riferimento.<br>"
+                    "Esempi:<br>"
+                    "• <b>Crea DDT buono 073-FADEM</b><br>"
+                    "• <b>Crea DDT arrivo 38/26</b>"
+                )
+            rows = _apply_filters(_base_query(db), filters).order_by(Articolo.id_articolo.asc()).limit(200).all()
+            criterio = "filtro richiesto"
+
+        rows = [
+            r for r in rows
+            if not str(getattr(r, 'data_uscita', '') or '').strip()
+            and not str(getattr(r, 'n_ddt_uscita', '') or '').strip()
+        ]
+
         if not rows:
-            return "Non ho trovato righe attive compatibili per preparare il DDT."
-        ids = ",".join(str(r.id_articolo) for r in rows)
-        riepilogo = [f"<b>Proposta DDT</b><br>Righe trovate: <b>{len(rows)}</b><br>"]
-        for r in rows[:10]:
+            if buono_target:
+                return f"Non ho trovato righe attive col Buono <b>{_esc(buono_target)}</b> per aprire il DDT."
+            return "Non ho trovato righe attive compatibili per aprire la schermata DDT."
+
+        if len(rows) > 200:
+            return "Ho trovato troppe righe per aprire il DDT da CAMY. Restringi la ricerca."
+
+        # Importante: ddt_preview accetta una lista di campi ids, non un unico campo CSV.
+        # Quindi creo un input hidden per ogni riga selezionata.
+        hidden_ids = "".join(
+            f"<input type='hidden' name='ids' value='{_esc(getattr(r, 'id_articolo', ''))}'>"
+            for r in rows
+        )
+
+        riepilogo = [
+            f"<b>DDT pronto da aprire</b><br>",
+            f"Criterio: {criterio}<br>",
+            f"Righe selezionate: <b>{len(rows)}</b><br>"
+        ]
+        for r in rows[:12]:
             riepilogo.append(
                 f"ID {_esc(r.id_articolo)} | Codice: {_esc(r.codice_articolo or '-')} | "
                 f"Descrizione: {_esc((r.descrizione or '-')[:80])} | Colli: {_esc(r.n_colli or 0)} | "
-                f"N. arrivo: {_esc(r.n_arrivo or '-')}<br>"
+                f"N. arrivo: {_esc(r.n_arrivo or '-')} | Buono: {_esc(r.buono_n or '-')}<br>"
             )
-        if len(rows) > 10:
-            riepilogo.append(f"... altre {len(rows)-10} righe.<br>")
+        if len(rows) > 12:
+            riepilogo.append(f"... altre {len(rows)-12} righe.<br>")
+
+        try:
+            giacenze_link = url_for('giacenze')
+            if buono_target:
+                from urllib.parse import urlencode
+                giacenze_link += "?" + urlencode({"buono_n": buono_target, "solo_giacenza": "1"})
+        except Exception:
+            giacenze_link = "/giacenze"
+
         riepilogo.append(
-            "<br><b>Conferma:</b> apro l'anteprima DDT. Nella schermata successiva potrai scegliere destinatario e mezzo uscita.<br>"
-            f"<form method='POST' action='{url_for('ddt_preview')}' style='margin-top:8px;'>"
-            f"<input type='hidden' name='ids' value='{_esc(ids)}'>"
-            "<button class='btn btn-sm btn-success'>Apri anteprima DDT</button>"
-            "</form>"
+            "<br><b>Conferma:</b> apro solo la schermata DDT già compilata. "
+            "La finalizzazione resta manuale: scegli destinatario, mezzo uscita e poi confermi tu.<br>"
+            f"<form method='POST' action='{url_for('ddt_preview')}' style='margin-top:8px; display:inline-block;'>"
+            f"{hidden_ids}"
+            "<button type='submit' class='btn btn-sm btn-success'>Apri schermata DDT</button>"
+            "</form> "
+            f"<a class='btn btn-sm btn-outline-primary' href='{_esc(giacenze_link)}'>Vedi righe in Giacenze</a>"
         )
         return "".join(riepilogo)
 
