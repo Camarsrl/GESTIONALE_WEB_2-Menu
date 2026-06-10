@@ -122,6 +122,7 @@ def register_camy_ai_routes(app_obj, deps):
           <form class="input-group camy-ai-input" method="get" action="/camy-ai">
             <input id="camyAiInput" name="q" type="text" class="form-control" placeholder="Scrivi o detta una domanda a CAMY AI..." value="{{ initial_input_value or '' }}">
             <button id="camyVoiceBtn" type="button" class="btn btn-outline-danger camy-voice-btn" title="Detta a CAMY" data-camy-voice="1">🎤</button>
+            <button id="camyVoiceStopBtn" type="button" class="btn btn-outline-secondary" title="Ferma/Pausa vocale" data-camy-stopvoice="1">⏸ Pausa</button>
             <button type="submit" class="btn btn-primary" data-camy-send="1">Invia</button>
           </form>
           <div class="camy-speak-wrap">
@@ -137,8 +138,10 @@ def register_camy_ai_routes(app_obj, deps):
         function getBox(){ return document.getElementById('camyAiBox'); }
         function getInput(){ return document.getElementById('camyAiInput'); }
         function getVoiceBtn(){ return document.getElementById('camyVoiceBtn'); }
+        function getVoiceStopBtn(){ return document.getElementById('camyVoiceStopBtn'); }
         function getVoiceStatus(){ return document.getElementById('camyVoiceStatus'); }
         function setVoiceStatus(txt){ var s=getVoiceStatus(); if(s) s.textContent = txt || ''; }
+        window.camyAiRecognition = null;
 
         window.camyAiSpeak = function(text){
           try{
@@ -154,6 +157,22 @@ def register_camy_ai_routes(app_obj, deps):
           }catch(e){}
         };
 
+        window.camyAiStopVoice = function(){
+          var btn = getVoiceBtn();
+          try{
+            if(window.camyAiRecognition){
+              window.camyAiRecognition.onend = null;
+              window.camyAiRecognition.stop();
+              window.camyAiRecognition = null;
+            }
+          }catch(e){}
+          try{
+            if('speechSynthesis' in window){ window.speechSynthesis.cancel(); }
+          }catch(e){}
+          if(btn) btn.classList.remove('listening');
+          setVoiceStatus('Vocale in pausa.');
+        };
+
         window.camyAiStartVoice = function(){
           var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
           var input = getInput();
@@ -163,12 +182,14 @@ def register_camy_ai_routes(app_obj, deps):
             return;
           }
           try{
+            window.camyAiStopVoice();
             var rec = new SpeechRecognition();
+            window.camyAiRecognition = rec;
             rec.lang = 'it-IT';
             rec.interimResults = false;
             rec.maxAlternatives = 1;
             if(btn) btn.classList.add('listening');
-            setVoiceStatus('Sto ascoltando...');
+            setVoiceStatus('Sto ascoltando... premi Pausa per fermare.');
             rec.onresult = function(event){
               var spoken = event.results && event.results[0] && event.results[0][0] ? event.results[0][0].transcript : '';
               if(input && spoken){
@@ -178,10 +199,14 @@ def register_camy_ai_routes(app_obj, deps):
               setVoiceStatus('Testo inserito. Premi Invia oppure modifica la frase.');
             };
             rec.onerror = function(){ setVoiceStatus('Non sono riuscita a sentire bene. Riprova.'); };
-            rec.onend = function(){ if(btn) btn.classList.remove('listening'); };
+            rec.onend = function(){
+              if(btn) btn.classList.remove('listening');
+              window.camyAiRecognition = null;
+            };
             rec.start();
           }catch(e){
             if(btn) btn.classList.remove('listening');
+            window.camyAiRecognition = null;
             setVoiceStatus('Microfono non avviato. Controlla i permessi del browser.');
           }
         };
@@ -325,10 +350,15 @@ def register_camy_ai_routes(app_obj, deps):
         // - i pulsanti rapidi compilano solo il campo, senza inviare;
         // - i pulsanti Automatico/Manuale dentro la risposta funzionano anche se l'onclick inline viene bloccato.
         document.addEventListener('click', function(ev){
-          var target = ev.target && ev.target.closest ? ev.target.closest('[data-camy-fill],[data-camy-send],[data-camy-confirm],[data-camy-voice]') : null;
+          var target = ev.target && ev.target.closest ? ev.target.closest('[data-camy-fill],[data-camy-send],[data-camy-confirm],[data-camy-voice],[data-camy-stopvoice]') : null;
           if(!target) return;
           ev.preventDefault();
           ev.stopPropagation();
+
+          if(target.hasAttribute('data-camy-stopvoice')){
+            window.camyAiStopVoice();
+            return;
+          }
 
           if(target.hasAttribute('data-camy-voice')){
             window.camyAiStartVoice();
