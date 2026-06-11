@@ -106,6 +106,10 @@ def register_camy_ai_routes(app_obj, deps):
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Crea%20DDT%20arrivo%20">Crea DDT</a>
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Confronta%20inventario%20cliente%20">Confronta Inventario</a>
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Crea%20report%20Excel%20giacenze%20cliente%20">Report Excel</a>
+            <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Cerca arrivo ">🎤 Cerca arrivo</button>
+            <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Prepara buono arrivo ">🎤 Prepara buono</button>
+            <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Crea DDT dal buono ">🎤 Crea DDT</button>
+            <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Fammi vedere la foto dell'arrivo ">🎤 Mostra foto</button>
             {% endif %}
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Cosa%20puoi%20fare%3F">Aiuto</a>
           </div>
@@ -668,9 +672,9 @@ def register_camy_ai_routes(app_obj, deps):
             "• Fammi vedere la foto dell'arrivo 778/26 collo 1.<br>"
             "• Dove si trova il codice ABC123?<br>"
             "• Totale colli, peso, M2 e M3 di De Wave.<br>"
-            "• Prepara buono arrivo 542/26.<br>"
+            "• Prepara buono arrivo 542/26: controllo uscito, Buono già presente e pezzi disponibili.<br>"
             "• Scarico parziale ID 12345.<br>"
-            "• Crea DDT arrivo 38/26.<br>"
+            "• Crea DDT dal buono 025/26.<br>"
             "• Crea report Excel giacenze Fincantieri.<br>"
             "• Confronta inventario Galvano Tecnica.<br><br>"
             "Le operazioni che modificano dati richiedono sempre conferma."
@@ -1486,6 +1490,43 @@ def register_camy_ai_routes(app_obj, deps):
         return "".join(riepilogo)
 
 
+    def _available_pezzi_for_request(row, requested_code=""):
+        """Restituisce i pezzi disponibili sulla riga, se verificabili.
+        Se la riga contiene più codici e il codice richiesto identifica una parte,
+        usa i pezzi della stessa posizione; altrimenti usa il totale numerico della riga.
+        """
+        try:
+            code_parts = _split_multi_values(getattr(row, "codice_articolo", ""), allow_dash=True)
+            pezzi_parts = _split_multi_values(getattr(row, "pezzo", ""))
+            requested_code = str(requested_code or "").strip()
+            if requested_code and code_parts and pezzi_parts and len(pezzi_parts) == len(code_parts):
+                idx = _find_requested_index(code_parts, requested_code)
+                if idx >= 0 and idx < len(pezzi_parts):
+                    return _safe_float_or_none(pezzi_parts[idx])
+            val = _safe_float_or_none(getattr(row, "pezzo", ""))
+            if val is not None:
+                return val
+            nums = [_safe_float_or_none(x) for x in pezzi_parts]
+            nums = [x for x in nums if x is not None]
+            if nums:
+                return sum(nums)
+        except Exception:
+            pass
+        return None
+
+    def _validate_pezzi_richiesti(rows, requested_pezzi, requested_code=""):
+        """Controlla che i pezzi richiesti non superino quelli disponibili."""
+        req = _safe_float_or_none(requested_pezzi)
+        if req is None:
+            return []
+        problemi = []
+        for r in rows or []:
+            disp = _available_pezzi_for_request(r, requested_code=requested_code)
+            if disp is not None and req > disp:
+                problemi.append((r, disp, req))
+        return problemi
+
+
     def _answer_prepare_buono(db, msg):
         if not _can_operate():
             return _operation_denied()
@@ -1540,7 +1581,9 @@ def register_camy_ai_routes(app_obj, deps):
 
         rows_all = q.order_by(Articolo.id_articolo.asc()).limit(50).all()
         rows_uscite = [r for r in rows_all if _is_articolo_uscito(r)]
-        rows = [r for r in rows_all if not _is_articolo_uscito(r)]
+        rows_non_uscite = [r for r in rows_all if not _is_articolo_uscito(r)]
+        rows_con_buono = [r for r in rows_non_uscite if str(getattr(r, "buono_n", "") or "").strip()]
+        rows = [r for r in rows_non_uscite if not str(getattr(r, "buono_n", "") or "").strip()]
 
         if not rows and rows_uscite:
             dettagli = "<br>".join(_uscito_info(r) for r in rows_uscite[:10])
@@ -1548,6 +1591,17 @@ def register_camy_ai_routes(app_obj, deps):
                 "<b>Operazione annullata.</b><br>"
                 "Le righe trovate risultano già uscite, quindi CAMY non può inserirle nel Buono di Prelievo.<br>"
                 + dettagli
+            )
+
+        if not rows and rows_con_buono:
+            dettagli = "<br>".join(
+                f"ID {_esc(r.id_articolo)} | Codice: {_esc(r.codice_articolo or '-')} | Buono già presente: <b>{_esc(r.buono_n or '-')}</b>"
+                for r in rows_con_buono[:10]
+            )
+            return (
+                "<b>Operazione annullata.</b><br>"
+                "Le righe trovate hanno già un N. Buono assegnato. CAMY non crea un secondo Buono sulla stessa riga.<br>"
+                + dettagli + "<br><br>Se devi aggiungerle a un Buono esistente usa: <b>Aggiungi al buono ...</b>"
             )
 
         if not rows:
@@ -1565,6 +1619,19 @@ def register_camy_ai_routes(app_obj, deps):
         requested_code = (filters.get("codice_articolo") or "").strip()
         requested_descr = _extract_requested_descrizione(msg)
         requested_pezzi = _extract_requested_pezzi(msg)
+
+        problemi_pezzi = _validate_pezzi_richiesti(rows, requested_pezzi, requested_code=requested_code)
+        if problemi_pezzi:
+            dettagli = "<br>".join(
+                f"ID {_esc(r.id_articolo)} | Codice: {_esc(r.codice_articolo or '-')} | Disponibili: <b>{_esc(disp)}</b> | Richiesti: <b>{_esc(req)}</b>"
+                for r, disp, req in problemi_pezzi[:10]
+            )
+            return (
+                "<b>Operazione bloccata.</b><br>"
+                "I pezzi richiesti sono superiori ai pezzi disponibili in giacenza.<br>"
+                + dettagli
+            )
+
         note_buono = _extract_note_buono(msg)
         needs_partial_details = any(_row_needs_partial_details(r) for r in rows) and not (requested_code or requested_descr)
 
@@ -1607,6 +1674,17 @@ def register_camy_ai_routes(app_obj, deps):
                 + "<br>"
             )
 
+        dettagli_buoni_esistenti = ""
+        if rows_con_buono:
+            dettagli_buoni_esistenti = (
+                "<br><b>Attenzione:</b> alcune righe hanno già un Buono e verranno escluse dalla nuova proposta:<br>"
+                + "<br>".join(
+                    f"ID {_esc(r.id_articolo)} | Codice: {_esc(r.codice_articolo or '-')} | Buono: <b>{_esc(r.buono_n or '-')}</b>"
+                    for r in rows_con_buono[:8]
+                )
+                + "<br>"
+            )
+
         dettagli_note = ""
         if note_buono:
             dettagli_note = f"<br><b>Nota da salvare in giacenze:</b> {_esc(note_buono)}<br>"
@@ -1626,7 +1704,7 @@ def register_camy_ai_routes(app_obj, deps):
             f"<b>Proposta Buono di Prelievo</b><br>",
             f"Righe selezionate: <b>{len(ids)}</b><br>",
             f"Vuoi inserire il N. Buono <b>automaticamente</b> o <b>manualmente</b>?<br>",
-            f"Prossimo numero automatico previsto: <b>{_esc(prossimo_auto)}</b>{scelta_manual}{dettagli_multi}{dettagli_parziale}{dettagli_note}{dettagli_usciti}<br>",
+            f"Prossimo numero automatico previsto: <b>{_esc(prossimo_auto)}</b>{scelta_manual}{dettagli_multi}{dettagli_parziale}{dettagli_note}{dettagli_usciti}{dettagli_buoni_esistenti}<br>",
             "CAMY applicherà la modifica solo dopo conferma. Nessuno scarico definitivo verrà eseguito automaticamente.<br>"
         ]
         for r in rows[:8]:
