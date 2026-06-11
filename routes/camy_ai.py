@@ -540,7 +540,7 @@ def register_camy_ai_routes(app_obj, deps):
         m = re.search(r"\bddt\s+([A-Z0-9./\-_]+)", msg or "", re.I)
         if m:
             out["ddt"] = m.group(1).strip()
-        m = re.search(r"\bcodice(?:\s+articolo)?\s+([A-Z0-9./\-_]+)", msg or "", re.I)
+        m = re.search(r"\bcodice(?:\s+articolo)?\s+([A-Z0-9.*#/\\\-_]+)", msg or "", re.I)
         if m:
             out["codice_articolo"] = m.group(1).strip()
         m = re.search(r"\bserial(?:e| number)?\s+([A-Z0-9./\-_]+)", msg or "", re.I)
@@ -1070,7 +1070,9 @@ def register_camy_ai_routes(app_obj, deps):
             "con\\s+note|note|nota|buono|automatico|manuale|cliente|fornitore|descrizione|desc|"
             "pezzi|pezzo|pz|qta|qtà|quantita|quantità|ordine|commessa|protocollo|ddt|stato|magazzino|posizione"
         )
-        pat = rf"\b(?:{kw})\b\s*[:\-]?\s*(.+?)(?=\s+\b(?:{stop_words})\b|$)"
+        # Stop anche se la parola successiva arriva dopo virgola/punto e virgola
+        # Esempio: "codice SW*009VX, descrizione VALVE" deve restituire solo SW*009VX.
+        pat = rf"\b(?:{kw})\b\s*[:\-]?\s*(.+?)(?=[\s,;]+(?:{stop_words})\b|$)"
         m = re.search(pat, s, re.I | re.S)
         if not m:
             return []
@@ -1372,8 +1374,24 @@ def register_camy_ai_routes(app_obj, deps):
         multi_arrivi = _extract_multi_arrivi(clean_msg)
         has_key = any((filters.get(k) or "").strip() for k in ("n_arrivo", "codice_articolo", "ddt", "serial_number", "lotto"))
 
+        # Regola di sicurezza importante:
+        # se nel comando è presente un N. arrivo, CAMY deve restare BLOCCATA su quell'arrivo.
+        # Esempio: "Prepara buono arrivo 140/25 codice SW*009VX" deve cercare:
+        #     arrivo 140/25 AND codice SW*009VX
+        # e non prendere lo stesso codice da altri arrivi.
+        arrivo_presente = bool((filters.get("n_arrivo") or "").strip()) or bool(multi_arrivi)
+
         if multi_ids:
             q = _base_query(db).filter(Articolo.id_articolo.in_(multi_ids))
+            q = _active_filter(q)
+        elif arrivo_presente and (multi_codici or (filters.get("codice_articolo") or "").strip()):
+            q = _base_query(db)
+            if len(multi_arrivi) > 1:
+                q = _build_multi_like_query(q, Articolo.n_arrivo, multi_arrivi)
+            elif (filters.get("n_arrivo") or "").strip():
+                q = _apply_norm_equals_or_like(q, Articolo.n_arrivo, filters.get("n_arrivo"))
+            codici_da_filtrare = multi_codici if multi_codici else [filters.get("codice_articolo")]
+            q = _build_multi_like_query(q, Articolo.codice_articolo, codici_da_filtrare)
             q = _active_filter(q)
         elif len(multi_codici) > 1:
             q = _build_multi_like_query(_base_query(db), Articolo.codice_articolo, multi_codici)
@@ -1483,8 +1501,24 @@ def register_camy_ai_routes(app_obj, deps):
 
         has_key = any((filters.get(k) or "").strip() for k in ("n_arrivo", "codice_articolo", "ddt", "serial_number", "lotto"))
 
+        # Regola di sicurezza importante:
+        # se nel comando è presente un N. arrivo, CAMY deve restare BLOCCATA su quell'arrivo.
+        # Esempio: "Prepara buono arrivo 140/25 codice SW*009VX" deve cercare:
+        #     arrivo 140/25 AND codice SW*009VX
+        # e non prendere lo stesso codice da altri arrivi.
+        arrivo_presente = bool((filters.get("n_arrivo") or "").strip()) or bool(multi_arrivi)
+
         if multi_ids:
             q = _base_query(db).filter(Articolo.id_articolo.in_(multi_ids))
+            q = _active_filter(q)
+        elif arrivo_presente and (multi_codici or (filters.get("codice_articolo") or "").strip()):
+            q = _base_query(db)
+            if len(multi_arrivi) > 1:
+                q = _build_multi_like_query(q, Articolo.n_arrivo, multi_arrivi)
+            elif (filters.get("n_arrivo") or "").strip():
+                q = _apply_norm_equals_or_like(q, Articolo.n_arrivo, filters.get("n_arrivo"))
+            codici_da_filtrare = multi_codici if multi_codici else [filters.get("codice_articolo")]
+            q = _build_multi_like_query(q, Articolo.codice_articolo, codici_da_filtrare)
             q = _active_filter(q)
         elif len(multi_codici) > 1:
             q = _build_multi_like_query(_base_query(db), Articolo.codice_articolo, multi_codici)
