@@ -665,6 +665,7 @@ def register_camy_ai_routes(app_obj, deps):
             "• Quante giacenze attive ha Fincantieri?<br>"
             "• Mostrami gli articoli DOGANALI entrati a maggio.<br>"
             "• Cerca N. arrivo 542/26.<br>"
+            "• Fammi vedere la foto dell'arrivo 778/26 collo 1.<br>"
             "• Dove si trova il codice ABC123?<br>"
             "• Totale colli, peso, M2 e M3 di De Wave.<br>"
             "• Prepara buono arrivo 542/26.<br>"
@@ -1217,6 +1218,12 @@ def register_camy_ai_routes(app_obj, deps):
             return None, {"reason": "no_split", "is_multi": is_multi, "idx": selected_indices[0] if selected_indices else -1}
 
         selected_indices = sorted(set(selected_indices))
+
+        # Sicurezza: se l'utente ha selezionato tutti i codici della riga,
+        # non creo una riga residua vuota/pezzi zero. La conferma assegnerà
+        # il Buono direttamente alla riga originale.
+        if is_multi and code_parts and len(selected_indices) >= len(code_parts):
+            return None, {"reason": "all_selected_no_split", "is_multi": False, "idx": selected_indices}
 
         # Codici in uscita: tutti quelli richiesti.
         selected_code_parts = [code_parts[i] for i in selected_indices if i < len(code_parts)]
@@ -2178,8 +2185,135 @@ def register_camy_ai_routes(app_obj, deps):
             f"<a class='btn btn-sm btn-primary mt-2' href='{url_for('confronta_inventario')}'>Apri Confronta Inventario</a>"
         )
 
+
+
+    # ========================================================
+    # FOTO ARRIVO / COLLO - risposta diretta da CAMY AI
+    # ========================================================
+    def _extract_photo_arrivo_collo_request(msg):
+        """Riconosce frasi tipo:
+        - fammi vedere la foto dell'arrivo 778/26 collo 1
+        - ci sono foto arrivo 778/26?
+        - mostra foto collo 2 arrivo 778/26
+        """
+        s = msg or ""
+        low = s.lower()
+        if not any(w in low for w in ["foto", "fotografie", "immagine", "immagini", "allegati"]):
+            return None
+        if "arrivo" not in low:
+            return None
+
+        arrivo = ""
+        m = re.search(r"\b(?:n\.?\s*)?arrivo\s+([A-Z0-9./\-_]+(?:\s*/\s*[A-Z0-9]+)?)", s, re.I)
+        if m:
+            arrivo = (m.group(1) or "").strip()
+
+        collo = ""
+        m = re.search(r"\b(?:collo|colli|n\.?|numero)\s*[:\-]?\s*(\d{1,4})\b", s, re.I)
+        if m:
+            collo = (m.group(1) or "").strip()
+
+        if not arrivo:
+            return None
+        return {"arrivo": arrivo, "collo": collo}
+
+    def _is_photo_attachment(att):
+        kind = (getattr(att, "kind", "") or "").strip().lower()
+        fn = (getattr(att, "filename", "") or "").strip().lower()
+        return kind in ("photo", "foto", "image", "img") or fn.endswith((".jpg", ".jpeg", ".png", ".webp"))
+
+    def _photo_attachments(row):
+        return [a for a in (getattr(row, "attachments", []) or []) if _is_photo_attachment(a) and getattr(a, "filename", None)]
+
+    def _row_matches_collo(row, collo):
+        if not collo:
+            return True
+        c = str(collo).strip()
+        arr = str(getattr(row, "n_arrivo", "") or "")
+        arr_norm = _norm_part(arr)
+        patterns = [
+            f"N{c}",
+            f"COLLO{c}",
+            f"COLLI{c}",
+        ]
+        return any(p in arr_norm for p in patterns)
+
+    def _photo_link_html(att, row):
+        try:
+            href = url_for("serve_uploaded_file", filename=getattr(att, "filename", ""))
+        except Exception:
+            href = "/media/" + str(getattr(att, "filename", ""))
+        filename = _esc(getattr(att, "filename", "") or "foto")
+        return (
+            "<div class='camy-ai-result'>"
+            f"<b>Foto riga ID {_esc(getattr(row, 'id_articolo', '') or '')}</b><br>"
+            f"Arrivo: {_esc(getattr(row, 'n_arrivo', '') or '-')} | "
+            f"Codice: {_esc(getattr(row, 'codice_articolo', '') or '-')}<br>"
+            f"<a href='{_esc(href)}' target='_blank'>📷 Apri foto: {filename}</a><br>"
+            f"<a href='{_esc(href)}' target='_blank'><img src='{_esc(href)}' style='max-width:220px;max-height:160px;border:1px solid #ddd;border-radius:8px;margin-top:6px'></a>"
+            "</div>"
+        )
+
+    def _answer_arrivo_photos(db, msg):
+        req = _extract_photo_arrivo_collo_request(msg)
+        if not req:
+            return None
+
+        arrivo = req.get("arrivo", "")
+        collo = req.get("collo", "")
+        arrivo_base = re.sub(r"\s+", "", arrivo)
+
+        q = _base_query(db)
+        q = _apply_norm_equals_or_like(q, Articolo.n_arrivo, arrivo_base)
+        rows = q.order_by(Articolo.id_articolo.asc()).limit(200).all()
+
+        if not rows:
+            return f"Non ho trovato righe per l'arrivo <b>{_esc(arrivo)}</b>."
+
+        # Prima provo a identificare il collo richiesto dal testo del N. arrivo.
+        target_rows = [r for r in rows if _row_matches_collo(r, collo)] if collo else rows
+
+        # Se il gestionale non salva 'N.1 / collo 1' nel campo arrivo, uso l'ordine delle righe come fallback.
+        if collo and not target_rows:
+            try:
+                idx = int(collo) - 1
+                if 0 <= idx < len(rows):
+                    target_rows = [rows[idx]]
+            except Exception:
+                target_rows = []
+
+        target_photos = []
+        for r in target_rows:
+            for a in _photo_attachments(r):
+                target_photos.append((r, a))
+
+        if target_photos:
+            titolo = f"Ho trovato {len(target_photos)} foto per l'arrivo <b>{_esc(arrivo)}</b>"
+            if collo:
+                titolo += f", collo <b>{_esc(collo)}</b>"
+            return titolo + ":<br>" + "".join(_photo_link_html(a, r) for r, a in target_photos[:12])
+
+        all_photos = []
+        for r in rows:
+            for a in _photo_attachments(r):
+                all_photos.append((r, a))
+
+        if collo and all_photos:
+            return (
+                f"Nel collo <b>{_esc(collo)}</b> dell'arrivo <b>{_esc(arrivo)}</b> non ci sono foto.<br>"
+                f"Però ho trovato <b>{len(all_photos)}</b> foto sull'arrivo completo. Vuoi vedere le foto di tutto l'arrivo?<br>"
+                + "".join(_photo_link_html(a, r) for r, a in all_photos[:12])
+            )
+
+        return f"Non ho trovato foto collegate all'arrivo <b>{_esc(arrivo)}</b>."
+
     def _process_camy_message(db, msg):
         low = (msg or "").lower()
+
+        photo_answer = _answer_arrivo_photos(db, msg)
+        if photo_answer is not None:
+            return photo_answer, True, {}
+
         if any(x in low for x in ["aiuto", "help", "cosa puoi fare", "cosa sai fare"]):
             return _answer_help(), True, {}
 
