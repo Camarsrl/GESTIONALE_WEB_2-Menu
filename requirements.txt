@@ -11,3 +11,4 @@ Flask-Mail
 pytesseract
 Pillow
 pdf2image
+pypdfium2
