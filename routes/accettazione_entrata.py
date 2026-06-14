@@ -97,11 +97,17 @@ def register_accettazione_entrata_routes(app_obj, deps):
           </div>
 
           <div class="col-md-3">
-            <label class="form-label">Cliente</label>
-            <input class="form-control" list="clienti-datalist" name="cliente" value="{{ extracted.cliente }}" placeholder="Cliente">
-            <datalist id="clienti-datalist">
-              {% for c in clienti %}<option value="{{ c }}">{% endfor %}
-            </datalist>
+            <label class="form-label fw-bold">Cliente *</label>
+            <select name="cliente" class="form-select" required>
+              <option value="">-- seleziona cliente --</option>
+              {% for c in clienti %}
+              <option value="{{ c }}" {% if extracted.cliente and (c|norm_key) == (extracted.cliente|norm_key) %}selected{% endif %}>{{ c }}</option>
+              {% endfor %}
+            </select>
+            <small class="text-muted">CAMY lo propone dal documento, ma puoi modificarlo prima di confermare.</small>
+            {% if extracted.cliente_letto and not extracted.cliente %}
+            <div class="text-warning small mt-1">Cliente letto: {{ extracted.cliente_letto }}. Seleziona quello corretto dall'elenco.</div>
+            {% endif %}
           </div>
 
           <div class="col-md-3">
@@ -226,6 +232,54 @@ def register_accettazione_entrata_routes(app_obj, deps):
                 return (m.group(1) or '').strip()
         return ''
 
+    def _match_cliente_gestionale(value, clienti, full_text=''):
+        """Abbina il cliente letto dal documento a uno dei clienti presenti nel gestionale."""
+        raw = (value or '').strip()
+        clienti = clienti or []
+        if not raw and not full_text:
+            return ''
+        try:
+            raw_norm = normalize_text_key(raw)
+        except Exception:
+            raw_norm = re.sub(r'[^A-Z0-9]+', '', raw.upper())
+
+        # 1) corrispondenza esatta normalizzata sul valore letto
+        for c in clienti:
+            try:
+                if raw_norm and normalize_text_key(c) == raw_norm:
+                    return c
+            except Exception:
+                pass
+
+        # 2) se il nome del cliente del gestionale è presente nel testo del documento
+        try:
+            text_norm = normalize_text_key(full_text or '')
+            for c in clienti:
+                cn = normalize_text_key(c)
+                if cn and cn in text_norm:
+                    return c
+        except Exception:
+            pass
+
+        # 3) alias pratici per documenti dove il destinatario non coincide col nome utente
+        aliases = {
+            'FINCANTIERI': ['FINCANTIERI', 'FINCANTIERI ARMATORE', 'FINCANTIERI SCOPERTO'],
+            'COTUGNO': ['GALVANO TECNICA'],
+            'GALVANOTECNICA': ['GALVANO TECNICA'],
+            'CEIA': ['FINCANTIERI'],
+        }
+        hay = f"{raw} {full_text}".upper()
+        for token, candidates in aliases.items():
+            if token in hay:
+                for cand in candidates:
+                    for c in clienti:
+                        try:
+                            if normalize_text_key(c) == normalize_text_key(cand):
+                                return c
+                        except Exception:
+                            pass
+        return ''
+
     def _extract_arrival_fields(text):
         clean = text or ''
         one = re.sub(r'[ \t]+', ' ', clean)
@@ -295,6 +349,7 @@ def register_accettazione_entrata_routes(app_obj, deps):
             'peso_netto': peso_netto,
             'fornitore': fornitore,
             'cliente': cliente,
+            'cliente_letto': cliente,
             'preview_text': clean[:5000],
         }
 
@@ -339,6 +394,10 @@ def register_accettazione_entrata_routes(app_obj, deps):
                 saved_filename, original_filename, saved_path = _copy_to_docs(f)
                 text = _extract_pdf_text(saved_path)
                 extracted = _extract_arrival_fields(text)
+                cliente_letto = extracted.get('cliente') or ''
+                cliente_match = _match_cliente_gestionale(cliente_letto, clienti, text)
+                extracted['cliente_letto'] = cliente_letto
+                extracted['cliente'] = cliente_match
                 return render_template_string(
                     ACCETTAZIONE_CONFERMA_HTML,
                     extracted=extracted,
@@ -362,8 +421,9 @@ def register_accettazione_entrata_routes(app_obj, deps):
             cliente_value = request.form.get('cliente')
             try:
                 cliente_value = validate_cliente_or_raise(cliente_value)
-            except Exception:
-                cliente_value = (cliente_value or '').strip().upper()
+            except Exception as e:
+                flash(str(e), 'danger')
+                return redirect(url_for('accettazione_entrata'))
 
             totale_colli = max(1, _safe_to_int(request.form.get('n_colli'), 1))
             data_ingresso = (parse_date_ui(request.form.get('data_ingresso')) or date.today()).strftime('%Y-%m-%d')
