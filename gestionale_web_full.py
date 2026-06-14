@@ -8873,15 +8873,7 @@ def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
 # Route /buono/finalize_and_get_pdf spostata in routes/buono.py
 
 
-@app.get('/labels')
-
-
-
-
-
-
-
-
+# Accettazione Entrata spostata in routes/accettazione_entrata.py
 
 @app.get('/labels')
 @login_required
@@ -9816,18 +9808,6 @@ except Exception as e:
     print(f"[WARN] modulo allegati non registrato: {e}")
 
 
-
-# ========================================================
-#  REGISTRAZIONE MODULO ACCETTAZIONE ENTRATA
-# ========================================================
-try:
-    from routes.accettazione_entrata import register_accettazione_entrata_routes
-    register_accettazione_entrata_routes(app, globals())
-    print("[OK] modulo accettazione entrata registrato")
-except Exception as e:
-    scrivi_log_errore("Modulo accettazione entrata non registrato", e)
-    print(f"[WARN] modulo accettazione entrata non registrato: {e}")
-
 # ========================================================
 #  PWA / SMARTPHONE
 # ========================================================
@@ -9994,3 +9974,13 @@ if __name__ == '__main__':
     print(f"✅ Avvio Gestionale Camar Web Edition su http://127.0.0.1:{port}")
     app.run(host='0.0.0.0', port=port, debug=True)
 
+
+# ========================================================
+# ROUTE ACCETTAZIONE ENTRATA DA DOCUMENTO
+# ========================================================
+try:
+    from routes.accettazione_entrata import register_accettazione_entrata_routes
+    register_accettazione_entrata_routes(app, globals())
+except Exception as e:
+    scrivi_log_errore("Modulo Accettazione Entrata non registrato", e)
+    print(f"[WARN] modulo Accettazione Entrata non registrato: {e}")
