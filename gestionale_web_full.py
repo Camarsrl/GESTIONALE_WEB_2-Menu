@@ -4068,6 +4068,12 @@ DDT_PREVIEW_HTML = """
                     </div>
 
                     <div class="col-md-4">
+                        <label class="form-label">Costo trasporto interno €</label>
+                        <input name="costo_trasporto" class="form-control" placeholder="Es. 120,00">
+                        <div class="form-text">Salvato nei Trasporti, non stampato sul DDT cliente.</div>
+                    </div>
+
+                    <div class="col-md-4">
                         <label class="form-label">Note viaggio interne</label>
                         <input name="note_viaggio" class="form-control" placeholder="Es. consolidato / viaggio unico">
                     </div>
