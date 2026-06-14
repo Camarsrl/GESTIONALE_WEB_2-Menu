@@ -81,7 +81,7 @@ def register_accettazione_entrata_routes(app_obj, deps):
         </div>
         {% elif not extracted.has_text %}
         <div class="alert alert-warning py-2">
-          Non ho trovato testo leggibile nel file. Se è una scansione, controlla che sul server sia installato Tesseract OCR; puoi comunque compilare i campi a mano e confermare l'entrata.
+          Non ho trovato testo leggibile nel file. Se è una scansione, controlla che sul server siano installati Tesseract OCR e almeno un motore PDF (PyMuPDF o pypdfium2); puoi comunque compilare i campi a mano e confermare l'entrata.
           {% if extracted.ocr_error %}<br><small>Dettaglio OCR: {{ extracted.ocr_error }}</small>{% endif %}
         </div>
         {% else %}
@@ -246,25 +246,74 @@ def register_accettazione_entrata_routes(app_obj, deps):
         return text or ''
 
     def _extract_pdf_text_ocr(path, max_pages=4, zoom=2.4):
-        """OCR automatico per PDF scansionati: renderizza le pagine e legge il testo."""
+        """OCR automatico per PDF scansionati.
+
+        Prova più motori di rendering PDF:
+        1) PyMuPDF / fitz
+        2) pypdfium2
+        3) pdf2image
+
+        Così, se sul server manca fitz, il modulo non si ferma subito.
+        """
+        errors = []
+
+        # 1) PyMuPDF / fitz
         try:
             import fitz  # PyMuPDF
             from PIL import Image
             texts = []
             doc = fitz.open(str(path))
-            for page_index in range(min(len(doc), int(max_pages))):
-                page = doc.load_page(page_index)
-                matrix = fitz.Matrix(float(zoom), float(zoom))
-                pix = page.get_pixmap(matrix=matrix, alpha=False)
-                img = Image.frombytes('RGB', [pix.width, pix.height], pix.samples)
-                texts.append(_ocr_image_to_text(img))
             try:
-                doc.close()
-            except Exception:
-                pass
-            return '\n'.join([t for t in texts if t]).strip(), ''
+                for page_index in range(min(len(doc), int(max_pages))):
+                    page = doc.load_page(page_index)
+                    matrix = fitz.Matrix(float(zoom), float(zoom))
+                    pix = page.get_pixmap(matrix=matrix, alpha=False)
+                    img = Image.frombytes('RGB', [pix.width, pix.height], pix.samples)
+                    texts.append(_ocr_image_to_text(img))
+            finally:
+                try:
+                    doc.close()
+                except Exception:
+                    pass
+            out = '\n'.join([t for t in texts if t]).strip()
+            if out:
+                return out, ''
         except Exception as e:
-            return '', str(e)
+            errors.append(f"PyMuPDF/fitz: {e}")
+
+        # 2) pypdfium2
+        try:
+            import pypdfium2 as pdfium
+            texts = []
+            pdf = pdfium.PdfDocument(str(path))
+            n_pages = min(len(pdf), int(max_pages))
+            for page_index in range(n_pages):
+                page = pdf[page_index]
+                bitmap = page.render(scale=float(zoom), rotation=0)
+                img = bitmap.to_pil()
+                texts.append(_ocr_image_to_text(img))
+                try:
+                    page.close()
+                except Exception:
+                    pass
+            out = '\n'.join([t for t in texts if t]).strip()
+            if out:
+                return out, ''
+        except Exception as e:
+            errors.append(f"pypdfium2: {e}")
+
+        # 3) pdf2image, richiede poppler installato sul server
+        try:
+            from pdf2image import convert_from_path
+            pages = convert_from_path(str(path), dpi=220, first_page=1, last_page=int(max_pages))
+            texts = [_ocr_image_to_text(img) for img in pages]
+            out = '\n'.join([t for t in texts if t]).strip()
+            if out:
+                return out, ''
+        except Exception as e:
+            errors.append(f"pdf2image/poppler: {e}")
+
+        return '', ' | '.join(errors) or 'OCR non disponibile sul server'
 
     def _extract_image_text_ocr(path):
         """OCR automatico per foto/scansioni JPG/PNG/WEBP."""
