@@ -8873,7 +8873,15 @@ def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
 # Route /buono/finalize_and_get_pdf spostata in routes/buono.py
 
 
-# Accettazione Entrata spostata nel modulo routes/accettazione_entrata.py
+@app.get('/labels')
+
+
+
+
+
+
+
+
 
 @app.get('/labels')
 @login_required
@@ -9720,14 +9728,6 @@ def scarico_parziale(id_articolo):
 # ========================================================
 #  REGISTRAZIONE MODULO TRASPORTI
 # ========================================================
-
-try:
-    from routes.accettazione_entrata import register_accettazione_entrata_routes
-    register_accettazione_entrata_routes(app, globals())
-except Exception as e:
-    scrivi_log_errore("Modulo Accettazione Entrata non registrato", e)
-    print(f"[WARN] routes.accettazione_entrata non caricato: {e}")
-
 try:
     from routes.trasporti import register_trasporti_routes
     register_trasporti_routes(app, globals())
@@ -9815,6 +9815,18 @@ except Exception as e:
     scrivi_log_errore("Modulo allegati non registrato", e)
     print(f"[WARN] modulo allegati non registrato: {e}")
 
+
+
+# ========================================================
+#  REGISTRAZIONE MODULO ACCETTAZIONE ENTRATA
+# ========================================================
+try:
+    from routes.accettazione_entrata import register_accettazione_entrata_routes
+    register_accettazione_entrata_routes(app, globals())
+    print("[OK] modulo accettazione entrata registrato")
+except Exception as e:
+    scrivi_log_errore("Modulo accettazione entrata non registrato", e)
+    print(f"[WARN] modulo accettazione entrata non registrato: {e}")
 
 # ========================================================
 #  PWA / SMARTPHONE
