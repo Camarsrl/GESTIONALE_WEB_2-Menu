@@ -207,18 +207,31 @@ def register_accettazione_entrata_routes(app_obj, deps):
         return s
 
     def _ocr_image_with_tesseract(image):
-        """OCR su immagine PIL. Richiede tesseract installato sul server."""
+        """OCR leggero su immagine PIL.
+        Importante su Render Free: limitiamo dimensione e tempo per evitare SIGKILL/timeout.
+        """
         try:
             import pytesseract
-            # Prova italiano+inglese, poi solo inglese se la lingua ita non è installata.
-            try:
-                return pytesseract.image_to_string(image, lang='ita+eng') or ''
-            except Exception:
-                return pytesseract.image_to_string(image, lang='eng') or ''
-        except Exception as e:
-            raise RuntimeError(f"Tesseract OCR non disponibile: {e}")
+            from PIL import ImageOps
 
-    def _ocr_pdf_with_fitz(path, max_pages=4):
+            # Riduce il peso dell'immagine prima dell'OCR.
+            try:
+                image = ImageOps.grayscale(image)
+                max_w, max_h = 1500, 2100
+                image.thumbnail((max_w, max_h))
+            except Exception:
+                pass
+
+            config = '--oem 1 --psm 6'
+            # Timeout breve: se una pagina è troppo pesante, non blocca tutto il servizio.
+            try:
+                return pytesseract.image_to_string(image, lang='ita+eng', config=config, timeout=18) or ''
+            except Exception:
+                return pytesseract.image_to_string(image, lang='eng', config=config, timeout=18) or ''
+        except Exception as e:
+            raise RuntimeError(f"Tesseract OCR non disponibile o troppo lento: {e}")
+
+    def _ocr_pdf_with_fitz(path, max_pages=1):
         """OCR PDF scansionato usando PyMuPDF/fitz per trasformare le pagine in immagini."""
         try:
             import fitz
@@ -229,14 +242,14 @@ def register_accettazione_entrata_routes(app_obj, deps):
             for i, page in enumerate(doc):
                 if i >= max_pages:
                     break
-                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                pix = page.get_pixmap(matrix=fitz.Matrix(1.35, 1.35), alpha=False)
                 img = Image.open(io.BytesIO(pix.tobytes('png')))
                 out.append(_ocr_image_with_tesseract(img))
             return '\n'.join(out).strip()
         except Exception as e:
             raise RuntimeError(f"PyMuPDF/fitz: {e}")
 
-    def _ocr_pdf_with_pypdfium2(path, max_pages=4):
+    def _ocr_pdf_with_pypdfium2(path, max_pages=1):
         """OCR PDF scansionato usando pypdfium2, più facile da usare su Render."""
         try:
             import pypdfium2 as pdfium
@@ -245,17 +258,17 @@ def register_accettazione_entrata_routes(app_obj, deps):
             n = min(len(pdf), max_pages)
             for i in range(n):
                 page = pdf[i]
-                bitmap = page.render(scale=2.5).to_pil()
+                bitmap = page.render(scale=1.35).to_pil()
                 out.append(_ocr_image_with_tesseract(bitmap))
             return '\n'.join(out).strip()
         except Exception as e:
             raise RuntimeError(f"pypdfium2: {e}")
 
-    def _ocr_pdf_with_pdf2image(path, max_pages=4):
+    def _ocr_pdf_with_pdf2image(path, max_pages=1):
         """OCR PDF scansionato usando pdf2image/poppler."""
         try:
             from pdf2image import convert_from_path
-            images = convert_from_path(str(path), dpi=220, first_page=1, last_page=max_pages)
+            images = convert_from_path(str(path), dpi=140, first_page=1, last_page=max_pages)
             out = []
             for img in images:
                 out.append(_ocr_image_with_tesseract(img))
