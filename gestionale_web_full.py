@@ -8873,123 +8873,7 @@ def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
 # Route /buono/finalize_and_get_pdf spostata in routes/buono.py
 
 
-@app.get('/labels')
-
-
-
-
-
-
-
-
-
-
-def _extract_accettazione_text(file_path):
-    """Estrae testo da PDF testuali/OCR. Per immagini o PDF scansionati può restituire testo vuoto."""
-    try:
-        p = Path(file_path)
-        if p.suffix.lower() == '.pdf':
-            texts = []
-            with pdfplumber.open(str(p)) as pdf:
-                for page in pdf.pages:
-                    try:
-                        texts.append(page.extract_text() or '')
-                    except Exception:
-                        pass
-            return '\n'.join(texts).strip()
-    except Exception as e:
-        print(f"[WARN] estrazione testo accettazione fallita: {e}")
-    return ''
-
-
-def _extract_accettazione_data_from_text(text):
-    """Parser leggero per DDT/bolla in entrata. I valori restano modificabili a mano."""
-    txt = text or ''
-    data = {}
-
-    # Numero DDT/Bolla
-    patterns_ddt = [
-        r"Numero\s+Bolla\s+([A-Z0-9\-/]+)",
-        r"DDT\s*(?:n[°.]?|:)?\s*([A-Z0-9\-/]+)",
-        r"DOCUMENTO\s+DI\s+TRASPORTO.*?DDT\s*n[°.]?\s*([A-Z0-9\-/]+)",
-        r"n\.\s*ddt\.\s*cliente\s*[:\s]+([A-Z0-9\-/]+)",
-    ]
-    for pat in patterns_ddt:
-        m = re.search(pat, txt, re.I | re.S)
-        if m:
-            data['n_ddt_ingresso'] = m.group(1).strip().replace(' ', '')
-            break
-
-    # Data
-    patterns_data = [
-        r"Data\s+Bolla\s+(\d{1,2}/\d{1,2}/\d{4})",
-        r"Data\s*[:\s]+(\d{1,2}/\d{1,2}/\d{4})",
-        r"data\s+ddt\.\s+cliente\s*[:\s]+(\d{1,2}/\d{1,2}/\d{4})",
-        r"DATA\s*[:\s]+(\d{1,2}/\d{1,2}/\d{2})",
-    ]
-    for pat in patterns_data:
-        m = re.search(pat, txt, re.I)
-        if m:
-            d = to_date_db(m.group(1))
-            data['data_ingresso'] = d.strftime('%d/%m/%Y') if d else m.group(1)
-            break
-
-    # Colli
-    patterns_colli = [
-        r"Totale\s+colli\s+(\d+)",
-        r"N[°.]?\s*colli\s*[:\s]+0*(\d+)",
-        r"Colli\s+Peso\s*\(kg\).*?\n\s*\d+\s+(\d+)\s+",
-        r"MERCE\s+CONTENUTA\s+IN\s+(\d+)\s+BANCALI",
-    ]
-    for pat in patterns_colli:
-        m = re.search(pat, txt, re.I | re.S)
-        if m:
-            try:
-                data['colli'] = str(int(m.group(1)))
-                break
-            except Exception:
-                pass
-
-    # Peso totale/lordo
-    patterns_peso = [
-        r"Peso\s+lordo\s*[:\s]+([0-9.,]+)",
-        r"Peso\s*\(kg\).*?\n\s*\d+\s+\d+\s+([0-9.,]+)",
-        r"Peso\s+netto\s+Peso\s+lordo.*?([0-9.,]+)\s*$",
-    ]
-    for pat in patterns_peso:
-        m = re.search(pat, txt, re.I | re.M | re.S)
-        if m:
-            data['peso_totale'] = m.group(1).strip()
-            break
-
-    # Fornitore/Mittente euristico
-    m = re.search(r"Merce\s+di\s+propriet[aà]\s+di\s*\n\s*([^\n]+)", txt, re.I)
-    if m:
-        data['fornitore'] = m.group(1).strip()
-    else:
-        m = re.search(r"Mittente\s*\n\s*([^\n]+)", txt, re.I)
-        if m:
-            data['fornitore'] = m.group(1).strip()
-
-    # Cliente euristico sui clienti configurati
-    try:
-        norm_txt = normalize_text_key(txt)
-        for cli in get_clienti_utenti():
-            if normalize_text_key(cli) and normalize_text_key(cli) in norm_txt:
-                data['cliente'] = cli
-                break
-    except Exception:
-        pass
-
-    # Alcuni documenti riportano destinatari non identici agli utenti: lasciamo suggerimenti comuni.
-    if not data.get('cliente'):
-        if re.search(r"FINCANTIERI", txt, re.I):
-            data['cliente'] = 'FINCANTIERI'
-        elif re.search(r"GALVANOTECNICA|COTUGNO", txt, re.I):
-            data['cliente'] = 'GALVANO TECNICA'
-
-    return data
-
+# Accettazione Entrata spostata nel modulo routes/accettazione_entrata.py
 
 @app.get('/labels')
 @login_required
@@ -9836,6 +9720,14 @@ def scarico_parziale(id_articolo):
 # ========================================================
 #  REGISTRAZIONE MODULO TRASPORTI
 # ========================================================
+
+try:
+    from routes.accettazione_entrata import register_accettazione_entrata_routes
+    register_accettazione_entrata_routes(app, globals())
+except Exception as e:
+    scrivi_log_errore("Modulo Accettazione Entrata non registrato", e)
+    print(f"[WARN] routes.accettazione_entrata non caricato: {e}")
+
 try:
     from routes.trasporti import register_trasporti_routes
     register_trasporti_routes(app, globals())
@@ -10050,21 +9942,6 @@ except Exception as e:
     scrivi_log_errore("Modulo API clienti non registrato", e)
     print(f"[WARN] modulo API clienti non registrato: {e}")
 
-
-
-# ========================================================
-#  REGISTRAZIONE MODULO ACCETTAZIONE ENTRATA
-# ========================================================
-try:
-    from routes.accettazione_entrata import register_accettazione_entrata_routes
-    register_accettazione_entrata_routes(app, globals())
-    print("[OK] modulo accettazione entrata registrato")
-except Exception as e:
-    try:
-        scrivi_log_errore("Modulo accettazione entrata non registrato", e)
-    except Exception:
-        pass
-    print(f"[WARN] modulo accettazione entrata non registrato: {e}")
 
 # ========================================================
 #  REGISTRAZIONE MODULO CAMY AI
