@@ -4051,6 +4051,12 @@ DDT_PREVIEW_HTML = """
                     </div>
 
                     <div class="col-md-4">
+                        <label class="form-label">Trasportatore interno</label>
+                        <input name="trasportatore_interno" class="form-control" placeholder="Es. Donato">
+                        <div class="form-text">Salvato nei Trasporti, non stampato sul DDT cliente.</div>
+                    </div>
+
+                    <div class="col-md-4">
                         <label class="form-label">Mezzo in uscita *</label>
                         <select name="mezzi_in_uscita" id="mezzi_in_uscita" class="form-select">
                             <option value="" selected>-- Seleziona --</option>
@@ -4058,7 +4064,12 @@ DDT_PREVIEW_HTML = """
                             <option value="BILICO">Bilico</option>
                             <option value="FURGONE">Furgone</option>
                         </select>
-                        <div class="form-text">Obbligatorio quando fai “Finalizza”.</div>
+                        <div class="form-text">Salvato nei Trasporti, non stampato sul DDT cliente.</div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Note viaggio interne</label>
+                        <input name="note_viaggio" class="form-control" placeholder="Es. consolidato / viaggio unico">
                     </div>
                 </div>
             </div>
@@ -4399,9 +4410,10 @@ LABELS_FORM_HTML = """
         </div>
 
         <div class="mt-3 alert alert-warning py-2 small">
-            <b>Importante:</b> ora i passaggi sono separati:
-            <b>Crea Etichetta</b> scarica solo il PDF, mentre <b>Inserisci Entrata</b> crea le righe in giacenza con lo stesso QR/barcode dell'etichetta.
-            I campi mancanti potranno essere completati dopo riaprendo l'entrata.
+            <b>Importante:</b> restano attive tutte le modalità manuali.
+            Puoi creare solo l'etichetta, inserire solo l'entrata, oppure fare entrambe le cose insieme.
+            L'entrata rapida crea una riga per ogni collo con formato <b>770/26 N.1, 770/26 N.2...</b>;
+            codice articolo, descrizione, protocollo, foto e documento restano vuoti e li completi dopo.
         </div>
 
         <div class="mt-4 d-flex gap-2 flex-wrap">
@@ -4410,6 +4422,9 @@ LABELS_FORM_HTML = """
             </button>
             <button type="submit" name="azione_etichetta" value="inserisci_entrata" class="btn btn-success">
                 <i class="bi bi-box-arrow-in-down"></i> Inserisci Entrata
+            </button>
+            <button type="submit" name="azione_etichetta" value="etichetta_e_entrata" class="btn btn-warning">
+                <i class="bi bi-lightning-charge"></i> Crea Etichetta + Inserisci Entrata
             </button>
         </div>
     </form>
@@ -8929,15 +8944,19 @@ def labels_pdf():
         articoli = [a]
 
         azione_etichetta = (request.form.get('azione_etichetta') or 'solo_etichetta').strip()
-        if azione_etichetta == 'inserisci_entrata':
+        if azione_etichetta in ('inserisci_entrata', 'etichetta_e_entrata'):
             db = SessionLocal()
             try:
                 created_rows = _auto_create_entry_from_label(db, request.form, codice_entrata)
                 if created_rows:
-                    flash(f"Entrata inserita in giacenza con {len(created_rows)} righe. Ora puoi completare i dati mancanti.", 'success')
+                    flash(f"Entrata inserita in giacenza con {len(created_rows)} righe. Codice articolo, descrizione, protocollo, foto e documento potranno essere completati dopo.", 'success')
                 else:
                     flash(f"Attenzione: nessuna riga è stata inserita per il barcode {codice_entrata}.", 'warning')
-                return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata))
+                if azione_etichetta == 'inserisci_entrata':
+                    return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata))
+                # Modalità combinata: crea le righe e scarica subito il PDF etichette.
+                # Le etichette usano le righe appena create, quindi riportano 770/26 N.1, N.2, ecc.
+                articoli = created_rows or [a]
             except Exception as e:
                 db.rollback()
                 flash(f"Inserimento entrata non completato: {e}", 'danger')
