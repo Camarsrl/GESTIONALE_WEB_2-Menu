@@ -4382,6 +4382,95 @@ DDT_MEZZO_USCITA_OK_HTML = """
 
 
 
+
+ACCETTAZIONE_ENTRATA_HTML = """
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid py-3">
+  <div class="card shadow-sm p-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h3 class="mb-0"><i class="bi bi-file-earmark-text"></i> Accettazione entrata da documento</h3>
+      <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm">Magazzino</a>
+    </div>
+    <div class="alert alert-info py-2">
+      Carica il DDT dell'autista: il gestionale prova a leggere i dati principali. Dopo il controllo crea le righe in giacenza con formato <b>770/26 N.1</b>, <b>770/26 N.2</b> ecc. Codice articolo, descrizione, protocollo e foto restano da completare dopo.
+    </div>
+
+    <form method="post" enctype="multipart/form-data" class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label fw-bold">Documento DDT / bolla</label>
+        <input type="file" name="documento" class="form-control" accept=".pdf,.jpg,.jpeg,.png,.webp" {% if not extracted %}required{% endif %}>
+        <div class="form-text">PDF OCR/testuale consigliato. Se il PDF è solo immagine puoi compilare i dati manualmente.</div>
+      </div>
+      <div class="col-md-2 d-flex align-items-end">
+        <button class="btn btn-primary w-100" name="azione" value="leggi" type="submit"><i class="bi bi-magic"></i> Leggi documento</button>
+      </div>
+
+      {% if extracted %}
+      <div class="col-12"><hr></div>
+      {% endif %}
+
+      <div class="col-md-3">
+        <label class="form-label fw-bold">N. Arrivo *</label>
+        <input name="n_arrivo" class="form-control" placeholder="Es. 770/26" value="{{ data.n_arrivo or '' }}" required>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Cliente *</label>
+        <input class="form-control" list="clienti-datalist-acc" name="cliente" value="{{ data.cliente or '' }}" required>
+        <datalist id="clienti-datalist-acc">
+          {% for c in clienti %}<option value="{{ c }}">{% endfor %}
+        </datalist>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Fornitore</label>
+        <input name="fornitore" class="form-control" value="{{ data.fornitore or '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">DDT ingresso</label>
+        <input name="n_ddt_ingresso" class="form-control" value="{{ data.n_ddt_ingresso or '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Data ingresso</label>
+        <input name="data_ingresso" class="form-control" placeholder="gg/mm/aaaa" value="{{ data.data_ingresso or today_ita }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-bold">Colli *</label>
+        <input name="colli" type="number" min="1" class="form-control" value="{{ data.colli or 1 }}" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Peso totale kg</label>
+        <input name="peso_totale" class="form-control" value="{{ data.peso_totale or '' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Magazzino</label>
+        <input name="magazzino" class="form-control" value="{{ data.magazzino or 'STRUPPA' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Stato</label>
+        <input name="stato" class="form-control" value="{{ data.stato or 'DA COMPLETARE' }}">
+      </div>
+      <div class="col-md-12">
+        <label class="form-label">Note</label>
+        <input name="note" class="form-control" value="{{ data.note or '' }}" placeholder="Eventuali note interne">
+      </div>
+
+      <input type="hidden" name="tmp_doc_path" value="{{ tmp_doc_path or '' }}">
+      <input type="hidden" name="tmp_doc_name" value="{{ tmp_doc_name or '' }}">
+
+      <div class="col-12 alert alert-warning py-2 small mb-0">
+        <b>Modalità manuale sempre attiva:</b> puoi correggere tutti i campi prima di confermare. La creazione non compila codice articolo, descrizione e protocollo.
+      </div>
+
+      <div class="col-12 d-flex gap-2 flex-wrap mt-3">
+        <button class="btn btn-success" name="azione" value="crea" type="submit"><i class="bi bi-check-circle"></i> Conferma e crea entrata</button>
+        <a href="{{ url_for('labels_form') }}" class="btn btn-outline-primary"><i class="bi bi-tag"></i> Vai a Etichette manuali</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+"""
+
 LABELS_FORM_HTML = """
 {% extends 'base.html' %}
 {% block content %}
@@ -5495,6 +5584,7 @@ templates = {
         'buono_preview.html': BUONO_PREVIEW_HTML,
         'ddt_preview.html': DDT_PREVIEW_HTML,
         'labels_form.html': LABELS_FORM_HTML,
+        'accettazione_entrata.html': ACCETTAZIONE_ENTRATA_HTML,
         'labels_preview.html': LABELS_PREVIEW_HTML,
         
         'import_excel.html': IMPORT_EXCEL_HTML,
@@ -8784,6 +8874,124 @@ def _genera_pdf_ddt_file(ddt_data, righe, filename_out):
 
 
 @app.get('/labels')
+
+
+
+
+
+
+
+
+
+
+def _extract_accettazione_text(file_path):
+    """Estrae testo da PDF testuali/OCR. Per immagini o PDF scansionati può restituire testo vuoto."""
+    try:
+        p = Path(file_path)
+        if p.suffix.lower() == '.pdf':
+            texts = []
+            with pdfplumber.open(str(p)) as pdf:
+                for page in pdf.pages:
+                    try:
+                        texts.append(page.extract_text() or '')
+                    except Exception:
+                        pass
+            return '\n'.join(texts).strip()
+    except Exception as e:
+        print(f"[WARN] estrazione testo accettazione fallita: {e}")
+    return ''
+
+
+def _extract_accettazione_data_from_text(text):
+    """Parser leggero per DDT/bolla in entrata. I valori restano modificabili a mano."""
+    txt = text or ''
+    data = {}
+
+    # Numero DDT/Bolla
+    patterns_ddt = [
+        r"Numero\s+Bolla\s+([A-Z0-9\-/]+)",
+        r"DDT\s*(?:n[°.]?|:)?\s*([A-Z0-9\-/]+)",
+        r"DOCUMENTO\s+DI\s+TRASPORTO.*?DDT\s*n[°.]?\s*([A-Z0-9\-/]+)",
+        r"n\.\s*ddt\.\s*cliente\s*[:\s]+([A-Z0-9\-/]+)",
+    ]
+    for pat in patterns_ddt:
+        m = re.search(pat, txt, re.I | re.S)
+        if m:
+            data['n_ddt_ingresso'] = m.group(1).strip().replace(' ', '')
+            break
+
+    # Data
+    patterns_data = [
+        r"Data\s+Bolla\s+(\d{1,2}/\d{1,2}/\d{4})",
+        r"Data\s*[:\s]+(\d{1,2}/\d{1,2}/\d{4})",
+        r"data\s+ddt\.\s+cliente\s*[:\s]+(\d{1,2}/\d{1,2}/\d{4})",
+        r"DATA\s*[:\s]+(\d{1,2}/\d{1,2}/\d{2})",
+    ]
+    for pat in patterns_data:
+        m = re.search(pat, txt, re.I)
+        if m:
+            d = to_date_db(m.group(1))
+            data['data_ingresso'] = d.strftime('%d/%m/%Y') if d else m.group(1)
+            break
+
+    # Colli
+    patterns_colli = [
+        r"Totale\s+colli\s+(\d+)",
+        r"N[°.]?\s*colli\s*[:\s]+0*(\d+)",
+        r"Colli\s+Peso\s*\(kg\).*?\n\s*\d+\s+(\d+)\s+",
+        r"MERCE\s+CONTENUTA\s+IN\s+(\d+)\s+BANCALI",
+    ]
+    for pat in patterns_colli:
+        m = re.search(pat, txt, re.I | re.S)
+        if m:
+            try:
+                data['colli'] = str(int(m.group(1)))
+                break
+            except Exception:
+                pass
+
+    # Peso totale/lordo
+    patterns_peso = [
+        r"Peso\s+lordo\s*[:\s]+([0-9.,]+)",
+        r"Peso\s*\(kg\).*?\n\s*\d+\s+\d+\s+([0-9.,]+)",
+        r"Peso\s+netto\s+Peso\s+lordo.*?([0-9.,]+)\s*$",
+    ]
+    for pat in patterns_peso:
+        m = re.search(pat, txt, re.I | re.M | re.S)
+        if m:
+            data['peso_totale'] = m.group(1).strip()
+            break
+
+    # Fornitore/Mittente euristico
+    m = re.search(r"Merce\s+di\s+propriet[aà]\s+di\s*\n\s*([^\n]+)", txt, re.I)
+    if m:
+        data['fornitore'] = m.group(1).strip()
+    else:
+        m = re.search(r"Mittente\s*\n\s*([^\n]+)", txt, re.I)
+        if m:
+            data['fornitore'] = m.group(1).strip()
+
+    # Cliente euristico sui clienti configurati
+    try:
+        norm_txt = normalize_text_key(txt)
+        for cli in get_clienti_utenti():
+            if normalize_text_key(cli) and normalize_text_key(cli) in norm_txt:
+                data['cliente'] = cli
+                break
+    except Exception:
+        pass
+
+    # Alcuni documenti riportano destinatari non identici agli utenti: lasciamo suggerimenti comuni.
+    if not data.get('cliente'):
+        if re.search(r"FINCANTIERI", txt, re.I):
+            data['cliente'] = 'FINCANTIERI'
+        elif re.search(r"GALVANOTECNICA|COTUGNO", txt, re.I):
+            data['cliente'] = 'GALVANO TECNICA'
+
+    return data
+
+
+@app.get('/labels')
 @login_required
 def labels_form():
     # --- PROTEZIONE ADMIN ---
@@ -9852,7 +10060,10 @@ try:
     register_accettazione_entrata_routes(app, globals())
     print("[OK] modulo accettazione entrata registrato")
 except Exception as e:
-    scrivi_log_errore("Modulo accettazione entrata non registrato", e)
+    try:
+        scrivi_log_errore("Modulo accettazione entrata non registrato", e)
+    except Exception:
+        pass
     print(f"[WARN] modulo accettazione entrata non registrato: {e}")
 
 # ========================================================
