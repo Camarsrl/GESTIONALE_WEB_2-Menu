@@ -106,6 +106,8 @@ def register_camy_ai_routes(app_obj, deps):
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Crea%20DDT%20arrivo%20">Crea DDT</a>
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Confronta%20inventario%20cliente%20">Confronta Inventario</a>
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Crea%20report%20Excel%20giacenze%20cliente%20">Report Excel</a>
+            <a class="btn btn-sm btn-outline-success" href="/accettazione_entrata">📄 Entrata da documento</a>
+            <a class="btn btn-sm btn-outline-dark" href="/camy-ai?prefill=Apri%20accettazione%20entrata">🎤 Apri entrata</a>
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Cerca arrivo ">🎤 Cerca arrivo</button>
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Prepara buono arrivo ">🎤 Prepara buono</button>
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Crea DDT dal buono ">🎤 Crea DDT</button>
@@ -2419,12 +2421,47 @@ def register_camy_ai_routes(app_obj, deps):
 
         return f"Non ho trovato foto collegate all'arrivo <b>{_esc(arrivo)}</b>."
 
+    def _extract_arrivo_colli_for_accettazione(msg):
+        """Estrae arrivo e colli da frasi tipo: crea entrata arrivo 770/26 con 20 colli."""
+        s = (msg or '').strip()
+        arrivo = ''
+        colli = ''
+        m = re.search(r'(?:arrivo|n\.\s*arrivo)\s+([0-9]{1,5}\s*/\s*[0-9]{2,4})', s, re.I)
+        if not m:
+            m = re.search(r'\b([0-9]{1,5}\s*/\s*[0-9]{2,4})\b', s, re.I)
+        if m:
+            arrivo = re.sub(r'\s+', '', m.group(1))
+        m2 = re.search(r'(?:con|da)?\s*(\d{1,4})\s*(?:colli|collo|coll|pallet)\b', s, re.I)
+        if m2:
+            colli = m2.group(1)
+        return arrivo, colli
+
+    def _answer_accettazione_entrata(msg):
+        arrivo, colli = _extract_arrivo_colli_for_accettazione(msg)
+        params = []
+        if arrivo:
+            params.append('arrivo=' + arrivo.replace('/', '%2F'))
+        if colli:
+            params.append('colli=' + colli)
+        url = '/accettazione_entrata' + (('?' + '&'.join(params)) if params else '')
+        parti = ["Ho preparato la schermata <b>Accettazione Entrata</b>."]
+        if arrivo:
+            parti.append(f"N. arrivo precompilato: <b>{_esc(arrivo)}</b>.")
+        if colli:
+            parti.append(f"Colli precompilati: <b>{_esc(colli)}</b>.")
+        parti.append("Carica il PDF OCR del DDT dell'autista, controlla i dati letti e conferma l'entrata.")
+        parti.append(f'<br><a class="btn btn-sm btn-success mt-2" href="{url}">📄 Apri Accettazione Entrata</a>')
+        return '<br>'.join(parti)
+
     def _process_camy_message(db, msg):
         low = (msg or "").lower()
 
         photo_answer = _answer_arrivo_photos(db, msg)
         if photo_answer is not None:
             return photo_answer, True, {}
+
+        if any(x in low for x in ["accettazione entrata", "apri entrata", "nuova entrata", "nuovo arrivo", "carica documento entrata", "documento entrata", "crea entrata"]):
+            return _answer_accettazione_entrata(msg), True, {"action":"accettazione_entrata"}
 
         if any(x in low for x in ["aiuto", "help", "cosa puoi fare", "cosa sai fare"]):
             return _answer_help(), True, {}
