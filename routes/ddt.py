@@ -30,6 +30,32 @@ def register_ddt_routes(app_obj, deps):
             trasportatore_interno = (request.form.get('trasportatore_interno') or '').strip()
             note_viaggio = (request.form.get('note_viaggio') or '').strip()
 
+            # ✅ COSTO TRASPORTO INTERNO
+            # Campo da aggiungere nella schermata DDT con name="costo_trasporto".
+            # Compatibilità: accetta anche name="costo" o name="costo_viaggio" se già presenti in template.
+            costo_trasporto_raw = (
+                request.form.get('costo_trasporto')
+                or request.form.get('costo')
+                or request.form.get('costo_viaggio')
+                or ''
+            ).strip()
+
+            def _to_float_costo(value):
+                s = str(value or '').strip().replace('€', '').replace(' ', '')
+                if not s:
+                    return None
+                try:
+                    if ',' in s and '.' in s:
+                        # esempio 1.200,50
+                        s = s.replace('.', '').replace(',', '.')
+                    else:
+                        s = s.replace(',', '.')
+                    return float(s)
+                except Exception:
+                    return None
+
+            costo_trasporto = _to_float_costo(costo_trasporto_raw)
+
             # ✅ obbligatorio SOLO quando finalizzi
             if action == 'finalize' and not mezzo_uscita:
                 flash("Seleziona il Mezzo in uscita (Motrice / Bilico / Furgone) prima di finalizzare.", "danger")
@@ -182,12 +208,14 @@ def register_ddt_routes(app_obj, deps):
                     trasporto.ddt_uscita = n_ddt
                     trasporto.magazzino = ', '.join(magazzini) if magazzini else None
                     trasporto.consolidato = note_viaggio or None
+                    trasporto.costo = costo_trasporto
                 except Exception as e:
                     print(f"[WARN] Trasporto interno non salvato per DDT {n_ddt}: {e}")
 
                 db.commit()
                 msg_extra = f" - Trasportatore: {trasportatore_interno}" if trasportatore_interno else ""
-                flash(f"DDT N.{n_ddt} del {data_formatted} salvato con successo. Mezzo uscita: {mezzo_uscita}{msg_extra}", "success")
+                costo_extra = f" - Costo: € {costo_trasporto:.2f}" if costo_trasporto is not None else ""
+                flash(f"DDT N.{n_ddt} del {data_formatted} salvato con successo. Mezzo uscita: {mezzo_uscita}{msg_extra}{costo_extra}", "success")
 
             # 7. Dati Generali PDF
             ddt_data = {
