@@ -27,6 +27,8 @@ def register_ddt_routes(app_obj, deps):
 
             # ✅ MEZZO IN USCITA (colonna: Mezzo Usc / campo DB: mezzi_in_uscita)
             mezzo_uscita = (request.form.get('mezzi_in_uscita') or '').strip()
+            trasportatore_interno = (request.form.get('trasportatore_interno') or '').strip()
+            note_viaggio = (request.form.get('note_viaggio') or '').strip()
 
             # ✅ obbligatorio SOLO quando finalizzi
             if action == 'finalize' and not mezzo_uscita:
@@ -158,8 +160,34 @@ def register_ddt_routes(app_obj, deps):
 
             # 6. Salvataggio DB
             if action == 'finalize':
+                # Dati interni viaggio/trasporto: servono per responsabili, report giornaliero e quaderno digitale.
+                # Non vengono passati a _genera_pdf_ddt_file, quindi NON compaiono nel PDF cliente.
+                try:
+                    cliente_trasporto = ''
+                    magazzini = []
+                    for art in articoli:
+                        if not cliente_trasporto and (art.cliente or '').strip():
+                            cliente_trasporto = (art.cliente or '').strip()
+                        if (art.magazzino or '').strip() and (art.magazzino or '').strip() not in magazzini:
+                            magazzini.append((art.magazzino or '').strip())
+
+                    trasporto = db.query(Trasporto).filter(Trasporto.ddt_uscita == n_ddt).first()
+                    if not trasporto:
+                        trasporto = Trasporto()
+                        db.add(trasporto)
+                    trasporto.data = data_ddt_obj
+                    trasporto.tipo_mezzo = mezzo_uscita or None
+                    trasporto.trasportatore = trasportatore_interno or None
+                    trasporto.cliente = cliente_trasporto or None
+                    trasporto.ddt_uscita = n_ddt
+                    trasporto.magazzino = ', '.join(magazzini) if magazzini else None
+                    trasporto.consolidato = note_viaggio or None
+                except Exception as e:
+                    print(f"[WARN] Trasporto interno non salvato per DDT {n_ddt}: {e}")
+
                 db.commit()
-                flash(f"DDT N.{n_ddt} del {data_formatted} salvato con successo. Mezzo uscita: {mezzo_uscita}", "success")
+                msg_extra = f" - Trasportatore: {trasportatore_interno}" if trasportatore_interno else ""
+                flash(f"DDT N.{n_ddt} del {data_formatted} salvato con successo. Mezzo uscita: {mezzo_uscita}{msg_extra}", "success")
 
             # 7. Dati Generali PDF
             ddt_data = {
