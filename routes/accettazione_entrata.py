@@ -4,13 +4,13 @@ Modulo Accettazione Entrata da Documento.
 
 Funzioni:
 - carica PDF/foto del DDT ingresso
-- lettura automatica dei dati tramite testo PDF/OCR già presente
+- lettura automatica dei dati da PDF testuale oppure OCR automatico su scansioni PDF/foto
 - conferma manuale dei dati
 - creazione righe giacenza tipo 770/26 N.1, 770/26 N.2, ...
 - allega il documento caricato all'entrata
 
-Nota: se il PDF è una scansione immagine senza testo OCR, il modulo mantiene la modalità manuale:
-l'utente compila i dati e crea comunque l'entrata rapida.
+Nota: se il PDF è una scansione immagine, il modulo prova automaticamente l'OCR.
+Se l'OCR non è disponibile o il testo non è leggibile, resta attiva la compilazione manuale.
 """
 
 
@@ -38,13 +38,13 @@ def register_accettazione_entrata_routes(app_obj, deps):
         <div class="d-flex justify-content-between align-items-center mb-3">
           <div>
             <h3 class="mb-0">📄 Accettazione Entrata da Documento</h3>
-            <small class="text-muted">Carica il DDT dell'autista: CAMY prova a leggere i dati e tu confermi prima di creare le righe.</small>
+            <small class="text-muted">Carica il DDT dell'autista: CAMY prova a leggere i dati anche da scansioni PDF/foto e tu confermi prima di creare le righe.</small>
           </div>
           <a href="{{ url_for('labels_form') }}" class="btn btn-outline-secondary btn-sm">Etichetta manuale</a>
         </div>
 
         <div class="alert alert-info py-2">
-          Questa funzione <b>non sostituisce</b> la modalità manuale. Se il documento non viene letto bene, puoi compilare o correggere i campi a mano.
+          Questa funzione <b>non sostituisce</b> la modalità manuale. Se il documento è una scansione PDF/foto, il gestionale prova l'OCR automatico; se non legge bene, puoi compilare o correggere i campi a mano.
         </div>
 
         <form method="POST" enctype="multipart/form-data" class="row g-3">
@@ -75,9 +75,14 @@ def register_accettazione_entrata_routes(app_obj, deps):
           <a href="{{ url_for('accettazione_entrata') }}" class="btn btn-outline-secondary btn-sm">Nuovo documento</a>
         </div>
 
-        {% if not extracted.has_text %}
+        {% if extracted.ocr_used %}
+        <div class="alert alert-success py-2">
+          Documento letto tramite <b>OCR automatico</b>. Verifica i campi prima di confermare.
+        </div>
+        {% elif not extracted.has_text %}
         <div class="alert alert-warning py-2">
-          Non ho trovato testo leggibile nel file. Probabilmente è una scansione immagine senza OCR: compila i campi a mano e conferma l'entrata.
+          Non ho trovato testo leggibile nel file. Se è una scansione, controlla che sul server sia installato Tesseract OCR; puoi comunque compilare i campi a mano e confermare l'entrata.
+          {% if extracted.ocr_error %}<br><small>Dettaglio OCR: {{ extracted.ocr_error }}</small>{% endif %}
         </div>
         {% else %}
         <div class="alert alert-success py-2">
@@ -97,14 +102,11 @@ def register_accettazione_entrata_routes(app_obj, deps):
           </div>
 
           <div class="col-md-3">
-            <label class="form-label fw-bold">Cliente *</label>
-            <select name="cliente" class="form-select" required>
-              <option value="">-- seleziona cliente --</option>
-              {% for c in clienti %}
-              <option value="{{ c }}" {% if extracted.cliente and (extracted.cliente|norm_key) == (c|norm_key) %}selected{% endif %}>{{ c }}</option>
-              {% endfor %}
-            </select>
-            <small class="text-muted">CAMY lo propone dal documento, ma puoi cambiarlo.</small>
+            <label class="form-label">Cliente</label>
+            <input class="form-control" list="clienti-datalist" name="cliente" value="{{ extracted.cliente }}" placeholder="Cliente">
+            <datalist id="clienti-datalist">
+              {% for c in clienti %}<option value="{{ c }}">{% endfor %}
+            </datalist>
           </div>
 
           <div class="col-md-3">
@@ -205,22 +207,90 @@ def register_accettazione_entrata_routes(app_obj, deps):
                 pass
         return s
 
-    def _extract_pdf_text(path):
+    def _preprocess_ocr_image(img):
+        """Migliora leggermente l'immagine prima dell'OCR."""
+        try:
+            from PIL import ImageOps, ImageFilter
+            img = ImageOps.grayscale(img)
+            img = ImageOps.autocontrast(img)
+            img = img.filter(ImageFilter.SHARPEN)
+        except Exception:
+            pass
+        return img
+
+    def _ocr_image_to_text(img):
+        """OCR su una singola immagine PIL. Usa italiano+inglese se disponibile."""
+        import pytesseract
+        img = _preprocess_ocr_image(img)
+        try:
+            return pytesseract.image_to_string(img, lang='ita+eng', config='--psm 6') or ''
+        except Exception:
+            # fallback se il pacchetto lingua italiana non è installato
+            return pytesseract.image_to_string(img, lang='eng', config='--psm 6') or ''
+
+    def _extract_pdf_text_direct(path):
+        """Lettura testo da PDF testuali/OCRizzati."""
         text = ''
         try:
-            if str(path).lower().endswith('.pdf'):
-                import pdfplumber
-                with pdfplumber.open(path) as pdf:
-                    parts = []
-                    for p in pdf.pages:
-                        try:
-                            parts.append(p.extract_text() or '')
-                        except Exception:
-                            parts.append('')
-                    text = '\n'.join(parts)
+            import pdfplumber
+            with pdfplumber.open(path) as pdf:
+                parts = []
+                for p in pdf.pages:
+                    try:
+                        parts.append(p.extract_text() or '')
+                    except Exception:
+                        parts.append('')
+                text = '\n'.join(parts)
         except Exception as e:
-            print(f"[WARN] Lettura PDF accettazione fallita: {e}")
+            print(f"[WARN] Lettura PDF testuale accettazione fallita: {e}")
         return text or ''
+
+    def _extract_pdf_text_ocr(path, max_pages=4, zoom=2.4):
+        """OCR automatico per PDF scansionati: renderizza le pagine e legge il testo."""
+        try:
+            import fitz  # PyMuPDF
+            from PIL import Image
+            texts = []
+            doc = fitz.open(str(path))
+            for page_index in range(min(len(doc), int(max_pages))):
+                page = doc.load_page(page_index)
+                matrix = fitz.Matrix(float(zoom), float(zoom))
+                pix = page.get_pixmap(matrix=matrix, alpha=False)
+                img = Image.frombytes('RGB', [pix.width, pix.height], pix.samples)
+                texts.append(_ocr_image_to_text(img))
+            try:
+                doc.close()
+            except Exception:
+                pass
+            return '\n'.join([t for t in texts if t]).strip(), ''
+        except Exception as e:
+            return '', str(e)
+
+    def _extract_image_text_ocr(path):
+        """OCR automatico per foto/scansioni JPG/PNG/WEBP."""
+        try:
+            from PIL import Image
+            img = Image.open(path)
+            return _ocr_image_to_text(img).strip(), ''
+        except Exception as e:
+            return '', str(e)
+
+    def _extract_document_text(path):
+        """Estrae testo da PDF testuale; se vuoto, prova OCR su scansione PDF/foto."""
+        p = Path(path)
+        ext = p.suffix.lower()
+        if ext == '.pdf':
+            direct_text = _extract_pdf_text_direct(p)
+            if len((direct_text or '').strip()) < 40:
+                ocr_text, ocr_error = _extract_pdf_text_ocr(p)
+                if ocr_text.strip():
+                    return ocr_text, True, ''
+                return direct_text or '', False, ocr_error
+            return direct_text or '', False, ''
+        if ext in ('.jpg', '.jpeg', '.png', '.webp', '.tif', '.tiff'):
+            ocr_text, ocr_error = _extract_image_text_ocr(p)
+            return ocr_text or '', bool(ocr_text.strip()), ocr_error
+        return '', False, 'Formato file non supportato per OCR.'
 
     def _first_match(text, patterns, flags=re.I | re.M):
         for pat in patterns:
@@ -291,6 +361,8 @@ def register_accettazione_entrata_routes(app_obj, deps):
 
         return {
             'has_text': bool(clean.strip()),
+            'ocr_used': False,
+            'ocr_error': '',
             'ddt_ingresso': ddt,
             'data_ingresso': _fmt_date_ita(data),
             'colli': colli,
@@ -329,7 +401,7 @@ def register_accettazione_entrata_routes(app_obj, deps):
             db.close()
 
         if request.method == 'GET':
-            return render_template_string(ACCETTAZIONE_ENTRATA_HTML, clienti=clienti)
+            return render_template_string(ACCETTAZIONE_ENTRATA_HTML)
 
         step = (request.form.get('step') or 'upload').strip()
 
@@ -340,8 +412,10 @@ def register_accettazione_entrata_routes(app_obj, deps):
                 return redirect(url_for('accettazione_entrata'))
             try:
                 saved_filename, original_filename, saved_path = _copy_to_docs(f)
-                text = _extract_pdf_text(saved_path)
+                text, ocr_used, ocr_error = _extract_document_text(saved_path)
                 extracted = _extract_arrival_fields(text)
+                extracted['ocr_used'] = ocr_used
+                extracted['ocr_error'] = ocr_error
                 return render_template_string(
                     ACCETTAZIONE_CONFERMA_HTML,
                     extracted=extracted,
