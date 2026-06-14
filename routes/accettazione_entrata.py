@@ -47,8 +47,18 @@ def register_accettazione_entrata_routes(app_obj, deps):
           Questa funzione <b>non sostituisce</b> la modalità manuale. Se il documento non viene letto bene, puoi compilare o correggere i campi a mano.
         </div>
 
+        {% if arrivo_prefill or colli_prefill %}
+        <div class="alert alert-success py-2">
+          Dati ricevuti da CAMY:
+          {% if arrivo_prefill %}<b>Arrivo {{ arrivo_prefill }}</b>{% endif %}
+          {% if colli_prefill %} - <b>{{ colli_prefill }} colli</b>{% endif %}
+        </div>
+        {% endif %}
+
         <form method="POST" enctype="multipart/form-data" class="row g-3">
           <input type="hidden" name="step" value="upload">
+          <input type="hidden" name="arrivo_prefill" value="{{ arrivo_prefill or '' }}">
+          <input type="hidden" name="colli_prefill" value="{{ colli_prefill or '' }}">
           <div class="col-md-8">
             <label class="form-label">Documento DDT ingresso / bolla / lettera vettura</label>
             <input type="file" name="documento" class="form-control" accept=".pdf,.jpg,.jpeg,.png" required>
@@ -93,7 +103,7 @@ def register_accettazione_entrata_routes(app_obj, deps):
 
           <div class="col-md-3">
             <label class="form-label fw-bold">N. Arrivo *</label>
-            <input name="arrivo" class="form-control" placeholder="Es. 50/26" required>
+            <input name="arrivo" class="form-control" placeholder="Es. 50/26" value="{{ arrivo_prefill or '' }}" required>
             <small class="text-muted">Verranno create righe tipo 50/26 N.1, 50/26 N.2.</small>
           </div>
 
@@ -125,7 +135,7 @@ def register_accettazione_entrata_routes(app_obj, deps):
 
           <div class="col-md-2">
             <label class="form-label fw-bold">Colli *</label>
-            <input name="n_colli" class="form-control" value="{{ extracted.colli or 1 }}" required>
+            <input name="n_colli" class="form-control" value="{{ extracted.colli or colli_prefill or 1 }}" required>
           </div>
 
           <div class="col-md-2">
@@ -436,7 +446,11 @@ def register_accettazione_entrata_routes(app_obj, deps):
             db.close()
 
         if request.method == 'GET':
-            return render_template_string(ACCETTAZIONE_ENTRATA_HTML)
+            return render_template_string(
+                ACCETTAZIONE_ENTRATA_HTML,
+                arrivo_prefill=(request.args.get('arrivo') or '').strip(),
+                colli_prefill=(request.args.get('colli') or '').strip()
+            )
 
         step = (request.form.get('step') or 'upload').strip()
 
@@ -456,7 +470,9 @@ def register_accettazione_entrata_routes(app_obj, deps):
                     saved_filename=saved_filename,
                     original_filename=original_filename,
                     clienti=clienti,
-                    today_ita=date.today().strftime('%d/%m/%Y')
+                    today_ita=date.today().strftime('%d/%m/%Y'),
+                    arrivo_prefill=(request.form.get('arrivo_prefill') or '').strip(),
+                    colli_prefill=(request.form.get('colli_prefill') or '').strip()
                 )
             except Exception as e:
                 flash(f'Errore lettura documento: {e}', 'danger')
