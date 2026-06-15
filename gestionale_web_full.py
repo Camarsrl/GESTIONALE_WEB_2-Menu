@@ -3698,6 +3698,72 @@ BUONO_PREVIEW_HTML = """
             </div>
         </div>
 
+
+
+        <div class="card border-success mb-3">
+            <div class="card-header bg-success bg-opacity-10 d-flex align-items-center justify-content-between">
+                <div>
+                    <b>Picking / Lavorazioni</b>
+                    <div class="small text-muted">Compila subito i dati del picking collegati al Buono.</div>
+                </div>
+                <label class="form-check-label fw-bold">
+                    <input class="form-check-input" type="checkbox" name="picking_enable" value="1" checked>
+                    Crea picking al salvataggio
+                </label>
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Data</label>
+                        <input name="picking_data" class="form-control" value="{{ meta.data_em }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Cliente</label>
+                        <input name="picking_cliente" class="form-control" value="{{ meta.picking_cliente }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold">Descrizione</label>
+                        <input name="picking_descrizione" class="form-control" value="{{ meta.picking_descrizione }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Richiesta di</label>
+                        <input name="picking_richiesta_di" class="form-control" value="{{ meta.picking_richiesta_di }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Seriali / Buono</label>
+                        <input name="picking_seriali" class="form-control" value="{{ meta.picking_seriali }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">N. Arrivo</label>
+                        <input name="picking_n_arrivo" class="form-control" value="{{ meta.picking_n_arrivo }}">
+                    </div>
+                    <div class="col-md-1">
+                        <label class="form-label small fw-bold">Colli</label>
+                        <input name="picking_colli" type="number" class="form-control" value="{{ meta.picking_colli }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Pallet Entrati</label>
+                        <input name="picking_pallet_entrati" type="number" class="form-control">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Pallet Usciti</label>
+                        <input name="picking_pallet_usciti" type="number" class="form-control">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Ore Blue</label>
+                        <input name="picking_ore_blue" type="number" step="0.5" class="form-control">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Ore White</label>
+                        <input name="picking_ore_white" type="number" step="0.5" class="form-control">
+                    </div>
+                </div>
+                <div class="form-text mt-2">
+                    La descrizione viene proposta automaticamente come PICKING+FILMATURA+PALLETIZZAZIONE. Se non vuoi registrare il picking, togli la spunta.
+                </div>
+            </div>
+        </div>
+
         <div class="alert alert-warning py-2 small">
             <b>Scarico parziale:</b> se nella cella ci sono più codici/descrizioni, lascia nei campi sotto solo il codice e la descrizione che vuoi mettere nel buono.
             Quando premi <b>Genera e Salva</b>, quel codice/descrizione verrà tolto dalla riga originale e resterà in giacenza solo il residuo.
