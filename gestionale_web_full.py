@@ -984,7 +984,7 @@ class Lavorazione(Base):
     descrizione = Column(Text)
     richiesta_di = Column(Text)     # Nuovo
     seriali = Column(Text)          # Nuovo
-    n_arrivo = Column(Text)          # N. Arrivo collegato al picking/buono
+    n_arrivo = Column(Text)         # Nuovo - riferimento arrivo/buono
     colli = Column(Integer)
     pallet_forniti = Column(Integer) # Pallet IN
     pallet_uscita = Column(Integer)  # Pallet OUT
@@ -992,8 +992,9 @@ class Lavorazione(Base):
     ore_white_collar = Column(Float) # Ore White
 
 
-def ensure_lavorazioni_n_arrivo_schema(engine):
-    """Aggiunge la colonna n_arrivo alla tabella lavorazioni se il DB è già esistente."""
+
+def ensure_lavorazioni_extra_schema(engine):
+    """Aggiunge campi extra alla tabella lavorazioni se il DB esiste già."""
     try:
         insp = inspect(engine)
         tables = set(insp.get_table_names())
@@ -1001,14 +1002,21 @@ def ensure_lavorazioni_n_arrivo_schema(engine):
             Base.metadata.create_all(engine)
             return
         cols = {c.get("name") for c in insp.get_columns("lavorazioni")}
-        if "n_arrivo" not in cols:
-            with engine.begin() as conn:
-                conn.execute(text("ALTER TABLE lavorazioni ADD COLUMN n_arrivo TEXT"))
-            print("[OK] aggiunta colonna lavorazioni.n_arrivo")
+        extra_cols = {
+            "n_arrivo": "TEXT",
+        }
+        for col, typ in extra_cols.items():
+            if col not in cols:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text(f"ALTER TABLE lavorazioni ADD COLUMN {col} {typ}"))
+                    print(f"[OK] aggiunta colonna lavorazioni.{col}")
+                except Exception as e:
+                    print(f"[WARN] impossibile aggiungere lavorazioni.{col}: {e}")
     except Exception as e:
-        print(f"[WARN] ensure_lavorazioni_n_arrivo_schema fallita: {e}")
+        print(f"[WARN] ensure_lavorazioni_extra_schema fallita: {e}")
 
-ensure_lavorazioni_n_arrivo_schema(engine)
+ensure_lavorazioni_extra_schema(engine)
 
 # ========================================================
 # 5. GESTIONE UTENTI (Definizione PRIMA dell'uso)
@@ -5079,7 +5087,7 @@ LAVORAZIONI_HTML = """
                 <thead class="table-light" style="color:#000;">
                     <tr>
                         <th>Data</th><th>Cliente</th><th>Descrizione</th>
-                        <th>Richiesta</th><th>Seriali / Buono</th><th>N. Arrivo</th><th>Colli</th>
+                        <th>Richiesta</th><th>Seriali/Buono</th><th>N. Arrivo</th><th>Colli</th>
                         <th>Pallet Entrati</th><th>Pallet Usciti</th>
                         <th>Blue</th><th>White</th>
                         <th>Azioni</th>
@@ -6431,7 +6439,6 @@ def lavorazioni():
             rec.descrizione = request.form.get('descrizione')
             rec.richiesta_di = request.form.get('richiesta_di')
             rec.seriali = request.form.get('seriali')
-            rec.n_arrivo = request.form.get('n_arrivo')
             rec.colli = int(request.form.get('colli') or 0)
             rec.pallet_forniti = int(request.form.get('pallet_forniti') or 0)
             rec.pallet_uscita = int(request.form.get('pallet_uscita') or 0)
@@ -6577,7 +6584,7 @@ def lavorazioni():
                 continue
             if not _match_txt(rec.seriali, filtri['seriali']):
                 continue
-            if not _match_txt(getattr(rec, 'n_arrivo', ''), filtri.get('n_arrivo')):
+            if not _match_txt(getattr(rec, 'n_arrivo', ''), filtri.get('n_arrivo','')):
                 continue
             if colli_da is not None and (rec.colli is None or int(rec.colli or 0) < colli_da):
                 continue
@@ -6671,16 +6678,16 @@ def stampa_picking_pdf():
 
         ws["A1"] = "REPORT PICKING / LAVORAZIONI"
         ws["A1"].font = Font(bold=True, size=16)
-        ws.merge_cells("A1:J1")
+        ws.merge_cells("A1:K1")
         ws["A1"].alignment = center
 
         ws["A3"] = "Filtri:"
         ws["A3"].font = bold
         ws["B3"] = f"Mese={mese or 'Tutti'} | Cliente={cliente or 'Tutti'}"
-        ws.merge_cells("B3:J3")
+        ws.merge_cells("B3:K3")
 
         headers = [
-            "Data", "Cliente", "Descrizione", "Richiesta di", "Seriali",
+            "Data", "Cliente", "Descrizione", "Richiesta di", "Seriali/Buono", "N. Arrivo",
             "Colli", "Pallet Entrati", "Pallet Usciti", "Ore Blue", "Ore White"
         ]
 
@@ -6720,28 +6727,29 @@ def stampa_picking_pdf():
             ws.cell(riga, 3, (r.descrizione or "")).alignment = left
             ws.cell(riga, 4, (r.richiesta_di or "")).alignment = left
             ws.cell(riga, 5, (r.seriali or "")).alignment = left
-            ws.cell(riga, 6, colli).alignment = center
-            ws.cell(riga, 7, pin).alignment = center
-            ws.cell(riga, 8, pout).alignment = center
+            ws.cell(riga, 6, (getattr(r, 'n_arrivo', '') or "")).alignment = left
+            ws.cell(riga, 7, colli).alignment = center
+            ws.cell(riga, 8, pin).alignment = center
+            ws.cell(riga, 9, pout).alignment = center
 
-            c9 = ws.cell(riga, 9, blue);  c9.number_format = '0.00'; c9.alignment = center
-            c10 = ws.cell(riga, 10, white); c10.number_format = '0.00'; c10.alignment = center
+            c10 = ws.cell(riga, 10, blue);  c10.number_format = '0.00'; c10.alignment = center
+            c11 = ws.cell(riga, 11, white); c11.number_format = '0.00'; c11.alignment = center
 
             riga += 1
 
         # Riga Totali
         ws.cell(riga, 1, "TOTALI").font = bold
-        ws.merge_cells(start_row=riga, start_column=1, end_row=riga, end_column=5)
+        ws.merge_cells(start_row=riga, start_column=1, end_row=riga, end_column=6)
         ws.cell(riga, 1).alignment = Alignment(horizontal="right", vertical="center")
 
-        ws.cell(riga, 6, t_colli).font = bold
-        ws.cell(riga, 7, t_pin).font = bold
-        ws.cell(riga, 8, t_pout).font = bold
+        ws.cell(riga, 7, t_colli).font = bold
+        ws.cell(riga, 8, t_pin).font = bold
+        ws.cell(riga, 9, t_pout).font = bold
 
-        tc9 = ws.cell(riga, 9, t_blue); tc9.font = bold; tc9.number_format = '0.00'; tc9.alignment = center
-        tc10 = ws.cell(riga, 10, t_white); tc10.font = bold; tc10.number_format = '0.00'; tc10.alignment = center
+        tc10 = ws.cell(riga, 10, t_blue); tc10.font = bold; tc10.number_format = '0.00'; tc10.alignment = center
+        tc11 = ws.cell(riga, 11, t_white); tc11.font = bold; tc11.number_format = '0.00'; tc11.alignment = center
 
-        widths = [12, 18, 40, 20, 22, 10, 14, 14, 10, 10]
+        widths = [12, 18, 40, 20, 22, 18, 10, 14, 14, 10, 10]
         for i, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(i)].width = w
 
