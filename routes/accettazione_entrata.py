@@ -160,7 +160,7 @@ def register_accettazione_entrata_routes(app_obj, deps):
 
           <div class="col-md-6">
             <label class="form-label">Note</label>
-            <input name="note" class="form-control" value="Documento caricato da accettazione entrata">
+            <input name="note" class="form-control" value="">
           </div>
 
           <div class="col-12 alert alert-light border small">
@@ -536,7 +536,7 @@ def register_accettazione_entrata_routes(app_obj, deps):
                 art.m3 = 0.0
                 art.posizione = (request.form.get('posizione') or '').strip()
                 art.stato = (request.form.get('stato') or 'DA COMPLETARE').strip().upper()
-                art.note = (request.form.get('note') or '').strip()
+                art.note = ''
                 art.mezzi_in_uscita = ''
                 art.data_ingresso = data_ingresso
                 art.n_ddt_ingresso = ddt_ingresso
@@ -550,16 +550,11 @@ def register_accettazione_entrata_routes(app_obj, deps):
 
             db.flush()
 
-            saved_filename = (request.form.get('saved_filename') or '').strip()
-            if saved_filename:
-                for art in created:
-                    try:
-                        db.add(Attachment(articolo_id=art.id_articolo, kind='doc', filename=saved_filename))
-                    except Exception:
-                        pass
+            # Il documento caricato viene usato solo per leggere i dati dell'entrata.
+            # Non viene allegato automaticamente alle righe create.
 
             db.commit()
-            flash(f'Entrata creata: {len(created)} righe generate da {arrivo_base} N.1 a N.{len(created)}. Documento allegato.', 'success')
+            flash(f'Entrata creata: {len(created)} righe generate da {arrivo_base} N.1 a N.{len(created)}.', 'success')
             return redirect(url_for('dettaglio_entrata', codice_entrata=codice_entrata))
 
         except Exception as e:
