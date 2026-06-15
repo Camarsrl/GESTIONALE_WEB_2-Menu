@@ -984,11 +984,31 @@ class Lavorazione(Base):
     descrizione = Column(Text)
     richiesta_di = Column(Text)     # Nuovo
     seriali = Column(Text)          # Nuovo
+    n_arrivo = Column(Text)          # N. Arrivo collegato al picking/buono
     colli = Column(Integer)
     pallet_forniti = Column(Integer) # Pallet IN
     pallet_uscita = Column(Integer)  # Pallet OUT
     ore_blue_collar = Column(Float)  # Ore Blue
     ore_white_collar = Column(Float) # Ore White
+
+
+def ensure_lavorazioni_n_arrivo_schema(engine):
+    """Aggiunge la colonna n_arrivo alla tabella lavorazioni se il DB è già esistente."""
+    try:
+        insp = inspect(engine)
+        tables = set(insp.get_table_names())
+        if "lavorazioni" not in tables:
+            Base.metadata.create_all(engine)
+            return
+        cols = {c.get("name") for c in insp.get_columns("lavorazioni")}
+        if "n_arrivo" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE lavorazioni ADD COLUMN n_arrivo TEXT"))
+            print("[OK] aggiunta colonna lavorazioni.n_arrivo")
+    except Exception as e:
+        print(f"[WARN] ensure_lavorazioni_n_arrivo_schema fallita: {e}")
+
+ensure_lavorazioni_n_arrivo_schema(engine)
 
 # ========================================================
 # 5. GESTIONE UTENTI (Definizione PRIMA dell'uso)
@@ -4902,9 +4922,14 @@ LAVORAZIONI_HTML = """
                        value="{{ edit_row.richiesta_di if edit_row else '' }}">
             </div>
 
-            <div class="col-md-3"><label class="small fw-bold">Seriali</label>
+            <div class="col-md-2"><label class="small fw-bold">Seriali / Buono</label>
                 <input type="text" name="seriali" class="form-control"
                        value="{{ edit_row.seriali if edit_row else '' }}">
+            </div>
+
+            <div class="col-md-2"><label class="small fw-bold">N. Arrivo</label>
+                <input type="text" name="n_arrivo" class="form-control"
+                       value="{{ edit_row.n_arrivo if edit_row else '' }}">
             </div>
 
             <div class="col-md-1"><label class="small fw-bold">Colli</label>
@@ -4988,8 +5013,12 @@ LAVORAZIONI_HTML = """
                 <input type="text" name="richiesta_di" class="form-control form-control-sm" placeholder="Richiesta di" value="{{ filtri.get('richiesta_di','') }}">
             </div>
             <div class="col-md-2">
-                <label class="small">Seriali</label>
-                <input type="text" name="seriali" class="form-control form-control-sm" placeholder="Seriali" value="{{ filtri.get('seriali','') }}">
+                <label class="small">Seriali / Buono</label>
+                <input type="text" name="seriali" class="form-control form-control-sm" placeholder="Seriali / Buono" value="{{ filtri.get('seriali','') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="small">N. Arrivo</label>
+                <input type="text" name="n_arrivo" class="form-control form-control-sm" placeholder="N. Arrivo" value="{{ filtri.get('n_arrivo','') }}">
             </div>
             <div class="col-md-2">
                 <label class="small">Colli da</label>
@@ -5050,7 +5079,7 @@ LAVORAZIONI_HTML = """
                 <thead class="table-light" style="color:#000;">
                     <tr>
                         <th>Data</th><th>Cliente</th><th>Descrizione</th>
-                        <th>Richiesta</th><th>Seriali</th><th>Colli</th>
+                        <th>Richiesta</th><th>Seriali / Buono</th><th>N. Arrivo</th><th>Colli</th>
                         <th>Pallet Entrati</th><th>Pallet Usciti</th>
                         <th>Blue</th><th>White</th>
                         <th>Azioni</th>
@@ -5064,6 +5093,7 @@ LAVORAZIONI_HTML = """
                         <td>{{ l.descrizione or '' }}</td>
                         <td>{{ l.richiesta_di or '' }}</td>
                         <td>{{ l.seriali or '' }}</td>
+                        <td>{{ l.n_arrivo or '' }}</td>
                         <td>{{ l.colli or '' }}</td>
                         <td>{{ l.pallet_forniti or '' }}</td>
                         <td>{{ l.pallet_uscita or '' }}</td>
@@ -5086,7 +5116,7 @@ LAVORAZIONI_HTML = """
                         </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="11" class="text-center text-muted">Nessuna attività registrata.</td></tr>
+                    <tr><td colspan="12" class="text-center text-muted">Nessuna attività registrata.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -6401,6 +6431,7 @@ def lavorazioni():
             rec.descrizione = request.form.get('descrizione')
             rec.richiesta_di = request.form.get('richiesta_di')
             rec.seriali = request.form.get('seriali')
+            rec.n_arrivo = request.form.get('n_arrivo')
             rec.colli = int(request.form.get('colli') or 0)
             rec.pallet_forniti = int(request.form.get('pallet_forniti') or 0)
             rec.pallet_uscita = int(request.form.get('pallet_uscita') or 0)
@@ -6429,6 +6460,7 @@ def lavorazioni():
                 descrizione=request.form.get('descrizione'),
                 richiesta_di=request.form.get('richiesta_di'),
                 seriali=request.form.get('seriali'),
+                n_arrivo=request.form.get('n_arrivo'),
                 colli=int(request.form.get('colli') or 0),
                 pallet_forniti=int(request.form.get('pallet_forniti') or 0),
                 pallet_uscita=int(request.form.get('pallet_uscita') or 0),
@@ -6466,6 +6498,7 @@ def lavorazioni():
         'descrizione': (request.args.get('descrizione') or '').strip(),
         'richiesta_di': (request.args.get('richiesta_di') or '').strip(),
         'seriali': (request.args.get('seriali') or '').strip(),
+        'n_arrivo': (request.args.get('n_arrivo') or '').strip(),
         'colli_da': (request.args.get('colli_da') or '').strip(),
         'colli_a': (request.args.get('colli_a') or '').strip(),
         'pallet_forniti_da': (request.args.get('pallet_forniti_da') or '').strip(),
@@ -6543,6 +6576,8 @@ def lavorazioni():
             if not _match_txt(rec.richiesta_di, filtri['richiesta_di']):
                 continue
             if not _match_txt(rec.seriali, filtri['seriali']):
+                continue
+            if not _match_txt(getattr(rec, 'n_arrivo', ''), filtri.get('n_arrivo')):
                 continue
             if colli_da is not None and (rec.colli is None or int(rec.colli or 0) < colli_da):
                 continue
