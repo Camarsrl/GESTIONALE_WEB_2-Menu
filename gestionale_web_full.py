@@ -4059,14 +4059,20 @@ DDT_PREVIEW_HTML = """
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label">Mezzo in uscita *</label>
-                        <select name="mezzi_in_uscita" id="mezzi_in_uscita" class="form-select">
+                        <label class="form-label">Mezzo per Giacenze *</label>
+                        <select name="mezzo_giacenze" id="mezzo_giacenze" class="form-select">
                             <option value="" selected>-- Seleziona --</option>
                             <option value="MOTRICE">Motrice</option>
                             <option value="BILICO">Bilico</option>
                             <option value="FURGONE">Furgone</option>
                         </select>
-                        <div class="form-text">Salvato nei Trasporti, non stampato sul DDT cliente.</div>
+                        <div class="form-text">Compila la colonna Mezzo Uscita nelle Giacenze, non stampato sul DDT cliente.</div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Mezzo per Trasporti *</label>
+                        <input name="mezzo_trasporti" id="mezzo_trasporti" class="form-control" placeholder="Es. Motrice / Bilico / Furgone / Corriere">
+                        <div class="form-text">Compila la funzione Trasporti, non stampato sul DDT cliente.</div>
                     </div>
 
                     <div class="col-md-4">
@@ -4282,10 +4288,16 @@ function submitDdt(actionType) {
 
     // ✅ obbligatorio SOLO in finalize
     if (actionType === 'finalize') {
-        const mezzo = (document.getElementById('mezzi_in_uscita').value || '').trim();
-        if (!mezzo) {
-            alert("Seleziona il Mezzo in uscita (Motrice / Bilico / Furgone) prima di finalizzare.");
-            document.getElementById('mezzi_in_uscita').focus();
+        const mezzoGiacenze = (document.getElementById('mezzo_giacenze').value || '').trim();
+        const mezzoTrasporti = (document.getElementById('mezzo_trasporti').value || '').trim();
+        if (!mezzoGiacenze) {
+            alert("Seleziona il Mezzo per Giacenze prima di finalizzare.");
+            document.getElementById('mezzo_giacenze').focus();
+            return;
+        }
+        if (!mezzoTrasporti) {
+            alert("Inserisci il Mezzo per Trasporti prima di finalizzare.");
+            document.getElementById('mezzo_trasporti').focus();
             return;
         }
     }
