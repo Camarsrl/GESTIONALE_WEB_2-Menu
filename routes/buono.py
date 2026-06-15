@@ -455,17 +455,45 @@ def register_buono_routes(app_obj, deps):
 
             picking_msg = ""
             if action == 'save':
+                # 1) Salvo SEMPRE prima il Buono e le modifiche alle Giacenze.
+                # Il Picking è un'operazione collegata ma non deve mai bloccare
+                # la creazione del PDF del Buono.
+                db.commit()
+
+                # 2) Creo il Picking in una transazione separata.
+                # Se il Picking fallisce per schema/colonne/dati, faccio rollback
+                # solo del Picking e lascio valido il Buono appena creato.
+                picking_created = False
                 try:
-                    picking_created, picking_msg = _create_picking_from_buono_form(db, req_data, rows, bn)
+                    if str(req_data.get('picking_enable') or '').lower() in ('1', 'on', 'true', 'si', 'yes'):
+                        db_pick = SessionLocal()
+                        try:
+                            fresh_rows = db_pick.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+                            picking_created, picking_msg = _create_picking_from_buono_form(db_pick, req_data, fresh_rows, bn)
+                            db_pick.commit()
+                        except Exception as e_pick_inner:
+                            try:
+                                db_pick.rollback()
+                            except Exception:
+                                pass
+                            picking_msg = "Picking non creato automaticamente: controllare la sezione Picking/Lavorazioni."
+                            try:
+                                scrivi_log_errore("Errore creazione picking da buono", e_pick_inner)
+                            except Exception:
+                                pass
+                        finally:
+                            try:
+                                db_pick.close()
+                            except Exception:
+                                pass
+                    else:
+                        picking_msg = "Picking non richiesto"
                 except Exception as e_pick:
-                    picking_created = False
-                    picking_msg = f"Picking non creato: {e_pick}"
+                    picking_msg = "Picking non creato automaticamente: controllare la sezione Picking/Lavorazioni."
                     try:
                         scrivi_log_errore("Errore creazione picking da buono", e_pick)
                     except Exception:
                         pass
-
-                db.commit()
 
                 if picking_msg:
                     try:
