@@ -192,13 +192,14 @@ def register_buono_routes(app_obj, deps):
         return tot
 
     def _create_picking_from_buono_form(db, form, rows, buono_n):
-        """Crea SEMPRE la riga Picking/Lavorazioni quando si salva un Buono.
+        """Crea/Aggiorna la riga Picking/Lavorazioni quando si salva un Buono.
 
-        Versione robusta:
-        - non dipende piu' solo dalla checkbox picking_enable;
-        - usa INSERT SQL diretto, cosi' evita problemi di sessione ORM;
-        - se la colonna n_arrivo non esiste ancora nel DB, salva comunque il resto;
-        - non duplica se nella stessa data esiste gia' lo stesso buono in seriali.
+        Versione definitiva:
+        - scrive sulla tabella reale "lavorazioni";
+        - usa una connessione separata con engine.begin(), quindi il Picking non viene perso
+          e non resta legato alla sessione del Buono;
+        - aggiunge la colonna n_arrivo se manca;
+        - se trova già stesso giorno + stesso buono in seriali, aggiorna la riga invece di duplicarla.
         """
         try:
             dt = _date_from_buono_form(form.get('picking_data') or form.get('data_em'))
@@ -207,94 +208,82 @@ def register_buono_routes(app_obj, deps):
             richiesta_di = (form.get('picking_richiesta_di') or '').strip()
             seriali = (form.get('picking_seriali') or buono_n or '').strip()
             n_arrivo = (form.get('picking_n_arrivo') or _join_unique([getattr(r, 'n_arrivo', '') for r in rows], 500)).strip()
+
             colli = _safe_int_picking(form.get('picking_colli'))
             if colli is None:
                 colli = _sum_int_attr(rows, 'n_colli') or len(rows or []) or None
+
             pallet_forniti = _safe_int_picking(form.get('picking_pallet_entrati'))
             pallet_uscita = _safe_int_picking(form.get('picking_pallet_usciti'))
             ore_blue = _safe_float_picking(form.get('picking_ore_blue'))
             ore_white = _safe_float_picking(form.get('picking_ore_white'))
 
-            # Se l'utente ha lasciato tutto vuoto e non c'e' nemmeno il buono, non creo righe inutili.
+            if not seriali:
+                seriali = str(buono_n or '').strip()
+
             if not (cliente or seriali or n_arrivo):
-                return False, "Picking non creato: dati insufficienti"
+                return False, "Picking non creato: dati insufficienti."
 
-            # Controllo duplicato su stessa data + stesso buono/seriale.
-            try:
-                dup = db.execute(
-                    text("""
-                        SELECT id FROM lavorazioni
-                        WHERE data = :data
-                          AND UPPER(COALESCE(seriali, '')) = UPPER(:seriali)
-                        LIMIT 1
-                    """),
-                    {"data": dt, "seriali": seriali or str(buono_n or '')}
-                ).fetchone()
-                if dup:
-                    return False, "Picking gia' presente per questo buono nella data indicata"
-            except Exception:
-                # Se il controllo duplicato fallisce, non blocco il salvataggio.
-                pass
+            params = {
+                "data": dt,
+                "cliente": cliente,
+                "descrizione": descrizione,
+                "richiesta_di": richiesta_di,
+                "seriali": seriali,
+                "n_arrivo": n_arrivo,
+                "colli": colli,
+                "pallet_forniti": pallet_forniti,
+                "pallet_uscita": pallet_uscita,
+                "ore_blue_collar": ore_blue,
+                "ore_white_collar": ore_white,
+            }
 
-            # Verifico se la colonna n_arrivo esiste davvero nel DB Render.
-            has_n_arrivo = True
-            try:
-                cols = db.execute(text("""
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_name = 'lavorazioni'
-                """)).fetchall()
-                col_names = {str(c[0]) for c in cols}
-                has_n_arrivo = 'n_arrivo' in col_names
-            except Exception:
-                has_n_arrivo = hasattr(Lavorazione, 'n_arrivo') if 'Lavorazione' in globals() else True
+            with engine.begin() as conn:
+                # Su PostgreSQL aggiunge la colonna se manca. Su altri DB, se fallisce non blocca.
+                try:
+                    conn.execute(text("ALTER TABLE lavorazioni ADD COLUMN IF NOT EXISTS n_arrivo TEXT"))
+                except Exception:
+                    pass
 
-            if has_n_arrivo:
-                db.execute(text("""
+                existing = conn.execute(text("""
+                    SELECT id
+                    FROM lavorazioni
+                    WHERE data = :data
+                      AND UPPER(COALESCE(seriali, '')) = UPPER(:seriali)
+                    LIMIT 1
+                """), {"data": dt, "seriali": seriali}).fetchone()
+
+                if existing:
+                    params["id"] = existing[0]
+                    conn.execute(text("""
+                        UPDATE lavorazioni
+                        SET cliente = :cliente,
+                            descrizione = :descrizione,
+                            richiesta_di = :richiesta_di,
+                            seriali = :seriali,
+                            n_arrivo = :n_arrivo,
+                            colli = :colli,
+                            pallet_forniti = :pallet_forniti,
+                            pallet_uscita = :pallet_uscita,
+                            ore_blue_collar = :ore_blue_collar,
+                            ore_white_collar = :ore_white_collar
+                        WHERE id = :id
+                    """), params)
+                    return True, "Picking aggiornato correttamente."
+
+                conn.execute(text("""
                     INSERT INTO lavorazioni
                     (data, cliente, descrizione, richiesta_di, seriali, n_arrivo, colli,
                      pallet_forniti, pallet_uscita, ore_blue_collar, ore_white_collar)
                     VALUES
                     (:data, :cliente, :descrizione, :richiesta_di, :seriali, :n_arrivo, :colli,
                      :pallet_forniti, :pallet_uscita, :ore_blue_collar, :ore_white_collar)
-                """), {
-                    "data": dt,
-                    "cliente": cliente,
-                    "descrizione": descrizione,
-                    "richiesta_di": richiesta_di,
-                    "seriali": seriali,
-                    "n_arrivo": n_arrivo,
-                    "colli": colli,
-                    "pallet_forniti": pallet_forniti,
-                    "pallet_uscita": pallet_uscita,
-                    "ore_blue_collar": ore_blue,
-                    "ore_white_collar": ore_white,
-                })
-            else:
-                db.execute(text("""
-                    INSERT INTO lavorazioni
-                    (data, cliente, descrizione, richiesta_di, seriali, colli,
-                     pallet_forniti, pallet_uscita, ore_blue_collar, ore_white_collar)
-                    VALUES
-                    (:data, :cliente, :descrizione, :richiesta_di, :seriali, :colli,
-                     :pallet_forniti, :pallet_uscita, :ore_blue_collar, :ore_white_collar)
-                """), {
-                    "data": dt,
-                    "cliente": cliente,
-                    "descrizione": descrizione,
-                    "richiesta_di": richiesta_di,
-                    "seriali": seriali,
-                    "colli": colli,
-                    "pallet_forniti": pallet_forniti,
-                    "pallet_uscita": pallet_uscita,
-                    "ore_blue_collar": ore_blue,
-                    "ore_white_collar": ore_white,
-                })
+                """), params)
 
-            return True, "Picking creato correttamente"
+            return True, "Picking creato correttamente."
         except Exception as e:
             try:
-                scrivi_log_errore("Errore INSERT picking da buono", e)
+                scrivi_log_errore("Errore creazione/aggiornamento picking da buono", e)
             except Exception:
                 pass
             raise
