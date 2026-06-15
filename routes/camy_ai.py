@@ -107,6 +107,8 @@ def register_camy_ai_routes(app_obj, deps):
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Confronta%20inventario%20cliente%20">Confronta Inventario</a>
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Crea%20report%20Excel%20giacenze%20cliente%20">Report Excel</a>
             <a class="btn btn-sm btn-outline-success" href="/accettazione_entrata">📄 Entrata da documento</a>
+            <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Genera%20registro%20giornaliero%20di%20oggi">📒 Registro oggi</a>
+            <a class="btn btn-sm btn-outline-info" href="/camy-ai?prefill=Cosa%20manca%20da%20fare%20oggi%3F">✅ Cosa manca?</a>
             <a class="btn btn-sm btn-outline-dark" href="/camy-ai?prefill=Apri%20accettazione%20entrata">🎤 Apri entrata</a>
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Cerca arrivo ">🎤 Cerca arrivo</button>
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Prepara buono arrivo ">🎤 Prepara buono</button>
@@ -677,6 +679,8 @@ def register_camy_ai_routes(app_obj, deps):
             "• Prepara buono arrivo 542/26: controllo uscito, Buono già presente e pezzi disponibili.<br>"
             "• Scarico parziale ID 12345.<br>"
             "• Crea DDT dal buono 025/26.<br>"
+            "• Genera registro giornaliero di oggi.<br>"
+            "• Cosa manca da fare oggi?<br>"
             "• Crea report Excel giacenze Fincantieri.<br>"
             "• Confronta inventario Galvano Tecnica.<br><br>"
             "Le operazioni che modificano dati richiedono sempre conferma."
@@ -2453,6 +2457,258 @@ def register_camy_ai_routes(app_obj, deps):
         parti.append(f'<br><a class="btn btn-sm btn-success mt-2" href="{url}">📄 Apri Accettazione Entrata</a>')
         return '<br>'.join(parti)
 
+
+    def _today_date_from_message(msg):
+        """Estrae la data per report giornaliero/quaderno.
+        Supporta: oggi, ieri, gg/mm/aaaa, aaaa-mm-gg. Default: oggi.
+        """
+        s = (msg or '').strip().lower()
+        if 'ieri' in s:
+            from datetime import timedelta
+            return date.today() - timedelta(days=1)
+        m = re.search(r'\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b', s)
+        if m:
+            gg, mm, aa = m.groups()
+            aa = ('20' + aa) if len(aa) == 2 else aa
+            try:
+                return datetime(int(aa), int(mm), int(gg)).date()
+            except Exception:
+                pass
+        m = re.search(r'\b(20\d{2})-(\d{1,2})-(\d{1,2})\b', s)
+        if m:
+            aa, mm, gg = m.groups()
+            try:
+                return datetime(int(aa), int(mm), int(gg)).date()
+            except Exception:
+                pass
+        return date.today()
+
+    def _date_variants_for_query(d):
+        """Il DB può contenere date come YYYY-MM-DD, DD/MM/YYYY oppure oggetti date."""
+        try:
+            return [d.strftime('%Y-%m-%d'), d.strftime('%d/%m/%Y'), d]
+        except Exception:
+            return []
+
+    def _filter_date_equals(q, column, d):
+        vals = _date_variants_for_query(d)
+        conds = []
+        for v in vals:
+            try:
+                conds.append(column == v)
+            except Exception:
+                pass
+        if conds:
+            return q.filter(or_(*conds))
+        return q
+
+    def _safe_model(name):
+        try:
+            return globals().get(name)
+        except Exception:
+            return None
+
+    def _answer_registro_giornaliero(db, msg):
+        """Genera il quaderno/registro giornaliero prendendo i dati già presenti nel gestionale."""
+        if not _can_operate():
+            return _operation_denied()
+
+        giorno = _today_date_from_message(msg)
+        data_it = giorno.strftime('%d/%m/%Y')
+
+        # Entrate del giorno
+        entrate_q = _base_query(db)
+        entrate_q = _filter_date_equals(entrate_q, Articolo.data_ingresso, giorno)
+        entrate_rows = entrate_q.order_by(Articolo.cliente.asc(), Articolo.n_arrivo.asc(), Articolo.id_articolo.asc()).limit(600).all()
+
+        # Uscite/DDT del giorno
+        uscite_q = _base_query(db)
+        uscite_q = _filter_date_equals(uscite_q, Articolo.data_uscita, giorno)
+        uscite_rows = uscite_q.order_by(Articolo.n_ddt_uscita.asc(), Articolo.cliente.asc(), Articolo.id_articolo.asc()).limit(600).all()
+
+        # Raggruppo entrate per cliente + arrivo + DDT ingresso
+        entrate = {}
+        for r in entrate_rows:
+            key = ((r.cliente or '-').strip(), (strip_arrivo_progressivo(r.n_arrivo) if 'strip_arrivo_progressivo' in globals() else (r.n_arrivo or '')).strip(), (r.n_ddt_ingresso or '').strip())
+            rec = entrate.setdefault(key, {'colli':0, 'peso':0.0, 'righe':0})
+            rec['righe'] += 1
+            try: rec['colli'] += int(r.n_colli or 0)
+            except Exception: pass
+            try: rec['peso'] += float(r.peso or 0)
+            except Exception: pass
+
+        # Raggruppo uscite per DDT + cliente
+        uscite = {}
+        for r in uscite_rows:
+            key = ((r.n_ddt_uscita or '-').strip(), (r.cliente or '-').strip())
+            rec = uscite.setdefault(key, {'colli':0, 'peso':0.0, 'righe':0})
+            rec['righe'] += 1
+            try: rec['colli'] += int(r.n_colli or 0)
+            except Exception: pass
+            try: rec['peso'] += float(r.peso or 0)
+            except Exception: pass
+
+        # Trasporti del giorno, se la tabella è disponibile.
+        trasporti_rows = []
+        TrasportoModel = _safe_model('Trasporto')
+        if TrasportoModel is not None:
+            try:
+                tq = db.query(TrasportoModel)
+                tq = _filter_date_equals(tq, TrasportoModel.data, giorno)
+                trasporti_rows = tq.order_by(TrasportoModel.cliente.asc(), TrasportoModel.ddt_uscita.asc()).limit(300).all()
+            except Exception:
+                trasporti_rows = []
+
+        # Lavorazioni/Picking del giorno, se la tabella è disponibile.
+        lavorazioni_rows = []
+        LavorazioneModel = _safe_model('Lavorazione')
+        if LavorazioneModel is not None:
+            try:
+                lq = db.query(LavorazioneModel)
+                lq = _filter_date_equals(lq, LavorazioneModel.data, giorno)
+                lavorazioni_rows = lq.order_by(LavorazioneModel.cliente.asc(), LavorazioneModel.id.asc()).limit(300).all()
+            except Exception:
+                lavorazioni_rows = []
+
+        tot_colli_in = sum(v['colli'] for v in entrate.values())
+        tot_peso_in = sum(v['peso'] for v in entrate.values())
+        tot_colli_out = sum(v['colli'] for v in uscite.values())
+        tot_peso_out = sum(v['peso'] for v in uscite.values())
+        tot_costo = 0.0
+        for t in trasporti_rows:
+            try: tot_costo += float(getattr(t, 'costo', 0) or 0)
+            except Exception: pass
+
+        out = []
+        out.append(f"<b>📒 Registro giornaliero del {data_it}</b><br>")
+        out.append("<b>ENTRATE</b><br>")
+        if entrate:
+            for (cliente, arrivo, ddt), rec in entrate.items():
+                out.append(f"• {_esc(cliente)} - Arrivo {_esc(arrivo or '-')} - DDT ingresso {_esc(ddt or '-')} - Colli {int(rec['colli'] or rec['righe'])} - Peso {_esc(_fmt_num(rec['peso']))} kg<br>")
+        else:
+            out.append("• Nessuna entrata registrata.<br>")
+
+        out.append("<br><b>USCITE / DDT</b><br>")
+        if uscite:
+            for (ddt, cliente), rec in uscite.items():
+                out.append(f"• DDT {_esc(ddt)} - {_esc(cliente)} - Colli {int(rec['colli'] or rec['righe'])} - Peso {_esc(_fmt_num(rec['peso']))} kg<br>")
+        else:
+            out.append("• Nessun DDT registrato.<br>")
+
+        out.append("<br><b>TRASPORTI</b><br>")
+        if trasporti_rows:
+            for t in trasporti_rows:
+                costo = getattr(t, 'costo', None)
+                costo_txt = f" - Costo € {_esc(_fmt_num(costo))}" if costo not in (None, '') else ""
+                out.append(
+                    f"• DDT {_esc(getattr(t, 'ddt_uscita', '') or '-')} - {_esc(getattr(t, 'cliente', '') or '-')} - "
+                    f"Trasportatore {_esc(getattr(t, 'trasportatore', '') or '-')} - Mezzo {_esc(getattr(t, 'tipo_mezzo', '') or '-')}"
+                    f"{costo_txt}<br>"
+                )
+        else:
+            out.append("• Nessun trasporto registrato.<br>")
+
+        out.append("<br><b>PICKING / LAVORAZIONI</b><br>")
+        if lavorazioni_rows:
+            for l in lavorazioni_rows:
+                ore_b = getattr(l, 'ore_blue_collar', None) or 0
+                ore_w = getattr(l, 'ore_white_collar', None) or 0
+                out.append(
+                    f"• {_esc(getattr(l, 'cliente', '') or '-')} - {_esc(getattr(l, 'descrizione', '') or '-')} - "
+                    f"Colli {_esc(getattr(l, 'colli', '') or 0)} - Pallet IN {_esc(getattr(l, 'pallet_forniti', '') or 0)} - "
+                    f"Pallet OUT {_esc(getattr(l, 'pallet_uscita', '') or 0)} - Ore { _esc(_fmt_num(float(ore_b or 0) + float(ore_w or 0))) }<br>"
+                )
+        else:
+            out.append("• Nessuna lavorazione registrata.<br>")
+
+        out.append("<br><b>TOTALI GIORNATA</b><br>")
+        out.append(f"• Entrate: {len(entrate)} - Colli in entrata: {int(tot_colli_in)} - Peso: {_esc(_fmt_num(tot_peso_in))} kg<br>")
+        out.append(f"• DDT uscita: {len(uscite)} - Colli in uscita: {int(tot_colli_out)} - Peso: {_esc(_fmt_num(tot_peso_out))} kg<br>")
+        out.append(f"• Trasporti: {len(trasporti_rows)} - Costo totale: € {_esc(_fmt_num(tot_costo))}<br>")
+
+        out.append("<br><div class='alert alert-light border small'><b>Testo pronto per WhatsApp / email:</b><br>")
+        testo = []
+        testo.append(f"Registro giornaliero {data_it}")
+        testo.append(f"Entrate: {len(entrate)} - Colli {int(tot_colli_in)}")
+        testo.append(f"DDT uscita: {len(uscite)} - Colli {int(tot_colli_out)}")
+        testo.append(f"Trasporti: {len(trasporti_rows)} - Costo totale € {_fmt_num(tot_costo)}")
+        testo.append(f"Lavorazioni/Picking: {len(lavorazioni_rows)}")
+        out.append("<pre style='white-space:pre-wrap;margin-bottom:0'>" + _esc("\n".join(testo)) + "</pre></div>")
+        return "".join(out)
+
+    def _answer_cosa_manca_oggi(db, msg):
+        """Controllo rapido delle attività aperte/incomplete per ridurre dimenticanze."""
+        if not _can_operate():
+            return _operation_denied()
+        giorno = _today_date_from_message(msg)
+        data_it = giorno.strftime('%d/%m/%Y')
+        out = [f"<b>✅ Controllo attività aperte del {data_it}</b><br>"]
+
+        # Arrivi di oggi incompleti: protocollo, codice, descrizione, posizione.
+        q = _base_query(db)
+        q = _filter_date_equals(q, Articolo.data_ingresso, giorno)
+        rows = q.order_by(Articolo.cliente.asc(), Articolo.n_arrivo.asc()).limit(500).all()
+        incompleti = []
+        for r in rows:
+            mancano = []
+            if not (r.codice_articolo or '').strip(): mancano.append('codice')
+            if not (r.descrizione or '').strip(): mancano.append('descrizione')
+            if not (r.protocollo or '').strip(): mancano.append('protocollo')
+            if not (r.posizione or '').strip(): mancano.append('posizione')
+            if mancano:
+                incompleti.append((r, mancano))
+
+        out.append("<b>Arrivi da completare</b><br>")
+        if incompleti:
+            for r, mancano in incompleti[:20]:
+                out.append(f"• ID {_esc(r.id_articolo)} - {_esc(r.cliente or '-')} - Arrivo {_esc(r.n_arrivo or '-')} - manca: {_esc(', '.join(mancano))}<br>")
+            if len(incompleti) > 20:
+                out.append(f"• ... altre {len(incompleti)-20} righe da verificare.<br>")
+        else:
+            out.append("• Nessun arrivo incompleto trovato per oggi.<br>")
+
+        # Buoni presenti senza DDT uscita.
+        q2 = _active_filter(_base_query(db)).filter(Articolo.buono_n != None).filter(Articolo.buono_n != '')
+        buoni_aperti = q2.order_by(Articolo.buono_n.asc(), Articolo.cliente.asc()).limit(200).all()
+        groups = {}
+        for r in buoni_aperti:
+            groups.setdefault((r.buono_n or '-', r.cliente or '-'), 0)
+            groups[(r.buono_n or '-', r.cliente or '-')] += 1
+        out.append("<br><b>Buoni aperti senza DDT</b><br>")
+        if groups:
+            for (buono, cliente), count in list(groups.items())[:20]:
+                out.append(f"• Buono {_esc(buono)} - {_esc(cliente)} - {count} riga/e<br>")
+            if len(groups) > 20:
+                out.append(f"• ... altri {len(groups)-20} buoni aperti.<br>")
+        else:
+            out.append("• Nessun buono aperto senza DDT.<br>")
+
+        # DDT di oggi senza trasporto.
+        q3 = _base_query(db)
+        q3 = _filter_date_equals(q3, Articolo.data_uscita, giorno)
+        uscite = q3.filter(Articolo.n_ddt_uscita != None).filter(Articolo.n_ddt_uscita != '').all()
+        ddt_set = sorted({(r.n_ddt_uscita or '').strip() for r in uscite if (r.n_ddt_uscita or '').strip()})
+        trasporti_set = set()
+        TrasportoModel = _safe_model('Trasporto')
+        if TrasportoModel is not None:
+            try:
+                tq = db.query(TrasportoModel)
+                tq = _filter_date_equals(tq, TrasportoModel.data, giorno)
+                for t in tq.all():
+                    if (getattr(t, 'ddt_uscita', '') or '').strip():
+                        trasporti_set.add((getattr(t, 'ddt_uscita', '') or '').strip())
+            except Exception:
+                pass
+        mancanti_trasporto = [d for d in ddt_set if d not in trasporti_set]
+        out.append("<br><b>DDT senza trasporto registrato</b><br>")
+        if mancanti_trasporto:
+            for d in mancanti_trasporto[:20]:
+                out.append(f"• DDT {_esc(d)}<br>")
+        else:
+            out.append("• Nessun DDT senza trasporto trovato per oggi.<br>")
+
+        return "".join(out)
+
     def _process_camy_message(db, msg):
         low = (msg or "").lower()
 
@@ -2462,6 +2718,12 @@ def register_camy_ai_routes(app_obj, deps):
 
         if any(x in low for x in ["accettazione entrata", "apri entrata", "nuova entrata", "nuovo arrivo", "carica documento entrata", "documento entrata", "crea entrata"]):
             return _answer_accettazione_entrata(msg), True, {"action":"accettazione_entrata"}
+
+        if any(x in low for x in ["registro giornaliero", "registro di oggi", "quaderno", "aggiorna quaderno", "genera registro", "riepilogo giornata", "riepilogo di oggi"]):
+            return _answer_registro_giornaliero(db, msg), True, {"action":"registro_giornaliero"}
+
+        if any(x in low for x in ["cosa manca", "manca da fare", "attivita aperte", "attività aperte", "controlla aperti", "controlla anomalie"]):
+            return _answer_cosa_manca_oggi(db, msg), True, {"action":"cosa_manca_oggi"}
 
         if any(x in low for x in ["aiuto", "help", "cosa puoi fare", "cosa sai fare"]):
             return _answer_help(), True, {}
