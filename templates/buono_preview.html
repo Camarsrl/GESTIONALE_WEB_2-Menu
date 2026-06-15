@@ -1,0 +1,231 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card p-3 shadow-sm">
+    <div class="d-flex align-items-center gap-3 mb-3">
+        {% if logo_url %}<img src="{{ logo_url }}" style="height:40px">{% endif %}
+        <h5 class="flex-grow-1 text-center m-0 text-uppercase fw-bold">Buono di Prelievo</h5>
+        
+        <div class="btn-group">
+            <button type="button" class="btn btn-outline-primary" onclick="submitBuono('preview')">
+                <i class="bi bi-eye"></i> Anteprima PDF
+            </button>
+            <button type="button" class="btn btn-success fw-bold" onclick="submitBuono('save')">
+                <i class="bi bi-file-earmark-arrow-down"></i> Genera e Salva
+            </button>
+            <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
+        </div>
+    </div>
+
+    <form id="buono-form" method="POST" action="{{ url_for('buono_finalize_and_get_pdf') }}">
+        <input type="hidden" name="ids" value="{{ ids }}">
+        <input type="hidden" name="action" id="action_field" value="preview">
+
+        <div class="row g-3 bg-light p-3 rounded border mb-3">
+            <div class="col-md-3">
+                <label class="form-label small fw-bold">N. Buono</label>
+                <div class="input-group">
+                    <select name="buono_mode" id="buono_mode" class="form-select" style="max-width:130px" onchange="toggleBuonoMode()">
+                        <option value="auto" selected>Automatico</option>
+                        <option value="manuale">Manuale</option>
+                    </select>
+                    <input name="buono_n" id="buono_n" class="form-control fw-bold" value="{{ meta.buono_n }}">
+                </div>
+                <div class="form-text">
+                    Automatico: propone il prossimo numero disponibile. Manuale: puoi modificarlo tu.
+                </div>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Data Em.</label>
+                <input name="data_em" class="form-control" value="{{ meta.data_em }}" readonly>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Ordine</label>
+                <input name="ordine" class="form-control" value="{{ meta.ordine }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Commessa</label>
+                <input name="commessa" class="form-control" value="{{ meta.commessa }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Fornitore</label>
+                <input name="fornitore" class="form-control" value="{{ meta.fornitore }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Protocollo</label>
+                <input name="protocollo" class="form-control" value="{{ meta.protocollo }}">
+            </div>
+        </div>
+
+
+
+        <div class="card border-success mb-3">
+            <div class="card-header bg-success bg-opacity-10 d-flex align-items-center justify-content-between">
+                <div>
+                    <b>Picking / Lavorazioni</b>
+                    <div class="small text-muted">Compila subito i dati del picking collegati al Buono.</div>
+                </div>
+                <label class="form-check-label fw-bold">
+                    <input class="form-check-input" type="checkbox" name="picking_enable" value="1" checked>
+                    Crea picking al salvataggio
+                </label>
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Data</label>
+                        <input name="picking_data" class="form-control" value="{{ meta.data_em }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Cliente</label>
+                        <input name="picking_cliente" class="form-control" value="{{ meta.picking_cliente }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold">Descrizione</label>
+                        <input name="picking_descrizione" class="form-control" value="{{ meta.picking_descrizione }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Richiesta di</label>
+                        <input name="picking_richiesta_di" class="form-control" value="{{ meta.picking_richiesta_di }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Seriali / Buono</label>
+                        <input name="picking_seriali" class="form-control" value="{{ meta.picking_seriali }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">N. Arrivo</label>
+                        <input name="picking_n_arrivo" class="form-control" value="{{ meta.picking_n_arrivo }}">
+                    </div>
+                    <div class="col-md-1">
+                        <label class="form-label small fw-bold">Colli</label>
+                        <input name="picking_colli" type="number" class="form-control" value="{{ meta.picking_colli }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Pallet Entrati</label>
+                        <input name="picking_pallet_entrati" type="number" class="form-control">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Pallet Usciti</label>
+                        <input name="picking_pallet_usciti" type="number" class="form-control">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Ore Blue</label>
+                        <input name="picking_ore_blue" type="number" step="0.5" class="form-control">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Ore White</label>
+                        <input name="picking_ore_white" type="number" step="0.5" class="form-control">
+                    </div>
+                </div>
+                <div class="form-text mt-2">
+                    La descrizione viene proposta automaticamente come PICKING+FILMATURA+PALLETIZZAZIONE. Se non vuoi registrare il picking, togli la spunta.
+                </div>
+            </div>
+        </div>
+
+        <div class="alert alert-warning py-2 small">
+            <b>Scarico parziale:</b> se nella cella ci sono più codici/descrizioni, lascia nei campi sotto solo il codice e la descrizione che vuoi mettere nel buono.
+            Quando premi <b>Genera e Salva</b>, quel codice/descrizione verrà tolto dalla riga originale e resterà in giacenza solo il residuo.
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered align-middle table-hover">
+                <thead class="table-dark text-black" style="color:black !important;">
+                    <tr>
+                        <th style="width:10%">Ordine Orig.</th>
+                        <th style="width:22%">Codice da mettere nel buono</th>
+                        <th style="width:38%">Descrizione da mettere nel buono</th>
+                        <th style="width:10%">Q.tà</th>
+                        <th style="width:10%">N.Arr</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rows %}
+                    <tr class="table-light">
+                        <td class="small">{{ r.ordine or '' }}</td>
+                        <td>
+                            <textarea name="codice_buono_{{ r.id_articolo }}" rows="2"
+                                      class="form-control form-control-sm fw-bold"
+                                      title="Scrivi qui SOLO il codice articolo da inserire nel buono. Se lo modifichi, quando salvi verrà tolto dalla cella originale.">{{ r.codice_articolo or '' }}</textarea>
+                            <div class="small text-muted mt-1">
+                                Orig.: {{ r.codice_articolo or '' }}
+                            </div>
+                        </td>
+                        <td>
+                            <textarea name="descrizione_buono_{{ r.id_articolo }}" rows="2"
+                                      class="form-control form-control-sm"
+                                      title="Scrivi qui SOLO la descrizione da inserire nel buono. Se la modifichi, quando salvi verrà tolta dalla cella originale.">{{ r.descrizione or '' }}</textarea>
+                            <div class="small text-muted mt-1">
+                                Orig.: {{ r.descrizione or '' }}
+                            </div>
+                        </td>
+                        <td>
+                            <!-- ✅ Q.tà prende PEZZI -->
+                            <input name="q_{{ r.id_articolo }}" type="number"
+                                   class="form-control form-control-sm text-center fw-bold"
+                                   value="{{ r.pezzo or 1 }}">
+                        </td>
+                        <td class="small text-center">{{ r.n_arrivo or '' }}</td>
+                    </tr>
+                    <tr>
+                        <td colspan="2" class="text-end small text-muted align-middle" style="border-top:none;">Note:</td>
+                        <td colspan="3" style="border-top:none;">
+                            <textarea class="form-control form-control-sm border-0 bg-white text-primary"
+                                      name="note_{{ r.id_articolo }}" rows="1"
+                                      placeholder="Inserisci note aggiuntive...">{{ r.note or '' }}</textarea>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </form>
+</div>
+
+<script>
+function toggleBuonoMode() {
+    const mode = document.getElementById('buono_mode');
+    const input = document.getElementById('buono_n');
+    if (!mode || !input) return;
+    if (mode.value === 'auto') {
+        input.value = "{{ meta.buono_n_auto or meta.buono_n }}";
+        input.classList.add('bg-light');
+    } else {
+        input.classList.remove('bg-light');
+        input.focus();
+        input.select();
+    }
+}
+document.addEventListener('DOMContentLoaded', toggleBuonoMode);
+
+function submitBuono(actionType) {
+    const form = document.getElementById('buono-form');
+    document.getElementById('action_field').value = actionType;
+
+    if (actionType === 'preview') {
+        form.target = '_blank';
+        form.submit();
+    } else {
+        form.target = '_self';
+        const formData = new FormData(form);
+        const url = "{{ url_for('buono_finalize_and_get_pdf') }}"; 
+        
+        fetch(url, { method: 'POST', body: formData })
+        .then(resp => {
+            if (resp.ok) return resp.blob();
+            return resp.text().then(text => { throw new Error(text) });
+        })
+        .then(blob => {
+            const urlBlob = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = urlBlob;
+            a.download = 'Buono_Prelievo.pdf';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(urlBlob);
+            setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1500);
+        })
+        .catch(err => alert("Errore durante il salvataggio:\\n" + err));
+    }
+}
+</script>
+{% endblock %}
