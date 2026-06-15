@@ -137,6 +137,106 @@ def register_buono_routes(app_obj, deps):
         return f"{residuo} / {extra}".strip(" /") if residuo else extra
 
 
+
+    def _safe_int_picking(value):
+        """Converte interi lasciando None se il campo è vuoto."""
+        s = str(value or "").strip().replace(",", ".")
+        if not s:
+            return None
+        try:
+            return int(float(s))
+        except Exception:
+            return None
+
+    def _safe_float_picking(value):
+        """Converte numeri italiani/inglesi lasciando None se il campo è vuoto."""
+        s = str(value or "").strip().replace(",", ".")
+        if not s:
+            return None
+        try:
+            return float(s)
+        except Exception:
+            return None
+
+    def _date_from_buono_form(value):
+        """Accetta DD/MM/YYYY o YYYY-MM-DD e restituisce date."""
+        s = str(value or "").strip()
+        if not s:
+            return date.today()
+        for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except Exception:
+                pass
+        return date.today()
+
+    def _join_unique(values, max_len=500):
+        out, seen = [], set()
+        for v in values or []:
+            s = str(v or "").strip()
+            if not s:
+                continue
+            key = s.upper()
+            if key not in seen:
+                seen.add(key)
+                out.append(s)
+        return "; ".join(out)[:max_len]
+
+    def _sum_int_attr(rows, attr):
+        tot = 0
+        for r in rows or []:
+            try:
+                tot += int(float(getattr(r, attr, 0) or 0))
+            except Exception:
+                pass
+        return tot
+
+    def _create_picking_from_buono_form(db, form, rows, buono_n):
+        """Crea la riga Picking/Lavorazioni quando si salva un Buono.
+        Non duplica se nello stesso giorno esiste già una lavorazione con lo stesso Buono.
+        """
+        if 'Lavorazione' not in globals():
+            return False, "Modello Lavorazione non disponibile"
+
+        enabled = str(form.get('picking_enable') or '').lower() in ('1', 'on', 'true', 'si', 'yes')
+        if not enabled:
+            return False, "Picking non richiesto"
+
+        dt = _date_from_buono_form(form.get('picking_data') or form.get('data_em'))
+        cliente = (form.get('picking_cliente') or _join_unique([getattr(r, 'cliente', '') for r in rows], 120)).strip()
+        descrizione = (form.get('picking_descrizione') or 'PICKING+FILMATURA+PALLETIZZAZIONE').strip()
+        richiesta_di = (form.get('picking_richiesta_di') or '').strip()
+        seriali = (form.get('picking_seriali') or buono_n or '').strip()
+        n_arrivo = (form.get('picking_n_arrivo') or _join_unique([getattr(r, 'n_arrivo', '') for r in rows], 500)).strip()
+
+        # Evita doppio inserimento se l'utente aggiorna/ricarica la pagina.
+        try:
+            duplicate_q = db.query(Lavorazione).filter(Lavorazione.data == dt)
+            if seriali:
+                duplicate_q = duplicate_q.filter(func.upper(func.coalesce(Lavorazione.seriali, '')) == seriali.upper())
+            elif buono_n:
+                duplicate_q = duplicate_q.filter(func.upper(func.coalesce(Lavorazione.seriali, '')) == str(buono_n).upper())
+            if duplicate_q.first():
+                return False, "Picking già presente per questo buono nella data indicata"
+        except Exception:
+            pass
+
+        lav = Lavorazione()
+        lav.data = dt
+        lav.cliente = cliente
+        lav.descrizione = descrizione
+        lav.richiesta_di = richiesta_di
+        lav.seriali = seriali
+        if hasattr(lav, 'n_arrivo'):
+            lav.n_arrivo = n_arrivo
+        lav.colli = _safe_int_picking(form.get('picking_colli'))
+        lav.pallet_forniti = _safe_int_picking(form.get('picking_pallet_entrati'))
+        lav.pallet_uscita = _safe_int_picking(form.get('picking_pallet_usciti'))
+        lav.ore_blue_collar = _safe_float_picking(form.get('picking_ore_blue'))
+        lav.ore_white_collar = _safe_float_picking(form.get('picking_ore_white'))
+        db.add(lav)
+        return True, "Picking creato"
+
     def _next_buono_number(db):
         """Genera automaticamente il prossimo N. buono.
 
@@ -202,6 +302,10 @@ def register_buono_routes(app_obj, deps):
             buono_n_auto = buono_n_esistente or _next_buono_number(db)
             ordine_auto = next((r.ordine for r in rows if r.ordine), "")
 
+            picking_cliente_auto = _join_unique([getattr(r, 'cliente', '') for r in rows], 120)
+            picking_n_arrivo_auto = _join_unique([getattr(r, 'n_arrivo', '') for r in rows], 500)
+            picking_colli_auto = _sum_int_attr(rows, 'n_colli') or len(rows)
+
             meta = {
                 "buono_n": buono_n_auto,
                 "buono_n_auto": buono_n_auto,
@@ -211,6 +315,12 @@ def register_buono_routes(app_obj, deps):
                 "fornitore": fornitore_auto,
                 "protocollo": protocollo_auto,
                 "ordine": ordine_auto,
+                "picking_cliente": picking_cliente_auto,
+                "picking_descrizione": "PICKING+FILMATURA+PALLETIZZAZIONE",
+                "picking_richiesta_di": "",
+                "picking_seriali": buono_n_auto,
+                "picking_n_arrivo": picking_n_arrivo_auto,
+                "picking_colli": picking_colli_auto,
             }
 
             return render_template('buono_preview.html', rows=rows, meta=meta, ids=",".join(map(str, ids)))
@@ -343,8 +453,25 @@ def register_buono_routes(app_obj, deps):
                         if q_scelta is not None and _num_float(q_scelta) > 0:
                             r.pezzo = _fmt_num_clean(_num_float(q_scelta))
 
+            picking_msg = ""
             if action == 'save':
+                try:
+                    picking_created, picking_msg = _create_picking_from_buono_form(db, req_data, rows, bn)
+                except Exception as e_pick:
+                    picking_created = False
+                    picking_msg = f"Picking non creato: {e_pick}"
+                    try:
+                        scrivi_log_errore("Errore creazione picking da buono", e_pick)
+                    except Exception:
+                        pass
+
                 db.commit()
+
+                if picking_msg:
+                    try:
+                        flash(picking_msg, "success" if picking_created else "warning")
+                    except Exception:
+                        pass
 
                 if scarico_parziale_eseguito:
                     flash(
