@@ -109,6 +109,7 @@ def register_camy_ai_routes(app_obj, deps):
             <a class="btn btn-sm btn-outline-success" href="/accettazione_entrata">📄 Entrata da documento</a>
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Genera%20registro%20giornaliero%20di%20oggi">📒 Registro oggi</a>
             <a class="btn btn-sm btn-outline-info" href="/camy-ai?prefill=Cosa%20manca%20da%20fare%20oggi%3F">✅ Cosa manca?</a>
+            <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Crea%20picking%20dal%20buono%20">📦 Picking da Buono</a>
             <a class="btn btn-sm btn-outline-dark" href="/camy-ai?prefill=Apri%20accettazione%20entrata">🎤 Apri entrata</a>
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Cerca arrivo ">🎤 Cerca arrivo</button>
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Prepara buono arrivo ">🎤 Prepara buono</button>
@@ -2673,7 +2674,7 @@ def register_camy_ai_routes(app_obj, deps):
                 ore_w = getattr(l, 'ore_white_collar', None) or 0
                 out.append(
                     f"• {_esc(getattr(l, 'cliente', '') or '-')} - {_esc(getattr(l, 'descrizione', '') or '-')} - "
-                    f"Colli {_esc(getattr(l, 'colli', '') or 0)} - Pallet IN {_esc(getattr(l, 'pallet_forniti', '') or 0)} - "
+                    f"Arrivo {_esc(getattr(l, 'n_arrivo', '') or '-')} - Colli {_esc(getattr(l, 'colli', '') or 0)} - Pallet IN {_esc(getattr(l, 'pallet_forniti', '') or 0)} - "
                     f"Pallet OUT {_esc(getattr(l, 'pallet_uscita', '') or 0)} - Ore { _esc(_fmt_num(float(ore_b or 0) + float(ore_w or 0))) }<br>"
                 )
         else:
@@ -2766,6 +2767,162 @@ def register_camy_ai_routes(app_obj, deps):
             out.append("• Nessun DDT senza trasporto trovato per oggi.<br>")
 
         return "".join(out)
+
+
+    def _extract_buono_per_picking(msg):
+        """Estrae il buono dal comando: crea picking dal buono 025/26."""
+        s = msg or ""
+        patterns = [
+            r"\b(?:dal|del|per|da)\s+buono\s+([A-Z0-9][A-Z0-9./\-_]{1,40})",
+            r"\bbuono\s+([A-Z0-9][A-Z0-9./\-_]{1,40})",
+        ]
+        stop = {"DI", "DA", "DAL", "DEL", "PICKING", "PRELIEVO"}
+        for pat in patterns:
+            m = re.search(pat, s, re.I)
+            if m:
+                val = (m.group(1) or "").strip().strip(".,;:")
+                if val and val.upper() not in stop:
+                    return val
+        return ""
+
+    def _extract_richiesta_di_per_picking(msg):
+        """Estrae richiesta di / richiesto da dal comando CAMY, se indicato."""
+        s = msg or ""
+        patterns = [
+            r"\b(?:richiesta\s+di|richiesto\s+da|richiedente)\s*[:\-]?\s*(.+?)(?=\s+(?:buono|colli|pallet|ore|descrizione)\b|$)",
+        ]
+        for pat in patterns:
+            m = re.search(pat, s, re.I)
+            if m:
+                return (m.group(1) or "").strip(" ;,.-")
+        return ""
+
+    def _answer_crea_picking_da_buono(db, msg):
+        """Crea una riga Picking/Lavorazioni partendo dalle righe di giacenza collegate al Buono."""
+        if not _can_operate():
+            return _operation_denied()
+
+        LavorazioneModel = _safe_model("Lavorazione")
+        if LavorazioneModel is None:
+            return "Non trovo il modello Lavorazione/Picking nel gestionale."
+
+        buono = _extract_buono_per_picking(msg)
+        if not buono:
+            return (
+                "Indicami il numero del Buono.<br>"
+                "Esempio: <b>Crea picking dal buono 025/26</b><br>"
+                "Oppure: <b>Crea picking dal buono 025/26 richiesta di Samuele Venni</b>"
+            )
+
+        rows = (
+            _base_query(db)
+            .filter(Articolo.buono_n != None)
+            .filter(Articolo.buono_n != "")
+            .filter(or_(Articolo.buono_n.ilike(f"%{buono}%"), _sql_norm_col(Articolo.buono_n).ilike(f"%{_norm(buono)}%")))
+            .order_by(Articolo.cliente.asc(), Articolo.n_arrivo.asc(), Articolo.id_articolo.asc())
+            .limit(500)
+            .all()
+        )
+
+        if not rows:
+            return f"Non ho trovato righe collegate al Buono <b>{_esc(buono)}</b>."
+
+        cliente = ""
+        clienti = []
+        arrivi = []
+        descrizioni = []
+        colli = 0
+        peso = 0.0
+
+        for r in rows:
+            cli = (getattr(r, "cliente", "") or "").strip()
+            if cli and cli not in clienti:
+                clienti.append(cli)
+            if not cliente and cli:
+                cliente = cli
+
+            arr = (getattr(r, "n_arrivo", "") or "").strip()
+            if arr:
+                try:
+                    arr_base = strip_arrivo_progressivo(arr)
+                except Exception:
+                    arr_base = arr
+                if arr_base and arr_base not in arrivi:
+                    arrivi.append(arr_base)
+
+            desc = (getattr(r, "descrizione", "") or "").strip()
+            if desc and desc not in descrizioni and len(descrizioni) < 3:
+                descrizioni.append(desc[:80])
+
+            try:
+                colli += int(getattr(r, "n_colli", 0) or 0)
+            except Exception:
+                pass
+            try:
+                peso += float(getattr(r, "peso", 0) or 0)
+            except Exception:
+                pass
+
+        if not colli:
+            colli = len(rows)
+
+        # Evita doppio inserimento dello stesso picking nello stesso giorno.
+        giorno = _today_date_from_message(msg)
+        existing = []
+        try:
+            all_today = db.query(LavorazioneModel).order_by(LavorazioneModel.id.desc()).limit(1000).all()
+            existing = [
+                l for l in all_today
+                if _as_date_for_registro(getattr(l, "data", None)) == giorno
+                and _norm(getattr(l, "seriali", "") or "") == _norm(buono)
+            ]
+        except Exception:
+            existing = []
+
+        if existing:
+            l = existing[0]
+            return (
+                f"Il Picking per il Buono <b>{_esc(buono)}</b> risulta già inserito oggi.<br>"
+                f"ID Picking: {_esc(getattr(l, 'id', '') or '')} - Cliente: {_esc(getattr(l, 'cliente', '') or '-')}"
+            )
+
+        richiesta_di = _extract_richiesta_di_per_picking(msg)
+        descrizione_default = "PICKING+FILMATURA+PALLETTIZZAZIONE"
+        if "solo picking" in (msg or "").lower():
+            descrizione_default = "PICKING"
+
+        try:
+            cliente_finale = canonical_cliente_picking(cliente) if "canonical_cliente_picking" in globals() else (cliente or (clienti[0] if clienti else ""))
+        except Exception:
+            cliente_finale = cliente or (clienti[0] if clienti else "")
+
+        nuovo = LavorazioneModel(
+            data=giorno,
+            cliente=cliente_finale,
+            descrizione=descrizione_default,
+            richiesta_di=richiesta_di,
+            seriali=buono,
+            n_arrivo=", ".join(arrivi),
+            colli=colli,
+            pallet_forniti=0,
+            pallet_uscita=0,
+            ore_blue_collar=0,
+            ore_white_collar=0,
+        )
+        db.add(nuovo)
+        db.commit()
+
+        return (
+            f"<b>Picking creato dal Buono {_esc(buono)}</b><br>"
+            f"• Cliente: {_esc(cliente_finale or '-')}<br>"
+            f"• N. Arrivo: {_esc(', '.join(arrivi) or '-')}<br>"
+            f"• Colli: {_esc(colli)}<br>"
+            f"• Descrizione: {_esc(descrizione_default)}<br>"
+            f"• Richiesta di: {_esc(richiesta_di or '-')}<br>"
+            f"• ID Picking: {_esc(getattr(nuovo, 'id', '') or '')}<br>"
+            f"<a class='btn btn-sm btn-outline-primary mt-2' href='{_esc(url_for('lavorazioni'))}'>Apri Picking</a>"
+        )
+
 
     def _process_camy_message(db, msg):
         low = (msg or "").lower()
