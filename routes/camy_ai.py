@@ -2483,24 +2483,27 @@ def register_camy_ai_routes(app_obj, deps):
                 pass
         return date.today()
 
-    def _date_variants_for_query(d):
-        """Il DB può contenere date come YYYY-MM-DD, DD/MM/YYYY oppure oggetti date."""
-        try:
-            return [d.strftime('%Y-%m-%d'), d.strftime('%d/%m/%Y'), d]
-        except Exception:
-            return []
-
     def _filter_date_equals(q, column, d):
-        vals = _date_variants_for_query(d)
-        conds = []
-        for v in vals:
-            try:
-                conds.append(column == v)
-            except Exception:
-                pass
-        if conds:
-            return q.filter(or_(*conds))
-        return q
+        """Filtro data robusto per campi TEXT e DATE.
+        Articolo.data_ingresso/data_uscita sono TEXT, mentre Trasporto.data e Lavorazione.data sono DATE.
+        Evita l'errore Postgres TEXT = DATE che causava 500 nel Registro giornaliero.
+        """
+        if not d:
+            return q
+        try:
+            from sqlalchemy import Date as SA_Date, DateTime as SA_DateTime
+            col_type = getattr(column, 'type', None)
+            if isinstance(col_type, (SA_Date, SA_DateTime)):
+                return q.filter(column == d)
+        except Exception:
+            pass
+
+        vals = []
+        try:
+            vals = [d.strftime('%Y-%m-%d'), d.strftime('%d/%m/%Y')]
+        except Exception:
+            vals = [str(d)]
+        return q.filter(or_(*[column == v for v in vals]))
 
     def _safe_model(name):
         try:
