@@ -25,8 +25,20 @@ def register_ddt_routes(app_obj, deps):
             ids = [int(i) for i in ids_str.split(',') if i.strip().isdigit()]
             action = request.form.get('action', 'preview')
 
-            # ✅ MEZZO IN USCITA (colonna: Mezzo Usc / campo DB: mezzi_in_uscita)
-            mezzo_uscita = (request.form.get('mezzi_in_uscita') or '').strip()
+            # ✅ CAMPI SEPARATI:
+            # - mezzo_giacenze / mezzi_in_uscita: compila Articolo.mezzi_in_uscita nelle Giacenze
+            # - mezzo_trasporti / tipo_mezzo_trasporto: compila Trasporto.tipo_mezzo nella funzione Trasporti
+            mezzo_giacenze = (
+                request.form.get('mezzo_giacenze')
+                or request.form.get('mezzi_in_uscita')
+                or ''
+            ).strip()
+            mezzo_trasporti = (
+                request.form.get('mezzo_trasporti')
+                or request.form.get('tipo_mezzo_trasporto')
+                or request.form.get('tipo_mezzo')
+                or ''
+            ).strip()
             trasportatore_interno = (request.form.get('trasportatore_interno') or '').strip()
             note_viaggio = (request.form.get('note_viaggio') or '').strip()
 
@@ -56,9 +68,12 @@ def register_ddt_routes(app_obj, deps):
 
             costo_trasporto = _to_float_costo(costo_trasporto_raw)
 
-            # ✅ obbligatorio SOLO quando finalizzi
-            if action == 'finalize' and not mezzo_uscita:
-                flash("Seleziona il Mezzo in uscita (Motrice / Bilico / Furgone) prima di finalizzare.", "danger")
+            # ✅ obbligatori SOLO quando finalizzi
+            if action == 'finalize' and not mezzo_giacenze:
+                flash("Seleziona il Mezzo per Giacenze prima di finalizzare.", "danger")
+                return redirect(url_for('giacenze'))
+            if action == 'finalize' and not mezzo_trasporti:
+                flash("Inserisci il Mezzo per Trasporti prima di finalizzare.", "danger")
                 return redirect(url_for('giacenze'))
 
             # 2. Dati Testata
@@ -165,7 +180,7 @@ def register_ddt_routes(app_obj, deps):
                 if action == 'finalize':
                     art.data_uscita = data_ddt_obj
                     art.n_ddt_uscita = n_ddt
-                    art.mezzi_in_uscita = mezzo_uscita  # ✅ QUI COMPILIAMO "MEZZO USC"
+                    art.mezzi_in_uscita = mezzo_giacenze  # ✅ QUI COMPILIAMO SOLO LA COLONNA GIACENZE "MEZZO USC"
                     if nuove_note is not None:
                         art.note = nuove_note
 
@@ -202,7 +217,7 @@ def register_ddt_routes(app_obj, deps):
                         trasporto = Trasporto()
                         db.add(trasporto)
                     trasporto.data = data_ddt_obj
-                    trasporto.tipo_mezzo = mezzo_uscita or None
+                    trasporto.tipo_mezzo = mezzo_trasporti or None  # ✅ QUI COMPILIAMO SOLO LA FUNZIONE TRASPORTI
                     trasporto.trasportatore = trasportatore_interno or None
                     trasporto.cliente = cliente_trasporto or None
                     trasporto.ddt_uscita = n_ddt
@@ -215,7 +230,7 @@ def register_ddt_routes(app_obj, deps):
                 db.commit()
                 msg_extra = f" - Trasportatore: {trasportatore_interno}" if trasportatore_interno else ""
                 costo_extra = f" - Costo: € {costo_trasporto:.2f}" if costo_trasporto is not None else ""
-                flash(f"DDT N.{n_ddt} del {data_formatted} salvato con successo. Mezzo uscita: {mezzo_uscita}{msg_extra}{costo_extra}", "success")
+                flash(f"DDT N.{n_ddt} del {data_formatted} salvato con successo. Mezzo giacenze: {mezzo_giacenze} - Mezzo trasporti: {mezzo_trasporti}{msg_extra}{costo_extra}", "success")
 
             # 7. Dati Generali PDF
             ddt_data = {
