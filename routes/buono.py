@@ -192,50 +192,112 @@ def register_buono_routes(app_obj, deps):
         return tot
 
     def _create_picking_from_buono_form(db, form, rows, buono_n):
-        """Crea la riga Picking/Lavorazioni quando si salva un Buono.
-        Non duplica se nello stesso giorno esiste già una lavorazione con lo stesso Buono.
+        """Crea SEMPRE la riga Picking/Lavorazioni quando si salva un Buono.
+
+        Versione robusta:
+        - non dipende piu' solo dalla checkbox picking_enable;
+        - usa INSERT SQL diretto, cosi' evita problemi di sessione ORM;
+        - se la colonna n_arrivo non esiste ancora nel DB, salva comunque il resto;
+        - non duplica se nella stessa data esiste gia' lo stesso buono in seriali.
         """
-        if 'Lavorazione' not in globals():
-            return False, "Modello Lavorazione non disponibile"
-
-        enabled = str(form.get('picking_enable') or '').lower() in ('1', 'on', 'true', 'si', 'yes')
-        if not enabled:
-            return False, "Picking non richiesto"
-
-        dt = _date_from_buono_form(form.get('picking_data') or form.get('data_em'))
-        cliente = (form.get('picking_cliente') or _join_unique([getattr(r, 'cliente', '') for r in rows], 120)).strip()
-        descrizione = (form.get('picking_descrizione') or 'PICKING+FILMATURA+PALLETIZZAZIONE').strip()
-        richiesta_di = (form.get('picking_richiesta_di') or '').strip()
-        seriali = (form.get('picking_seriali') or buono_n or '').strip()
-        n_arrivo = (form.get('picking_n_arrivo') or _join_unique([getattr(r, 'n_arrivo', '') for r in rows], 500)).strip()
-
-        # Evita doppio inserimento se l'utente aggiorna/ricarica la pagina.
         try:
-            duplicate_q = db.query(Lavorazione).filter(Lavorazione.data == dt)
-            if seriali:
-                duplicate_q = duplicate_q.filter(func.upper(func.coalesce(Lavorazione.seriali, '')) == seriali.upper())
-            elif buono_n:
-                duplicate_q = duplicate_q.filter(func.upper(func.coalesce(Lavorazione.seriali, '')) == str(buono_n).upper())
-            if duplicate_q.first():
-                return False, "Picking già presente per questo buono nella data indicata"
-        except Exception:
-            pass
+            dt = _date_from_buono_form(form.get('picking_data') or form.get('data_em'))
+            cliente = (form.get('picking_cliente') or _join_unique([getattr(r, 'cliente', '') for r in rows], 120)).strip()
+            descrizione = (form.get('picking_descrizione') or 'PICKING+FILMATURA+PALLETIZZAZIONE').strip()
+            richiesta_di = (form.get('picking_richiesta_di') or '').strip()
+            seriali = (form.get('picking_seriali') or buono_n or '').strip()
+            n_arrivo = (form.get('picking_n_arrivo') or _join_unique([getattr(r, 'n_arrivo', '') for r in rows], 500)).strip()
+            colli = _safe_int_picking(form.get('picking_colli'))
+            if colli is None:
+                colli = _sum_int_attr(rows, 'n_colli') or len(rows or []) or None
+            pallet_forniti = _safe_int_picking(form.get('picking_pallet_entrati'))
+            pallet_uscita = _safe_int_picking(form.get('picking_pallet_usciti'))
+            ore_blue = _safe_float_picking(form.get('picking_ore_blue'))
+            ore_white = _safe_float_picking(form.get('picking_ore_white'))
 
-        lav = Lavorazione()
-        lav.data = dt
-        lav.cliente = cliente
-        lav.descrizione = descrizione
-        lav.richiesta_di = richiesta_di
-        lav.seriali = seriali
-        if hasattr(lav, 'n_arrivo'):
-            lav.n_arrivo = n_arrivo
-        lav.colli = _safe_int_picking(form.get('picking_colli'))
-        lav.pallet_forniti = _safe_int_picking(form.get('picking_pallet_entrati'))
-        lav.pallet_uscita = _safe_int_picking(form.get('picking_pallet_usciti'))
-        lav.ore_blue_collar = _safe_float_picking(form.get('picking_ore_blue'))
-        lav.ore_white_collar = _safe_float_picking(form.get('picking_ore_white'))
-        db.add(lav)
-        return True, "Picking creato"
+            # Se l'utente ha lasciato tutto vuoto e non c'e' nemmeno il buono, non creo righe inutili.
+            if not (cliente or seriali or n_arrivo):
+                return False, "Picking non creato: dati insufficienti"
+
+            # Controllo duplicato su stessa data + stesso buono/seriale.
+            try:
+                dup = db.execute(
+                    text("""
+                        SELECT id FROM lavorazioni
+                        WHERE data = :data
+                          AND UPPER(COALESCE(seriali, '')) = UPPER(:seriali)
+                        LIMIT 1
+                    """),
+                    {"data": dt, "seriali": seriali or str(buono_n or '')}
+                ).fetchone()
+                if dup:
+                    return False, "Picking gia' presente per questo buono nella data indicata"
+            except Exception:
+                # Se il controllo duplicato fallisce, non blocco il salvataggio.
+                pass
+
+            # Verifico se la colonna n_arrivo esiste davvero nel DB Render.
+            has_n_arrivo = True
+            try:
+                cols = db.execute(text("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'lavorazioni'
+                """)).fetchall()
+                col_names = {str(c[0]) for c in cols}
+                has_n_arrivo = 'n_arrivo' in col_names
+            except Exception:
+                has_n_arrivo = hasattr(Lavorazione, 'n_arrivo') if 'Lavorazione' in globals() else True
+
+            if has_n_arrivo:
+                db.execute(text("""
+                    INSERT INTO lavorazioni
+                    (data, cliente, descrizione, richiesta_di, seriali, n_arrivo, colli,
+                     pallet_forniti, pallet_uscita, ore_blue_collar, ore_white_collar)
+                    VALUES
+                    (:data, :cliente, :descrizione, :richiesta_di, :seriali, :n_arrivo, :colli,
+                     :pallet_forniti, :pallet_uscita, :ore_blue_collar, :ore_white_collar)
+                """), {
+                    "data": dt,
+                    "cliente": cliente,
+                    "descrizione": descrizione,
+                    "richiesta_di": richiesta_di,
+                    "seriali": seriali,
+                    "n_arrivo": n_arrivo,
+                    "colli": colli,
+                    "pallet_forniti": pallet_forniti,
+                    "pallet_uscita": pallet_uscita,
+                    "ore_blue_collar": ore_blue,
+                    "ore_white_collar": ore_white,
+                })
+            else:
+                db.execute(text("""
+                    INSERT INTO lavorazioni
+                    (data, cliente, descrizione, richiesta_di, seriali, colli,
+                     pallet_forniti, pallet_uscita, ore_blue_collar, ore_white_collar)
+                    VALUES
+                    (:data, :cliente, :descrizione, :richiesta_di, :seriali, :colli,
+                     :pallet_forniti, :pallet_uscita, :ore_blue_collar, :ore_white_collar)
+                """), {
+                    "data": dt,
+                    "cliente": cliente,
+                    "descrizione": descrizione,
+                    "richiesta_di": richiesta_di,
+                    "seriali": seriali,
+                    "colli": colli,
+                    "pallet_forniti": pallet_forniti,
+                    "pallet_uscita": pallet_uscita,
+                    "ore_blue_collar": ore_blue,
+                    "ore_white_collar": ore_white,
+                })
+
+            return True, "Picking creato correttamente"
+        except Exception as e:
+            try:
+                scrivi_log_errore("Errore INSERT picking da buono", e)
+            except Exception:
+                pass
+            raise
 
     def _next_buono_number(db):
         """Genera automaticamente il prossimo N. buono.
@@ -465,27 +527,22 @@ def register_buono_routes(app_obj, deps):
                 # solo del Picking e lascio valido il Buono appena creato.
                 picking_created = False
                 try:
-                    if str(req_data.get('picking_enable') or '').lower() in ('1', 'on', 'true', 'si', 'yes'):
+                    try:
+                        # Crea il Picking SEMPRE quando si salva il Buono.
+                        # Se l'utente non vuole registrarlo, puo' lasciare i campi vuoti oppure cancellarlo dalla pagina Picking.
+                        fresh_rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+                        picking_created, picking_msg = _create_picking_from_buono_form(db, req_data, fresh_rows, bn)
+                        db.commit()
+                    except Exception as e_pick_inner:
                         try:
-                            # IMPORTANTE: non aprire/chiudere un secondo SessionLocal qui.
-                            # SessionLocal è scoped_session: una seconda close() stacca anche le righe usate per il PDF.
-                            # Il Buono è già stato salvato con commit sopra; il Picking resta in transazione separata
-                            # usando la stessa sessione della richiesta.
-                            fresh_rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-                            picking_created, picking_msg = _create_picking_from_buono_form(db, req_data, fresh_rows, bn)
-                            db.commit()
-                        except Exception as e_pick_inner:
-                            try:
-                                db.rollback()
-                            except Exception:
-                                pass
-                            picking_msg = "Picking non creato automaticamente: controllare la sezione Picking/Lavorazioni."
-                            try:
-                                scrivi_log_errore("Errore creazione picking da buono", e_pick_inner)
-                            except Exception:
-                                pass
-                    else:
-                        picking_msg = "Picking non richiesto"
+                            db.rollback()
+                        except Exception:
+                            pass
+                        picking_msg = "Picking non creato automaticamente: controllare la sezione Picking/Lavorazioni."
+                        try:
+                            scrivi_log_errore("Errore creazione picking da buono", e_pick_inner)
+                        except Exception:
+                            pass
                 except Exception as e_pick:
                     picking_msg = "Picking non creato automaticamente: controllare la sezione Picking/Lavorazioni."
                     try:
