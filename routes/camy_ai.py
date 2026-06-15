@@ -109,7 +109,6 @@ def register_camy_ai_routes(app_obj, deps):
             <a class="btn btn-sm btn-outline-success" href="/accettazione_entrata">📄 Entrata da documento</a>
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Genera%20registro%20giornaliero%20di%20oggi">📒 Registro oggi</a>
             <a class="btn btn-sm btn-outline-info" href="/camy-ai?prefill=Cosa%20manca%20da%20fare%20oggi%3F">✅ Cosa manca?</a>
-            <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Crea%20picking%20dal%20buono%20">📦 Picking da Buono</a>
             <a class="btn btn-sm btn-outline-dark" href="/camy-ai?prefill=Apri%20accettazione%20entrata">🎤 Apri entrata</a>
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Cerca arrivo ">🎤 Cerca arrivo</button>
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Prepara buono arrivo ">🎤 Prepara buono</button>
@@ -1951,6 +1950,118 @@ def register_camy_ai_routes(app_obj, deps):
         out.extend(_row_html(r) for r in rows)
         return "<br>".join(out)
 
+
+    def _extract_picking_buono_target(msg):
+        s = msg or ""
+        patterns = [
+            r"\b(?:crea|genera|prepara)\s+picking\s+(?:dal|del|da|per)?\s*buono\s+([A-Z0-9][A-Z0-9./\-_]{1,50})",
+            r"\bpicking\s+buono\s+([A-Z0-9][A-Z0-9./\-_]{1,50})",
+        ]
+        for pat in patterns:
+            m = re.search(pat, s, re.I)
+            if m:
+                return (m.group(1) or "").strip().strip(".,;:")
+        return ""
+
+    def _unique_join(values):
+        out, seen = [], set()
+        for v in values or []:
+            v = str(v or "").strip()
+            if not v:
+                continue
+            k = v.upper()
+            if k not in seen:
+                seen.add(k)
+                out.append(v)
+        return " / ".join(out)
+
+    def _crea_picking_da_buono(db, buono, descrizione_default="PICKING+FILMATURA+PALLETIZZAZIONE"):
+        """Crea una riga Picking/Lavorazione partendo dalle righe del Buono di Prelievo.
+        Non duplica se nella stessa giornata esiste già una lavorazione con stesso buono.
+        """
+        buono = str(buono or "").strip()
+        if not buono:
+            return {"created": False, "message": "N. Buono mancante."}
+
+        LavorazioneModel = globals().get("Lavorazione")
+        if LavorazioneModel is None:
+            return {"created": False, "message": "Modello Lavorazione non disponibile."}
+
+        rows = (
+            _base_query(db)
+            .filter(func.upper(func.trim(Articolo.buono_n)) == buono.upper())
+            .order_by(Articolo.id_articolo.asc())
+            .all()
+        )
+        if not rows:
+            rows = (
+                _base_query(db)
+                .filter(Articolo.buono_n.ilike(f"%{buono}%"))
+                .order_by(Articolo.id_articolo.asc())
+                .all()
+            )
+        if not rows:
+            return {"created": False, "message": f"Non ho trovato righe con Buono {buono}."}
+
+        today = date.today()
+        try:
+            existing = (
+                db.query(LavorazioneModel)
+                .filter(LavorazioneModel.data == today)
+                .filter(func.upper(func.coalesce(LavorazioneModel.seriali, "")).like(f"%{buono.upper()}%"))
+                .first()
+            )
+            if existing:
+                return {"created": False, "already": True, "message": f"Picking già presente oggi per il Buono {buono}."}
+        except Exception:
+            existing = None
+
+        cliente = _unique_join([getattr(r, "cliente", "") for r in rows])
+        n_arrivo = _unique_join([getattr(r, "n_arrivo", "") for r in rows])
+        colli = 0
+        for r in rows:
+            try:
+                colli += int(getattr(r, "n_colli", 0) or 0)
+            except Exception:
+                pass
+        if colli <= 0:
+            colli = len(rows)
+
+        rec = LavorazioneModel()
+        rec.data = today
+        rec.cliente = cliente
+        rec.descrizione = descrizione_default
+        rec.richiesta_di = ""
+        rec.seriali = buono
+        if hasattr(rec, "n_arrivo"):
+            rec.n_arrivo = n_arrivo
+        rec.colli = colli
+        rec.pallet_forniti = 0
+        rec.pallet_uscita = 0
+        rec.ore_blue_collar = 0
+        rec.ore_white_collar = 0
+        db.add(rec)
+        db.commit()
+        return {"created": True, "buono": buono, "cliente": cliente, "n_arrivo": n_arrivo, "colli": colli, "id": getattr(rec, "id", None)}
+
+    def _answer_crea_picking_da_buono(db, msg):
+        if not _can_operate():
+            return _operation_denied()
+        buono = _extract_picking_buono_target(msg)
+        if not buono:
+            return "Indicami il numero del Buono. Esempio: <b>Crea picking dal buono 073-FADEM</b>"
+        res = _crea_picking_da_buono(db, buono)
+        if res.get("created"):
+            return (
+                f"<b>Picking creato automaticamente dal Buono {_esc(buono)}.</b><br>"
+                f"Cliente: {_esc(res.get('cliente') or '-')}<br>"
+                f"N. Arrivo: {_esc(res.get('n_arrivo') or '-')}<br>"
+                f"Colli: {_esc(res.get('colli') or 0)}<br>"
+                "Descrizione: <b>PICKING+FILMATURA+PALLETIZZAZIONE</b><br>"
+                f"<a class='btn btn-sm btn-outline-primary mt-2' href='{_esc(url_for('lavorazioni'))}'>Apri Picking</a>"
+            )
+        return _esc(res.get("message") or "Picking non creato.")
+
     @app.route("/camy-ai/confirm", methods=["POST"])
     @login_required
     def camy_ai_confirm():
@@ -2057,6 +2168,23 @@ def register_camy_ai_routes(app_obj, deps):
 
                 db.commit()
 
+                picking_msg = ""
+                try:
+                    pick = _crea_picking_da_buono(db, buono)
+                    if pick.get("created"):
+                        picking_msg = (
+                            f"<br><b>Picking creato automaticamente.</b><br>"
+                            f"Descrizione: PICKING+FILMATURA+PALLETIZZAZIONE<br>"
+                            f"N. Arrivo: {_esc(pick.get('n_arrivo') or '-')}<br>"
+                        )
+                    elif pick.get("already"):
+                        picking_msg = f"<br><b>Picking:</b> {_esc(pick.get('message') or 'già presente')}<br>"
+                except Exception as pick_err:
+                    try:
+                        scrivi_log_errore("CAMY AI - creazione picking da buono", pick_err)
+                    except Exception:
+                        pass
+
                 pending.pop(token, None)
                 session["camy_ai_pending_ops"] = pending
                 session.modified = True
@@ -2109,6 +2237,7 @@ def register_camy_ai_routes(app_obj, deps):
                         f"<b>Buono aggiornato.</b><br>"
                         f"N. buono: <b>{_esc(buono)}</b><br>"
                         f"Righe elaborate: {updated}<br>"
+                        f"{picking_msg}"
                         f"{extra}"
                         f"{pdf_link_html}<br>"
                         "Il PDF del Buono di Prelievo è stato generato direttamente da CAMY."
@@ -2674,7 +2803,7 @@ def register_camy_ai_routes(app_obj, deps):
                 ore_w = getattr(l, 'ore_white_collar', None) or 0
                 out.append(
                     f"• {_esc(getattr(l, 'cliente', '') or '-')} - {_esc(getattr(l, 'descrizione', '') or '-')} - "
-                    f"Arrivo {_esc(getattr(l, 'n_arrivo', '') or '-')} - Colli {_esc(getattr(l, 'colli', '') or 0)} - Pallet IN {_esc(getattr(l, 'pallet_forniti', '') or 0)} - "
+                    f"Colli {_esc(getattr(l, 'colli', '') or 0)} - Pallet IN {_esc(getattr(l, 'pallet_forniti', '') or 0)} - "
                     f"Pallet OUT {_esc(getattr(l, 'pallet_uscita', '') or 0)} - Ore { _esc(_fmt_num(float(ore_b or 0) + float(ore_w or 0))) }<br>"
                 )
         else:
@@ -2768,162 +2897,6 @@ def register_camy_ai_routes(app_obj, deps):
 
         return "".join(out)
 
-
-    def _extract_buono_per_picking(msg):
-        """Estrae il buono dal comando: crea picking dal buono 025/26."""
-        s = msg or ""
-        patterns = [
-            r"\b(?:dal|del|per|da)\s+buono\s+([A-Z0-9][A-Z0-9./\-_]{1,40})",
-            r"\bbuono\s+([A-Z0-9][A-Z0-9./\-_]{1,40})",
-        ]
-        stop = {"DI", "DA", "DAL", "DEL", "PICKING", "PRELIEVO"}
-        for pat in patterns:
-            m = re.search(pat, s, re.I)
-            if m:
-                val = (m.group(1) or "").strip().strip(".,;:")
-                if val and val.upper() not in stop:
-                    return val
-        return ""
-
-    def _extract_richiesta_di_per_picking(msg):
-        """Estrae richiesta di / richiesto da dal comando CAMY, se indicato."""
-        s = msg or ""
-        patterns = [
-            r"\b(?:richiesta\s+di|richiesto\s+da|richiedente)\s*[:\-]?\s*(.+?)(?=\s+(?:buono|colli|pallet|ore|descrizione)\b|$)",
-        ]
-        for pat in patterns:
-            m = re.search(pat, s, re.I)
-            if m:
-                return (m.group(1) or "").strip(" ;,.-")
-        return ""
-
-    def _answer_crea_picking_da_buono(db, msg):
-        """Crea una riga Picking/Lavorazioni partendo dalle righe di giacenza collegate al Buono."""
-        if not _can_operate():
-            return _operation_denied()
-
-        LavorazioneModel = _safe_model("Lavorazione")
-        if LavorazioneModel is None:
-            return "Non trovo il modello Lavorazione/Picking nel gestionale."
-
-        buono = _extract_buono_per_picking(msg)
-        if not buono:
-            return (
-                "Indicami il numero del Buono.<br>"
-                "Esempio: <b>Crea picking dal buono 025/26</b><br>"
-                "Oppure: <b>Crea picking dal buono 025/26 richiesta di Samuele Venni</b>"
-            )
-
-        rows = (
-            _base_query(db)
-            .filter(Articolo.buono_n != None)
-            .filter(Articolo.buono_n != "")
-            .filter(or_(Articolo.buono_n.ilike(f"%{buono}%"), _sql_norm_col(Articolo.buono_n).ilike(f"%{_norm(buono)}%")))
-            .order_by(Articolo.cliente.asc(), Articolo.n_arrivo.asc(), Articolo.id_articolo.asc())
-            .limit(500)
-            .all()
-        )
-
-        if not rows:
-            return f"Non ho trovato righe collegate al Buono <b>{_esc(buono)}</b>."
-
-        cliente = ""
-        clienti = []
-        arrivi = []
-        descrizioni = []
-        colli = 0
-        peso = 0.0
-
-        for r in rows:
-            cli = (getattr(r, "cliente", "") or "").strip()
-            if cli and cli not in clienti:
-                clienti.append(cli)
-            if not cliente and cli:
-                cliente = cli
-
-            arr = (getattr(r, "n_arrivo", "") or "").strip()
-            if arr:
-                try:
-                    arr_base = strip_arrivo_progressivo(arr)
-                except Exception:
-                    arr_base = arr
-                if arr_base and arr_base not in arrivi:
-                    arrivi.append(arr_base)
-
-            desc = (getattr(r, "descrizione", "") or "").strip()
-            if desc and desc not in descrizioni and len(descrizioni) < 3:
-                descrizioni.append(desc[:80])
-
-            try:
-                colli += int(getattr(r, "n_colli", 0) or 0)
-            except Exception:
-                pass
-            try:
-                peso += float(getattr(r, "peso", 0) or 0)
-            except Exception:
-                pass
-
-        if not colli:
-            colli = len(rows)
-
-        # Evita doppio inserimento dello stesso picking nello stesso giorno.
-        giorno = _today_date_from_message(msg)
-        existing = []
-        try:
-            all_today = db.query(LavorazioneModel).order_by(LavorazioneModel.id.desc()).limit(1000).all()
-            existing = [
-                l for l in all_today
-                if _as_date_for_registro(getattr(l, "data", None)) == giorno
-                and _norm(getattr(l, "seriali", "") or "") == _norm(buono)
-            ]
-        except Exception:
-            existing = []
-
-        if existing:
-            l = existing[0]
-            return (
-                f"Il Picking per il Buono <b>{_esc(buono)}</b> risulta già inserito oggi.<br>"
-                f"ID Picking: {_esc(getattr(l, 'id', '') or '')} - Cliente: {_esc(getattr(l, 'cliente', '') or '-')}"
-            )
-
-        richiesta_di = _extract_richiesta_di_per_picking(msg)
-        descrizione_default = "PICKING+FILMATURA+PALLETTIZZAZIONE"
-        if "solo picking" in (msg or "").lower():
-            descrizione_default = "PICKING"
-
-        try:
-            cliente_finale = canonical_cliente_picking(cliente) if "canonical_cliente_picking" in globals() else (cliente or (clienti[0] if clienti else ""))
-        except Exception:
-            cliente_finale = cliente or (clienti[0] if clienti else "")
-
-        nuovo = LavorazioneModel(
-            data=giorno,
-            cliente=cliente_finale,
-            descrizione=descrizione_default,
-            richiesta_di=richiesta_di,
-            seriali=buono,
-            n_arrivo=", ".join(arrivi),
-            colli=colli,
-            pallet_forniti=0,
-            pallet_uscita=0,
-            ore_blue_collar=0,
-            ore_white_collar=0,
-        )
-        db.add(nuovo)
-        db.commit()
-
-        return (
-            f"<b>Picking creato dal Buono {_esc(buono)}</b><br>"
-            f"• Cliente: {_esc(cliente_finale or '-')}<br>"
-            f"• N. Arrivo: {_esc(', '.join(arrivi) or '-')}<br>"
-            f"• Colli: {_esc(colli)}<br>"
-            f"• Descrizione: {_esc(descrizione_default)}<br>"
-            f"• Richiesta di: {_esc(richiesta_di or '-')}<br>"
-            f"• ID Picking: {_esc(getattr(nuovo, 'id', '') or '')}<br>"
-            f"<a class='btn btn-sm btn-outline-primary mt-2' href='{_esc(url_for('lavorazioni'))}'>Apri Picking</a>"
-        )
-
-
     def _process_camy_message(db, msg):
         low = (msg or "").lower()
 
@@ -2951,6 +2924,9 @@ def register_camy_ai_routes(app_obj, deps):
 
         if any(x in low for x in ["crea ddt", "prepara ddt", "genera ddt"]):
             return _answer_prepare_ddt(db, msg), True, {}
+
+        if "picking" in low and "buono" in low:
+            return _answer_crea_picking_da_buono(db, msg), True, {"action":"crea_picking_da_buono"}
 
         if "aggiungi" in low and "buono" in low:
             return _answer_add_to_existing_buono(db, msg), True, {}
