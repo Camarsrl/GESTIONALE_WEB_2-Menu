@@ -2511,6 +2511,48 @@ def register_camy_ai_routes(app_obj, deps):
         except Exception:
             return None
 
+    def _as_date_for_registro(value):
+        """Converte in date i valori data salvati come DATE, datetime o stringa.
+        Serve perché Trasporti e Picking/Lavorazioni possono avere formati diversi nel DB.
+        """
+        try:
+            if not value:
+                return None
+        except Exception:
+            pass
+        try:
+            if isinstance(value, datetime):
+                return value.date()
+            if isinstance(value, date):
+                return value
+        except Exception:
+            pass
+        s = str(value or '').strip()
+        if not s:
+            return None
+        # Se arriva una datetime come stringa, considero solo la parte data.
+        s10 = s[:10]
+        for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y'):
+            try:
+                return datetime.strptime(s10 if fmt == '%Y-%m-%d' else s, fmt).date()
+            except Exception:
+                pass
+        try:
+            return to_date_db(value)
+        except Exception:
+            return None
+
+    def _rows_by_day_python(rows, date_attr, giorno):
+        """Filtro data lato Python: evita problemi PostgreSQL TEXT/DATE e formati misti."""
+        out = []
+        for rec in rows or []:
+            try:
+                if _as_date_for_registro(getattr(rec, date_attr, None)) == giorno:
+                    out.append(rec)
+            except Exception:
+                pass
+        return out
+
     def _answer_registro_giornaliero(db, msg):
         """Genera il quaderno/registro giornaliero prendendo i dati già presenti nel gestionale."""
         if not _can_operate():
@@ -2551,26 +2593,39 @@ def register_camy_ai_routes(app_obj, deps):
             try: rec['peso'] += float(r.peso or 0)
             except Exception: pass
 
-        # Trasporti del giorno, se la tabella è disponibile.
+        # Trasporti del giorno.
+        # Importante: li filtriamo in Python perché nel DB la data può essere DATE o TEXT
+        # a seconda della versione del gestionale/deploy.
         trasporti_rows = []
         TrasportoModel = _safe_model('Trasporto')
         if TrasportoModel is not None:
             try:
-                tq = db.query(TrasportoModel)
-                tq = _filter_date_equals(tq, TrasportoModel.data, giorno)
-                trasporti_rows = tq.order_by(TrasportoModel.cliente.asc(), TrasportoModel.ddt_uscita.asc()).limit(300).all()
-            except Exception:
+                all_trasporti = db.query(TrasportoModel).order_by(TrasportoModel.id.desc()).limit(2000).all()
+                trasporti_rows = _rows_by_day_python(all_trasporti, 'data', giorno)
+                trasporti_rows.sort(key=lambda r: ((getattr(r, 'cliente', '') or ''), (getattr(r, 'ddt_uscita', '') or '')))
+                trasporti_rows = trasporti_rows[:300]
+            except Exception as e:
+                try:
+                    scrivi_log_errore('CAMY Registro - lettura trasporti', e)
+                except Exception:
+                    pass
                 trasporti_rows = []
 
-        # Lavorazioni/Picking del giorno, se la tabella è disponibile.
+        # Lavorazioni/Picking del giorno.
+        # Anche qui filtro in Python perché la pagina Picking usa conversioni robuste lato codice.
         lavorazioni_rows = []
         LavorazioneModel = _safe_model('Lavorazione')
         if LavorazioneModel is not None:
             try:
-                lq = db.query(LavorazioneModel)
-                lq = _filter_date_equals(lq, LavorazioneModel.data, giorno)
-                lavorazioni_rows = lq.order_by(LavorazioneModel.cliente.asc(), LavorazioneModel.id.asc()).limit(300).all()
-            except Exception:
+                all_lavorazioni = db.query(LavorazioneModel).order_by(LavorazioneModel.id.desc()).limit(2000).all()
+                lavorazioni_rows = _rows_by_day_python(all_lavorazioni, 'data', giorno)
+                lavorazioni_rows.sort(key=lambda r: ((getattr(r, 'cliente', '') or ''), (getattr(r, 'id', 0) or 0)))
+                lavorazioni_rows = lavorazioni_rows[:300]
+            except Exception as e:
+                try:
+                    scrivi_log_errore('CAMY Registro - lettura lavorazioni/picking', e)
+                except Exception:
+                    pass
                 lavorazioni_rows = []
 
         tot_colli_in = sum(v['colli'] for v in entrate.values())
