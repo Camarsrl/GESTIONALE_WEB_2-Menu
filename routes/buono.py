@@ -192,14 +192,10 @@ def register_buono_routes(app_obj, deps):
         return tot
 
     def _create_picking_from_buono_form(db, form, rows, buono_n):
-        """Crea/Aggiorna la riga Picking/Lavorazioni quando si salva un Buono.
+        """Crea o aggiorna la riga Picking/Lavorazioni collegata al Buono.
 
-        Versione definitiva:
-        - scrive sulla tabella reale "lavorazioni";
-        - usa una connessione separata con engine.begin(), quindi il Picking non viene perso
-          e non resta legato alla sessione del Buono;
-        - aggiunge la colonna n_arrivo se manca;
-        - se trova già stesso giorno + stesso buono in seriali, aggiorna la riga invece di duplicarla.
+        Scrive direttamente nella tabella lavorazioni.
+        Se trova stesso giorno + stesso buono/seriale aggiorna il record invece di bloccare.
         """
         try:
             dt = _date_from_buono_form(form.get('picking_data') or form.get('data_em'))
@@ -207,20 +203,23 @@ def register_buono_routes(app_obj, deps):
             descrizione = (form.get('picking_descrizione') or 'PICKING+FILMATURA+PALLETIZZAZIONE').strip()
             richiesta_di = (form.get('picking_richiesta_di') or '').strip()
             seriali = (form.get('picking_seriali') or buono_n or '').strip()
+            if not seriali:
+                seriali = str(buono_n or '').strip()
             n_arrivo = (form.get('picking_n_arrivo') or _join_unique([getattr(r, 'n_arrivo', '') for r in rows], 500)).strip()
 
             colli = _safe_int_picking(form.get('picking_colli'))
             if colli is None:
-                colli = _sum_int_attr(rows, 'n_colli') or len(rows or []) or None
+                colli = _sum_int_attr(rows, 'n_colli') or len(rows or []) or 0
 
             pallet_forniti = _safe_int_picking(form.get('picking_pallet_entrati'))
             pallet_uscita = _safe_int_picking(form.get('picking_pallet_usciti'))
             ore_blue = _safe_float_picking(form.get('picking_ore_blue'))
             ore_white = _safe_float_picking(form.get('picking_ore_white'))
 
-            if not seriali:
-                seriali = str(buono_n or '').strip()
-
+            if not cliente:
+                cliente = _join_unique([getattr(r, 'cliente', '') for r in rows], 120)
+            if not descrizione:
+                descrizione = 'PICKING+FILMATURA+PALLETIZZAZIONE'
             if not (cliente or seriali or n_arrivo):
                 return False, "Picking non creato: dati insufficienti."
 
@@ -238,24 +237,53 @@ def register_buono_routes(app_obj, deps):
                 "ore_white_collar": ore_white,
             }
 
-            with engine.begin() as conn:
-                # Su PostgreSQL aggiunge la colonna se manca. Su altri DB, se fallisce non blocca.
+            # Assicura colonna n_arrivo su PostgreSQL. Se non supportato, non blocca.
+            try:
+                db.execute(text("ALTER TABLE lavorazioni ADD COLUMN IF NOT EXISTS n_arrivo TEXT"))
+                db.commit()
+            except Exception:
                 try:
-                    conn.execute(text("ALTER TABLE lavorazioni ADD COLUMN IF NOT EXISTS n_arrivo TEXT"))
+                    db.rollback()
                 except Exception:
                     pass
 
-                existing = conn.execute(text("""
-                    SELECT id
-                    FROM lavorazioni
+            # Verifica colonne realmente disponibili.
+            has_n_arrivo = True
+            try:
+                cols = db.execute(text("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'lavorazioni'
+                """)).fetchall()
+                col_names = {str(c[0]) for c in cols}
+                has_n_arrivo = 'n_arrivo' in col_names
+            except Exception:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                has_n_arrivo = hasattr(Lavorazione, 'n_arrivo') if 'Lavorazione' in globals() else True
+
+            # Cerca record esistente: stesso giorno + stesso buono/seriale.
+            existing = None
+            try:
+                existing = db.execute(text("""
+                    SELECT id FROM lavorazioni
                     WHERE data = :data
                       AND UPPER(COALESCE(seriali, '')) = UPPER(:seriali)
                     LIMIT 1
                 """), {"data": dt, "seriali": seriali}).fetchone()
+            except Exception:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                existing = None
 
-                if existing:
-                    params["id"] = existing[0]
-                    conn.execute(text("""
+            if existing:
+                params["id"] = existing[0]
+                if has_n_arrivo:
+                    db.execute(text("""
                         UPDATE lavorazioni
                         SET cliente = :cliente,
                             descrizione = :descrizione,
@@ -269,9 +297,25 @@ def register_buono_routes(app_obj, deps):
                             ore_white_collar = :ore_white_collar
                         WHERE id = :id
                     """), params)
-                    return True, "Picking aggiornato correttamente."
+                else:
+                    db.execute(text("""
+                        UPDATE lavorazioni
+                        SET cliente = :cliente,
+                            descrizione = :descrizione,
+                            richiesta_di = :richiesta_di,
+                            seriali = :seriali,
+                            colli = :colli,
+                            pallet_forniti = :pallet_forniti,
+                            pallet_uscita = :pallet_uscita,
+                            ore_blue_collar = :ore_blue_collar,
+                            ore_white_collar = :ore_white_collar
+                        WHERE id = :id
+                    """), params)
+                db.commit()
+                return True, "Picking aggiornato correttamente."
 
-                conn.execute(text("""
+            if has_n_arrivo:
+                db.execute(text("""
                     INSERT INTO lavorazioni
                     (data, cliente, descrizione, richiesta_di, seriali, n_arrivo, colli,
                      pallet_forniti, pallet_uscita, ore_blue_collar, ore_white_collar)
@@ -279,14 +323,28 @@ def register_buono_routes(app_obj, deps):
                     (:data, :cliente, :descrizione, :richiesta_di, :seriali, :n_arrivo, :colli,
                      :pallet_forniti, :pallet_uscita, :ore_blue_collar, :ore_white_collar)
                 """), params)
-
+            else:
+                db.execute(text("""
+                    INSERT INTO lavorazioni
+                    (data, cliente, descrizione, richiesta_di, seriali, colli,
+                     pallet_forniti, pallet_uscita, ore_blue_collar, ore_white_collar)
+                    VALUES
+                    (:data, :cliente, :descrizione, :richiesta_di, :seriali, :colli,
+                     :pallet_forniti, :pallet_uscita, :ore_blue_collar, :ore_white_collar)
+                """), params)
+            db.commit()
             return True, "Picking creato correttamente."
+
         except Exception as e:
             try:
-                scrivi_log_errore("Errore creazione/aggiornamento picking da buono", e)
+                db.rollback()
             except Exception:
                 pass
-            raise
+            try:
+                scrivi_log_errore("Errore salvataggio picking da buono", e)
+            except Exception:
+                pass
+            return False, f"Picking non creato: {e}"
 
     def _next_buono_number(db):
         """Genera automaticamente il prossimo N. buono.
@@ -527,13 +585,13 @@ def register_buono_routes(app_obj, deps):
                             db.rollback()
                         except Exception:
                             pass
-                        picking_msg = "Picking non creato automaticamente: controllare la sezione Picking/Lavorazioni."
+                        picking_msg = str(e_pick_inner) if "e_pick_inner" in locals() else "Picking non creato automaticamente: controllare la sezione Picking/Lavorazioni."
                         try:
                             scrivi_log_errore("Errore creazione picking da buono", e_pick_inner)
                         except Exception:
                             pass
                 except Exception as e_pick:
-                    picking_msg = "Picking non creato automaticamente: controllare la sezione Picking/Lavorazioni."
+                    picking_msg = str(e_pick_inner) if "e_pick_inner" in locals() else "Picking non creato automaticamente: controllare la sezione Picking/Lavorazioni."
                     try:
                         scrivi_log_errore("Errore creazione picking da buono", e_pick)
                     except Exception:
