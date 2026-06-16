@@ -4089,10 +4089,11 @@ DDT_PREVIEW_HTML = """
                             <input type="text" name="dest_ragione_manual" id="dest_ragione_manual" class="form-control form-control-sm" placeholder="Ragione sociale destinatario *">
                         </div>
                         <div class="mb-2">
-                            <input type="text" name="dest_indirizzo_manual" id="dest_indirizzo_manual" class="form-control form-control-sm" placeholder="Indirizzo">
+                            <textarea name="dest_indirizzo_manual" id="dest_indirizzo_manual" class="form-control form-control-sm" rows="2" placeholder="Indirizzo" autocomplete="off" style="position:relative; z-index:5; pointer-events:auto;"></textarea>
+                            <div class="form-text small">Puoi scrivere anche su più righe.</div>
                         </div>
                         <div>
-                            <input type="text" name="dest_citta_manual" id="dest_citta_manual" class="form-control form-control-sm" placeholder="Città / CAP / Prov.">
+                            <textarea name="dest_citta_manual" id="dest_citta_manual" class="form-control form-control-sm" rows="2" placeholder="Città / CAP / Prov." autocomplete="off" style="position:relative; z-index:5; pointer-events:auto;"></textarea>
                         </div>
                     </div>
                 </div>
@@ -4293,7 +4294,9 @@ function setDestSource(source) {
         manualBox.classList.add('manual-active');
         savedBtn.className = 'btn btn-outline-primary btn-sm';
         manualBtn.className = 'btn btn-success btn-sm';
-        document.getElementById('dest_ragione_manual').focus();
+        const active = document.activeElement;
+        const isManualField = active && ['dest_ragione_manual','dest_indirizzo_manual','dest_citta_manual'].includes(active.id);
+        if (!isManualField) document.getElementById('dest_ragione_manual').focus();
     } else {
         manualBox.classList.remove('manual-active');
         savedBox.classList.add('active');
@@ -4353,7 +4356,16 @@ document.getElementById('btn_use_manual').addEventListener('click', function() {
 
 ['dest_ragione_manual', 'dest_indirizzo_manual', 'dest_citta_manual'].forEach(function(id) {
     const el = document.getElementById(id);
-    if (el) el.addEventListener('input', function(){ setDestSource('manual'); });
+    if (el) {
+        ['input','focus','click'].forEach(function(evt){
+            el.addEventListener(evt, function(){ setDestSource('manual'); });
+        });
+        el.removeAttribute('readonly');
+        el.removeAttribute('disabled');
+        el.style.pointerEvents = 'auto';
+        el.style.position = 'relative';
+        el.style.zIndex = '5';
+    }
 });
 
 updateDestSavedPreview();
@@ -4375,7 +4387,9 @@ function submitDdt(actionType) {
         const manualName = (document.getElementById('dest_ragione_manual').value || '').trim();
         if (!manualName) {
             alert("Inserisci almeno la ragione sociale del destinatario occasionale.");
-            document.getElementById('dest_ragione_manual').focus();
+            const active = document.activeElement;
+        const isManualField = active && ['dest_ragione_manual','dest_indirizzo_manual','dest_citta_manual'].includes(active.id);
+        if (!isManualField) document.getElementById('dest_ragione_manual').focus();
             return;
         }
     }
