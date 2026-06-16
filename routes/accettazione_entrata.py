@@ -318,6 +318,33 @@ def register_accettazione_entrata_routes(app_obj, deps):
         if text and len(text.strip()) >= 25:
             return text, 'Testo PDF letto senza OCR.'
 
+        # 1b) Alcuni PDF OCR non vengono letti da pdfplumber: prova anche PyMuPDF come testo incorporato.
+        try:
+            if str(path).lower().endswith('.pdf'):
+                import fitz
+                doc = fitz.open(str(path))
+                parts = []
+                for page in doc:
+                    try:
+                        parts.append(page.get_text('text') or '')
+                    except Exception:
+                        parts.append('')
+                text2 = '\n'.join(parts).strip()
+                if text2 and len(text2.strip()) >= 25:
+                    return text2, 'Testo PDF OCR letto con PyMuPDF.'
+        except Exception as e:
+            detail.append(f"PyMuPDF text: {e}")
+
+        # 1c) Ultimo tentativo su PDF con testo: pdfminer.six.
+        try:
+            if str(path).lower().endswith('.pdf'):
+                from pdfminer.high_level import extract_text
+                text3 = (extract_text(str(path)) or '').strip()
+                if text3 and len(text3.strip()) >= 25:
+                    return text3, 'Testo PDF OCR letto con pdfminer.'
+        except Exception as e:
+            detail.append(f"pdfminer: {e}")
+
         # 2) PDF scansionato: OCR
         if str(path).lower().endswith('.pdf'):
             for func in (_ocr_pdf_with_pypdfium2, _ocr_pdf_with_fitz, _ocr_pdf_with_pdf2image):
@@ -350,7 +377,10 @@ def register_accettazione_entrata_routes(app_obj, deps):
         one = re.sub(r'[ \t]+', ' ', clean)
 
         ddt = _first_match(one, [
+            r'D\.?D\.?T\.?\s*(?:N|n|nr|numero|num|[°\.])*\s*[:\-]?\s*([A-Z0-9\-/]+)',
             r'DDT\s*[:nN°\.]*\s*([A-Z0-9\-/]+)',
+            r'DOCUMENTO\s*(?:N|n|nr|numero|num|[°\.])*\s*[:\-]?\s*([A-Z0-9\-/]+)',
+            r'BOLLA\s*(?:N|n|nr|numero|num|[°\.])*\s*[:\-]?\s*([A-Z0-9\-/]+)',
             r'DOCUMENTO\s+DI\s+TRASPORTO.*?DDT\s*n[°\.]*\s*([A-Z0-9\-/]+)',
             r'Numero\s+Bolla\s+Data\s+Bolla\s+([A-Z0-9\-/]+)',
             r'Numero\s+Bolla\s*\n?\s*([A-Z0-9\-/]+)',
@@ -358,7 +388,8 @@ def register_accettazione_entrata_routes(app_obj, deps):
         ])
 
         data = _first_match(one, [
-            r'Data\s+Bolla\s+([0-9]{2}/[0-9]{2}/[0-9]{4})',
+            r'Data\s+Bolla\s+([0-9]{2}[/-][0-9]{2}[/-][0-9]{2,4})',
+            r'Data\s*(?:DDT|Documento|Bolla)?\s*[:\-]?\s*([0-9]{2}[/-][0-9]{2}[/-][0-9]{2,4})',
             r'DDT\s*n[°\.]*\s*[A-Z0-9\-/]+\s+Data\s*[:\s]+([0-9]{2}/[0-9]{2}/[0-9]{4})',
             r'data\s+ddt\.\s+cliente\s*[:\s]+([0-9]{2}/[0-9]{2}/[0-9]{4})',
             r'Data\s+Bolla\s*\n?\s*([0-9]{2}/[0-9]{2}/[0-9]{4})',
@@ -367,13 +398,18 @@ def register_accettazione_entrata_routes(app_obj, deps):
 
         colli = _first_match(one, [
             r'Totale\s+colli\s+([0-9]{1,5})',
+            r'Colli\s*[:\-]?\s*([0-9]{1,5})',
+            r'N\.?\s*Colli\s*[:\-]?\s*([0-9]{1,5})',
+            r'Numero\s+colli\s*[:\-]?\s*([0-9]{1,5})',
             r'N[°\.]*\s*colli\s*[:\s]+0*([0-9]{1,5})',
             r'\bColli\s+Peso\s*\(kg\).*?\b([0-9]{1,5})\s+[0-9]+(?:[,.][0-9]+)?',
             r'\bBancali\s+Colli\s+Peso.*?\b[0-9]+\s+([0-9]{1,5})\s+[0-9]+',
         ])
 
         peso_lordo = _first_match(one, [
-            r'Peso\s+lordo\s*[:\s]+([0-9\.]+,[0-9]+|[0-9]+)',
+            r'Peso\s+lordo\s*[:\s]+([0-9\.]+,[0-9]+|[0-9]+(?:\.[0-9]+)?)',
+            r'Peso\s*kg\s*[:\-]?\s*([0-9\.]+,[0-9]+|[0-9]+(?:\.[0-9]+)?)',
+            r'Peso\s*[:\-]?\s*([0-9\.]+,[0-9]+|[0-9]+(?:\.[0-9]+)?)\s*(?:KG|kg)',
             r'Peso\s*\(kg\).*?\b[0-9]+\s+[0-9]+\s+([0-9]+(?:[,.][0-9]+)?)',
         ])
         peso_netto = _first_match(one, [
@@ -395,15 +431,32 @@ def register_accettazione_entrata_routes(app_obj, deps):
             ])
 
         cliente = ''
-        if 'FINCANTIERI' in upper:
-            cliente = 'FINCANTIERI'
-        elif 'COTUGNO GALVANOTECNICA' in upper:
-            cliente = 'COTUGNO GALVANOTECNICA'
-        else:
-            cliente = _first_match(one, [
-                r'Destinatario\s+merci\s+(.+?)(?:\s+VIA|\n)',
-                r'Destinatario\s+(.+?)(?:\s+VIA|\n)',
-            ])
+        # Prima cerca tra i clienti del gestionale: è più affidabile dei testi OCR.
+        try:
+            clienti_validi = sorted(get_clienti_utenti(), key=len, reverse=True)
+        except Exception:
+            clienti_validi = []
+        for c in clienti_validi:
+            if c and c.upper() in upper:
+                cliente = c
+                break
+        if not cliente:
+            if 'FINCANTIERI ARMATORE' in upper:
+                cliente = 'FINCANTIERI ARMATORE'
+            elif 'FINCANTIERI' in upper:
+                cliente = 'FINCANTIERI'
+            elif 'RF-DE WAVE' in upper or 'RF DE WAVE' in upper:
+                cliente = 'RF-DE WAVE'
+            elif 'DE WAVE' in upper:
+                cliente = 'DE WAVE'
+            elif 'COTUGNO GALVANOTECNICA' in upper:
+                cliente = 'COTUGNO GALVANOTECNICA'
+            else:
+                cliente = _first_match(one, [
+                    r'Destinatario\s+merci\s+(.+?)(?:\s+VIA|\n)',
+                    r'Destinatario\s+(.+?)(?:\s+VIA|\n)',
+                    r'Cliente\s*[:\-]\s*(.+?)(?:\n|\s{2,})',
+                ])
 
         return {
             'has_text': bool(clean.strip()),
