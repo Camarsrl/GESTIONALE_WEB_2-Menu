@@ -3174,9 +3174,9 @@ GIACENZE_HTML = """
                     <td class="text-center">
                         {% if session.get('role') == 'admin' %}
                         <a href="{{ url_for('edit_articolo', id=r.id_articolo, return_url=request.full_path) }}" class="btn btn-outline-primary btn-sm py-0 px-1" title="Modifica">✏️</a>
-                        <a href="{{ url_for('allegati_articolo', id_articolo=r.id_articolo) }}" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Documenti e Foto">📎</a>
+                        <a href="{{ url_for('allegati_articolo', id_articolo=r.id_articolo, return_url=request.full_path) }}" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Documenti e Foto">📎</a>
                         {% if not r.data_uscita and not r.n_ddt_uscita %}
-                        <a href="{{ url_for('scarico_parziale', id_articolo=r.id_articolo) }}" class="btn btn-warning btn-sm py-0 px-1 fw-bold text-nowrap" title="Scarico parziale pezzi">📤 Scarico</a>
+                        <a href="{{ url_for('scarico_parziale', id_articolo=r.id_articolo, return_url=request.full_path) }}" class="btn btn-warning btn-sm py-0 px-1 fw-bold text-nowrap" title="Scarico parziale pezzi">📤 Scarico</a>
                         {% endif %}
                         <a href="{{ url_for('delete_articolo', id=r.id_articolo) }}" class="btn btn-outline-danger btn-sm py-0 px-1" onclick="return confirm('Eliminare?')" title="Elimina">🗑️</a>
                         {% else %}-{% endif %}
