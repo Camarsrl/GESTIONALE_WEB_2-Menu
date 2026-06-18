@@ -19,6 +19,40 @@ def register_picking_routes(app_obj, deps):
     from flask import request, redirect, url_for, flash, render_template, send_file, session
     from flask_login import login_required
 
+
+    def _parse_picking_date_safe(value):
+        """Converte la data picking in date senza dipendere da helper esterni mancanti."""
+        if not value:
+            return None
+        try:
+            if isinstance(value, datetime):
+                return value.date()
+            if isinstance(value, date):
+                return value
+        except Exception:
+            pass
+        try:
+            if 'parse_any_date' in globals():
+                d = parse_any_date(value)
+                if d:
+                    return d.date() if isinstance(d, datetime) else d
+        except Exception:
+            pass
+        try:
+            if 'to_date_db' in globals():
+                d = to_date_db(value)
+                if d:
+                    return d.date() if isinstance(d, datetime) else d
+        except Exception:
+            pass
+        s = str(value or '').strip().split(' ')[0][:10]
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except Exception:
+                pass
+        return None
+
     def _month_bounds_from_request_lavorazioni():
         """Mese iniziale: se non ci sono filtri mostra il mese corrente.
         Con ?mese=YYYY-MM mostra quel mese; con ?view=tutti mostra tutto.
@@ -216,7 +250,7 @@ def register_picking_routes(app_obj, deps):
         # Con ?view=tutti si vede tutto l'archivio.
         filtered = []
         for rec in dati:
-            rec_date = parse_any_date(getattr(rec, 'data', None))
+            rec_date = _parse_picking_date_safe(getattr(rec, 'data', None))
             if mese_start and (not rec_date or rec_date < mese_start or rec_date >= mese_end):
                 continue
             if data_da and (not rec_date or rec_date < data_da):
@@ -257,7 +291,6 @@ def register_picking_routes(app_obj, deps):
 
 
         dati = filtered
-        db.close()
 
         return render_template('lavorazioni.html', lavorazioni=dati, today=date.today(), edit_row=edit_row, filtri=filtri, clienti_validi=get_clienti_utenti(), mese_corrente=date.today().strftime('%Y-%m'), mese_precedente=_prev_next_month(mese_attivo or date.today().strftime('%Y-%m'))[0], mese_successivo=_prev_next_month(mese_attivo or date.today().strftime('%Y-%m'))[1])
 
