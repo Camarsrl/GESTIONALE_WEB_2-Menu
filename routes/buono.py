@@ -575,11 +575,16 @@ def register_buono_routes(app_obj, deps):
                 picking_created = False
                 try:
                     try:
-                        # Crea il Picking SEMPRE quando si salva il Buono.
-                        # Se l'utente non vuole registrarlo, puo' lasciare i campi vuoti oppure cancellarlo dalla pagina Picking.
-                        fresh_rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-                        picking_created, picking_msg = _create_picking_from_buono_form(db, req_data, fresh_rows, bn)
-                        db.commit()
+                        # Crea il Picking SOLO se la spunta è attiva.
+                        # Quando la checkbox non viene selezionata, il browser non invia picking_enable.
+                        picking_enable = (req_data.get('picking_enable') == '1')
+                        if picking_enable:
+                            fresh_rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+                            picking_created, picking_msg = _create_picking_from_buono_form(db, req_data, fresh_rows, bn)
+                            db.commit()
+                        else:
+                            picking_created = False
+                            picking_msg = ''
                     except Exception as e_pick_inner:
                         try:
                             db.rollback()
