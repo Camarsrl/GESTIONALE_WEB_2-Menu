@@ -89,6 +89,44 @@ def register_trasporti_routes(app_obj, deps):
             # Non blocchiamo la pagina trasporti se il cliente non è nella lista utenti
             return raw.upper()
 
+    def _month_bounds_from_request():
+        """Mese iniziale: se non ci sono filtri mostra il mese corrente.
+        Con ?mese=YYYY-MM mostra quel mese; con ?view=tutti mostra tutto.
+        """
+        mese = (request.args.get('mese') or '').strip()
+        view = (request.args.get('view') or '').strip().lower()
+        if view == 'tutti':
+            return '', None, None, 'tutti'
+
+        if not mese:
+            # Se l'utente ha compilato filtri avanzati data_da/data_a, non forzo il mese corrente.
+            has_filters = any((request.args.get(k) or '').strip() for k in [
+                'data_da','data_a','cliente','tipo_mezzo','trasportatore',
+                'ddt_uscita','magazzino','consolidato','costo_da','costo_a'
+            ])
+            if has_filters:
+                return '', None, None, ''
+            mese = date.today().strftime('%Y-%m')
+
+        try:
+            y, m = [int(x) for x in mese.split('-', 1)]
+            start = date(y, m, 1)
+            end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+            return mese, start, end, 'mese'
+        except Exception:
+            return '', None, None, ''
+
+    def _prev_next_month(mese):
+        try:
+            y, m = [int(x) for x in (mese or '').split('-', 1)]
+            prev_y, prev_m = (y - 1, 12) if m == 1 else (y, m - 1)
+            next_y, next_m = (y + 1, 1) if m == 12 else (y, m + 1)
+            return f"{prev_y:04d}-{prev_m:02d}", f"{next_y:04d}-{next_m:02d}"
+        except Exception:
+            cur = date.today().strftime('%Y-%m')
+            return cur, cur
+
+
     @app.route('/trasporti', methods=['GET', 'POST'])
     @login_required
     def trasporti():
@@ -98,14 +136,14 @@ def register_trasporti_routes(app_obj, deps):
             if request.method == 'POST' and request.form.get('edit_trasporto'):
                 if session.get('role') != 'admin':
                     flash("ACCESSO NEGATO: Solo Admin.", "danger")
-                    return redirect(url_for('trasporti'))
+                    return redirect(url_for('trasporti', mese=date.today().strftime('%Y-%m')))
 
                 try:
                     tid = int(request.form.get('id') or 0)
                     rec = db.query(Trasporto).filter(Trasporto.id == tid).first()
                     if not rec:
                         flash("Trasporto non trovato.", "danger")
-                        return redirect(url_for('trasporti'))
+                        return redirect(url_for('trasporti', mese=date.today().strftime('%Y-%m')))
 
                     data_str = (request.form.get('data') or '').strip()
                     rec.data = datetime.strptime(data_str, '%Y-%m-%d').date() if data_str else None
@@ -126,13 +164,13 @@ def register_trasporti_routes(app_obj, deps):
                     db.rollback()
                     flash(f"Errore modifica trasporto: {e}", "danger")
 
-                return redirect(url_for('trasporti'))
+                return redirect(url_for('trasporti', mese=date.today().strftime('%Y-%m')))
 
             # --- AGGIUNGI NUOVO TRASPORTO ---
             if request.method == 'POST' and request.form.get('add_trasporto'):
                 if session.get('role') != 'admin':
                     flash("ACCESSO NEGATO: Solo Admin.", "danger")
-                    return redirect(url_for('trasporti'))
+                    return redirect(url_for('trasporti', mese=date.today().strftime('%Y-%m')))
 
                 try:
                     data_str = (request.form.get('data') or '').strip()
@@ -159,7 +197,7 @@ def register_trasporti_routes(app_obj, deps):
                     db.rollback()
                     flash(f"Errore salvataggio trasporto: {e}", "danger")
 
-                return redirect(url_for('trasporti'))
+                return redirect(url_for('trasporti', mese=date.today().strftime('%Y-%m')))
 
             # --- EDIT MODE ---
             edit_id = request.args.get('edit_id')
@@ -181,7 +219,13 @@ def register_trasporti_routes(app_obj, deps):
                 'consolidato': (request.args.get('consolidato') or '').strip(),
                 'costo_da': (request.args.get('costo_da') or '').strip(),
                 'costo_a': (request.args.get('costo_a') or '').strip(),
+                'mese': (request.args.get('mese') or '').strip(),
+                'view': (request.args.get('view') or '').strip(),
             }
+
+            mese_attivo, mese_start, mese_end, vista_mese = _month_bounds_from_request()
+            filtri['mese'] = mese_attivo
+            filtri['view'] = vista_mese
 
             data_da = _safe_date_ymd(filtri['data_da'])
             data_a = _safe_date_ymd(filtri['data_a'])
@@ -194,6 +238,8 @@ def register_trasporti_routes(app_obj, deps):
             filtered = []
             for rec in dati:
                 rec_date = _as_date_safe(getattr(rec, 'data', None))
+                if mese_start and (not rec_date or rec_date < mese_start or rec_date >= mese_end):
+                    continue
                 if data_da and (not rec_date or rec_date < data_da):
                     continue
                 if data_a and (not rec_date or rec_date > data_a):
@@ -226,7 +272,10 @@ def register_trasporti_routes(app_obj, deps):
                 today=date.today(),
                 edit_row=edit_row,
                 filtri=filtri,
-                clienti_validi=get_clienti_utenti()
+                clienti_validi=get_clienti_utenti(),
+                mese_corrente=date.today().strftime('%Y-%m'),
+                mese_precedente=_prev_next_month(mese_attivo or date.today().strftime('%Y-%m'))[0],
+                mese_successivo=_prev_next_month(mese_attivo or date.today().strftime('%Y-%m'))[1]
             )
 
         except Exception as e:
