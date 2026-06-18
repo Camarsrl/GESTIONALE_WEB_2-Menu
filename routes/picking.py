@@ -19,6 +19,45 @@ def register_picking_routes(app_obj, deps):
     from flask import request, redirect, url_for, flash, render_template, send_file, session
     from flask_login import login_required
 
+    def _month_bounds_from_request_lavorazioni():
+        """Mese iniziale: se non ci sono filtri mostra il mese corrente.
+        Con ?mese=YYYY-MM mostra quel mese; con ?view=tutti mostra tutto.
+        """
+        mese = (request.args.get('mese') or '').strip()
+        view = (request.args.get('view') or '').strip().lower()
+        if view == 'tutti':
+            return '', None, None, 'tutti'
+
+        if not mese:
+            has_filters = any((request.args.get(k) or '').strip() for k in [
+                'data_da','data_a','cliente','descrizione','richiesta_di','seriali','n_arrivo',
+                'colli_da','colli_a','pallet_forniti_da','pallet_forniti_a',
+                'pallet_uscita_da','pallet_uscita_a','ore_blue_da','ore_blue_a',
+                'ore_white_da','ore_white_a'
+            ])
+            if has_filters:
+                return '', None, None, ''
+            mese = date.today().strftime('%Y-%m')
+
+        try:
+            y, m = [int(x) for x in mese.split('-', 1)]
+            start = date(y, m, 1)
+            end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+            return mese, start, end, 'mese'
+        except Exception:
+            return '', None, None, ''
+
+    def _prev_next_month(mese):
+        try:
+            y, m = [int(x) for x in (mese or '').split('-', 1)]
+            prev_y, prev_m = (y - 1, 12) if m == 1 else (y, m - 1)
+            next_y, next_m = (y + 1, 1) if m == 12 else (y, m + 1)
+            return f"{prev_y:04d}-{prev_m:02d}", f"{next_y:04d}-{next_m:02d}"
+        except Exception:
+            cur = date.today().strftime('%Y-%m')
+            return cur, cur
+
+
     @app.route('/lavorazioni', methods=['GET', 'POST'])
     @login_required
     def lavorazioni():
@@ -28,14 +67,14 @@ def register_picking_routes(app_obj, deps):
         if request.method == 'POST' and request.form.get('edit_lavorazione'):
             if session.get('role') != 'admin':
                 flash("ACCESSO NEGATO: Solo Admin.", "danger")
-                return redirect(url_for('lavorazioni'))
+                return redirect(url_for('lavorazioni', mese=date.today().strftime('%Y-%m')))
 
             try:
                 lid = int(request.form.get('id') or 0)
                 rec = db.query(Lavorazione).filter(Lavorazione.id == lid).first()
                 if not rec:
                     flash("Record non trovato.", "danger")
-                    return redirect(url_for('lavorazioni'))
+                    return redirect(url_for('lavorazioni', mese=date.today().strftime('%Y-%m')))
 
                 d_val = datetime.strptime(request.form.get('data'), '%Y-%m-%d').date()
                 rec.data = d_val
@@ -55,13 +94,13 @@ def register_picking_routes(app_obj, deps):
                 db.rollback()
                 flash(f"Errore modifica: {e}", "danger")
 
-            return redirect(url_for('lavorazioni'))
+            return redirect(url_for('lavorazioni', mese=date.today().strftime('%Y-%m')))
 
         # --- INSERIMENTO ---
         if request.method == 'POST' and request.form.get('add_lavorazione'):
             if session.get('role') != 'admin':
                 flash("ACCESSO NEGATO: Solo Admin.", "danger")
-                return redirect(url_for('lavorazioni'))
+                return redirect(url_for('lavorazioni', mese=date.today().strftime('%Y-%m')))
 
             try:
                 d_val = datetime.strptime(request.form.get('data'), '%Y-%m-%d').date()
@@ -90,7 +129,7 @@ def register_picking_routes(app_obj, deps):
             except Exception as e:
                 db.rollback()
                 flash(f"Errore inserimento: {e}", "danger")
-            return redirect(url_for('lavorazioni'))
+            return redirect(url_for('lavorazioni', mese=date.today().strftime('%Y-%m')))
 
         # --- EDIT MODE (GET ?edit_id=) ---
         edit_id = request.args.get('edit_id')
@@ -120,7 +159,13 @@ def register_picking_routes(app_obj, deps):
             'ore_blue_a': (request.args.get('ore_blue_a') or '').strip(),
             'ore_white_da': (request.args.get('ore_white_da') or '').strip(),
             'ore_white_a': (request.args.get('ore_white_a') or '').strip(),
+            'mese': (request.args.get('mese') or '').strip(),
+            'view': (request.args.get('view') or '').strip(),
         }
+
+        mese_attivo, mese_start, mese_end, vista_mese = _month_bounds_from_request_lavorazioni()
+        filtri['mese'] = mese_attivo
+        filtri['view'] = vista_mese
 
         data_da = _safe_date_ymd(filtri['data_da'])
         data_a = _safe_date_ymd(filtri['data_a'])
@@ -167,56 +212,54 @@ def register_picking_routes(app_obj, deps):
             .all()
         )
 
-        # Se non ci sono filtri reali, mostra TUTTO.
-        # Questo evita che valori automatici del telefono/browser tipo 0,0
-        # facciano sparire GALVANO TECNICA dalla tabella.
-        if not _has_active_picking_filters(filtri):
-            filtered = list(dati)
-        else:
-            filtered = []
-            for rec in dati:
-                rec_date = parse_any_date(getattr(rec, 'data', None))
-                if data_da and (not rec_date or rec_date < data_da):
-                    continue
-                if data_a and (not rec_date or rec_date > data_a):
-                    continue
-                if not _match_txt(rec.cliente, filtri['cliente']):
-                    continue
-                if not _match_txt(rec.descrizione, filtri['descrizione']):
-                    continue
-                if not _match_txt(rec.richiesta_di, filtri['richiesta_di']):
-                    continue
-                if not _match_txt(rec.seriali, filtri['seriali']):
-                    continue
-                if not _match_txt(getattr(rec, 'n_arrivo', ''), filtri.get('n_arrivo','')):
-                    continue
-                if colli_da is not None and (rec.colli is None or int(rec.colli or 0) < colli_da):
-                    continue
-                if colli_a is not None and (rec.colli is None or int(rec.colli or 0) > colli_a):
-                    continue
-                if pallet_forniti_da is not None and int(rec.pallet_forniti or 0) < pallet_forniti_da:
-                    continue
-                if pallet_forniti_a is not None and int(rec.pallet_forniti or 0) > pallet_forniti_a:
-                    continue
-                if pallet_uscita_da is not None and int(rec.pallet_uscita or 0) < pallet_uscita_da:
-                    continue
-                if pallet_uscita_a is not None and int(rec.pallet_uscita or 0) > pallet_uscita_a:
-                    continue
-                if ore_blue_da is not None and float(rec.ore_blue_collar or 0) < ore_blue_da:
-                    continue
-                if ore_blue_a is not None and float(rec.ore_blue_collar or 0) > ore_blue_a:
-                    continue
-                if ore_white_da is not None and float(rec.ore_white_collar or 0) < ore_white_da:
-                    continue
-                if ore_white_a is not None and float(rec.ore_white_collar or 0) > ore_white_a:
-                    continue
-                filtered.append(rec)
+        # Pagina iniziale: solo mese corrente. Con ?mese=YYYY-MM si cambia mese.
+        # Con ?view=tutti si vede tutto l'archivio.
+        filtered = []
+        for rec in dati:
+            rec_date = parse_any_date(getattr(rec, 'data', None))
+            if mese_start and (not rec_date or rec_date < mese_start or rec_date >= mese_end):
+                continue
+            if data_da and (not rec_date or rec_date < data_da):
+                continue
+            if data_a and (not rec_date or rec_date > data_a):
+                continue
+            if not _match_txt(rec.cliente, filtri['cliente']):
+                continue
+            if not _match_txt(rec.descrizione, filtri['descrizione']):
+                continue
+            if not _match_txt(rec.richiesta_di, filtri['richiesta_di']):
+                continue
+            if not _match_txt(rec.seriali, filtri['seriali']):
+                continue
+            if not _match_txt(getattr(rec, 'n_arrivo', ''), filtri.get('n_arrivo','')):
+                continue
+            if colli_da is not None and (rec.colli is None or int(rec.colli or 0) < colli_da):
+                continue
+            if colli_a is not None and (rec.colli is None or int(rec.colli or 0) > colli_a):
+                continue
+            if pallet_forniti_da is not None and int(rec.pallet_forniti or 0) < pallet_forniti_da:
+                continue
+            if pallet_forniti_a is not None and int(rec.pallet_forniti or 0) > pallet_forniti_a:
+                continue
+            if pallet_uscita_da is not None and int(rec.pallet_uscita or 0) < pallet_uscita_da:
+                continue
+            if pallet_uscita_a is not None and int(rec.pallet_uscita or 0) > pallet_uscita_a:
+                continue
+            if ore_blue_da is not None and float(rec.ore_blue_collar or 0) < ore_blue_da:
+                continue
+            if ore_blue_a is not None and float(rec.ore_blue_collar or 0) > ore_blue_a:
+                continue
+            if ore_white_da is not None and float(rec.ore_white_collar or 0) < ore_white_da:
+                continue
+            if ore_white_a is not None and float(rec.ore_white_collar or 0) > ore_white_a:
+                continue
+            filtered.append(rec)
 
 
         dati = filtered
         db.close()
 
-        return render_template('lavorazioni.html', lavorazioni=dati, today=date.today(), edit_row=edit_row, filtri=filtri, clienti_validi=get_clienti_utenti())
+        return render_template('lavorazioni.html', lavorazioni=dati, today=date.today(), edit_row=edit_row, filtri=filtri, clienti_validi=get_clienti_utenti(), mese_corrente=date.today().strftime('%Y-%m'), mese_precedente=_prev_next_month(mese_attivo or date.today().strftime('%Y-%m'))[0], mese_successivo=_prev_next_month(mese_attivo or date.today().strftime('%Y-%m'))[1])
 
 
 
