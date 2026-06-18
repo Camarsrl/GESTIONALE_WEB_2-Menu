@@ -82,6 +82,7 @@ def register_picking_routes(app_obj, deps):
                 rec.descrizione = request.form.get('descrizione')
                 rec.richiesta_di = request.form.get('richiesta_di')
                 rec.seriali = request.form.get('seriali')
+                rec.n_arrivo = request.form.get('n_arrivo')
                 rec.colli = int(request.form.get('colli') or 0)
                 rec.pallet_forniti = int(request.form.get('pallet_forniti') or 0)
                 rec.pallet_uscita = int(request.form.get('pallet_uscita') or 0)
@@ -95,6 +96,25 @@ def register_picking_routes(app_obj, deps):
                 flash(f"Errore modifica: {e}", "danger")
 
             return redirect(url_for('lavorazioni', mese=date.today().strftime('%Y-%m')))
+
+        # --- ELIMINA LAVORAZIONE ---
+        if request.method == 'POST' and request.form.get('delete_lavorazione'):
+            if session.get('role') != 'admin':
+                flash("ACCESSO NEGATO: Solo Admin.", "danger")
+                return redirect(url_for('lavorazioni', mese=(request.form.get('mese') or date.today().strftime('%Y-%m'))))
+            try:
+                lid = int(request.form.get('id') or 0)
+                rec = db.query(Lavorazione).filter(Lavorazione.id == lid).first()
+                if rec:
+                    db.delete(rec)
+                    db.commit()
+                    flash("Picking eliminato.", "success")
+                else:
+                    flash("Record non trovato.", "warning")
+            except Exception as e:
+                db.rollback()
+                flash(f"Errore eliminazione: {e}", "danger")
+            return redirect(url_for('lavorazioni', mese=(request.form.get('mese') or date.today().strftime('%Y-%m'))))
 
         # --- INSERIMENTO ---
         if request.method == 'POST' and request.form.get('add_lavorazione'):
