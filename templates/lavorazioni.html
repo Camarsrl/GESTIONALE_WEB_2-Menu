@@ -1,159 +1,212 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
 {% block content %}
 <div class="container-fluid py-3">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <div>
-      <h2 class="mb-0">⚙️ Gestione Picking / Lavorazioni</h2>
-      <div class="text-muted small">
-        {% if filtri.view == 'mese' and filtri.mese %}
-          Visualizzazione mese: <b>{{ filtri.mese }}</b>
-        {% elif filtri.view == 'tutti' %}
-          Visualizzazione completa archivio
-        {% else %}
-          Visualizzazione filtrata
-        {% endif %}
-      </div>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h2 class="mb-0">⚙️ Gestione Picking / Lavorazioni</h2>
+            <div class="text-muted small">
+                {% if filtri.view == 'tutti' %}
+                    Vista archivio completo
+                {% elif filtri.mese %}
+                    Vista mese: <b>{{ filtri.mese }}</b>
+                {% else %}
+                    Vista filtrata
+                {% endif %}
+            </div>
+        </div>
+        <a href="{{ url_for('home') }}" class="btn btn-secondary btn-sm">Esci</a>
     </div>
-    <a href="{{ url_for('home') }}" class="btn btn-secondary btn-sm">Esci</a>
-  </div>
 
-  <div class="card shadow-sm mb-3">
-    <div class="card-body">
-      <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('lavorazioni', mese=mese_precedente) }}">← Mese precedente</a>
-        <a class="btn btn-primary btn-sm" href="{{ url_for('lavorazioni', mese=mese_corrente) }}">Mese corrente</a>
-        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('lavorazioni', mese=mese_successivo) }}">Mese successivo →</a>
-        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('lavorazioni', view='tutti') }}">Tutti</a>
-      </div>
+    <div class="card p-3 mb-3 shadow-sm">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <a class="btn btn-outline-primary btn-sm" href="{{ url_for('lavorazioni', mese=mese_precedente) }}">← Mese precedente</a>
+            <a class="btn btn-primary btn-sm" href="{{ url_for('lavorazioni', mese=mese_corrente) }}">Mese corrente</a>
+            <a class="btn btn-outline-primary btn-sm" href="{{ url_for('lavorazioni', mese=mese_successivo) }}">Mese successivo →</a>
+            <a class="btn btn-outline-dark btn-sm" href="{{ url_for('lavorazioni', view='tutti') }}">Tutti</a>
 
-      <form method="get" class="row g-2 align-items-end">
-        <div class="col-md-2">
-          <label class="form-label small fw-bold">Mese</label>
-          <input type="month" name="mese" class="form-control form-control-sm" value="{{ filtri.mese }}">
+            <form method="get" class="d-flex gap-2 ms-auto">
+                <input type="month" name="mese" value="{{ filtri.mese }}" class="form-control form-control-sm">
+                <button class="btn btn-success btn-sm">Apri mese</button>
+            </form>
         </div>
-        <div class="col-md-2">
-          <label class="form-label small fw-bold">Da</label>
-          <input type="date" name="data_da" class="form-control form-control-sm" value="{{ filtri.data_da }}">
-        </div>
-        <div class="col-md-2">
-          <label class="form-label small fw-bold">A</label>
-          <input type="date" name="data_a" class="form-control form-control-sm" value="{{ filtri.data_a }}">
-        </div>
-        <div class="col-md-2">
-          <label class="form-label small fw-bold">Cliente</label>
-          <input name="cliente" class="form-control form-control-sm" value="{{ filtri.cliente }}" placeholder="Cliente">
-        </div>
-        <div class="col-md-2">
-          <label class="form-label small fw-bold">Seriali / Buono</label>
-          <input name="seriali" class="form-control form-control-sm" value="{{ filtri.seriali }}" placeholder="Seriali/Buono">
-        </div>
-        <div class="col-md-2">
-          <label class="form-label small fw-bold">N. Arrivo</label>
-          <input name="n_arrivo" class="form-control form-control-sm" value="{{ filtri.n_arrivo }}" placeholder="N. Arrivo">
-        </div>
-        <div class="col-md-3">
-          <label class="form-label small fw-bold">Descrizione</label>
-          <input name="descrizione" class="form-control form-control-sm" value="{{ filtri.descrizione }}" placeholder="Descrizione">
-        </div>
-        <div class="col-md-3">
-          <label class="form-label small fw-bold">Richiesta di</label>
-          <input name="richiesta_di" class="form-control form-control-sm" value="{{ filtri.richiesta_di }}" placeholder="Richiesta di">
-        </div>
-        <div class="col-md-2">
-          <button class="btn btn-primary btn-sm w-100">Filtra</button>
-        </div>
-        <div class="col-md-2">
-          <a href="{{ url_for('lavorazioni', mese=mese_corrente) }}" class="btn btn-outline-secondary btn-sm w-100">Reset</a>
-        </div>
-        <div class="col-md-2">
-          <button type="button" class="btn btn-success btn-sm w-100" data-bs-toggle="collapse" data-bs-target="#formLavorazione">+ Nuovo</button>
-        </div>
-      </form>
     </div>
-  </div>
 
-  <div id="formLavorazione" class="collapse {% if edit_row %}show{% endif %}">
-    <div class="card shadow-sm mb-3">
-      <div class="card-body">
-        <h5>{% if edit_row %}Modifica Picking{% else %}Inserisci Nuovo Picking{% endif %}</h5>
-        <form method="post" class="row g-2 align-items-end">
-          {% if edit_row %}
-          <input type="hidden" name="edit_lavorazione" value="1">
-          <input type="hidden" name="id" value="{{ edit_row.id }}">
-          {% else %}
-          <input type="hidden" name="add_lavorazione" value="1">
-          {% endif %}
-          <input type="hidden" name="mese" value="{{ filtri.mese or mese_corrente }}">
+    {% if session.get('role') == 'admin' %}
+    <div class="card p-3 mb-3 shadow-sm">
+        <h5 class="mb-3">{% if edit_row %}Modifica Picking{% else %}Inserisci Nuovo Picking{% endif %}</h5>
+        <form method="post">
+            {% if edit_row %}
+            <input type="hidden" name="edit_lavorazione" value="1">
+            <input type="hidden" name="id" value="{{ edit_row.id }}">
+            {% else %}
+            <input type="hidden" name="add_lavorazione" value="1">
+            {% endif %}
+            <input type="hidden" name="mese_corrente" value="{{ filtri.mese or mese_corrente }}">
 
-          <div class="col-md-2"><label class="form-label small fw-bold">Data</label><input type="date" name="data" class="form-control" required value="{{ edit_row.data if edit_row else today }}"></div>
-          <div class="col-md-2"><label class="form-label small fw-bold">Cliente</label><input name="cliente" class="form-control" value="{{ edit_row.cliente if edit_row else '' }}"></div>
-          <div class="col-md-3"><label class="form-label small fw-bold">Descrizione</label><input name="descrizione" class="form-control" value="{{ edit_row.descrizione if edit_row else 'PICKING+FILMATURA+PALLETIZZAZIONE' }}"></div>
-          <div class="col-md-2"><label class="form-label small fw-bold">Richiesta Di</label><input name="richiesta_di" class="form-control" value="{{ edit_row.richiesta_di if edit_row else '' }}"></div>
-          <div class="col-md-2"><label class="form-label small fw-bold">Seriali / Buono</label><input name="seriali" class="form-control" value="{{ edit_row.seriali if edit_row else '' }}"></div>
-          <div class="col-md-2"><label class="form-label small fw-bold">N. Arrivo</label><input name="n_arrivo" class="form-control" value="{{ edit_row.n_arrivo if edit_row else '' }}"></div>
-          <div class="col-md-1"><label class="form-label small fw-bold">Colli</label><input type="number" name="colli" class="form-control" value="{{ edit_row.colli if edit_row else '' }}"></div>
-          <div class="col-md-2"><label class="form-label small fw-bold">Pallet Entrati</label><input type="number" name="pallet_forniti" class="form-control" value="{{ edit_row.pallet_forniti if edit_row else '' }}"></div>
-          <div class="col-md-2"><label class="form-label small fw-bold">Pallet Usciti</label><input type="number" name="pallet_uscita" class="form-control" value="{{ edit_row.pallet_uscita if edit_row else '' }}"></div>
-          <div class="col-md-2"><label class="form-label small fw-bold">Ore Blue</label><input type="number" step="0.5" name="ore_blue_collar" class="form-control" value="{{ edit_row.ore_blue_collar if edit_row else '' }}"></div>
-          <div class="col-md-2"><label class="form-label small fw-bold">Ore White</label><input type="number" step="0.5" name="ore_white_collar" class="form-control" value="{{ edit_row.ore_white_collar if edit_row else '' }}"></div>
-          <div class="col-md-2"><button class="btn btn-success w-100">{% if edit_row %}Salva modifica{% else %}Aggiungi{% endif %}</button></div>
-          {% if edit_row %}<div class="col-md-2"><a href="{{ url_for('lavorazioni', mese=filtri.mese or mese_corrente) }}" class="btn btn-outline-secondary w-100">Annulla</a></div>{% endif %}
+            <div class="row g-2 align-items-end">
+                <div class="col-md-2">
+                    <label class="form-label fw-bold small">Data</label>
+                    <input type="date" name="data" class="form-control"
+                           value="{{ edit_row.data if edit_row else today }}" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold small">Cliente</label>
+                    <input name="cliente" class="form-control" value="{{ edit_row.cliente if edit_row else '' }}" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold small">Descrizione</label>
+                    <input name="descrizione" class="form-control" value="{{ edit_row.descrizione if edit_row else '' }}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold small">Richiesta Di</label>
+                    <input name="richiesta_di" class="form-control" value="{{ edit_row.richiesta_di if edit_row else '' }}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold small">Seriali / Buono</label>
+                    <input name="seriali" class="form-control" value="{{ edit_row.seriali if edit_row else '' }}">
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label fw-bold small">N. Arrivo</label>
+                    <input name="n_arrivo" class="form-control" value="{{ edit_row.n_arrivo if edit_row else '' }}">
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label fw-bold small">Colli</label>
+                    <input type="number" name="colli" class="form-control" value="{{ edit_row.colli if edit_row else '' }}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold small">Pallet Entrati</label>
+                    <input type="number" name="pallet_forniti" class="form-control" value="{{ edit_row.pallet_forniti if edit_row else '' }}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold small">Pallet Usciti</label>
+                    <input type="number" name="pallet_uscita" class="form-control" value="{{ edit_row.pallet_uscita if edit_row else '' }}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold small">Ore Blue</label>
+                    <input type="number" step="0.5" name="ore_blue_collar" class="form-control" value="{{ edit_row.ore_blue_collar if edit_row else '' }}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold small">Ore White</label>
+                    <input type="number" step="0.5" name="ore_white_collar" class="form-control" value="{{ edit_row.ore_white_collar if edit_row else '' }}">
+                </div>
+                <div class="col-md-1">
+                    <button class="btn btn-success w-100">{% if edit_row %}Salva{% else %}+ Aggiungi{% endif %}</button>
+                </div>
+            </div>
         </form>
-      </div>
     </div>
-  </div>
+    {% endif %}
 
-  <div class="card shadow-sm">
+    <div class="card p-3 mb-3 shadow-sm">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Mese</label>
+                <input type="month" name="mese" class="form-control form-control-sm" value="{{ filtri.mese }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Data da</label>
+                <input type="date" name="data_da" class="form-control form-control-sm" value="{{ filtri.data_da }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold">Data a</label>
+                <input type="date" name="data_a" class="form-control form-control-sm" value="{{ filtri.data_a }}">
+            </div>
+            <div class="col-md-2"><input name="cliente" class="form-control form-control-sm" placeholder="Cliente" value="{{ filtri.cliente }}"></div>
+            <div class="col-md-2"><input name="descrizione" class="form-control form-control-sm" placeholder="Descrizione" value="{{ filtri.descrizione }}"></div>
+            <div class="col-md-2"><input name="richiesta_di" class="form-control form-control-sm" placeholder="Richiesta di" value="{{ filtri.richiesta_di }}"></div>
+            <div class="col-md-2"><input name="seriali" class="form-control form-control-sm" placeholder="Seriali/Buono" value="{{ filtri.seriali }}"></div>
+            <div class="col-md-2"><input name="n_arrivo" class="form-control form-control-sm" placeholder="N. Arrivo" value="{{ filtri.n_arrivo }}"></div>
+            <div class="col-md-2"><input name="colli_da" class="form-control form-control-sm" placeholder="Colli da" value="{{ filtri.colli_da }}"></div>
+            <div class="col-md-2"><input name="colli_a" class="form-control form-control-sm" placeholder="Colli a" value="{{ filtri.colli_a }}"></div>
+            <div class="col-md-2"><input name="ore_blue_da" class="form-control form-control-sm" placeholder="Ore blue da" value="{{ filtri.ore_blue_da }}"></div>
+            <div class="col-md-2"><input name="ore_blue_a" class="form-control form-control-sm" placeholder="Ore blue a" value="{{ filtri.ore_blue_a }}"></div>
+            <div class="col-md-2 d-flex gap-2">
+                <button class="btn btn-primary btn-sm w-100">Filtra</button>
+                <a href="{{ url_for('lavorazioni', mese=mese_corrente) }}" class="btn btn-outline-secondary btn-sm">Reset</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="fw-bold">Record visualizzati: {{ lavorazioni|length }}</div>
+        <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#reportPickingModal">
+            📊 Report Excel
+        </button>
+    </div>
+
     <div class="table-responsive">
-      <table class="table table-striped table-hover align-middle mb-0">
-        <thead class="table-light">
-          <tr>
-            <th>Data</th><th>Cliente</th><th>Descrizione</th><th>Richiesta</th><th>Seriali/Buono</th><th>N. Arrivo</th>
-            <th class="text-end">Colli</th><th class="text-end">Pallet Entrati</th><th class="text-end">Pallet Usciti</th><th class="text-end">Blue</th><th class="text-end">White</th><th>Azioni</th>
-          </tr>
-        </thead>
-        <tbody>
-        {% for r in lavorazioni %}
-          <tr>
-            <td>{{ r.data }}</td>
-            <td>{{ r.cliente or '' }}</td>
-            <td>{{ r.descrizione or '' }}</td>
-            <td>{{ r.richiesta_di or '' }}</td>
-            <td>{{ r.seriali or '' }}</td>
-            <td>{{ r.n_arrivo or '' }}</td>
-            <td class="text-end">{{ r.colli or '' }}</td>
-            <td class="text-end">{{ r.pallet_forniti or '' }}</td>
-            <td class="text-end">{{ r.pallet_uscita or '' }}</td>
-            <td class="text-end">{{ r.ore_blue_collar or '' }}</td>
-            <td class="text-end">{{ r.ore_white_collar or '' }}</td>
-            <td class="text-nowrap">
-              <a class="btn btn-primary btn-sm" href="{{ url_for('lavorazioni', edit_id=r.id, mese=filtri.mese or mese_corrente) }}">✎</a>
-              <form method="post" class="d-inline" onsubmit="return confirm('Eliminare il picking selezionato?')">
-                <input type="hidden" name="delete_lavorazione" value="1">
-                <input type="hidden" name="id" value="{{ r.id }}">
-                <input type="hidden" name="mese" value="{{ filtri.mese or mese_corrente }}">
-                <button class="btn btn-danger btn-sm">🗑</button>
-              </form>
-            </td>
-          </tr>
-        {% else %}
-          <tr><td colspan="12" class="text-center text-muted py-4">Nessuna lavorazione trovata per il filtro selezionato.</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
+        <table class="table table-striped table-bordered table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Data</th>
+                    <th>Cliente</th>
+                    <th>Descrizione</th>
+                    <th>Richiesta</th>
+                    <th>Seriali/Buono</th>
+                    <th>N. Arrivo</th>
+                    <th>Colli</th>
+                    <th>Pallet Entrati</th>
+                    <th>Pallet Usciti</th>
+                    <th>Blue</th>
+                    <th>White</th>
+                    {% if session.get('role') == 'admin' %}<th>Azioni</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in lavorazioni %}
+                <tr>
+                    <td>{{ r.data }}</td>
+                    <td>{{ r.cliente }}</td>
+                    <td>{{ r.descrizione }}</td>
+                    <td>{{ r.richiesta_di }}</td>
+                    <td>{{ r.seriali }}</td>
+                    <td>{{ r.n_arrivo }}</td>
+                    <td>{{ r.colli }}</td>
+                    <td>{{ r.pallet_forniti }}</td>
+                    <td>{{ r.pallet_uscita }}</td>
+                    <td>{{ r.ore_blue_collar }}</td>
+                    <td>{{ r.ore_white_collar }}</td>
+                    {% if session.get('role') == 'admin' %}
+                    <td class="text-nowrap">
+                        <a class="btn btn-primary btn-sm" href="{{ url_for('lavorazioni', edit_id=r.id, mese=filtri.mese) }}">✏️</a>
+                        <a class="btn btn-danger btn-sm"
+                           href="{{ url_for('elimina_record', table='lavorazioni', id=r.id) }}"
+                           onclick="return confirm('Eliminare questo picking?');">🗑️</a>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="12" class="text-center text-muted py-4">
+                        Nessun picking/lavorazione trovato per i filtri selezionati.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
-  </div>
+</div>
 
-  <form action="{{ url_for('stampa_picking_pdf') }}" method="post" class="mt-3 d-flex gap-2 flex-wrap align-items-end">
-    <div>
-      <label class="form-label small fw-bold">Mese report</label>
-      <input type="month" name="mese" class="form-control form-control-sm" value="{{ filtri.mese or mese_corrente }}">
+<div class="modal fade" id="reportPickingModal" tabindex="-1">
+    <div class="modal-dialog">
+        <form action="{{ url_for('stampa_picking_pdf') }}" method="POST">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Genera Report Picking</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <label class="form-label">Mese</label>
+                    <input type="month" name="mese" class="form-control mb-2" value="{{ filtri.mese or mese_corrente }}">
+                    <label class="form-label">Cliente opzionale</label>
+                    <input type="text" name="cliente" class="form-control" value="{{ filtri.cliente }}">
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-success">Scarica Excel</button>
+                </div>
+            </div>
+        </form>
     </div>
-    <div>
-      <label class="form-label small fw-bold">Cliente</label>
-      <input name="cliente" class="form-control form-control-sm" value="{{ filtri.cliente }}">
-    </div>
-    <button class="btn btn-success btn-sm">📊 Report Excel</button>
-  </form>
 </div>
 {% endblock %}
