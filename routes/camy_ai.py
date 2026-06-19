@@ -115,6 +115,7 @@ def register_camy_ai_routes(app_obj, deps):
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Crea DDT dal buono ">🎤 Crea DDT</button>
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Fammi vedere la foto dell'arrivo ">🎤 Mostra foto</button>
             {% endif %}
+            <a class="btn btn-sm btn-outline-success" href="/scan_qr_operativo">🔫 Scan QR</a>
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Cosa%20puoi%20fare%3F">Aiuto</a>
           </div>
 
@@ -2897,8 +2898,22 @@ def register_camy_ai_routes(app_obj, deps):
 
         return "".join(out)
 
+
+
+    def _answer_scan_qr_operativo(msg):
+        return (
+            "<b>Scan QR operativo pronto.</b><br>"
+            "Puoi usare scanner <b>USB</b>, <b>Bluetooth</b> o <b>Wi-Fi</b>.<br>"
+            "• USB/Bluetooth: apri la pagina, clicca nel campo e spara il QR.<br>"
+            "• Wi-Fi/API: invia il codice a <code>/api/scan_qr_operativo</code>.<br><br>"
+            "<a class='btn btn-success btn-sm' href='/scan_qr_operativo'>🔫 Apri Scan QR operativo</a>"
+        )
+
     def _process_camy_message(db, msg):
         low = (msg or "").lower()
+
+        if any(x in low for x in ["scanner", "scan qr", "scansione qr", "pistola", "lettore qr", "prelievo qr", "wifi qr"]):
+            return _answer_scan_qr_operativo(msg), True, {"action":"scan_qr_operativo"}
 
         photo_answer = _answer_arrivo_photos(db, msg)
         if photo_answer is not None:
