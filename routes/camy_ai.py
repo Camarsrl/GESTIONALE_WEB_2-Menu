@@ -2909,8 +2909,296 @@ def register_camy_ai_routes(app_obj, deps):
             "<a class='btn btn-success btn-sm' href='/scan_qr_operativo'>🔫 Apri Scan QR operativo</a>"
         )
 
+
+    # ========================================================
+    # CAMY OPERATIVA - ricerca libera su tutto il gestionale
+    # ========================================================
+    def _has_any(text_value, words):
+        low_value = (text_value or "").lower()
+        return any(w in low_value for w in words)
+
+    def _extract_after_keywords(msg, keywords, max_len=60):
+        """Estrae un riferimento dopo parole come buono, ddt, picking, trasporto."""
+        s = msg or ""
+        keys = sorted([k for k in keywords if k], key=len, reverse=True)
+        kw = "|".join(re.escape(k) for k in keys)
+        stop = r"(?:cliente|fornitore|arrivo|codice|descrizione|data|oggi|mese|anno|ddt|buono|picking|trasporto|lavorazione)"
+        patterns = [
+            rf"\b(?:{kw})\b\s*(?:n\.?|numero)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9./_\- ]{{1,{max_len}}}?)(?=\s+{stop}\b|$)",
+            rf"\b(?:{kw})\b\s+([A-Z0-9][A-Z0-9./_\-]{{1,{max_len}}})\b",
+        ]
+        for pat in patterns:
+            m = re.search(pat, s, re.I)
+            if m:
+                val = (m.group(1) or "").strip().strip(".,;:")
+                # Evita parole generiche prese come riferimento.
+                if val and val.upper() not in {"DA", "DAL", "DEL", "PER", "IL", "LA", "LO", "UN", "UNA", "PRELIEVO", "CARICO", "VEDERE", "MOSTRARE", "APRIRE"}:
+                    return val
+        return ""
+
+    def _extract_generic_code(msg):
+        """Ultima possibilità: prende codici tipo 586-ZETA, 2058377-ENTALPIA, 481/26."""
+        s = msg or ""
+        candidates = re.findall(r"\b[A-Z0-9]{2,}(?:[./_\-][A-Z0-9]{1,})+\b", s.upper())
+        stop = {"CAMY-AI"}
+        for c in candidates:
+            if c not in stop:
+                return c
+        m = re.search(r"\b\d{1,5}\s*/\s*\d{2,4}\b", s)
+        if m:
+            return m.group(0).replace(" ", "")
+        return ""
+
+    def _current_month_range():
+        import calendar as _calendar
+        today = date.today()
+        last = _calendar.monthrange(today.year, today.month)[1]
+        return date(today.year, today.month, 1), date(today.year, today.month, last)
+
+    def _period_from_message(msg):
+        low = (msg or "").lower()
+        today = date.today()
+        if "oggi" in low:
+            return today, today
+        if "ieri" in low:
+            d = today.fromordinal(today.toordinal() - 1)
+            return d, d
+        if "mese" in low or "questo mese" in low:
+            return _current_month_range()
+        da, a = _month_range_from_message(msg)
+        d1 = _parse_date_any(da) if da else None
+        d2 = _parse_date_any(a) if a else None
+        return d1, d2
+
+    def _safe_url(endpoint, fallback, **kwargs):
+        try:
+            if endpoint in app.view_functions:
+                return url_for(endpoint, **kwargs)
+        except Exception:
+            pass
+        return fallback
+
+    def _answer_open_buono_prelievo(db, msg):
+        """Mostra un Buono di Prelievo già creato, cioè righe Articolo con buono_n."""
+        target = _extract_after_keywords(msg, ["buono di prelievo", "buono prelievo", "buono", "prelievo"]) or _extract_generic_code(msg)
+        if not target:
+            return "Indicami il numero del Buono di Prelievo da vedere. Esempio: <b>Voglio vedere il buono 586-ZETA</b>."
+
+        q = _base_query(db)
+        rows = (
+            q.filter(func.upper(func.trim(func.coalesce(Articolo.buono_n, ""))) == target.upper())
+             .order_by(Articolo.id_articolo.asc())
+             .limit(300)
+             .all()
+        )
+        if not rows:
+            rows = (
+                q.filter(Articolo.buono_n.ilike(f"%{target}%"))
+                 .order_by(Articolo.id_articolo.asc())
+                 .limit(300)
+                 .all()
+            )
+        if not rows:
+            # Prima di dire che non esiste, controllo anche i buoni QR/carico.
+            try:
+                return _answer_open_buono_carico(db, msg)
+            except Exception:
+                pass
+            return f"Non ho trovato nessun Buono di Prelievo con riferimento <b>{_esc(target)}</b>."
+
+        buono = str(rows[0].buono_n or target).strip()
+        colli = sum(int(getattr(r, "n_colli", 0) or 0) for r in rows)
+        peso = sum(float(getattr(r, "peso", 0) or 0) for r in rows)
+        cliente = rows[0].cliente or "-"
+        fornitore = rows[0].fornitore or "-"
+        ordine = rows[0].ordine or "-"
+        commessa = rows[0].commessa or "-"
+        protocollo = ", ".join([p for p in dict.fromkeys(str(getattr(r, "protocollo", "") or "").strip() for r in rows) if p]) or "-"
+
+        out = [
+            f"<b>Buono di Prelievo {_esc(buono)}</b><br>",
+            f"Cliente: {_esc(cliente)}<br>",
+            f"Fornitore: {_esc(fornitore)}<br>",
+            f"Ordine: {_esc(ordine)} | Commessa: {_esc(commessa)} | Protocollo: {_esc(protocollo)}<br>",
+            f"Righe: <b>{len(rows)}</b> | Colli: <b>{colli}</b> | Peso: <b>{_esc(_fmt_num(peso))} kg</b><br>",
+        ]
+        for r in rows[:12]:
+            out.append(
+                "<div class='camy-ai-result'>"
+                f"ID {_esc(r.id_articolo)} | Codice: <b>{_esc(r.codice_articolo or '-')}</b><br>"
+                f"Descrizione: {_esc((r.descrizione or '-')[:180])}<br>"
+                f"N. arrivo: {_esc(r.n_arrivo or '-')} | Q.tà/Pezzi: {_esc(r.pezzo or r.n_colli or '-')} | Posizione: {_esc(r.posizione or '-')}<br>"
+                f"DDT uscita: {_esc(r.n_ddt_uscita or '-')} | Data uscita: {_esc(r.data_uscita or '-')}"
+                "</div>"
+            )
+        if len(rows) > 12:
+            out.append(f"<br>Altre righe non mostrate: {len(rows) - 12}.")
+
+        try:
+            filename, pdf_path = _generate_buono_pdf(db, buono)
+            if filename:
+                out.append(f"<br><a class='btn btn-sm btn-success mt-2' href='{_esc(url_for('camy_ai_buono_pdf', filename=filename))}'>Scarica PDF Buono</a>")
+        except Exception:
+            pass
+        if _can_operate():
+            out.append(f" <button type='button' class='btn btn-sm btn-outline-primary mt-2' data-camy-fill='Crea DDT dal buono {_esc(buono)}'>Crea DDT da questo Buono</button>")
+            out.append(f" <button type='button' class='btn btn-sm btn-outline-warning mt-2' data-camy-fill='Crea picking dal buono {_esc(buono)}'>Crea Picking</button>")
+        return "".join(out)
+
+    def _answer_open_buono_carico(db, msg):
+        """Mostra un Buono QR/carico se il riferimento è un codice_buono."""
+        target = _extract_after_keywords(msg, ["buono qr", "buono carico", "buono", "qr"]) or _extract_generic_code(msg)
+        if not target or "BuonoCarico" not in globals():
+            return "Indicami il codice del Buono da cercare."
+        q = db.query(BuonoCarico)
+        if _role() == "client":
+            q = q.filter(func.upper(BuonoCarico.cliente) == _current_cliente())
+        b = q.filter(func.upper(func.trim(BuonoCarico.codice_buono)) == target.upper()).first()
+        if not b:
+            b = q.filter(BuonoCarico.codice_buono.ilike(f"%{target}%")).first()
+        if not b:
+            return f"Non ho trovato nessun Buono QR/Carico con riferimento <b>{_esc(target)}</b>."
+        link = _safe_url("dettaglio_buono_carico", f"/buoni_carico/{b.id}", buono_id=b.id)
+        return (
+            f"<b>Buono QR/Carico {_esc(b.codice_buono)}</b><br>"
+            f"Cliente: {_esc(b.cliente or '-')}<br>"
+            f"Fornitore: {_esc(b.fornitore or '-')}<br>"
+            f"N. arrivo: {_esc(b.n_arrivo or '-')} | DDT: {_esc(b.n_ddt_ingresso or '-')}<br>"
+            f"Stato: <b>{_esc(b.stato or '-')}</b><br>"
+            f"<a class='btn btn-sm btn-primary mt-2' href='{_esc(link)}'>Apri Buono QR</a>"
+        )
+
+    def _answer_search_lavorazioni(db, msg):
+        target = _extract_after_keywords(msg, ["picking", "lavorazione", "lavorazioni", "seriale", "seriali", "buono"]) or _extract_generic_code(msg)
+        d1, d2 = _period_from_message(msg)
+        q = db.query(Lavorazione)
+        if _role() == "client":
+            q = q.filter(func.upper(Lavorazione.cliente) == _current_cliente())
+        if target:
+            q = q.filter(or_(
+                Lavorazione.seriali.ilike(f"%{target}%"),
+                Lavorazione.n_arrivo.ilike(f"%{target}%"),
+                Lavorazione.cliente.ilike(f"%{target}%"),
+                Lavorazione.richiesta_di.ilike(f"%{target}%"),
+                Lavorazione.descrizione.ilike(f"%{target}%"),
+            ))
+        if d1:
+            q = q.filter(Lavorazione.data >= d1)
+        if d2:
+            q = q.filter(Lavorazione.data <= d2)
+        rows = q.order_by(Lavorazione.data.desc(), Lavorazione.id.desc()).limit(30).all()
+        if not rows:
+            return "Non ho trovato lavorazioni/picking compatibili con la richiesta."
+        tot_colli = sum(int(r.colli or 0) for r in rows)
+        tot_blue = sum(float(r.ore_blue_collar or 0) for r in rows)
+        tot_white = sum(float(r.ore_white_collar or 0) for r in rows)
+        out = [f"<b>Picking/Lavorazioni trovate: {len(rows)}</b><br>Colli: {tot_colli} | Ore Blue: {_esc(_fmt_num(tot_blue))} | Ore White: {_esc(_fmt_num(tot_white))}<br>"]
+        for r in rows[:15]:
+            out.append(
+                "<div class='camy-ai-result'>"
+                f"Data: {_esc(r.data or '-')} | Cliente: <b>{_esc(r.cliente or '-')}</b><br>"
+                f"Descrizione: {_esc(r.descrizione or '-')}<br>"
+                f"Richiesta di: {_esc(r.richiesta_di or '-')} | Seriali/Buono: {_esc(r.seriali or '-')}<br>"
+                f"N. arrivo: {_esc(r.n_arrivo or '-')} | Colli: {_esc(r.colli or 0)} | Pallet usciti: {_esc(r.pallet_uscita or 0)}"
+                "</div>"
+            )
+        out.append("<br><a class='btn btn-sm btn-outline-primary' href='/lavorazioni'>Apri Picking/Lavorazioni</a>")
+        return "".join(out)
+
+    def _answer_search_trasporti(db, msg):
+        target = _extract_after_keywords(msg, ["trasporto", "trasporti", "ddt", "trasportatore", "mezzo"]) or _extract_generic_code(msg)
+        d1, d2 = _period_from_message(msg)
+        q = db.query(Trasporto)
+        if _role() == "client":
+            q = q.filter(func.upper(Trasporto.cliente) == _current_cliente())
+        if target:
+            q = q.filter(or_(
+                Trasporto.ddt_uscita.ilike(f"%{target}%"),
+                Trasporto.cliente.ilike(f"%{target}%"),
+                Trasporto.trasportatore.ilike(f"%{target}%"),
+                Trasporto.tipo_mezzo.ilike(f"%{target}%"),
+                Trasporto.magazzino.ilike(f"%{target}%"),
+                Trasporto.consolidato.ilike(f"%{target}%"),
+            ))
+        if d1:
+            q = q.filter(Trasporto.data >= d1)
+        if d2:
+            q = q.filter(Trasporto.data <= d2)
+        rows = q.order_by(Trasporto.data.desc(), Trasporto.id.desc()).limit(30).all()
+        if not rows:
+            return "Non ho trovato trasporti compatibili con la richiesta."
+        costo = sum(float(r.costo or 0) for r in rows)
+        out = [f"<b>Trasporti trovati: {len(rows)}</b><br>Costo totale: € {_esc(_fmt_num(costo))}<br>"]
+        for r in rows[:15]:
+            out.append(
+                "<div class='camy-ai-result'>"
+                f"Data: {_esc(r.data or '-')} | Mezzo: <b>{_esc(r.tipo_mezzo or '-')}</b><br>"
+                f"Cliente: {_esc(r.cliente or '-')} | Trasportatore: {_esc(r.trasportatore or '-')}<br>"
+                f"DDT: {_esc(r.ddt_uscita or '-')} | Magazzino: {_esc(r.magazzino or '-')}<br>"
+                f"Consolidato: {_esc(r.consolidato or '-')} | Costo: € {_esc(_fmt_num(r.costo))}"
+                "</div>"
+            )
+        out.append("<br><a class='btn btn-sm btn-outline-primary' href='/trasporti'>Apri Trasporti</a>")
+        return "".join(out)
+
+    def _answer_global_operational_search(db, msg):
+        """Fallback intelligente: cerca lo stesso riferimento in giacenze, buoni, picking e trasporti."""
+        ref = _extract_generic_code(msg) or _extract_after_keywords(msg, ["cerca", "vedere", "mostra", "apri", "trova", "dimmi"])
+        if not ref:
+            return None
+        blocks = []
+        # Buoni di Prelievo
+        rows_b = _base_query(db).filter(Articolo.buono_n.ilike(f"%{ref}%")).limit(5).all()
+        if rows_b:
+            blocks.append(f"<b>Buoni di Prelievo</b><br>{_answer_open_buono_prelievo(db, 'buono ' + ref)}")
+        # Giacenze / DDT / arrivi / codice
+        rows_g = _base_query(db).filter(or_(
+            Articolo.n_arrivo.ilike(f"%{ref}%"),
+            Articolo.codice_articolo.ilike(f"%{ref}%"),
+            Articolo.n_ddt_ingresso.ilike(f"%{ref}%"),
+            Articolo.n_ddt_uscita.ilike(f"%{ref}%"),
+            Articolo.serial_number.ilike(f"%{ref}%"),
+        )).order_by(Articolo.id_articolo.desc()).limit(5).all()
+        if rows_g:
+            blocks.append("<b>Giacenze / Articoli</b><br>" + "".join(_row_html(r) for r in rows_g))
+        # Picking
+        try:
+            rows_l = db.query(Lavorazione).filter(or_(Lavorazione.seriali.ilike(f"%{ref}%"), Lavorazione.n_arrivo.ilike(f"%{ref}%"))).limit(5).all()
+            if rows_l:
+                blocks.append("<b>Picking/Lavorazioni</b><br>" + _answer_search_lavorazioni(db, "picking " + ref))
+        except Exception:
+            pass
+        # Trasporti
+        try:
+            rows_t = db.query(Trasporto).filter(Trasporto.ddt_uscita.ilike(f"%{ref}%")).limit(5).all()
+            if rows_t:
+                blocks.append("<b>Trasporti</b><br>" + _answer_search_trasporti(db, "trasporto " + ref))
+        except Exception:
+            pass
+        if blocks:
+            return "<br><hr>".join(blocks)
+        return None
+
     def _process_camy_message(db, msg):
         low = (msg or "").lower()
+
+        view_words = ["vedere", "vedi", "mostra", "mostrami", "aprire", "apri", "visualizza", "fammi vedere", "voglio vedere", "cerca", "trova"]
+        create_words = ["crea", "creare", "prepara", "preparare", "genera", "generare", "aggiungi", "scarico", "scarica"]
+
+        # Prima distinzione fondamentale: vedere/aprire un buono già creato NON deve diventare crea/prepara buono.
+        if "buono" in low and _has_any(low, view_words) and not _has_any(low, create_words):
+            return _answer_open_buono_prelievo(db, msg), True, {"action":"apri_buono"}
+
+        if ("picking" in low or "lavorazione" in low or "lavorazioni" in low) and (_has_any(low, view_words) or "oggi" in low or "mese" in low or _extract_generic_code(msg)):
+            return _answer_search_lavorazioni(db, msg), True, {"action":"cerca_picking"}
+
+        if ("trasporto" in low or "trasporti" in low or "trasportatore" in low) and (_has_any(low, view_words) or "oggi" in low or "mese" in low or _extract_generic_code(msg)):
+            return _answer_search_trasporti(db, msg), True, {"action":"cerca_trasporti"}
+
+        if _has_any(low, view_words) and _extract_generic_code(msg):
+            global_answer = _answer_global_operational_search(db, msg)
+            if global_answer:
+                return global_answer, True, {"action":"ricerca_operativa_globale"}
 
         if any(x in low for x in ["scanner", "scan qr", "scansione qr", "pistola", "lettore qr", "prelievo qr", "wifi qr"]):
             return _answer_scan_qr_operativo(msg), True, {"action":"scan_qr_operativo"}
