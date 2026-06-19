@@ -1098,6 +1098,248 @@ def register_buoni_qr_routes(app_obj, deps):
             db.close()
 
 
+
+
+    # ========================================================
+    #  SCANNER QR OPERATIVO - USB / BLUETOOTH / WIFI
+    # ========================================================
+    SCAN_QR_OPERATIVO_HTML = """
+    {% extends 'base.html' %}
+    {% block content %}
+    <div class="container-fluid py-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <h3 class="mb-0">🔫 Scan QR Operativo</h3>
+          <div class="text-muted small">Compatibile con scanner USB, Bluetooth e Wi-Fi in modalità tastiera/API.</div>
+        </div>
+        <a href="{{ url_for('buoni_carico') }}" class="btn btn-outline-secondary btn-sm">Buoni QR</a>
+      </div>
+
+      <div class="card shadow-sm mb-3">
+        <div class="card-body">
+          <div class="alert alert-info">
+            Clicca nel campo sotto e spara il QR con lo scanner. Se lo scanner invia anche INVIO, la scansione viene registrata automaticamente.
+          </div>
+          <form id="scanQrForm" method="POST" action="{{ url_for('scan_qr_operativo_submit') }}" class="row g-2 align-items-end">
+            <div class="col-md-3">
+              <label class="form-label">Buono specifico</label>
+              <select name="buono_id" class="form-select">
+                <option value="">Auto: trova il buono corretto</option>
+                {% for b in buoni %}
+                <option value="{{ b.id }}">{{ b.codice_buono }} - {{ b.cliente }} - {{ b.n_arrivo }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-7">
+              <label class="form-label">QR / Codice entrata</label>
+              <input id="scanQrInput" name="codice_scansionato" class="form-control form-control-lg" placeholder="Scansiona QR..." autofocus autocomplete="off" required>
+            </div>
+            <div class="col-md-2">
+              <button class="btn btn-success btn-lg w-100">Registra</button>
+            </div>
+          </form>
+
+          <div class="mt-3 small text-muted">
+            Per scanner Wi-Fi/API puoi inviare POST a <code>/api/scan_qr_operativo</code> con JSON:
+            <code>{"codice":"ENT-...", "buono_id":"facoltativo"}</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm">
+        <div class="card-header fw-bold">Ultime scansioni</div>
+        <div class="table-responsive">
+          <table class="table table-sm table-striped mb-0">
+            <thead><tr><th>Ora</th><th>Buono</th><th>Codice</th><th>Esito</th><th>Messaggio</th></tr></thead>
+            <tbody>
+              {% for s, b in ultime %}
+              <tr>
+                <td>{{ s.scanned_at }}</td>
+                <td>{{ b.codice_buono if b else '-' }}</td>
+                <td><code>{{ s.codice_scansionato }}</code></td>
+                <td><span class="badge {% if s.esito == 'OK' %}bg-success{% elif s.esito == 'DUPLICATO' %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ s.esito }}</span></td>
+                <td>{{ s.messaggio }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="text-muted text-center py-3">Nessuna scansione registrata.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function(){
+        const input = document.getElementById('scanQrInput');
+        const form = document.getElementById('scanQrForm');
+        if(input){ input.focus(); }
+        if(input && form){
+          input.addEventListener('keydown', function(e){
+            if(e.key === 'Enter'){
+              e.preventDefault();
+              if((input.value || '').trim()){ form.submit(); }
+            }
+          });
+        }
+        // alcuni scanner inseriscono TAB o suffisso, rimettiamo sempre il focus
+        window.addEventListener('click', function(){ setTimeout(function(){ if(input) input.focus(); }, 100); });
+      })();
+    </script>
+    {% endblock %}
+    """
+
+    def _pulizia_codice_qr_operativo(raw):
+        codice = unquote((raw or '').strip())
+        m = re.search(r"/entrata/([^/?#]+)", codice, flags=re.I)
+        if m:
+            codice = unquote(m.group(1)).strip()
+        return codice
+
+    def _registra_scansione_qr_operativa(db, codice_raw, buono_id=None):
+        """Registra una scansione da scanner fisico o Wi-Fi.
+        Se buono_id non è indicato, cerca automaticamente il buono QR collegato.
+        """
+        codice = _pulizia_codice_qr_operativo(codice_raw)
+        if not codice:
+            return {"ok": False, "esito": "ERRORE", "messaggio": "Codice QR vuoto.", "buono_id": None}
+
+        buoni_da_controllare = []
+        if buono_id:
+            b = db.query(BuonoCarico).filter(BuonoCarico.id == int(buono_id)).first()
+            if b:
+                buoni_da_controllare = [b]
+        else:
+            buoni_da_controllare = (
+                db.query(BuonoCarico)
+                .filter(func.upper(func.coalesce(BuonoCarico.stato, '')).notin_(['ELIMINATO', 'COMPLETATO', 'CARICATO', 'CHIUSO']))
+                .order_by(BuonoCarico.id.desc())
+                .limit(300)
+                .all()
+            )
+            if not buoni_da_controllare:
+                buoni_da_controllare = db.query(BuonoCarico).order_by(BuonoCarico.id.desc()).limit(300).all()
+
+        buono_trovato = None
+        key_trovata = None
+        codice_salvato = codice
+        for b in buoni_da_controllare:
+            key_qr, cod_ok = _match_key_qr_buono(db, b, codice)
+            if key_qr:
+                buono_trovato = b
+                key_trovata = key_qr
+                codice_salvato = cod_ok
+                break
+
+        if not buono_trovato:
+            # se era stato scelto un buono specifico, registriamo comunque la scansione sbagliata su quel buono
+            if buoni_da_controllare:
+                buono_trovato = buoni_da_controllare[0]
+                scan = BuonoCaricoScan(
+                    buono_id=buono_trovato.id,
+                    codice_scansionato=codice,
+                    esito="SBAGLIATO",
+                    messaggio="QR non collegato a questo buono.",
+                    scanned_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    scanned_by=_current_username_for_audit()
+                )
+                db.add(scan); db.commit()
+                return {"ok": False, "esito": "SBAGLIATO", "messaggio": scan.messaggio, "buono_id": buono_trovato.id}
+            return {"ok": False, "esito": "NON_TROVATO", "messaggio": "Nessun buono QR collegato a questo codice.", "buono_id": None}
+
+        expected_by_key, ok_by_key, canonical_by_key = _conteggi_qr_buono_carico(db, buono_trovato)
+        previsti_qr = int(expected_by_key.get(key_trovata, 0))
+        gia_ok_qr = int(ok_by_key.get(key_trovata, 0))
+        if gia_ok_qr >= previsti_qr and previsti_qr > 0:
+            esito = "DUPLICATO"
+            msg = "Questo arrivo/QR ha già raggiunto tutti i colli previsti su questo buono."
+        else:
+            st = _stats_buono_carico(db, buono_trovato)
+            if st["ok"] >= st["previsti"]:
+                esito = "ERRORE"
+                msg = "Colli in più: hai già raggiunto il numero previsto per questo buono."
+            else:
+                esito = "OK"
+                msg = f"Arrivo/collo caricato correttamente ({gia_ok_qr + 1}/{previsti_qr})."
+
+        scan = BuonoCaricoScan(
+            buono_id=buono_trovato.id,
+            codice_scansionato=codice_salvato,
+            esito=esito,
+            messaggio=msg,
+            scanned_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            scanned_by=_current_username_for_audit()
+        )
+        db.add(scan); db.commit()
+        _aggiorna_stato_buono_carico(db, buono_trovato)
+        return {"ok": esito == "OK", "esito": esito, "messaggio": msg, "buono_id": buono_trovato.id, "buono": buono_trovato.codice_buono}
+
+    @app.route('/scan_qr_operativo', methods=['GET'])
+    @login_required
+    @require_admin_or_magazzino
+    def scan_qr_operativo():
+        db = SessionLocal()
+        try:
+            buoni = (
+                db.query(BuonoCarico)
+                .filter(func.upper(func.coalesce(BuonoCarico.stato, '')).notin_(['ELIMINATO', 'COMPLETATO', 'CARICATO', 'CHIUSO']))
+                .order_by(BuonoCarico.id.desc())
+                .limit(200)
+                .all()
+            )
+            ultime = (
+                db.query(BuonoCaricoScan, BuonoCarico)
+                .join(BuonoCarico, BuonoCarico.id == BuonoCaricoScan.buono_id)
+                .order_by(BuonoCaricoScan.id.desc())
+                .limit(30)
+                .all()
+            )
+            return render_template_string(SCAN_QR_OPERATIVO_HTML, buoni=buoni, ultime=ultime)
+        finally:
+            db.close()
+
+    @app.route('/scan_qr_operativo', methods=['POST'])
+    @login_required
+    @require_admin_or_magazzino
+    def scan_qr_operativo_submit():
+        db = SessionLocal()
+        try:
+            codice = request.form.get('codice_scansionato') or ''
+            buono_id = request.form.get('buono_id') or None
+            res = _registra_scansione_qr_operativa(db, codice, buono_id)
+            flash(res.get('messaggio') or 'Scansione registrata.', 'success' if res.get('ok') else 'warning')
+            bid = res.get('buono_id')
+            if bid:
+                return redirect(url_for('dettaglio_buono_carico', buono_id=bid))
+            return redirect(url_for('scan_qr_operativo'))
+        except Exception as e:
+            db.rollback()
+            try: scrivi_log_errore('Errore scan QR operativo', e)
+            except Exception: pass
+            flash(f'Errore scansione QR: {e}', 'danger')
+            return redirect(url_for('scan_qr_operativo'))
+        finally:
+            db.close()
+
+    @app.route('/api/scan_qr_operativo', methods=['GET', 'POST'])
+    @login_required
+    @require_admin_or_magazzino
+    def api_scan_qr_operativo():
+        payload = request.get_json(silent=True) or {}
+        codice = (payload.get('codice') or payload.get('codice_scansionato') or request.values.get('codice') or request.values.get('codice_scansionato') or '').strip()
+        buono_id = payload.get('buono_id') or request.values.get('buono_id') or None
+        db = SessionLocal()
+        try:
+            res = _registra_scansione_qr_operativa(db, codice, buono_id)
+            return jsonify(res), (200 if res.get('ok') else 400)
+        except Exception as e:
+            db.rollback()
+            try: scrivi_log_errore('Errore API scan QR operativo', e)
+            except Exception: pass
+            return jsonify({"ok": False, "esito": "ERRORE", "messaggio": str(e)}), 500
+        finally:
+            db.close()
+
+
     @app.route("/buoni_carico/<int:buono_id>/segna_righe", methods=["POST"])
     @login_required
     @require_admin_or_magazzino
