@@ -336,7 +336,6 @@ def register_email_routes(app_obj, deps):
         )
 
 
-    @app.route('/rubrica_email', methods=['GET', 'POST'])
     @login_required
     @require_admin
     def rubrica_email():
@@ -420,6 +419,27 @@ def register_email_routes(app_obj, deps):
                         else:
                             flash("Il destinatario era già presente nel gruppo.", "info")
 
+            elif action == 'delete_email_from_group':
+                gruppo = (request.form.get('gruppo') or '').strip()
+                email_da_eliminare = (request.form.get('email') or '').strip()
+
+                if not gruppo or gruppo not in data.get("gruppi", {}):
+                    flash("Gruppo non trovato.", "warning")
+                elif not email_da_eliminare:
+                    flash("Email da eliminare non indicata.", "warning")
+                else:
+                    gruppo_emails = list(data.get("gruppi", {}).get(gruppo, []) or [])
+                    prima = len(gruppo_emails)
+                    data["gruppi"][gruppo] = [
+                        e for e in gruppo_emails
+                        if str(e or '').strip().lower() != email_da_eliminare.lower()
+                    ]
+                    if len(data["gruppi"][gruppo]) < prima:
+                        save_rubrica_email(data)
+                        flash(f"Email eliminata dal gruppo {gruppo}.", "success")
+                    else:
+                        flash("Email non trovata nel gruppo.", "warning")
+
             elif action == 'delete_group':
                 gruppo = (request.form.get('gruppo') or '').strip()
                 if gruppo in data.get("gruppi", {}):
@@ -430,4 +450,18 @@ def register_email_routes(app_obj, deps):
             return redirect(url_for('rubrica_email'))
 
         return render_template('rubrica_email.html', rubrica=data)
+
+    # Registra la route Rubrica Email in modo sicuro:
+    # se esiste già un endpoint rubrica_email, sostituisce la funzione invece di bloccare il modulo.
+    try:
+        if 'rubrica_email' in app.view_functions:
+            app.view_functions['rubrica_email'] = rubrica_email
+        else:
+            app.add_url_rule('/rubrica_email', endpoint='rubrica_email', view_func=rubrica_email, methods=['GET', 'POST'])
+    except Exception as e:
+        try:
+            scrivi_log_errore("Route rubrica_email non registrata", e)
+        except Exception:
+            pass
+        print(f"[WARN] route rubrica_email non registrata: {e}")
 
