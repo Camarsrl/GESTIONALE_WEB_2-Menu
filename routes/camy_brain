@@ -1,0 +1,127 @@
+# -*- coding: utf-8 -*-
+"""
+CAMY BRAIN - Cervello operativo del gestionale Camar.
+
+Questo modulo NON modifica il database.
+Serve a capire l'intento della frase dell'utente e a restituire una decisione
+che camy_ai.py userà per chiamare le funzioni operative già sicure.
+"""
+
+import re
+from datetime import date
+
+
+def _norm(text):
+    return re.sub(r"[^a-z0-9àèéìòù]+", " ", (text or "").lower()).strip()
+
+
+def _has_any(text, words):
+    return any(w in text for w in words)
+
+
+def _extract_reference(message):
+    """Estrae un riferimento operativo: buono, DDT, arrivo, codice, seriale."""
+    s = message or ""
+    patterns = [
+        r"\bbuono\s+(?:di\s+prelievo\s+)?([A-Z0-9][A-Z0-9./_\-]{1,50})",
+        r"\bpicking\s+([A-Z0-9][A-Z0-9./_\-]{1,50})",
+        r"\blavorazione\s+([A-Z0-9][A-Z0-9./_\-]{1,50})",
+        r"\b(?:n\.?\s*)?arrivo\s+([A-Z0-9][A-Z0-9./_\-]{1,50})",
+        r"\bddt\s+([A-Z0-9][A-Z0-9./_\-]{1,50})",
+        r"\bcodice\s+([A-Z0-9][A-Z0-9./_\-]{1,50})",
+        r"\bseriale?\s+([A-Z0-9][A-Z0-9./_\-]{1,50})",
+    ]
+    stop = {"CREA", "CREARE", "PREPARA", "PREPARARE", "VEDERE", "VEDI", "APRI", "MOSTRA", "CERCA"}
+    for pat in patterns:
+        m = re.search(pat, s, re.I)
+        if m:
+            val = (m.group(1) or "").strip().strip(".,;:")
+            if val and val.upper() not in stop:
+                return val
+    # fallback per codici tipo 586-ZETA scritti da soli nella frase
+    m = re.search(r"\b([0-9]{2,6}[A-Z0-9./_\-]*[A-Z][A-Z0-9./_\-]*)\b", s, re.I)
+    return (m.group(1).strip() if m else "")
+
+
+def decide_camy_intent(message):
+    """Ritorna una decisione stabile.
+
+    Campi principali:
+    - action: azione interna che camy_ai.py deve eseguire
+    - target: riferimento estratto, se presente
+    - confidence: valore indicativo
+    """
+    raw = message or ""
+    low = _norm(raw)
+    target = _extract_reference(raw)
+
+    view_words = ["vedere", "vedi", "mostra", "mostrami", "aprire", "apri", "visualizza", "fammi vedere", "voglio vedere", "cerca", "trova", "dove"]
+    create_words = ["crea", "creare", "prepara", "preparare", "genera", "generare", "aggiungi", "scarico", "scarica", "salva"]
+
+    # Aiuto / capacità
+    if _has_any(low, ["aiuto", "help", "cosa puoi fare", "cosa sai fare", "come funzioni"]):
+        return {"action": "help", "target": target, "confidence": 0.99, "raw": raw}
+
+    # Scanner QR
+    if _has_any(low, ["scanner", "scan qr", "scansione qr", "pistola", "lettore qr", "prelievo qr", "wifi qr", "bluetooth qr", "usb qr"]):
+        return {"action": "scan_qr", "target": target, "confidence": 0.98, "raw": raw}
+
+    # Registro / quaderno / lavoro giornaliero
+    if _has_any(low, ["registro giornaliero", "registro di oggi", "quaderno", "riepilogo giornata", "riepilogo di oggi", "lavoro di oggi", "lavori di oggi"]):
+        return {"action": "registro_giornaliero", "target": target, "confidence": 0.98, "raw": raw}
+
+    # Cosa manca / alert operativi
+    if _has_any(low, ["cosa manca", "manca da fare", "attivita aperte", "attività aperte", "controlla aperti", "anomalie", "da fare oggi"]):
+        return {"action": "cosa_manca", "target": target, "confidence": 0.98, "raw": raw}
+
+    # Accettazione entrata
+    if _has_any(low, ["accettazione entrata", "apri entrata", "nuova entrata", "nuovo arrivo", "documento entrata", "carica documento"]):
+        return {"action": "accettazione_entrata", "target": target, "confidence": 0.96, "raw": raw}
+
+    # DDT
+    if "ddt" in low and _has_any(low, ["crea", "prepara", "genera"]):
+        return {"action": "prepare_ddt", "target": target, "confidence": 0.97, "raw": raw}
+
+    # Buoni: distingue apertura da creazione
+    if "buono" in low:
+        if _has_any(low, ["aggiungi", "metti", "inserisci"]) and _has_any(low, ["al buono", "nel buono", "a buono"]):
+            return {"action": "add_to_buono", "target": target, "confidence": 0.97, "raw": raw}
+        if _has_any(low, ["prepara", "crea", "genera", "assegna"]) and not _has_any(low, ["vedi", "vedere", "mostra", "apri", "aprire"]):
+            return {"action": "prepare_buono", "target": target, "confidence": 0.97, "raw": raw}
+        if _has_any(low, view_words) or target:
+            return {"action": "open_buono", "target": target, "confidence": 0.98, "raw": raw}
+
+    # Picking / lavorazioni
+    if _has_any(low, ["picking", "lavorazione", "lavorazioni", "filmat", "palletizz"]):
+        return {"action": "search_picking", "target": target, "confidence": 0.95, "raw": raw}
+
+    # Trasporti
+    if _has_any(low, ["trasporto", "trasporti", "trasportatore", "motrice", "bilico", "donato", "camion"]):
+        return {"action": "search_trasporti", "target": target, "confidence": 0.95, "raw": raw}
+
+    # Scarico parziale
+    if _has_any(low, ["scarico parziale", "scarica parziale"]):
+        return {"action": "scarico_parziale", "target": target, "confidence": 0.96, "raw": raw}
+
+    # Ricerca globale se c'è un riferimento operativo e parole generiche
+    if target and (_has_any(low, view_words) or _has_any(low, ["dove", "quale", "quali", "trova", "cerca"])):
+        return {"action": "search_global", "target": target, "confidence": 0.90, "raw": raw}
+
+    return {"action": "fallback", "target": target, "confidence": 0.50, "raw": raw}
+
+
+def camy_brain_help():
+    return (
+        "<b>CAMY Centrale Operativa</b><br>"
+        "Puoi chiedermi, anche con frasi naturali:<br>"
+        "• Voglio vedere il buono 586-ZETA<br>"
+        "• Apri picking 2058114-ENTALPIA<br>"
+        "• Mostrami i trasporti di oggi<br>"
+        "• Cosa manca da fare oggi?<br>"
+        "• Genera registro giornaliero di oggi<br>"
+        "• Crea DDT dal buono 586-ZETA<br>"
+        "• Prepara buono arrivo 200/26<br>"
+        "• Cerca codice CB050CF<br>"
+        "• Apri accettazione entrata<br><br>"
+        "Le modifiche operative restano sempre con conferma."
+    )
