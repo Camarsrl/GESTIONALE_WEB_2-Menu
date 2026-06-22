@@ -4909,8 +4909,28 @@ RUBRICA_EMAIL_HTML = """
               </h2>
               <div id="c{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#accGruppi">
                 <div class="accordion-body">
-                  <div class="small text-muted mb-2">Email:</div>
-                  <div class="border rounded p-2 small mb-2" style="white-space: pre-wrap;">{{ emails|join('; ') }}</div>
+                  <div class="small text-muted mb-2">Email nel gruppo:</div>
+                  <div class="border rounded p-2 small mb-2 bg-white">
+                    {% if emails %}
+                      {% for email in emails %}
+                        <div class="d-flex justify-content-between align-items-center border-bottom py-1 gap-2">
+                          <span style="word-break: break-all;">{{ email }}</span>
+                          <form method="post" class="m-0">
+                            <input type="hidden" name="action" value="delete_email_from_group">
+                            <input type="hidden" name="gruppo" value="{{ g }}">
+                            <input type="hidden" name="email" value="{{ email }}">
+                            <button class="btn btn-outline-danger btn-sm"
+                                    title="Elimina questa email dal gruppo"
+                                    onclick="return confirm('Eliminare questa email dal gruppo {{ g }}?')">
+                              <i class="bi bi-x-lg"></i>
+                            </button>
+                          </form>
+                        </div>
+                      {% endfor %}
+                    {% else %}
+                      <span class="text-muted">Nessuna email nel gruppo.</span>
+                    {% endif %}
+                  </div>
 
                   <button class="btn btn-outline-primary btn-sm mb-2" type="button"
                           data-bs-toggle="collapse" data-bs-target="#modificaGruppo{{ loop.index }}">
@@ -5772,6 +5792,134 @@ def inject_globals():
 # ========================================================
 # REPORT FATTURAZIONE spostato in routes/fatturazione.py
 # ========================================================
+
+
+
+# ========================================================
+#  RUBRICA EMAIL (UI)
+# ========================================================
+@app.route('/rubrica_email', methods=['GET', 'POST'])
+@login_required
+def rubrica_email():
+    """Gestione rubrica email: contatti, gruppi, aggiunta/rimozione email dai gruppi."""
+    if session.get('role') != 'admin':
+        flash("Accesso negato.", "danger")
+        return redirect(url_for('home'))
+
+    rubrica = load_rubrica_email()
+
+    if request.method == 'POST':
+        action = (request.form.get('action') or '').strip()
+
+        try:
+            # --- SALVA / AGGIORNA CONTATTO ---
+            if action == 'save_contact':
+                nome = (request.form.get('nome') or '').strip()
+                email = (request.form.get('email') or '').strip()
+
+                emails = _parse_emails(email)
+                if not nome or not emails:
+                    flash("Inserisci nome ed email valida.", "warning")
+                else:
+                    rubrica.setdefault("contatti", {})[nome] = {"email": emails[0]}
+                    save_rubrica_email(rubrica)
+                    flash("Contatto salvato.", "success")
+
+            # --- ELIMINA CONTATTO ---
+            elif action == 'delete_contact':
+                nome = (request.form.get('nome') or '').strip()
+                if nome in rubrica.get("contatti", {}):
+                    rubrica["contatti"].pop(nome, None)
+                    save_rubrica_email(rubrica)
+                    flash("Contatto eliminato.", "success")
+                else:
+                    flash("Contatto non trovato.", "warning")
+
+            # --- CREA / SOSTITUISCI GRUPPO ---
+            elif action == 'save_group':
+                gruppo = (request.form.get('gruppo') or '').strip()
+                emails = _parse_emails(request.form.get('emails') or '')
+
+                if not gruppo:
+                    flash("Inserisci il nome del gruppo.", "warning")
+                else:
+                    rubrica.setdefault("gruppi", {})[gruppo] = emails
+                    save_rubrica_email(rubrica)
+                    flash("Gruppo salvato.", "success")
+
+            # --- ELIMINA GRUPPO ---
+            elif action == 'delete_group':
+                gruppo = (request.form.get('gruppo') or '').strip()
+                if gruppo in rubrica.get("gruppi", {}):
+                    rubrica["gruppi"].pop(gruppo, None)
+                    save_rubrica_email(rubrica)
+                    flash("Gruppo eliminato.", "success")
+                else:
+                    flash("Gruppo non trovato.", "warning")
+
+            # --- AGGIUNGI EMAIL A GRUPPO ---
+            elif action == 'add_email_to_group':
+                gruppo = (request.form.get('gruppo') or '').strip()
+                nome_contatto = (request.form.get('nome_contatto') or '').strip()
+                nuovi = _parse_emails(request.form.get('nuovo_destinatario') or '')
+
+                if not gruppo:
+                    flash("Gruppo non valido.", "danger")
+                elif not nuovi:
+                    flash("Inserisci almeno una email da aggiungere.", "warning")
+                else:
+                    rubrica.setdefault("gruppi", {})
+                    rubrica["gruppi"].setdefault(gruppo, [])
+
+                    presenti = {str(e).lower() for e in rubrica["gruppi"].get(gruppo, [])}
+                    aggiunte = 0
+                    for email in nuovi:
+                        if email.lower() not in presenti:
+                            rubrica["gruppi"][gruppo].append(email)
+                            presenti.add(email.lower())
+                            aggiunte += 1
+
+                    # Se viene indicato un nome e c'è una sola email, salvo/aggiorno anche il contatto.
+                    if nome_contatto and len(nuovi) == 1:
+                        rubrica.setdefault("contatti", {})[nome_contatto] = {"email": nuovi[0]}
+
+                    save_rubrica_email(rubrica)
+                    flash(f"Email aggiunte al gruppo: {aggiunte}.", "success")
+
+            # --- ELIMINA UNA SINGOLA EMAIL DAL GRUPPO ---
+            elif action == 'delete_email_from_group':
+                gruppo = (request.form.get('gruppo') or '').strip()
+                email = (request.form.get('email') or '').strip()
+
+                if not gruppo or gruppo not in rubrica.get("gruppi", {}):
+                    flash("Gruppo non trovato.", "warning")
+                elif not email:
+                    flash("Email non valida.", "warning")
+                else:
+                    old_emails = rubrica["gruppi"].get(gruppo, []) or []
+                    new_emails = [e for e in old_emails if str(e).strip().lower() != email.lower()]
+
+                    if len(new_emails) == len(old_emails):
+                        flash("Email non trovata nel gruppo.", "warning")
+                    else:
+                        rubrica["gruppi"][gruppo] = new_emails
+                        save_rubrica_email(rubrica)
+                        flash(f"Email eliminata dal gruppo {gruppo}.", "success")
+
+            else:
+                flash("Azione rubrica non riconosciuta.", "warning")
+
+        except Exception as e:
+            try:
+                scrivi_log_errore("Errore Rubrica Email", e)
+            except Exception:
+                pass
+            flash(f"Errore rubrica email: {e}", "danger")
+
+        return redirect(url_for('rubrica_email'))
+
+    return render_template('rubrica_email.html', rubrica=rubrica)
+
 
 # --- ROUTE PRINCIPALI E AUTH ---
 @app.route('/')
