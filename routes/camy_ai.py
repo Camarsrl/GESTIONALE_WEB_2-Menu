@@ -48,15 +48,15 @@ def register_camy_ai_routes(app_obj, deps):
     from flask_login import login_required, current_user
     from sqlalchemy import or_, func, text
 
-
-    # CAMY CENTRALE OPERATIVA - cervello esterno
     try:
-        from routes.camy_brain import decide_camy_intent, camy_brain_help
+        from routes.camy_brain import decide_camy_intent, camy_brain_help, camy_smalltalk_answer
     except Exception:
         def decide_camy_intent(message):
-            return {"action": "fallback", "confidence": 0.0, "target": "", "raw": message or ""}
+            return {"action": "fallback", "target": "", "confidence": 0.0, "raw": message or ""}
         def camy_brain_help():
-            return "CAMY Brain non disponibile."
+            return "Posso aiutarti con giacenze, buoni, DDT, picking, trasporti, entrate e report."
+        def camy_smalltalk_answer(message):
+            return "Ciao Alessia 😊 Sono pronta ad aiutarti con il gestionale."
 
     CAMY_AI_HTML = """
     {% extends "base.html" %}
@@ -3193,10 +3193,10 @@ def register_camy_ai_routes(app_obj, deps):
         low = (msg or "").lower()
 
         # ============================================================
-        # CAMY BRAIN - primo livello decisionale
-        # Qui CAMY capisce l'intento prima dei vecchi parser.
-        # Le azioni che modificano dati restano comunque vincolate
-        # alle conferme già presenti nel gestionale.
+        # CAMY BRAIN - livello decisionale centrale
+        # Serve a non trasformare ogni frase in una ricerca di giacenze.
+        # Esempio: "ciao come stai" deve ricevere risposta umana,
+        # non mostrare 15.000 risultati.
         # ============================================================
         try:
             brain = decide_camy_intent(msg) or {}
@@ -3204,11 +3204,11 @@ def register_camy_ai_routes(app_obj, deps):
             brain = {}
         brain_action = (brain.get("action") or "").strip().lower()
 
+        if brain_action == "smalltalk":
+            return camy_smalltalk_answer(msg), True, brain
+
         if brain_action == "help":
-            try:
-                return camy_brain_help(), True, brain
-            except Exception:
-                return _answer_help(), True, brain
+            return camy_brain_help(), True, brain
 
         if brain_action == "open_buono":
             return _answer_open_buono_prelievo(db, msg), True, brain
@@ -3223,6 +3223,7 @@ def register_camy_ai_routes(app_obj, deps):
             global_answer = _answer_global_operational_search(db, msg)
             if global_answer:
                 return global_answer, True, brain
+            return "Ho capito che vuoi cercare un riferimento operativo, ma non ho trovato risultati nel gestionale.", True, brain
 
         if brain_action == "scan_qr":
             return _answer_scan_qr_operativo(msg), True, brain
@@ -3248,6 +3249,12 @@ def register_camy_ai_routes(app_obj, deps):
         if brain_action == "scarico_parziale":
             return _answer_scarico_parziale(db, msg), True, brain
 
+        # Se CAMY non capisce l'intento e non trova un riferimento operativo,
+        # chiede chiarimento invece di lanciare una ricerca enorme.
+        if brain_action in ("fallback", "") and not (brain.get("target") or "").strip():
+            parole_operative = ["giacenza", "giacenze", "buono", "ddt", "picking", "lavorazione", "trasporto", "arrivo", "codice", "cliente", "foto", "pdf", "registro", "quaderno", "dogana"]
+            if not any(p in low for p in parole_operative):
+                return "Ho capito il messaggio, ma non è una richiesta operativa del gestionale. Dimmi se vuoi cercare giacenze, buoni, DDT, picking, trasporti, entrate o report.", True, brain
 
         view_words = ["vedere", "vedi", "mostra", "mostrami", "aprire", "apri", "visualizza", "fammi vedere", "voglio vedere", "cerca", "trova"]
         create_words = ["crea", "creare", "prepara", "preparare", "genera", "generare", "aggiungi", "scarico", "scarica"]
@@ -3363,4 +3370,3 @@ def register_camy_ai_routes(app_obj, deps):
             return jsonify({"answer": "CAMY AI ha avuto un errore. Ho registrato il dettaglio nei log admin.", "html": False}), 500
         finally:
             db.close()
-
