@@ -58,6 +58,12 @@ def register_camy_ai_routes(app_obj, deps):
         def camy_smalltalk_answer(message):
             return "Ciao Alessia 😊 Sono pronta ad aiutarti con il gestionale."
 
+    try:
+        from routes.camy_reports import camy_daily_briefing
+    except Exception:
+        def camy_daily_briefing(db, deps, msg=""):
+            return "Modulo report CAMY non disponibile."
+
     CAMY_AI_HTML = """
     {% extends "base.html" %}
     {% block content %}
@@ -118,6 +124,7 @@ def register_camy_ai_routes(app_obj, deps):
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Crea%20report%20Excel%20giacenze%20cliente%20">Report Excel</a>
             <a class="btn btn-sm btn-outline-success" href="/accettazione_entrata">📄 Entrata da documento</a>
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Genera%20registro%20giornaliero%20di%20oggi">📒 Registro oggi</a>
+            <a class="btn btn-sm btn-outline-info" href="/camy-ai?prefill=Come%20siamo%20messi%20oggi%3F">📋 Situazione operativa</a>
             <a class="btn btn-sm btn-outline-info" href="/camy-ai?prefill=Cosa%20manca%20da%20fare%20oggi%3F">✅ Cosa manca?</a>
             <a class="btn btn-sm btn-outline-dark" href="/camy-ai?prefill=Apri%20accettazione%20entrata">🎤 Apri entrata</a>
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Cerca arrivo ">🎤 Cerca arrivo</button>
@@ -3228,6 +3235,9 @@ def register_camy_ai_routes(app_obj, deps):
         if brain_action == "scan_qr":
             return _answer_scan_qr_operativo(msg), True, brain
 
+        if brain_action == "situazione_operativa":
+            return camy_daily_briefing(db, globals(), msg), True, brain
+
         if brain_action == "registro_giornaliero":
             return _answer_registro_giornaliero(db, msg), True, brain
 
@@ -3283,6 +3293,9 @@ def register_camy_ai_routes(app_obj, deps):
 
         if any(x in low for x in ["accettazione entrata", "apri entrata", "nuova entrata", "nuovo arrivo", "carica documento entrata", "documento entrata", "crea entrata"]):
             return _answer_accettazione_entrata(msg), True, {"action":"accettazione_entrata"}
+
+        if any(x in low for x in ["come siamo messi", "situazione operativa", "situazione di oggi", "quadro giornata", "briefing", "punto della situazione", "dashboard operativa"]):
+            return camy_daily_briefing(db, globals(), msg), True, {"action":"situazione_operativa"}
 
         if any(x in low for x in ["registro giornaliero", "registro di oggi", "quaderno", "aggiorna quaderno", "genera registro", "riepilogo giornata", "riepilogo di oggi"]):
             return _answer_registro_giornaliero(db, msg), True, {"action":"registro_giornaliero"}
