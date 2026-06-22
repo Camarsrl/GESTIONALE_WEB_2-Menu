@@ -43,6 +43,36 @@ def _extract_reference(message):
     return (m.group(1).strip() if m else "")
 
 
+
+def _is_smalltalk(message):
+    """Riconosce frasi umane/generiche che NON devono avviare ricerche sul magazzino."""
+    low = _norm(message)
+    if not low:
+        return False
+    # Frasi brevi di saluto o cortesia
+    exact_or_short = {
+        "ciao", "buongiorno", "buonasera", "buonanotte", "salve", "hey", "hei",
+        "ciao camy", "buongiorno camy", "come stai", "ciao come stai",
+        "grazie", "grazie camy", "ok", "va bene", "perfetto", "ottimo", "brava", "bravissima",
+        "ci sei", "sei pronta", "sei operativa"
+    }
+    if low in exact_or_short:
+        return True
+    if len(low.split()) <= 5 and any(x in low for x in ["come stai", "ciao", "buongiorno", "buonasera", "grazie", "ci sei"]):
+        return True
+    return False
+
+
+def camy_smalltalk_answer(message):
+    low = _norm(message)
+    if "grazie" in low:
+        return "Prego Alessia 😊 Sono qui per aiutarti con il gestionale."
+    if "come stai" in low:
+        return "Ciao Alessia 😊 Sto bene e sono pronta ad aiutarti con giacenze, buoni, DDT, picking, trasporti, entrate e report."
+    if "ci sei" in low or "pronta" in low or "operativa" in low:
+        return "Sì, ci sono 😊 Dimmi cosa vuoi controllare o preparare nel gestionale."
+    return "Ciao Alessia 😊 Sono pronta. Puoi chiedermi giacenze, buoni, DDT, picking, trasporti, entrate o report."
+
 def decide_camy_intent(message):
     """Ritorna una decisione stabile.
 
@@ -54,6 +84,10 @@ def decide_camy_intent(message):
     raw = message or ""
     low = _norm(raw)
     target = _extract_reference(raw)
+
+    # Prima regola: le frasi di saluto/cortesia non devono diventare ricerche su tutte le giacenze.
+    if _is_smalltalk(raw):
+        return {"action": "smalltalk", "target": target, "confidence": 0.99, "raw": raw}
 
     view_words = ["vedere", "vedi", "mostra", "mostrami", "aprire", "apri", "visualizza", "fammi vedere", "voglio vedere", "cerca", "trova", "dove"]
     create_words = ["crea", "creare", "prepara", "preparare", "genera", "generare", "aggiungi", "scarico", "scarica", "salva"]
