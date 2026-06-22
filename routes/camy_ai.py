@@ -48,6 +48,16 @@ def register_camy_ai_routes(app_obj, deps):
     from flask_login import login_required, current_user
     from sqlalchemy import or_, func, text
 
+
+    # CAMY CENTRALE OPERATIVA - cervello esterno
+    try:
+        from routes.camy_brain import decide_camy_intent, camy_brain_help
+    except Exception:
+        def decide_camy_intent(message):
+            return {"action": "fallback", "confidence": 0.0, "target": "", "raw": message or ""}
+        def camy_brain_help():
+            return "CAMY Brain non disponibile."
+
     CAMY_AI_HTML = """
     {% extends "base.html" %}
     {% block content %}
@@ -3182,6 +3192,63 @@ def register_camy_ai_routes(app_obj, deps):
     def _process_camy_message(db, msg):
         low = (msg or "").lower()
 
+        # ============================================================
+        # CAMY BRAIN - primo livello decisionale
+        # Qui CAMY capisce l'intento prima dei vecchi parser.
+        # Le azioni che modificano dati restano comunque vincolate
+        # alle conferme già presenti nel gestionale.
+        # ============================================================
+        try:
+            brain = decide_camy_intent(msg) or {}
+        except Exception:
+            brain = {}
+        brain_action = (brain.get("action") or "").strip().lower()
+
+        if brain_action == "help":
+            try:
+                return camy_brain_help(), True, brain
+            except Exception:
+                return _answer_help(), True, brain
+
+        if brain_action == "open_buono":
+            return _answer_open_buono_prelievo(db, msg), True, brain
+
+        if brain_action == "search_picking":
+            return _answer_search_lavorazioni(db, msg), True, brain
+
+        if brain_action == "search_trasporti":
+            return _answer_search_trasporti(db, msg), True, brain
+
+        if brain_action == "search_global":
+            global_answer = _answer_global_operational_search(db, msg)
+            if global_answer:
+                return global_answer, True, brain
+
+        if brain_action == "scan_qr":
+            return _answer_scan_qr_operativo(msg), True, brain
+
+        if brain_action == "registro_giornaliero":
+            return _answer_registro_giornaliero(db, msg), True, brain
+
+        if brain_action == "cosa_manca":
+            return _answer_cosa_manca_oggi(db, msg), True, brain
+
+        if brain_action == "accettazione_entrata":
+            return _answer_accettazione_entrata(msg), True, brain
+
+        if brain_action == "prepare_ddt":
+            return _answer_prepare_ddt(db, msg), True, brain
+
+        if brain_action == "add_to_buono":
+            return _answer_add_to_existing_buono(db, msg), True, brain
+
+        if brain_action == "prepare_buono":
+            return _answer_prepare_buono(db, msg), True, brain
+
+        if brain_action == "scarico_parziale":
+            return _answer_scarico_parziale(db, msg), True, brain
+
+
         view_words = ["vedere", "vedi", "mostra", "mostrami", "aprire", "apri", "visualizza", "fammi vedere", "voglio vedere", "cerca", "trova"]
         create_words = ["crea", "creare", "prepara", "preparare", "genera", "generare", "aggiungi", "scarico", "scarica"]
 
@@ -3296,3 +3363,4 @@ def register_camy_ai_routes(app_obj, deps):
             return jsonify({"answer": "CAMY AI ha avuto un errore. Ho registrato il dettaglio nei log admin.", "html": False}), 500
         finally:
             db.close()
+
