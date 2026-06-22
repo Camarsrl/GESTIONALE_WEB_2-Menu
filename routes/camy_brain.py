@@ -108,6 +108,10 @@ def decide_camy_intent(message):
     if _has_any(low, ["cosa manca", "manca da fare", "attivita aperte", "attività aperte", "controlla aperti", "anomalie", "da fare oggi"]):
         return {"action": "cosa_manca", "target": target, "confidence": 0.98, "raw": raw}
 
+    # Situazione operativa / briefing intelligente
+    if _has_any(low, ["come siamo messi", "situazione operativa", "situazione di oggi", "quadro giornata", "briefing", "briefing operativo", "punto della situazione", "resoconto operativo", "stato giornata", "dashboard operativa"]):
+        return {"action": "situazione_operativa", "target": target, "confidence": 0.99, "raw": raw}
+
     # Accettazione entrata
     if _has_any(low, ["accettazione entrata", "apri entrata", "nuova entrata", "nuovo arrivo", "documento entrata", "carica documento"]):
         return {"action": "accettazione_entrata", "target": target, "confidence": 0.96, "raw": raw}
@@ -151,6 +155,7 @@ def camy_brain_help():
         "• Voglio vedere il buono 586-ZETA<br>"
         "• Apri picking 2058114-ENTALPIA<br>"
         "• Mostrami i trasporti di oggi<br>"
+        "• Come siamo messi oggi?<br>"
         "• Cosa manca da fare oggi?<br>"
         "• Genera registro giornaliero di oggi<br>"
         "• Crea DDT dal buono 586-ZETA<br>"
