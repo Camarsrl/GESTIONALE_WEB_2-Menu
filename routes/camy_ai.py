@@ -698,7 +698,7 @@ def register_camy_ai_routes(app_obj, deps):
             "• Scarico parziale ID 12345.<br>"
             "• Crea DDT dal buono 025/26.<br>"
             "• Genera registro giornaliero di oggi.<br>"
-            "• Cosa manca da fare oggi?<br>"
+            "• Cosa manca da fare oggi?<br>• Cosa devo spedire oggi?<br>• RF-DE WAVE senza foto<br>• Fincantieri senza mezzo o protocollo<br>"
             "• Crea report Excel giacenze Fincantieri.<br>"
             "• Confronta inventario Galvano Tecnica.<br><br>"
             "Le operazioni che modificano dati richiedono sempre conferma."
@@ -3242,7 +3242,7 @@ def register_camy_ai_routes(app_obj, deps):
             return _answer_registro_giornaliero(db, msg), True, brain
 
         if brain_action == "cosa_manca":
-            return _answer_cosa_manca_oggi(db, msg), True, brain
+            return camy_daily_briefing(db, globals(), msg), True, brain
 
         if brain_action == "accettazione_entrata":
             return _answer_accettazione_entrata(msg), True, brain
@@ -3300,8 +3300,8 @@ def register_camy_ai_routes(app_obj, deps):
         if any(x in low for x in ["registro giornaliero", "registro di oggi", "quaderno", "aggiorna quaderno", "genera registro", "riepilogo giornata", "riepilogo di oggi"]):
             return _answer_registro_giornaliero(db, msg), True, {"action":"registro_giornaliero"}
 
-        if any(x in low for x in ["cosa manca", "manca da fare", "attivita aperte", "attività aperte", "controlla aperti", "controlla anomalie"]):
-            return _answer_cosa_manca_oggi(db, msg), True, {"action":"cosa_manca_oggi"}
+        if any(x in low for x in ["cosa manca", "manca da fare", "attivita aperte", "attività aperte", "controlla aperti", "controlla anomalie", "cosa devo spedire", "spedire oggi", "senza foto", "foto mancanti", "senza mezzo", "mezzo mancante", "senza protocollo", "protocollo mancante", "oltre 180 giorni", "buoni aperti"]):
+            return camy_daily_briefing(db, globals(), msg), True, {"action":"cosa_manca_oggi"}
 
         if any(x in low for x in ["aiuto", "help", "cosa puoi fare", "cosa sai fare"]):
             return _answer_help(), True, {}
