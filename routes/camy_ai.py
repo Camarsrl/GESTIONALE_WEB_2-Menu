@@ -123,6 +123,7 @@ def register_camy_ai_routes(app_obj, deps):
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Confronta%20inventario%20cliente%20">Confronta Inventario</a>
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Crea%20report%20Excel%20giacenze%20cliente%20">Report Excel</a>
             <a class="btn btn-sm btn-outline-success" href="/accettazione_entrata">📄 Entrata da documento</a>
+            <a class="btn btn-sm btn-outline-success" href="/camy-email-buono">📧 Buono da Email</a>
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Genera%20registro%20giornaliero%20di%20oggi">📒 Registro oggi</a>
             <a class="btn btn-sm btn-outline-info" href="/camy-ai?prefill=Come%20siamo%20messi%20oggi%3F">📋 Situazione operativa</a>
             <a class="btn btn-sm btn-outline-info" href="/camy-ai?prefill=Cosa%20manca%20da%20fare%20oggi%3F">✅ Cosa manca?</a>
@@ -3198,6 +3199,12 @@ def register_camy_ai_routes(app_obj, deps):
 
     def _process_camy_message(db, msg):
         low = (msg or "").lower()
+
+
+        if ("buono" in low and ("email" in low or "e-mail" in low or "mail" in low or "foto" in low or "pdf" in low)):
+            return ("<b>📧 Crea Buono da Email/PDF/Foto</b><br>"
+                    "Apri la nuova schermata per caricare testo, PDF o foto della richiesta:<br>"
+                    "<a class='btn btn-sm btn-success mt-2' href='/camy-email-buono'>Apri Buono da Email</a>"), True, {"action":"buono_da_email"}
 
         # ============================================================
         # CAMY BRAIN - livello decisionale centrale
