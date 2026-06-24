@@ -9581,6 +9581,21 @@ try:
 except Exception as e:
     print(f"[WARN] modulo gestione utenti non caricato: {e}")
 
+
+# ========================================================
+# CAMY BUONO DA EMAIL / PDF / FOTO
+# ========================================================
+try:
+    from routes.camy_email_buono import register_camy_email_buono_routes
+    register_camy_email_buono_routes(app, globals())
+    print("[OK] modulo CAMY Buono da Email registrato")
+except Exception as e:
+    try:
+        scrivi_log_errore("Modulo CAMY Buono da Email non registrato", e)
+    except Exception:
+        pass
+    print(f"[WARN] modulo CAMY Buono da Email non registrato: {e}")
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     print(f"✅ Avvio Gestionale Camar Web Edition su http://127.0.0.1:{port}")
