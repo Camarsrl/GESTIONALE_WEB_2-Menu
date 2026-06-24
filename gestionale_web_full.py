@@ -4029,6 +4029,18 @@ DDT_PREVIEW_HTML = """
         <input type="hidden" name="ids" value="{{ ids }}">
         <input type="hidden" name="action" id="action_field" value="preview">
         <input type="hidden" name="dest_source" id="dest_source" value="saved">
+        <input type="hidden" id="ddt_cliente_richiede_mezzi" value="{{ '1' if ddt_cliente_richiede_mezzi else '0' }}">
+
+        <div class="alert alert-info py-2 mb-3">
+            <b>Mezzi e Trasporti:</b> vengono compilati solo per
+            <b>FINCANTIERI</b>, <b>FINCANTIERI SCOPERTO</b> e <b>FINCANTIERI ARMATORE</b>.
+            <div class="form-check mt-1">
+                <input class="form-check-input" type="checkbox" value="1" name="skip_mezzi_trasporti" id="skip_mezzi_trasporti" {% if not ddt_cliente_richiede_mezzi %}checked{% endif %}>
+                <label class="form-check-label" for="skip_mezzi_trasporti">
+                    Non compilare Mezzo nelle Giacenze e non inserire il record nella funzione Trasporti
+                </label>
+            </div>
+        </div>
 
         <div class="row g-3 align-items-start">
             <!-- ✅ COLONNA DESTINATARIO -->
@@ -4154,20 +4166,20 @@ DDT_PREVIEW_HTML = """
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label">Mezzo per Giacenze *</label>
+                        <label class="form-label">Mezzo per Giacenze</label>
                         <select name="mezzo_giacenze" id="mezzo_giacenze" class="form-select">
                             <option value="" selected>-- Seleziona --</option>
                             <option value="MOTRICE">Motrice</option>
                             <option value="BILICO">Bilico</option>
                             <option value="FURGONE">Furgone</option>
                         </select>
-                        <div class="form-text">Compila la colonna Mezzo Uscita nelle Giacenze, non stampato sul DDT cliente.</div>
+                        <div class="form-text">Obbligatorio solo per Fincantieri, Fincantieri Scoperto e Fincantieri Armatore.</div>
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label">Mezzo per Trasporti *</label>
+                        <label class="form-label">Mezzo per Trasporti</label>
                         <input name="mezzo_trasporti" id="mezzo_trasporti" class="form-control" placeholder="Es. Motrice / Bilico / Furgone / Corriere">
-                        <div class="form-text">Compila la funzione Trasporti, non stampato sul DDT cliente.</div>
+                        <div class="form-text">Obbligatorio solo per Fincantieri, Fincantieri Scoperto e Fincantieri Armatore.</div>
                     </div>
 
                     <div class="col-md-4">
@@ -4394,19 +4406,23 @@ function submitDdt(actionType) {
         }
     }
 
-    // ✅ obbligatorio SOLO in finalize
+    // ✅ Mezzo/Trasporti obbligatori solo per Fincantieri, se NON viene scelta l'opzione di esclusione
     if (actionType === 'finalize') {
-        const mezzoGiacenze = (document.getElementById('mezzo_giacenze').value || '').trim();
-        const mezzoTrasporti = (document.getElementById('mezzo_trasporti').value || '').trim();
-        if (!mezzoGiacenze) {
-            alert("Seleziona il Mezzo per Giacenze prima di finalizzare.");
-            document.getElementById('mezzo_giacenze').focus();
-            return;
-        }
-        if (!mezzoTrasporti) {
-            alert("Inserisci il Mezzo per Trasporti prima di finalizzare.");
-            document.getElementById('mezzo_trasporti').focus();
-            return;
+        const richiedeMezzi = (document.getElementById('ddt_cliente_richiede_mezzi')?.value || '0') === '1';
+        const skipMezzi = !!document.getElementById('skip_mezzi_trasporti')?.checked;
+        if (richiedeMezzi && !skipMezzi) {
+            const mezzoGiacenze = (document.getElementById('mezzo_giacenze').value || '').trim();
+            const mezzoTrasporti = (document.getElementById('mezzo_trasporti').value || '').trim();
+            if (!mezzoGiacenze) {
+                alert("Seleziona il Mezzo per Giacenze prima di finalizzare. Obbligatorio solo per Fincantieri.");
+                document.getElementById('mezzo_giacenze').focus();
+                return;
+            }
+            if (!mezzoTrasporti) {
+                alert("Inserisci il Mezzo per Trasporti prima di finalizzare. Obbligatorio solo per Fincantieri.");
+                document.getElementById('mezzo_trasporti').focus();
+                return;
+            }
         }
     }
 
@@ -8020,13 +8036,22 @@ def ddt_preview():
 
     rows = _get_rows_from_ids(ids)
 
+    CLIENTI_MEZZO_OBBLIGATORIO = {'FINCANTIERI', 'FINCANTIERI SCOPERTO', 'FINCANTIERI ARMATORE'}
+    def _cliente_norm_ddt_preview(value):
+        return re.sub(r'\s+', ' ', str(value or '').strip().upper())
+    ddt_cliente_richiede_mezzi = any(
+        _cliente_norm_ddt_preview(getattr(r, 'cliente', '')) in CLIENTI_MEZZO_OBBLIGATORIO
+        for r in rows
+    )
+
     return render_template(
         'ddt_preview.html',
         rows=rows,
         ids=",".join(map(str, ids)),
         destinatari=load_destinatari(),
         n_ddt=peek_next_ddt_number(),
-        oggi=date.today().isoformat()
+        oggi=date.today().isoformat(),
+        ddt_cliente_richiede_mezzi=ddt_cliente_richiede_mezzi
     )
 
 
@@ -9555,21 +9580,6 @@ try:
     print("[OK] modulo gestione utenti registrato")
 except Exception as e:
     print(f"[WARN] modulo gestione utenti non caricato: {e}")
-
-
-# ========================================================
-# REGISTRAZIONE CAMY - BUONO DA EMAIL/PDF/FOTO
-# ========================================================
-try:
-    from routes.camy_email_buono import register_camy_email_buono_routes
-    register_camy_email_buono_routes(app, globals())
-    print("[OK] modulo CAMY Buono da Email registrato")
-except Exception as e:
-    try:
-        scrivi_log_errore("Modulo CAMY Buono da Email non registrato", e)
-    except Exception:
-        pass
-    print(f"[WARN] modulo CAMY Buono da Email non registrato: {e}")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
