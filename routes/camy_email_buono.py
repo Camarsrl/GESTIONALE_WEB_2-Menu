@@ -92,29 +92,139 @@ def register_camy_email_buono_routes(app_obj, deps):
         return ""
 
     def _extract_protocollo(text):
+        """Estrae il protocollo evitando l'errore sul titolo colonna PROTOCOLLO.
+
+        Nelle email Fincantieri spesso la parola PROTOCOLLO è intestazione tabella;
+        il protocollo vero è un codice tipo 2026SE006424.
+        """
+        txt = text or ""
+
+        # Formato tipico Fincantieri: 2026SE006424 / 2025SE...
+        m = re.search(r"\b(20\d{2}[A-Z]{1,8}\d{3,})\b", txt, re.I)
+        if m:
+            return (m.group(1) or "").strip().upper()
+
         pats = [
             r"\bprotocollo\s*[:#\-]?\s*([A-Z0-9./_\-]{2,40})",
             r"\bprot\.?\s*[:#\-]?\s*([A-Z0-9./_\-]{2,40})",
         ]
+        stop = {"SUPPLIER", "DESCRIPTION", "GOODS", "MARCA", "PEZZO", "ARI"}
         for pat in pats:
-            m = re.search(pat, text or "", re.I)
+            m = re.search(pat, txt, re.I)
             if m:
-                return (m.group(1) or "").strip().strip(".,;:")
+                val = (m.group(1) or "").strip().strip(".,;:").upper()
+                if val and val not in stop:
+                    return val
         return ""
+
+    def _looks_like_marca_pezzo(value):
+        """Riconosce marca-pezzo anche se non inizia con lettere+numeri.
+        Esempi: NG/092VD, CB050CF, 2SW/039VD-PACKAGE.
+        """
+        s = str(value or "").strip().strip(".,;:")
+        if len(_norm(s)) < 4:
+            return False
+        if re.match(r"^[A-Z0-9]{1,12}/[A-Z0-9][A-Z0-9./_\-]{1,35}$", s, re.I):
+            return True
+        if re.match(r"^[A-Z]{1,8}\d{2,}[A-Z0-9./_\-]*$", s, re.I):
+            return True
+        return False
+
+    def _extract_table_items_fincantieri(text):
+        """Legge le tabelle Fincantieri copiate da Outlook/PDF/OCR.
+
+        Formato atteso anche con spazi irregolari:
+        Supplier | Description of goods | Marca pezzo | U/M | QTY | Package No | Marca pezzo | Protocollo
+        ARI ARMATUREN | VALVULA | NG/092VD | pcs | 1 | 309 | NG/092VD | 2026SE006424
+        """
+        txt = text or ""
+        lines = []
+        for raw in re.split(r"[\r\n]+", txt):
+            clean = re.sub(r"\s+", " ", raw or "").strip()
+            if clean:
+                lines.append(clean)
+
+        items = []
+        seen = set()
+        proto_re = re.compile(r"^20\d{2}[A-Z]{1,8}\d{3,}$", re.I)
+        um_values = {"PCS", "PZ", "NR", "N", "EA", "PCE"}
+
+        for line in lines:
+            tokens = line.split()
+            if len(tokens) < 6:
+                continue
+
+            # Cerco il protocollo vero partendo da destra.
+            proto_idx = None
+            for i in range(len(tokens) - 1, -1, -1):
+                if proto_re.match(tokens[i].strip()):
+                    proto_idx = i
+                    break
+            if proto_idx is None or proto_idx < 5:
+                continue
+
+            protocollo = tokens[proto_idx].strip().upper()
+            marca_2 = tokens[proto_idx - 1].strip().strip(".,;:")
+            package = tokens[proto_idx - 2].strip().strip(".,;:")
+            qty_token = tokens[proto_idx - 3].strip()
+            um = tokens[proto_idx - 4].strip().upper()
+            marca_1 = tokens[proto_idx - 5].strip().strip(".,;:")
+
+            if um not in um_values:
+                continue
+            if not _looks_like_marca_pezzo(marca_1):
+                continue
+
+            codice = marca_1.upper()
+            qty = _parse_qty(qty_token)
+            before = tokens[:proto_idx - 5]
+
+            # Heuristica: descrizione = ultimo blocco prima del marca-pezzo, fornitore = il resto.
+            descrizione = before[-1] if before else ""
+            fornitore = " ".join(before[:-1]) if len(before) > 1 else (before[0] if before else "")
+
+            key = _norm(codice)
+            if key and key not in seen:
+                seen.add(key)
+                items.append({
+                    "codice": codice,
+                    "quantita": qty,
+                    "fornitore": fornitore,
+                    "descrizione": descrizione,
+                    "package": package,
+                    "protocollo": protocollo,
+                    "marca_pezzo_2": marca_2.upper(),
+                    "origine": "tabella_fincantieri",
+                })
+        return items
 
     def _extract_requested_items(text):
         """Estrae marca-pezzo + quantità da testo email/OCR.
-        Esempi: CB050CF 2 pezzi, CB050CF x2, codice CB050CF quantità 2.
+        Gestisce sia frasi libere sia tabelle Fincantieri.
         """
         txt = text or ""
         found = []
         seen = set()
-        # Pattern con quantità esplicita vicino al codice
+
+        # 1) Prima leggo le tabelle Fincantieri: evita di prendere ARI come protocollo
+        #    o di ignorare codici tipo NG/092VD.
+        for item in _extract_table_items_fincantieri(txt):
+            key = _norm(item.get("codice"))
+            if key and key not in seen:
+                seen.add(key)
+                found.append(item)
+
+        # 2) Poi leggo richieste libere.
         patterns = [
-            r"\b([A-Z]{1,6}\d{2,}[A-Z0-9_./\-]*)\b\s*(?:x|qta|qtà|quantit[aà]|pezzi|pz|n\.)?\s*[:=\-]?\s*(\d+(?:[,.]\d+)?)?",
+            r"\b([A-Z]{1,8}\d{2,}[A-Z0-9_./\-]*)\b\s*(?:x|qta|qtà|quantit[aà]|pezzi|pz|n\.)?\s*[:=\-]?\s*(\d+(?:[,.]\d+)?)?",
+            r"\b([A-Z0-9]{1,12}/[A-Z0-9][A-Z0-9./_\-]{1,35})\b\s*(?:x|qta|qtà|quantit[aà]|pezzi|pz|n\.)?\s*[:=\-]?\s*(\d+(?:[,.]\d+)?)?",
             r"\bcodice\s+([A-Z0-9_./\-]{3,40}).{0,25}?\b(?:qta|qtà|quantit[aà]|pezzi|pz)\s*[:=\-]?\s*(\d+(?:[,.]\d+)?)",
         ]
-        stop = {"FINCANTIERI", "DE", "WAVE", "RICHIESTA", "BUONO", "EMAIL"}
+        stop = {
+            "FINCANTIERI", "DE", "WAVE", "RICHIESTA", "BUONO", "EMAIL",
+            "SUPPLIER", "DESCRIPTION", "GOODS", "MARCA", "PEZZO", "PROTOCOLLO",
+            "PACKAGE", "PCS", "GRAZIE"
+        }
         for pat in patterns:
             for m in re.finditer(pat, txt, flags=re.I):
                 code = (m.group(1) or "").strip().strip(".,;:")
@@ -124,7 +234,7 @@ def register_camy_email_buono_routes(app_obj, deps):
                     continue
                 if n not in seen:
                     seen.add(n)
-                    found.append({"codice": code.upper(), "quantita": qty})
+                    found.append({"codice": code.upper(), "quantita": qty, "origine": "testo_libero"})
         return found
 
     def _split_multi_value(value):
