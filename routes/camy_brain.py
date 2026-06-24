@@ -112,7 +112,7 @@ def decide_camy_intent(message):
         "mancano protocollo", "mancano protocolli",
         "foto mancanti", "senza foto",
         "mezzo mancante", "senza mezzo", "ddt senza mezzo",
-        "quali protocolli", "quali protocollo"
+        "quali protocolli", "quali protocollo", "quali protocolli mancano", "protocolli mancanti", "fincantieri armatore senza protocollo", "fincantieri scoperto senza protocollo", "protocolli mancanti fincantieri armatore", "protocolli mancanti fincantieri scoperto"
     ]):
         return {"action": "cosa_manca", "target": target, "confidence": 0.98, "raw": raw}
 
