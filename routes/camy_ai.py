@@ -123,6 +123,7 @@ def register_camy_ai_routes(app_obj, deps):
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Confronta%20inventario%20cliente%20">Confronta Inventario</a>
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Crea%20report%20Excel%20giacenze%20cliente%20">Report Excel</a>
             <a class="btn btn-sm btn-outline-success" href="/accettazione_entrata">📄 Entrata da documento</a>
+            <a class="btn btn-sm btn-outline-success" href="/camy-email-buono">📧 Buono da email</a>
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Genera%20registro%20giornaliero%20di%20oggi">📒 Registro oggi</a>
             <a class="btn btn-sm btn-outline-info" href="/camy-ai?prefill=Come%20siamo%20messi%20oggi%3F">📋 Situazione operativa</a>
             <a class="btn btn-sm btn-outline-info" href="/camy-ai?prefill=Cosa%20manca%20da%20fare%20oggi%3F">✅ Cosa manca?</a>
@@ -698,7 +699,7 @@ def register_camy_ai_routes(app_obj, deps):
             "• Scarico parziale ID 12345.<br>"
             "• Crea DDT dal buono 025/26.<br>"
             "• Genera registro giornaliero di oggi.<br>"
-            "• Cosa manca da fare oggi?<br>• Cosa devo spedire oggi?<br>• RF-DE WAVE senza foto<br>• Fincantieri senza mezzo o protocollo<br>"
+            "• Cosa manca da fare oggi?<br>• Cosa devo spedire oggi?<br>• RF-DE WAVE senza foto<br>• Fincantieri / Armatore / Scoperto senza protocollo<br>• Fincantieri / Armatore / Scoperto senza mezzo<br>• Crea buono da email/PDF/foto<br>"
             "• Crea report Excel giacenze Fincantieri.<br>"
             "• Confronta inventario Galvano Tecnica.<br><br>"
             "Le operazioni che modificano dati richiedono sempre conferma."
