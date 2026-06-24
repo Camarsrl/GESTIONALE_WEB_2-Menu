@@ -104,27 +104,21 @@ def decide_camy_intent(message):
     if _has_any(low, ["registro giornaliero", "registro di oggi", "quaderno", "riepilogo giornata", "riepilogo di oggi", "lavoro di oggi", "lavori di oggi"]):
         return {"action": "registro_giornaliero", "target": target, "confidence": 0.98, "raw": raw}
 
-    # Situazione operativa / briefing intelligente
-    # Include anche le domande "da cervello": cosa spedire, anomalie e controlli con regole cliente.
+    # Cosa manca / alert operativi
     if _has_any(low, [
-        "come siamo messi", "situazione operativa", "situazione di oggi", "quadro giornata",
-        "briefing", "briefing operativo", "punto della situazione", "resoconto operativo",
-        "stato giornata", "dashboard operativa", "riepilogo operativo"
+        "cosa manca", "manca da fare", "attivita aperte", "attività aperte",
+        "controlla aperti", "anomalie", "da fare oggi",
+        "protocollo mancante", "protocolli mancanti", "senza protocollo",
+        "mancano protocollo", "mancano protocolli",
+        "foto mancanti", "senza foto",
+        "mezzo mancante", "senza mezzo", "ddt senza mezzo",
+        "quali protocolli", "quali protocollo"
     ]):
-        return {"action": "situazione_operativa", "target": target, "confidence": 0.99, "raw": raw}
+        return {"action": "cosa_manca", "target": target, "confidence": 0.98, "raw": raw}
 
-    # Cosa manca / alert operativi con regole operative:
-    # - foto obbligatorie solo RF-DE WAVE
-    # - mezzo/protocollo obbligatori solo FINCANTIERI
-    if _has_any(low, [
-        "cosa manca", "manca da fare", "attivita aperte", "attività aperte", "controlla aperti",
-        "anomalie", "da fare oggi", "cosa devo fare", "cosa devo spedire", "da spedire",
-        "spedire oggi", "spedizioni oggi", "senza foto", "foto mancanti", "manca foto",
-        "senza mezzo", "mezzo mancante", "manca mezzo", "senza trasporto",
-        "senza protocollo", "protocollo mancante", "manca protocollo",
-        "oltre 180 giorni", "oltre 90 giorni", "giacenze vecchie", "buoni aperti"
-    ]):
-        return {"action": "cosa_manca", "target": target, "confidence": 0.99, "raw": raw}
+    # Situazione operativa / briefing intelligente
+    if _has_any(low, ["come siamo messi", "situazione operativa", "situazione di oggi", "quadro giornata", "briefing", "briefing operativo", "punto della situazione", "resoconto operativo", "stato giornata", "dashboard operativa"]):
+        return {"action": "situazione_operativa", "target": target, "confidence": 0.99, "raw": raw}
 
     # Accettazione entrata
     if _has_any(low, ["accettazione entrata", "apri entrata", "nuova entrata", "nuovo arrivo", "documento entrata", "carica documento"]):
@@ -170,7 +164,11 @@ def camy_brain_help():
         "• Apri picking 2058114-ENTALPIA<br>"
         "• Mostrami i trasporti di oggi<br>"
         "• Come siamo messi oggi?<br>"
-        "• Cosa manca da fare oggi?<br>• Cosa devo spedire oggi?<br>• RF-DE WAVE senza foto<br>• Fincantieri senza mezzo o protocollo<br>"
+        "• Cosa manca da fare oggi?<br>"
+        "• Quali protocolli mancano di Fincantieri?<br>"
+        "• Mostrami gli articoli Fincantieri senza protocollo<br>"
+        "• Quali arrivi RF-DE WAVE sono senza foto?<br>"
+        "• Quali DDT Fincantieri sono senza mezzo?<br>"
         "• Genera registro giornaliero di oggi<br>"
         "• Crea DDT dal buono 586-ZETA<br>"
         "• Prepara buono arrivo 200/26<br>"
