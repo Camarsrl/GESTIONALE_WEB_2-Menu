@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid py-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>📧 CAMY - Crea Buono da Email / PDF / Foto</h3>
+    <div>
+      <a href="{{ url_for('camy_ai') if 'camy_ai' in request.endpoint else '/camy-ai' }}" class="btn btn-outline-primary btn-sm">CAMY</a>
+      <a href="{{ url_for('home') }}" class="btn btn-secondary btn-sm">Home</a>
+    </div>
+  </div>
+
+  <div class="alert alert-info">
+    Fase sicura: CAMY legge la richiesta, cerca il materiale in giacenza e prepara l'anteprima. Non salva nulla senza conferma.
+  </div>
+
+  <form method="post" enctype="multipart/form-data" class="card shadow-sm mb-3">
+    <div class="card-body">
+      <div class="row g-2">
+        <div class="col-md-4">
+          <label class="form-label">Cliente opzionale</label>
+          <input name="cliente" class="form-control" placeholder="es. FINCANTIERI / RF-DE WAVE" value="{{ cliente or '' }}">
+        </div>
+        <div class="col-md-8">
+          <label class="form-label">Allega email PDF / screenshot / foto</label>
+          <input type="file" name="allegati" class="form-control" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.txt">
+        </div>
+        <div class="col-12">
+          <label class="form-label">Testo email o richiesta</label>
+          <textarea name="testo_email" class="form-control" rows="7" placeholder="Incolla qui la richiesta ricevuta via email o WhatsApp...">{{ testo or '' }}</textarea>
+        </div>
+      </div>
+      <div class="mt-3">
+        <button class="btn btn-primary">Analizza richiesta</button>
+        <a href="/camy-ai" class="btn btn-outline-secondary">Annulla</a>
+      </div>
+    </div>
+  </form>
+
+  {% if analyzed %}
+  <div class="card shadow-sm">
+    <div class="card-header"><b>Anteprima analisi CAMY</b></div>
+    <div class="card-body">
+      <p><b>Cliente rilevato:</b> {{ cliente or '-' }}</p>
+      <p><b>Protocollo rilevato:</b> {{ protocollo or '-' }}</p>
+
+      {% if not richieste %}
+        <div class="alert alert-warning">Non ho trovato marca-pezzo chiari nella richiesta. Controlla il testo OCR e riprova.</div>
+      {% else %}
+        <h5>Materiale richiesto</h5>
+        <table class="table table-sm table-bordered align-middle">
+          <thead><tr><th>Codice</th><th>Quantità</th><th>Risultato in giacenza</th></tr></thead>
+          <tbody>
+          {% for blocco in risultati %}
+            <tr>
+              <td><b>{{ blocco.richiesta.codice }}</b></td>
+              <td>{{ blocco.richiesta.quantita }}</td>
+              <td>
+                {% if not blocco.matches %}
+                  <span class="badge bg-danger">Non trovato</span>
+                {% else %}
+                  {% for m in blocco.matches %}
+                    {% set r = m.row %}
+                    <div class="border rounded p-2 mb-2">
+                      <b>ID {{ r.id_articolo }}</b> | Cliente {{ r.cliente or '-' }} | Arrivo {{ r.n_arrivo or '-' }}<br>
+                      Codice riga: {{ r.codice_articolo or '-' }}<br>
+                      Pezzi disponibili sul codice: {{ m.details.disponibili }} | Richiesti: {{ m.details.richiesti }}<br>
+                      Posizione: {{ r.posizione or '-' }} | Protocollo: {{ r.protocollo or '-' }}<br>
+                      {% if m.details.multi_codice %}<span class="badge bg-info">Riga multi marca-pezzo</span>{% endif %}
+                      {% if m.details.scarico_parziale %}<span class="badge bg-warning text-dark">Scarico parziale con residuo</span>{% endif %}
+                      {% if m.warnings %}
+                        <div class="alert alert-warning py-1 mt-2 mb-0">
+                          {% for w in m.warnings %}⚠ {{ w }}<br>{% endfor %}
+                        </div>
+                      {% endif %}
+                    </div>
+                  {% endfor %}
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+
+        <div class="alert alert-secondary">
+          Prossima fase: da questa anteprima aggiungiamo il pulsante <b>Crea Buono</b>, usando la logica sicura del modulo Buono e la gestione dei residui.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
