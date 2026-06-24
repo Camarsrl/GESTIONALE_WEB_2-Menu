@@ -52,7 +52,13 @@
           <tbody>
           {% for blocco in risultati %}
             <tr>
-              <td><b>{{ blocco.richiesta.codice }}</b></td>
+              <td>
+                <b>{{ blocco.richiesta.codice }}</b>
+                {% if blocco.richiesta.descrizione %}<br><small>Descrizione: {{ blocco.richiesta.descrizione }}</small>{% endif %}
+                {% if blocco.richiesta.fornitore %}<br><small>Fornitore: {{ blocco.richiesta.fornitore }}</small>{% endif %}
+                {% if blocco.richiesta.package %}<br><small>Package: {{ blocco.richiesta.package }}</small>{% endif %}
+                {% if blocco.richiesta.protocollo %}<br><small>Protocollo email: {{ blocco.richiesta.protocollo }}</small>{% endif %}
+              </td>
               <td>{{ blocco.richiesta.quantita }}</td>
               <td>
                 {% if not blocco.matches %}
