@@ -3,7 +3,7 @@
 
 Modulo sicuro: legge il database e restituisce HTML. Non modifica dati.
 Regole operative:
-- Protocollo obbligatorio solo per FINCANTIERI.
+- Protocollo obbligatorio solo per FINCANTIERI, FINCANTIERI ARMATORE, FINCANTIERI SCOPERTO.
 - Foto obbligatoria solo per RF-DE WAVE.
 - Mezzo/trasporto obbligatorio solo per FINCANTIERI, FINCANTIERI ARMATORE, FINCANTIERI SCOPERTO.
 """
@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 from html import escape
 from sqlalchemy import or_, func
 
-CLIENTE_PROTOCOLLO_OBBLIGATORIO = {"FINCANTIERI"}
+CLIENTE_PROTOCOLLO_OBBLIGATORIO = {"FINCANTIERI", "FINCANTIERI ARMATORE", "FINCANTIERI SCOPERTO"}
 CLIENTI_MEZZO_OBBLIGATORIO = {"FINCANTIERI", "FINCANTIERI ARMATORE", "FINCANTIERI SCOPERTO"}
 CLIENTI_FOTO_OBBLIGATORIA = {"RF-DE WAVE"}
 
@@ -195,9 +195,9 @@ def _specific_alert_response(msg, rows, att_map):
 
     if wants_protocol and not (wants_photo or wants_mezzo):
         protocolli = _protocollo_mancante_rows(rows)
-        out = [f"<b>📋 Protocolli mancanti FINCANTIERI</b><br>"]
-        out.append(f"Ho trovato <b>{len(protocolli)}</b> articolo/i FINCANTIERI in giacenza senza protocollo.<br><br>")
-        out.append(_render_rows("Dettaglio", protocolli, empty="Nessun protocollo mancante per FINCANTIERI."))
+        out = [f"<b>📋 Protocolli mancanti FINCANTIERI / ARMATORE / SCOPERTO / ARMATORE / SCOPERTO</b><br>"]
+        out.append(f"Ho trovato <b>{len(protocolli)}</b> articolo/i FINCANTIERI, FINCANTIERI ARMATORE o FINCANTIERI SCOPERTO in giacenza senza protocollo.<br><br>")
+        out.append(_render_rows("Dettaglio", protocolli, empty="Nessun protocollo mancante per FINCANTIERI / ARMATORE / SCOPERTO."))
         return "".join(out)
 
     if wants_photo and not (wants_protocol or wants_mezzo):
@@ -302,7 +302,7 @@ def camy_daily_briefing(db, deps, msg=""):
     any_alert = False
     if protocolli_mancanti:
         any_alert = True
-        out.append(f"• FINCANTIERI senza protocollo: <b>{len(protocolli_mancanti)}</b><br>")
+        out.append(f"• FINCANTIERI / ARMATORE / SCOPERTO senza protocollo: <b>{len(protocolli_mancanti)}</b><br>")
         for r in protocolli_mancanti[:8]:
             out.append(f"  - {_riga_link(r)}<br>")
         if len(protocolli_mancanti) > 8:
