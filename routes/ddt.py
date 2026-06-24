@@ -68,13 +68,14 @@ def register_ddt_routes(app_obj, deps):
 
             costo_trasporto = _to_float_costo(costo_trasporto_raw)
 
-            # ✅ obbligatori SOLO quando finalizzi
-            if action == 'finalize' and not mezzo_giacenze:
-                flash("Seleziona il Mezzo per Giacenze prima di finalizzare.", "danger")
-                return redirect(url_for('giacenze'))
-            if action == 'finalize' and not mezzo_trasporti:
-                flash("Inserisci il Mezzo per Trasporti prima di finalizzare.", "danger")
-                return redirect(url_for('giacenze'))
+            # ✅ Mezzo giacenze / Trasporti obbligatori SOLO per clienti Fincantieri.
+            # Per tutti gli altri clienti non vengono compilati né la colonna mezzo nelle Giacenze
+            # né la funzione Trasporti, salvo futura scelta diversa.
+            CLIENTI_MEZZO_OBBLIGATORIO = {'FINCANTIERI', 'FINCANTIERI SCOPERTO', 'FINCANTIERI ARMATORE'}
+            skip_mezzi_trasporti = (request.form.get('skip_mezzi_trasporti') or '').strip() == '1'
+
+            def _cliente_norm_ddt(value):
+                return re.sub(r'\s+', ' ', str(value or '').strip().upper())
 
             # 2. Dati Testata
             n_ddt = request.form.get('n_ddt', '').strip()
@@ -163,6 +164,18 @@ def register_ddt_routes(app_obj, deps):
 
             # 4. Recupera Articoli
             articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+
+            clienti_ddt = {_cliente_norm_ddt(getattr(a, 'cliente', '')) for a in articoli}
+            richiede_mezzi_trasporti = any(c in CLIENTI_MEZZO_OBBLIGATORIO for c in clienti_ddt)
+            salva_mezzi_trasporti = bool(richiede_mezzi_trasporti and not skip_mezzi_trasporti)
+
+            if action == 'finalize' and salva_mezzi_trasporti and not mezzo_giacenze:
+                flash("Seleziona il Mezzo per Giacenze prima di finalizzare. Obbligatorio solo per Fincantieri.", "danger")
+                return redirect(url_for('giacenze'))
+            if action == 'finalize' and salva_mezzi_trasporti and not mezzo_trasporti:
+                flash("Inserisci il Mezzo per Trasporti prima di finalizzare. Obbligatorio solo per Fincantieri.", "danger")
+                return redirect(url_for('giacenze'))
+
             righe_per_pdf = []
 
             # 5. Loop Articoli
@@ -180,7 +193,8 @@ def register_ddt_routes(app_obj, deps):
                 if action == 'finalize':
                     art.data_uscita = data_ddt_obj
                     art.n_ddt_uscita = n_ddt
-                    art.mezzi_in_uscita = mezzo_giacenze  # ✅ QUI COMPILIAMO SOLO LA COLONNA GIACENZE "MEZZO USC"
+                    if salva_mezzi_trasporti:
+                        art.mezzi_in_uscita = mezzo_giacenze  # ✅ Solo per FINCANTIERI / SCOPERTO / ARMATORE
                     if nuove_note is not None:
                         art.note = nuove_note
 
@@ -200,7 +214,7 @@ def register_ddt_routes(app_obj, deps):
                 })
 
             # 6. Salvataggio DB
-            if action == 'finalize':
+            if action == 'finalize' and salva_mezzi_trasporti:
                 # Dati interni viaggio/trasporto: servono per responsabili, report giornaliero e quaderno digitale.
                 # Non vengono passati a _genera_pdf_ddt_file, quindi NON compaiono nel PDF cliente.
                 try:
@@ -227,10 +241,14 @@ def register_ddt_routes(app_obj, deps):
                 except Exception as e:
                     print(f"[WARN] Trasporto interno non salvato per DDT {n_ddt}: {e}")
 
+            if action == 'finalize':
                 db.commit()
-                msg_extra = f" - Trasportatore: {trasportatore_interno}" if trasportatore_interno else ""
-                costo_extra = f" - Costo: € {costo_trasporto:.2f}" if costo_trasporto is not None else ""
-                flash(f"DDT N.{n_ddt} del {data_formatted} salvato con successo. Mezzo giacenze: {mezzo_giacenze} - Mezzo trasporti: {mezzo_trasporti}{msg_extra}{costo_extra}", "success")
+                if salva_mezzi_trasporti:
+                    msg_extra = f" - Trasportatore: {trasportatore_interno}" if trasportatore_interno else ""
+                    costo_extra = f" - Costo: € {costo_trasporto:.2f}" if costo_trasporto is not None else ""
+                    flash(f"DDT N.{n_ddt} del {data_formatted} salvato con successo. Mezzo giacenze: {mezzo_giacenze} - Mezzo trasporti: {mezzo_trasporti}{msg_extra}{costo_extra}", "success")
+                else:
+                    flash(f"DDT N.{n_ddt} del {data_formatted} salvato con successo. Mezzo giacenze e funzione Trasporti non compilati.", "success")
 
             # 7. Dati Generali PDF
             ddt_data = {
