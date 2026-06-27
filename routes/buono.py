@@ -67,10 +67,14 @@ def register_buono_routes(app_obj, deps):
         return residuo, scelto
 
     def _remove_selected_from_cell(original, selected):
-        """Rimuove dalla cella originale il codice/descrizione scelto per il buono.
+        """Rimuove dalla cella originale uno o più codici/descrizioni scelti per il buono.
 
-        Se trova il valore come elemento separato, lo elimina e ricompone il residuo.
-        Se non lo trova come elemento, prova una rimozione testuale semplice.
+        Caso importante:
+        - riga giacenza:  CB050CF / CB060CF / CB070CF
+        - buono richiesto: CB050CF / CB060CF
+        - residuo corretto: CB070CF
+
+        Non divide gli slash interni dei codici senza spazi, quindi codici tipo NG/092VD restano integri.
         """
         original = (original or "").strip()
         selected = (selected or "").strip()
@@ -81,16 +85,26 @@ def register_buono_routes(app_obj, deps):
         if _norm_for_match(original) == _norm_for_match(selected):
             return ""
 
+        # Il valore scelto nel buono può contenere più marca-pezzo/descrizioni.
+        # Prima li trasformo in singoli elementi da togliere dalla riga residua.
+        selected_parts = _split_multi_value(selected) or [selected]
+        selected_norms = {_norm_for_match(x) for x in selected_parts if _norm_for_match(x)}
+
         parts = _split_multi_value(original)
-        if len(parts) > 1:
-            selected_norm = _norm_for_match(selected)
-            kept = [p for p in parts if _norm_for_match(p) != selected_norm]
+        if len(parts) > 1 and selected_norms:
+            kept = [p for p in parts if _norm_for_match(p) not in selected_norms]
             if len(kept) != len(parts):
                 return " / ".join(kept).strip()
 
-        # fallback: rimozione frase esatta case-insensitive
-        pattern = re.compile(re.escape(selected), re.IGNORECASE)
-        new_val = pattern.sub("", original, count=1)
+        # fallback: rimuove uno alla volta i valori richiesti, anche se non erano stati riconosciuti come lista
+        new_val = original
+        for item in selected_parts:
+            item = (item or "").strip()
+            if not item:
+                continue
+            pattern = re.compile(re.escape(item), re.IGNORECASE)
+            new_val = pattern.sub("", new_val, count=1)
+
         new_val = re.sub(r"\s*(?:/|;|\||,|\+|-)\s*(?:/|;|\||,|\+|-)\s*", " / ", new_val)
         new_val = re.sub(r"^\s*(?:/|;|\||,|\+|-)\s*", "", new_val)
         new_val = re.sub(r"\s*(?:/|;|\||,|\+|-)\s*$", "", new_val)
