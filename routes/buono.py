@@ -66,6 +66,25 @@ def register_buono_routes(app_obj, deps):
         residuo = max(0.0, val - scelto)
         return residuo, scelto
 
+    def _selected_matches_part(part, selected_norms):
+        """True se un elemento della riga originale corrisponde a uno dei codici scelti.
+
+        Serve per rimuovere anche casi tipo:
+        - originale: "Package No.307 - SE/007VD - AP*007DV"
+        - scelto: "SE/007VD"
+        In questi casi non basta il confronto esatto: bisogna togliere il codice scelto
+        anche quando è dentro una voce più lunga della riga.
+        """
+        pn = _norm_for_match(part)
+        if not pn or not selected_norms:
+            return False
+        for sn in selected_norms:
+            if not sn:
+                continue
+            if pn == sn or sn in pn or pn in sn:
+                return True
+        return False
+
     def _remove_selected_from_cell(original, selected):
         """Rimuove dalla cella originale uno o più codici/descrizioni scelti per il buono.
 
@@ -92,7 +111,9 @@ def register_buono_routes(app_obj, deps):
 
         parts = _split_multi_value(original)
         if len(parts) > 1 and selected_norms:
-            kept = [p for p in parts if _norm_for_match(p) not in selected_norms]
+            # Prima prova robusta: elimina ogni pezzo della riga che contiene uno dei codici scelti.
+            # Questo risolve il problema dei codici che restavano in giacenza dopo lo scarico parziale.
+            kept = [p for p in parts if not _selected_matches_part(p, selected_norms)]
             if len(kept) != len(parts):
                 return " / ".join(kept).strip()
 
@@ -103,7 +124,7 @@ def register_buono_routes(app_obj, deps):
             if not item:
                 continue
             pattern = re.compile(re.escape(item), re.IGNORECASE)
-            new_val = pattern.sub("", new_val, count=1)
+            new_val = pattern.sub("", new_val)
 
         new_val = re.sub(r"\s*(?:/|;|\||,|\+|-)\s*(?:/|;|\||,|\+|-)\s*", " / ", new_val)
         new_val = re.sub(r"^\s*(?:/|;|\||,|\+|-)\s*", "", new_val)
