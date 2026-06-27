@@ -145,6 +145,14 @@ def register_buono_routes(app_obj, deps):
                 out.append(s)
         return out
 
+    def _join_residuo_parts(values):
+        """Unisce i codici residui con trattino, non con slash.
+
+        Formato richiesto in giacenza:
+        Package No.311 - AP/060VR - VA/002VR
+        """
+        return " - ".join(_dedupe_keep_order(values)).strip(" -")
+
 
     def _remove_selected_from_cell(original, selected):
         """Rimuove dalla cella originale SOLO i codici/descrizioni scelti per il buono.
@@ -194,7 +202,7 @@ def register_buono_routes(app_obj, deps):
             kept.append(part)
 
         if removed_any:
-            return " / ".join(_dedupe_keep_order(kept)).strip(" /")
+            return _join_residuo_parts(kept)
 
         # Fallback per casi in cui non si riesce a separare bene la cella:
         # rimuove testualmente solo i codici scelti, mai il package.
@@ -205,7 +213,7 @@ def register_buono_routes(app_obj, deps):
                 continue
             new_val = re.sub(re.escape(item), "", new_val, flags=re.I)
 
-        new_val = re.sub(r"\s*(?:/|;|\||,|\+|-)\s*(?:/|;|\||,|\+|-)\s*", " / ", new_val)
+        new_val = re.sub(r"\s*(?:/|;|\||,|\+|-)\s*(?:/|;|\||,|\+|-)\s*", " - ", new_val)
         new_val = re.sub(r"^\s*(?:/|;|\||,|\+|-)\s*", "", new_val)
         new_val = re.sub(r"\s*(?:/|;|\||,|\+|-)\s*$", "", new_val)
         new_val = re.sub(r"\s{2,}", " ", new_val).strip()
@@ -220,11 +228,14 @@ def register_buono_routes(app_obj, deps):
         found = []
         seen = set()
         patterns = [
-            r"\bPACKAGE\s*(?:NO\.?|N\.?|NUM\.?)?\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
-            r"\bPKG\s*(?:NO\.?|N\.?)?\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
-            r"\bPALLET\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
-            r"\bCASSA\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
-            r"\bCASE\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
+            # IMPORTANTISSIMO: il package deve essere solo il numero package,
+            # non deve inglobare il primo marca-pezzo attaccato con trattino.
+            # Esempio: Package No.311-AP/060VR => Package No.311
+            r"\bPACKAGE\s*(?:NO\.?|N\.?|NUM\.?)?\s*[:#.]?\s*[A-Z0-9]+",
+            r"\bPKG\s*(?:NO\.?|N\.?)?\s*[:#.]?\s*[A-Z0-9]+",
+            r"\bPALLET\s*[:#.]?\s*[A-Z0-9]+",
+            r"\bCASSA\s*[:#.]?\s*[A-Z0-9]+",
+            r"\bCASE\s*[:#.]?\s*[A-Z0-9]+",
         ]
         for value in values:
             txt = str(value or "")
@@ -261,7 +272,7 @@ def register_buono_routes(app_obj, deps):
         final_parts.extend(parts)
         final_parts = _dedupe_keep_order(final_parts)
 
-        return " / ".join(final_parts).strip(" /")
+        return _join_residuo_parts(final_parts)
 
 
 
