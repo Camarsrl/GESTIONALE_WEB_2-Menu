@@ -53,17 +53,28 @@ def register_buono_routes(app_obj, deps):
         except Exception:
             return str(value or '')
 
+    def _float_db(value, decimals=6):
+        """Numero pulito per campi Float del DB: usa sempre il punto, mai la virgola."""
+        try:
+            f = _num_float(value)
+            if abs(f) < 0.0000001:
+                return 0.0
+            return round(float(f), int(decimals))
+        except Exception:
+            return 0.0
+
     def _split_quantita(orig_pezzi, q_scelta, orig_valore):
-        """Ripartisce peso/m2/m3 proporzionalmente ai pezzi."""
+        """Ripartisce peso/m2/m3 proporzionalmente ai pezzi, restituendo sempre float DB-safe."""
         op = _num_float(orig_pezzi)
         q = _num_float(q_scelta)
         val = _num_float(orig_valore)
         if op <= 0 or q <= 0 or val <= 0:
-            return orig_valore, orig_valore
+            pulito = _float_db(val)
+            return pulito, pulito
         if q > op:
             q = op
-        scelto = val * (q / op)
-        residuo = max(0.0, val - scelto)
+        scelto = _float_db(val * (q / op))
+        residuo = _float_db(max(0.0, val - scelto))
         return residuo, scelto
 
     def _selected_matches_part(part, selected_norms):
@@ -142,10 +153,12 @@ def register_buono_routes(app_obj, deps):
         found = []
         seen = set()
         patterns = [
-            r"\b(?:N\.?\s*)?(?:PACKAGE|PKG)\s*[:#\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
-            r"\bPALLET\s*[:#\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
-            r"\bCASSA\s*[:#\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
-            r"\bCASE\s*[:#\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
+            # IMPORTANTE: prende solo il riferimento collo/package, non il marca-pezzo attaccato dopo il trattino.
+            # Esempio: "Package No.311-AP/060VR" -> conserva solo "Package No.311".
+            r"\b(?:PACKAGE|PKG)\s*(?:NO\.?|N\.?)?\s*[:#\-]?\s*[A-Z0-9]+",
+            r"\bPALLET\s*[:#\-]?\s*[A-Z0-9]+",
+            r"\bCASSA\s*[:#\-]?\s*[A-Z0-9]+",
+            r"\bCASE\s*[:#\-]?\s*[A-Z0-9]+",
         ]
         for value in values:
             txt = str(value or "")
