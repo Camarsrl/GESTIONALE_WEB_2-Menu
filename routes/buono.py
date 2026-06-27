@@ -18,45 +18,37 @@ def register_buono_routes(app_obj, deps):
     globals()["app"] = app_obj
 
     def _split_multi_value(value):
-        """Divide una cella multi-valore senza rompere gli slash interni dei marca-pezzo.
+        """Divide una cella multi-valore senza rompere gli slash/asterischi interni.
 
-        Gestisce anche i casi Fincantieri:
-        - "Package No.305 -DR/018DF -DR/021DF"
-        - "Package No.311-AP/060VR -VA/002VR"
-        - "NG/147VD / NG/146VD"
+        Esempi gestiti:
+        - Package No.305 -DR/018DF -DR/021DF
+        - Package No.311-AP/060VR -VA/002VR -AV*002VD
+        - NG/147VD / NG/146VD
 
-        Regola fondamentale:
-        il Package/Pallet/Cassa resta un elemento separato e non viene mai eliminato
-        dalla riga residua; vengono eliminati solo i marca-pezzo scelti nel buono.
+        Il Package resta separato; i codici vengono poi ricostruiti con " - ".
         """
         s = str(value or "").strip()
         if not s:
             return []
 
-        # A capo, punto e virgola, pipe e virgola sono separatori sicuri.
-        s = re.sub(r"[\r\n]+", " / ", s)
+        s = re.sub(r"[\r\n]+", " - ", s)
+        s = re.sub(r"(?i)\bPackage\s+No\.?\s*", "Package No.", s)
 
-        # Se un codice è scritto dopo un trattino, anche senza spazio,
-        # lo separo senza rompere lo slash interno del codice.
-        # Esempio: Package No.311-AP/060VR -> Package No.311 / AP/060VR
-        # Esempio: -DR/018DF -> / DR/018DF
-        s = re.sub(r"\s*-\s*(?=[A-Z0-9]{1,20}/)", " / ", s, flags=re.I)
+        # Se dopo un trattino inizia un marca-pezzo con / oppure *, separo.
+        # Non rompe lo slash interno di SE/007VD e riconosce AV*002VD.
+        s = re.sub(r"\s*-\s*(?=[A-Z0-9]{1,25}(?:/|\*)[A-Z0-9])", " - ", s, flags=re.I)
 
-        # Se tra codici usano " / " con spazi, quello è separatore.
-        # Uno slash senza spazi dentro SE/007VD NON viene toccato.
-        parts = re.split(r"\s*(?:;|\||,|\s/\s|\s\+\s)\s*", s)
+        # Lo slash con spazi viene considerato separatore tra codici.
+        # Lo slash senza spazi resta dentro il codice.
+        parts = re.split(r"\s*(?:;|\||,|\s/\s|\s\+\s|\s-\s)\s*", s)
 
         out = []
         for part in parts:
             part = (part or "").strip(" -/")
             if not part:
                 continue
-
-            # Normalizza "Package No. 311" in "Package No.311"
             part = re.sub(r"(?i)\bPackage\s+No\.?\s*", "Package No.", part).strip()
-
             out.append(part)
-
         return out
 
     def _norm_for_match(value):
@@ -145,14 +137,21 @@ def register_buono_routes(app_obj, deps):
                 out.append(s)
         return out
 
-    def _join_residuo_parts(values):
-        """Unisce i codici residui con trattino, non con slash.
 
-        Formato richiesto in giacenza:
-        Package No.311 - AP/060VR - VA/002VR
+
+    def _format_residuo_parts(parts):
+        """Ricostruisce la cella residua con separatore richiesto: ' - '."""
+        clean = _dedupe_keep_order(parts)
+        return " - ".join(clean).strip(" -")
+
+    def _description_has_multiple_items(value):
+        """Indica se la descrizione sembra davvero composta da più descrizioni separate.
+
+        Se la descrizione è una frase unica, anche se l'utente nel buono la lascia uguale,
+        NON va cancellata dalla riga residua.
         """
-        return " - ".join(_dedupe_keep_order(values)).strip(" -")
-
+        parts = _split_multi_value(value)
+        return len(parts) > 1
 
     def _remove_selected_from_cell(original, selected):
         """Rimuove dalla cella originale SOLO i codici/descrizioni scelti per il buono.
@@ -202,7 +201,7 @@ def register_buono_routes(app_obj, deps):
             kept.append(part)
 
         if removed_any:
-            return _join_residuo_parts(kept)
+            return _format_residuo_parts(kept)
 
         # Fallback per casi in cui non si riesce a separare bene la cella:
         # rimuove testualmente solo i codici scelti, mai il package.
@@ -228,14 +227,11 @@ def register_buono_routes(app_obj, deps):
         found = []
         seen = set()
         patterns = [
-            # IMPORTANTISSIMO: il package deve essere solo il numero package,
-            # non deve inglobare il primo marca-pezzo attaccato con trattino.
-            # Esempio: Package No.311-AP/060VR => Package No.311
             r"\bPACKAGE\s*(?:NO\.?|N\.?|NUM\.?)?\s*[:#.]?\s*[A-Z0-9]+",
             r"\bPKG\s*(?:NO\.?|N\.?)?\s*[:#.]?\s*[A-Z0-9]+",
-            r"\bPALLET\s*[:#.]?\s*[A-Z0-9]+",
-            r"\bCASSA\s*[:#.]?\s*[A-Z0-9]+",
-            r"\bCASE\s*[:#.]?\s*[A-Z0-9]+",
+            r"\bPALLET\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
+            r"\bCASSA\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
+            r"\bCASE\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
         ]
         for value in values:
             txt = str(value or "")
@@ -272,7 +268,7 @@ def register_buono_routes(app_obj, deps):
         final_parts.extend(parts)
         final_parts = _dedupe_keep_order(final_parts)
 
-        return _join_residuo_parts(final_parts)
+        return _format_residuo_parts(final_parts)
 
 
 
@@ -683,11 +679,12 @@ def register_buono_routes(app_obj, deps):
                         else:
                             r.codice_articolo = old_cod
 
-                        if desc_parziale:
+                        if desc_parziale and _description_has_multiple_items(old_desc):
                             descr_residua = _remove_selected_from_cell(old_desc, descr_scelta)
                             # Mantiene sulla riga residua eventuale N. package / pallet / cassa anche se scritto in descrizione.
                             r.descrizione = _preserve_package_context(descr_residua, old_desc, descr_scelta)
                         else:
+                            # Se la descrizione è unica, va mantenuta anche sulla riga residua.
                             r.descrizione = old_desc
 
                         # La riga residua mantiene le note originali.
