@@ -20,19 +20,44 @@ def register_buono_routes(app_obj, deps):
     def _split_multi_value(value):
         """Divide una cella multi-valore senza rompere gli slash interni dei marca-pezzo.
 
-        Gestisce anche i casi Fincantieri tipo:
-        "Package No.305 -DR/018DF -DR/021DF -DR/025DF"
-        mantenendo separato il Package e i singoli codici.
+        Gestisce anche i casi Fincantieri:
+        - "Package No.305 -DR/018DF -DR/021DF"
+        - "Package No.311-AP/060VR -VA/002VR"
+        - "NG/147VD / NG/146VD"
+
+        Regola fondamentale:
+        il Package/Pallet/Cassa resta un elemento separato e non viene mai eliminato
+        dalla riga residua; vengono eliminati solo i marca-pezzo scelti nel buono.
         """
-        s = (value or "").strip()
+        s = str(value or "").strip()
         if not s:
             return []
 
+        # A capo, punto e virgola, pipe e virgola sono separatori sicuri.
         s = re.sub(r"[\r\n]+", " / ", s)
-        s = re.sub(r"\s+-\s*(?=[A-Z0-9]{1,16}/)", " / ", s, flags=re.I)
 
-        parts = re.split(r"\s*(?:;|\||,|\s/\s|\s\+\s|\s-\s)\s*", s)
-        return [p.strip(" -") for p in parts if p and p.strip(" -")]
+        # Se un codice è scritto dopo un trattino, anche senza spazio,
+        # lo separo senza rompere lo slash interno del codice.
+        # Esempio: Package No.311-AP/060VR -> Package No.311 / AP/060VR
+        # Esempio: -DR/018DF -> / DR/018DF
+        s = re.sub(r"\s*-\s*(?=[A-Z0-9]{1,20}/)", " / ", s, flags=re.I)
+
+        # Se tra codici usano " / " con spazi, quello è separatore.
+        # Uno slash senza spazi dentro SE/007VD NON viene toccato.
+        parts = re.split(r"\s*(?:;|\||,|\s/\s|\s\+\s)\s*", s)
+
+        out = []
+        for part in parts:
+            part = (part or "").strip(" -/")
+            if not part:
+                continue
+
+            # Normalizza "Package No. 311" in "Package No.311"
+            part = re.sub(r"(?i)\bPackage\s+No\.?\s*", "Package No.", part).strip()
+
+            out.append(part)
+
+        return out
 
     def _norm_for_match(value):
         return re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
@@ -106,53 +131,79 @@ def register_buono_routes(app_obj, deps):
                 return True
         return False
 
+    def _dedupe_keep_order(values):
+        """Rimuove duplicati mantenendo l'ordine."""
+        out = []
+        seen = set()
+        for v in values or []:
+            s = str(v or "").strip()
+            if not s:
+                continue
+            key = _norm_for_match(s)
+            if key and key not in seen:
+                seen.add(key)
+                out.append(s)
+        return out
+
+
     def _remove_selected_from_cell(original, selected):
-        """Rimuove dalla cella originale uno o più codici/descrizioni scelti per il buono.
+        """Rimuove dalla cella originale SOLO i codici/descrizioni scelti per il buono.
 
-        Caso importante:
-        - riga giacenza:  CB050CF / CB060CF / CB070CF
-        - buono richiesto: CB050CF / CB060CF
-        - residuo corretto: CB070CF
-
-        Non divide gli slash interni dei codici senza spazi, quindi codici tipo NG/092VD restano integri.
+        Regole definitive:
+        1) Package No. / PKG / Pallet / Cassa non si eliminano mai.
+        2) I marca-pezzo scelti nel buono vengono tolti dalla riga residua.
+        3) Il confronto ignora spazi, trattini, slash e maiuscole/minuscole.
+        4) Funziona anche quando il codice è attaccato al package:
+           "Package No.311-AP/060VR -VA/002VR".
         """
-        original = (original or "").strip()
-        selected = (selected or "").strip()
+        original = str(original or "").strip()
+        selected = str(selected or "").strip()
 
         if not original or not selected:
             return original
 
-        if _norm_for_match(original) == _norm_for_match(selected):
-            return ""
-
-        # Il valore scelto nel buono può contenere più marca-pezzo/descrizioni.
-        # Prima li trasformo in singoli elementi da togliere dalla riga residua.
+        original_parts = _split_multi_value(original) or [original]
         selected_parts = _split_multi_value(selected) or [selected]
 
-        # Non considero Package/Pallet/Cassa come codici da eliminare:
-        # il package deve restare sulla riga residua in giacenza.
+        # I package presenti nel selezionato NON sono mai codici da togliere.
         selected_norms = {
             _norm_for_match(x)
             for x in selected_parts
             if _norm_for_match(x) and not _is_package_token(x)
         }
 
-        parts = _split_multi_value(original)
-        if len(parts) > 1 and selected_norms:
-            # Prima prova robusta: elimina ogni pezzo della riga che contiene uno dei codici scelti.
-            # Questo risolve il problema dei codici che restavano in giacenza dopo lo scarico parziale.
-            kept = [p for p in parts if not _selected_matches_part(p, selected_norms)]
-            if len(kept) != len(parts):
-                return " / ".join(kept).strip()
+        if not selected_norms:
+            return original
 
-        # fallback: rimuove uno alla volta i valori richiesti, anche se non erano stati riconosciuti come lista
+        kept = []
+        removed_any = False
+
+        for part in original_parts:
+            if not part:
+                continue
+
+            # Package/Pallet/Cassa sempre conservati.
+            if _is_package_token(part):
+                kept.append(part)
+                continue
+
+            if _selected_matches_part(part, selected_norms):
+                removed_any = True
+                continue
+
+            kept.append(part)
+
+        if removed_any:
+            return " / ".join(_dedupe_keep_order(kept)).strip(" /")
+
+        # Fallback per casi in cui non si riesce a separare bene la cella:
+        # rimuove testualmente solo i codici scelti, mai il package.
         new_val = original
         for item in selected_parts:
-            item = (item or "").strip()
+            item = str(item or "").strip()
             if not item or _is_package_token(item):
                 continue
-            pattern = re.compile(re.escape(item), re.IGNORECASE)
-            new_val = pattern.sub("", new_val)
+            new_val = re.sub(re.escape(item), "", new_val, flags=re.I)
 
         new_val = re.sub(r"\s*(?:/|;|\||,|\+|-)\s*(?:/|;|\||,|\+|-)\s*", " / ", new_val)
         new_val = re.sub(r"^\s*(?:/|;|\||,|\+|-)\s*", "", new_val)
@@ -188,17 +239,30 @@ def register_buono_routes(app_obj, deps):
         return found
 
     def _preserve_package_context(residuo, *sources):
-        """Riaggiunge package/pallet/cassa se la rimozione del codice lo ha tolto."""
+        """Garantisce che Package/Pallet/Cassa restino sulla riga residua.
+
+        Se il package era nella riga originale e la pulizia lo ha tolto per errore,
+        lo reinserisce in testa alla cella, non in fondo.
+        """
         residuo = (residuo or "").strip()
         labels = _extract_package_context(*sources)
         if not labels:
             return residuo
-        current_norm = _norm_for_match(residuo)
-        da_aggiungere = [x for x in labels if _norm_for_match(x) not in current_norm]
-        if not da_aggiungere:
-            return residuo
-        extra = " / ".join(da_aggiungere)
-        return f"{residuo} / {extra}".strip(" /") if residuo else extra
+
+        parts = _split_multi_value(residuo) if residuo else []
+        current_norms = {_norm_for_match(x) for x in parts}
+
+        # Package prima, poi tutti gli altri codici rimasti.
+        final_parts = []
+        for label in labels:
+            if _norm_for_match(label) not in current_norms:
+                final_parts.append(label)
+
+        final_parts.extend(parts)
+        final_parts = _dedupe_keep_order(final_parts)
+
+        return " / ".join(final_parts).strip(" /")
+
 
 
 
