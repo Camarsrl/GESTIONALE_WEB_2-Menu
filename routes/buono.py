@@ -18,13 +18,21 @@ def register_buono_routes(app_obj, deps):
     globals()["app"] = app_obj
 
     def _split_multi_value(value):
-        """Divide una cella multi-valore senza essere troppo aggressivo."""
+        """Divide una cella multi-valore senza rompere gli slash interni dei marca-pezzo.
+
+        Gestisce anche i casi Fincantieri tipo:
+        "Package No.305 -DR/018DF -DR/021DF -DR/025DF"
+        mantenendo separato il Package e i singoli codici.
+        """
         s = (value or "").strip()
         if not s:
             return []
-        # separatori più comuni nei campi misti
-        parts = re.split(r"\s*(?:\n|;|\||,|\s/\s|\s-\s|\s\+\s)\s*", s)
-        return [p.strip() for p in parts if p and p.strip()]
+
+        s = re.sub(r"[\r\n]+", " / ", s)
+        s = re.sub(r"\s+-\s*(?=[A-Z0-9]{1,16}/)", " / ", s, flags=re.I)
+
+        parts = re.split(r"\s*(?:;|\||,|\s/\s|\s\+\s|\s-\s)\s*", s)
+        return [p.strip(" -") for p in parts if p and p.strip(" -")]
 
     def _norm_for_match(value):
         return re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
@@ -49,46 +57,48 @@ def register_buono_routes(app_obj, deps):
             f = float(value or 0)
             if abs(f - int(f)) < 0.000001:
                 return str(int(f))
-            return str(round(f, 3)).replace('.', ',')
+            return str(round(f, 3))
         except Exception:
             return str(value or '')
 
-    def _float_db(value, decimals=6):
-        """Numero pulito per campi Float del DB: usa sempre il punto, mai la virgola."""
-        try:
-            f = _num_float(value)
-            if abs(f) < 0.0000001:
-                return 0.0
-            return round(float(f), int(decimals))
-        except Exception:
-            return 0.0
-
     def _split_quantita(orig_pezzi, q_scelta, orig_valore):
-        """Ripartisce peso/m2/m3 proporzionalmente ai pezzi, restituendo sempre float DB-safe."""
+        """Ripartisce peso/m2/m3 proporzionalmente ai pezzi."""
         op = _num_float(orig_pezzi)
         q = _num_float(q_scelta)
         val = _num_float(orig_valore)
         if op <= 0 or q <= 0 or val <= 0:
-            pulito = _float_db(val)
-            return pulito, pulito
+            return orig_valore, orig_valore
         if q > op:
             q = op
-        scelto = _float_db(val * (q / op))
-        residuo = _float_db(max(0.0, val - scelto))
+        scelto = val * (q / op)
+        residuo = max(0.0, val - scelto)
         return residuo, scelto
+
+
+    def _round_db_number(value, ndigits=6):
+        """Numero pulito per DB/campi numerici: usa float e punto decimale, non virgola."""
+        try:
+            f = float(value or 0)
+            return round(f, ndigits)
+        except Exception:
+            return value
+
+    def _is_package_token(value):
+        n = _norm_for_match(value)
+        return bool(re.search(r"\b(PACKAGE|PKG|PALLET|CASSA|CASE)\b", str(value or ""), re.I) or n.startswith("PACKAGENO") or n.startswith("PKG"))
 
     def _selected_matches_part(part, selected_norms):
         """True se un elemento della riga originale corrisponde a uno dei codici scelti.
 
-        Serve per rimuovere anche casi tipo:
-        - originale: "Package No.307 - SE/007VD - AP*007DV"
-        - scelto: "SE/007VD"
-        In questi casi non basta il confronto esatto: bisogna togliere il codice scelto
-        anche quando è dentro una voce più lunga della riga.
+        Non elimina mai il Package/Pallet/Cassa: quelli devono restare sulla riga residua.
         """
+        if _is_package_token(part):
+            return False
+
         pn = _norm_for_match(part)
         if not pn or not selected_norms:
             return False
+
         for sn in selected_norms:
             if not sn:
                 continue
@@ -118,7 +128,14 @@ def register_buono_routes(app_obj, deps):
         # Il valore scelto nel buono può contenere più marca-pezzo/descrizioni.
         # Prima li trasformo in singoli elementi da togliere dalla riga residua.
         selected_parts = _split_multi_value(selected) or [selected]
-        selected_norms = {_norm_for_match(x) for x in selected_parts if _norm_for_match(x)}
+
+        # Non considero Package/Pallet/Cassa come codici da eliminare:
+        # il package deve restare sulla riga residua in giacenza.
+        selected_norms = {
+            _norm_for_match(x)
+            for x in selected_parts
+            if _norm_for_match(x) and not _is_package_token(x)
+        }
 
         parts = _split_multi_value(original)
         if len(parts) > 1 and selected_norms:
@@ -132,7 +149,7 @@ def register_buono_routes(app_obj, deps):
         new_val = original
         for item in selected_parts:
             item = (item or "").strip()
-            if not item:
+            if not item or _is_package_token(item):
                 continue
             pattern = re.compile(re.escape(item), re.IGNORECASE)
             new_val = pattern.sub("", new_val)
@@ -146,25 +163,24 @@ def register_buono_routes(app_obj, deps):
     def _extract_package_context(*values):
         """Estrae riferimenti logistici da conservare sulla riga residua.
 
-        Nello scarico parziale del Buono di Prelievo il pallet/cassa/package
-        identifica il collo fisico, quindi NON deve sparire dalla riga rimasta
-        in giacenza anche se viene tolto un codice dal buono.
+        Riconosce anche formati tipo:
+        Package No.305, Package No. 305, PACKAGE 305, PKG 305.
         """
         found = []
         seen = set()
         patterns = [
-            # IMPORTANTE: prende solo il riferimento collo/package, non il marca-pezzo attaccato dopo il trattino.
-            # Esempio: "Package No.311-AP/060VR" -> conserva solo "Package No.311".
-            r"\b(?:PACKAGE|PKG)\s*(?:NO\.?|N\.?)?\s*[:#\-]?\s*[A-Z0-9]+",
-            r"\bPALLET\s*[:#\-]?\s*[A-Z0-9]+",
-            r"\bCASSA\s*[:#\-]?\s*[A-Z0-9]+",
-            r"\bCASE\s*[:#\-]?\s*[A-Z0-9]+",
+            r"\bPACKAGE\s*(?:NO\.?|N\.?|NUM\.?)?\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
+            r"\bPKG\s*(?:NO\.?|N\.?)?\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
+            r"\bPALLET\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
+            r"\bCASSA\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
+            r"\bCASE\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
         ]
         for value in values:
             txt = str(value or "")
             for pat in patterns:
                 for m in re.finditer(pat, txt, flags=re.I):
                     label = re.sub(r"\s+", " ", m.group(0).strip())
+                    label = re.sub(r"(?i)\bPackage\s+No\.?\s*", "Package No.", label)
                     key = _norm_for_match(label)
                     if key and key not in seen:
                         seen.add(key)
@@ -569,8 +585,8 @@ def register_buono_routes(app_obj, deps):
                             for campo in ('peso', 'm2', 'm3'):
                                 residuo_val, scelto_val = _split_quantita(pezzi_originali, pezzi_scelti, getattr(r, campo, None))
                                 try:
-                                    setattr(riga_buono, campo, scelto_val)
-                                    setattr(r, campo, residuo_val)
+                                    setattr(riga_buono, campo, _round_db_number(scelto_val))
+                                    setattr(r, campo, _round_db_number(residuo_val))
                                 except Exception:
                                     pass
 
