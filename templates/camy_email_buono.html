@@ -47,6 +47,19 @@
         <div class="alert alert-warning">Non ho trovato marca-pezzo chiari nella richiesta. Controlla il testo OCR e riprova.</div>
       {% else %}
         <h5>Materiale richiesto</h5>
+
+        <form method="post" action="/buono/preview" id="formCreaBuonoEmail">
+          <div class="alert alert-light border d-flex justify-content-between align-items-center">
+            <div>
+              Seleziona la riga corretta trovata in giacenza e premi <b>Crea Buono</b>.
+              CAMY aprirà la normale anteprima del Buono di Prelievo, dove potrai controllare e salvare.
+            </div>
+            <button type="submit" class="btn btn-success btn-sm"
+                    onclick="return verificaSelezioneBuonoEmail();">
+              ✅ Crea Buono dai selezionati
+            </button>
+          </div>
+
         <table class="table table-sm table-bordered align-middle">
           <thead><tr><th>Codice</th><th>Quantità</th><th>Risultato in giacenza</th></tr></thead>
           <tbody>
@@ -68,6 +81,12 @@
                   {% for m in blocco.matches %}
                     {% set r = m.row %}
                     <div class="border rounded p-2 mb-2">
+                      <div class="form-check mb-1">
+                        <input class="form-check-input" type="checkbox" name="ids" value="{{ r.id_articolo }}" id="sel_email_{{ r.id_articolo }}">
+                        <label class="form-check-label" for="sel_email_{{ r.id_articolo }}">
+                          <b>Seleziona per creare il buono</b>
+                        </label>
+                      </div>
                       <b>ID {{ r.id_articolo }}</b> | Cliente {{ r.cliente or '-' }} | Arrivo {{ r.n_arrivo or '-' }}<br>
                       Codice riga: {{ r.codice_articolo or '-' }}<br>
                       Pezzi disponibili sul codice: {{ m.details.disponibili }} | Richiesti: {{ m.details.richiesti }}<br>
@@ -81,6 +100,10 @@
                           {% for w in m.warnings %}⚠ {{ w }}<br>{% endfor %}
                         </div>
                       {% endif %}
+                      <button type="button" class="btn btn-sm btn-success mt-2"
+                              onclick="selezionaSingoloBuonoEmail('{{ r.id_articolo }}');">
+                        ✅ Crea Buono da questa riga
+                      </button>
                     </div>
                   {% endfor %}
                 {% endif %}
@@ -89,9 +112,28 @@
           {% endfor %}
           </tbody>
         </table>
+        </form>
+
+        <script>
+          function verificaSelezioneBuonoEmail(){
+            var checked = document.querySelectorAll('#formCreaBuonoEmail input[name="ids"]:checked');
+            if(!checked.length){
+              alert('Seleziona almeno una riga trovata in giacenza.');
+              return false;
+            }
+            return true;
+          }
+          function selezionaSingoloBuonoEmail(id){
+            var form = document.getElementById('formCreaBuonoEmail');
+            if(!form) return;
+            form.querySelectorAll('input[name="ids"]').forEach(function(x){ x.checked = false; });
+            var cb = document.getElementById('sel_email_' + id);
+            if(cb){ cb.checked = true; form.submit(); }
+          }
+        </script>
 
         <div class="alert alert-secondary">
-          CAMY ha interpretato la richiesta e cercato il materiale in giacenza. Se il risultato è corretto, nella fase successiva si potrà aggiungere il pulsante <b>Crea Buono</b> usando la logica sicura del modulo Buono e la gestione dei residui.
+          CAMY ha interpretato la richiesta e cercato il materiale in giacenza. Usa il pulsante <b>Crea Buono</b> per aprire l’anteprima standard del Buono di Prelievo, controllare i dati, gestire eventuali scarichi parziali e salvare solo dopo conferma.
         </div>
       {% endif %}
     </div>
