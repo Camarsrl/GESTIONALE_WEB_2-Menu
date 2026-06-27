@@ -57,6 +57,7 @@
                 {% if blocco.richiesta.descrizione %}<br><small>Descrizione: {{ blocco.richiesta.descrizione }}</small>{% endif %}
                 {% if blocco.richiesta.fornitore %}<br><small>Fornitore: {{ blocco.richiesta.fornitore }}</small>{% endif %}
                 {% if blocco.richiesta.package %}<br><small>Package: {{ blocco.richiesta.package }}</small>{% endif %}
+                {% if blocco.richiesta.ordine %}<br><small>Order: {{ blocco.richiesta.ordine }}</small>{% endif %}
                 {% if blocco.richiesta.protocollo %}<br><small>Protocollo email: {{ blocco.richiesta.protocollo }}</small>{% endif %}
               </td>
               <td>{{ blocco.richiesta.quantita }}</td>
@@ -70,7 +71,9 @@
                       <b>ID {{ r.id_articolo }}</b> | Cliente {{ r.cliente or '-' }} | Arrivo {{ r.n_arrivo or '-' }}<br>
                       Codice riga: {{ r.codice_articolo or '-' }}<br>
                       Pezzi disponibili sul codice: {{ m.details.disponibili }} | Richiesti: {{ m.details.richiesti }}<br>
+                      {% if m.details.matched_by %}<small class='text-muted'>Trovato tramite: {{ m.details.matched_by }}</small><br>{% endif %}
                       Posizione: {{ r.posizione or '-' }} | Protocollo: {{ r.protocollo or '-' }}<br>
+                      Ordine: {{ r.ordine or '-' }} | Fornitore: {{ r.fornitore or '-' }}<br>
                       {% if m.details.multi_codice %}<span class="badge bg-info">Riga multi marca-pezzo</span>{% endif %}
                       {% if m.details.scarico_parziale %}<span class="badge bg-warning text-dark">Scarico parziale con residuo</span>{% endif %}
                       {% if m.warnings %}
@@ -88,7 +91,7 @@
         </table>
 
         <div class="alert alert-secondary">
-          Prossima fase: da questa anteprima aggiungiamo il pulsante <b>Crea Buono</b>, usando la logica sicura del modulo Buono e la gestione dei residui.
+          CAMY ha interpretato la richiesta e cercato il materiale in giacenza. Se il risultato è corretto, nella fase successiva si potrà aggiungere il pulsante <b>Crea Buono</b> usando la logica sicura del modulo Buono e la gestione dei residui.
         </div>
       {% endif %}
     </div>
