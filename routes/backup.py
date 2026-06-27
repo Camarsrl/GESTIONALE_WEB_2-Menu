@@ -28,36 +28,112 @@ def register_backup_routes(app_obj, deps):
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
     def create_backup_zip(include_media: bool = True) -> Path:
-        """Crea un backup ZIP e ritorna il path."""
-        import zipfile
+        """Crea un backup ZIP e ritorna il path.
+
+        Versione anti-timeout Render:
+        - evita file duplicati nello ZIP;
+        - non inserisce mai la cartella backups dentro un nuovo backup;
+        - mantiene il percorso relativo dei media, evitando nomi duplicati;
+        - per default il backup manuale /backup è LEGGERO, cioè DB/config senza foto/PDF.
+        """
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         out = BACKUP_DIR / f"backup_camar_{ts}.zip"
+        added = set()
 
-        def _safe_add(zf, p: Path, arcname: str):
+        def _is_inside(child: Path, parent: Path) -> bool:
             try:
-                if p.exists():
-                    zf.write(p, arcname=arcname)
+                child.resolve().relative_to(parent.resolve())
+                return True
+            except Exception:
+                return False
+
+        def _unique_arcname(arcname: str) -> str:
+            arcname = str(arcname or "").replace("\\", "/").lstrip("/")
+            base = arcname
+            if arcname not in added:
+                return arcname
+            stem = Path(base).stem
+            suffix = Path(base).suffix
+            parent = str(Path(base).parent).replace(".", "")
+            i = 2
+            while True:
+                candidate = f"{parent}/{stem}_{i}{suffix}" if parent else f"{stem}_{i}{suffix}"
+                candidate = candidate.replace("\\", "/").lstrip("/")
+                if candidate not in added:
+                    return candidate
+                i += 1
+
+        def _safe_add(zf, p: Path, arcname: str, compress_type=None):
+            try:
+                p = Path(p)
+                if not p.exists() or not p.is_file():
+                    return False
+
+                # Mai includere backup vecchi o il file ZIP in costruzione.
+                if _is_inside(p, BACKUP_DIR) or p.resolve() == out.resolve():
+                    return False
+
+                arcname = _unique_arcname(arcname)
+                added.add(arcname)
+
+                if compress_type is None:
+                    compress_type = zipfile.ZIP_STORED if p.stat().st_size > 3 * 1024 * 1024 else zipfile.ZIP_DEFLATED
+
+                zf.write(p, arcname=arcname, compress_type=compress_type)
+                return True
             except Exception as e:
                 print(f"[WARN] backup skip {p}: {e}")
+                return False
 
-        with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            # DB
-            _safe_add(zf, APP_DIR / "magazzino.db", "magazzino.db")
+        with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+            # DB locale, se presente. Su Render con Postgres spesso non esiste: in quel caso lo salto.
+            for db_path in [MEDIA_DIR / "magazzino.db", APP_DIR / "magazzino.db"]:
+                _safe_add(zf, db_path, "magazzino.db")
 
-            # Config / JSON
-            for name in ["mappe_excel.json", "destinatari_saved.json", "progressivi_ddt.json"]:
-                _safe_add(zf, APP_DIR / name, f"config/{name}")
-                _safe_add(zf, MEDIA_DIR / name, f"config/{name}")  # se sta sul disco
+            # Config / JSON: prima disco persistente, poi repo. Stesso arcname ma senza duplicare.
+            for name in ["mappe_excel.json", "destinatari_saved.json", "progressivi_ddt.json", "utenti_gestionale.json"]:
+                if not _safe_add(zf, MEDIA_DIR / name, f"config/{name}"):
+                    _safe_add(zf, APP_DIR / name, f"config/{name}")
+                _safe_add(zf, APP_DIR / "config" / name, f"config/{name}")
 
-            _safe_add(zf, _rubrica_email_path(), "config/rubrica_email.json")
+            try:
+                rubrica = _rubrica_email_path()
+                _safe_add(zf, Path(rubrica), "config/rubrica_email.json")
+            except Exception:
+                pass
 
-            # Media (docs + photos)
+            # Metadati utili per capire da dove arriva il backup.
+            try:
+                info = (
+                    f"Backup creato: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+                    f"MEDIA_DIR: {MEDIA_DIR}\n"
+                    f"APP_DIR: {APP_DIR}\n"
+                    f"include_media: {include_media}\n"
+                    f"file_inclusi: {len(added)}\n"
+                )
+                zf.writestr("backup_info.txt", info)
+            except Exception:
+                pass
+
+            # Media opzionali: mantiene sottocartelle e non appiattisce i nomi.
+            # Usare /backup?media=1 solo quando serve davvero il backup completo con PDF/foto.
             if include_media:
                 for folder, arcroot in [(DOCS_DIR, "media/docs"), (PHOTOS_DIR, "media/photos")]:
-                    if folder.exists():
-                        for p in folder.rglob("*"):
-                            if p.is_file():
-                                _safe_add(zf, p, f"{arcroot}/{p.name}")
+                    folder = Path(folder)
+                    if not folder.exists():
+                        continue
+                    for p in folder.rglob("*"):
+                        if not p.is_file():
+                            continue
+                        # salta file temporanei/cache
+                        name_low = p.name.lower()
+                        if name_low.endswith((".tmp", ".part", ".bak")) or "__pycache__" in str(p):
+                            continue
+                        try:
+                            rel = p.relative_to(folder).as_posix()
+                        except Exception:
+                            rel = p.name
+                        _safe_add(zf, p, f"{arcroot}/{rel}")
 
         return out
 
@@ -221,6 +297,15 @@ def register_backup_routes(app_obj, deps):
         <b>/var/data/app/backups</b>
       </div>
 
+      <div class="mb-3 d-flex gap-2 flex-wrap">
+        <a class="btn btn-primary" href="{{ url_for('backup_download') }}">
+          <i class="bi bi-download"></i> Crea backup leggero
+        </a>
+        <a class="btn btn-outline-primary" href="{{ url_for('backup_download') }}?media=1">
+          <i class="bi bi-file-zip"></i> Crea backup completo PDF/Foto
+        </a>
+      </div>
+
       {% if backups %}
         <div class="card shadow-sm">
           <div class="table-responsive">
@@ -343,10 +428,16 @@ def register_backup_routes(app_obj, deps):
     @require_admin
     def backup_download():
         try:
-            # Backup manuale completo: include anche PDF/foto/media.
-            p = create_backup_zip(include_media=True)
+            # Backup manuale anti-timeout: leggero di default.
+            # Per includere anche PDF/foto: /backup?media=1
+            include_media = str(request.args.get('media', '')).lower() in ('1', 'true', 'si', 'sì', 'yes')
+            p = create_backup_zip(include_media=include_media)
             return send_file(p, as_attachment=True, download_name=p.name, mimetype="application/zip")
         except Exception as e:
+            try:
+                scrivi_log_errore("Errore backup manuale", e)
+            except Exception:
+                pass
             flash(f"Errore backup: {e}", "danger")
             return redirect(url_for('home'))
 
