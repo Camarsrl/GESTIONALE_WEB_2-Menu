@@ -1,0 +1,11 @@
+{
+  "name": "Gestionale Camar",
+  "short_name": "Camar",
+  "start_url": "/home",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1f6fb2",
+  "icons": [
+    {"src": "/static/logo_camar.ico", "sizes": "64x64", "type": "image/x-icon"}
+  ]
+}
