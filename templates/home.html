@@ -1,57 +1,91 @@
 
 {% extends 'base.html' %}
 {% block content %}
+<style>
+.home-mobile-hero{display:flex;align-items:center;gap:14px;margin-bottom:14px}.home-mobile-logo{height:56px;background:white;border-radius:14px;padding:4px;box-shadow:0 3px 10px rgba(0,0,0,.08)}.home-title{font-weight:800;margin:0}.home-subtitle{color:#6c757d;margin:0}.home-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.home-action-grid .btn{height:54px;display:flex;align-items:center;justify-content:center;gap:8px}.home-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.home-kpi{border:0;border-radius:16px;padding:14px 16px;box-shadow:0 4px 14px rgba(0,0,0,.07);background:#fff}.home-kpi-label{font-size:.82rem;color:#6c757d}.home-kpi-value{font-size:1.55rem;font-weight:800;line-height:1.1}.home-quick-search{background:#eef8ff;border:1px solid #cde9ff;border-radius:18px;padding:14px}.home-bottom-nav{display:none}
+@media(max-width:768px){.home-desktop-menu{display:none!important}.home-mobile-hero{align-items:flex-start}.home-mobile-logo{height:64px}.home-title{font-size:1.55rem}.home-subtitle{font-size:.9rem}.home-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px}.home-kpi{padding:13px}.home-kpi-value{font-size:1.75rem}.home-action-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.home-action-grid .btn{height:56px;font-size:.94rem;line-height:1.1;white-space:normal}.home-quick-search form{display:grid!important;grid-template-columns:1fr;gap:8px!important}.home-bottom-nav{display:grid;position:fixed;bottom:0;left:0;right:0;z-index:1040;grid-template-columns:repeat(5,1fr);background:#fff;border-top:1px solid #dee2e6;box-shadow:0 -4px 14px rgba(0,0,0,.08);padding:6px 4px}.home-bottom-nav a{color:#415166;text-decoration:none;text-align:center;font-size:.70rem;font-weight:700}.home-bottom-nav i{display:block;font-size:1.25rem;color:#0d6efd}.mobile-card-stack{display:grid;gap:10px}.mobile-card-stack .card{padding:14px}}
+</style>
+
+<div class="home-mobile-hero">
+    {% if logo_url %}<img src="{{ logo_url }}" class="home-mobile-logo" alt="Camar">{% endif %}
+    <div>
+        <h3 class="home-title">Dashboard Gestionale</h3>
+        <p class="home-subtitle">Riepilogo operativo{% if today %} aggiornato al {{ today.strftime('%d/%m/%Y') }}{% endif %}</p>
+    </div>
+</div>
+
+{% if dashboard is defined %}
+<div class="home-kpi-grid mb-3">
+    <div class="home-kpi"><div class="home-kpi-label">Articoli</div><div class="home-kpi-value">{{ dashboard.tot_giacenza }}</div></div>
+    <div class="home-kpi"><div class="home-kpi-label">M²</div><div class="home-kpi-value">{{ dashboard.tot_m2|it_num(2) }}</div></div>
+    <div class="home-kpi"><div class="home-kpi-label">Entrate oggi</div><div class="home-kpi-value">{{ dashboard.entrate_oggi }}</div></div>
+    <div class="home-kpi"><div class="home-kpi-label">Uscite oggi</div><div class="home-kpi-value">{{ dashboard.uscite_oggi }}</div></div>
+    <div class="home-kpi"><div class="home-kpi-label">Doganali</div><div class="home-kpi-value">{{ dashboard.doganali }}</div></div>
+    <div class="home-kpi"><div class="home-kpi-label">Buoni aperti</div><div class="home-kpi-value">{{ dashboard.buoni_aperti }}</div></div>
+    <div class="home-kpi"><div class="home-kpi-label">Buoni creati</div><div class="home-kpi-value">{{ dashboard.buoni_creati }}</div></div>
+    <div class="home-kpi"><div class="home-kpi-label">Buoni usciti</div><div class="home-kpi-value">{{ dashboard.buoni_usciti }}</div></div>
+</div>
+{% endif %}
+
 <div class="row g-3">
-    <div class="col-lg-3">
+    <div class="col-lg-4 home-desktop-menu">
         <div class="card p-3">
             <h6 class="mb-3">Menu Principale</h6>
             <div class="d-grid gap-2">
                 <a class="btn btn-primary" href="{{ url_for('giacenze') }}"><i class="bi bi-grid-3x3-gap-fill"></i> Visualizza Giacenze</a>
                 {% if session.get('role') == 'admin' %}
                 <a class="btn btn-success" href="{{ url_for('nuovo_articolo') }}"><i class="bi bi-plus-circle"></i> Nuovo Articolo</a>
-                {% endif %}
-                {% if session.get('role') == 'admin' %}
                 <a class="btn btn-outline-secondary" href="{{ url_for('labels_form') }}"><i class="bi bi-tag"></i> Stampa Etichette</a>
-                {% endif %}
-                <hr>
-                {% if session.get('role') == 'admin' %}
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('import_excel') }}"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</a>
-                {% endif %}
-                {% if session.get('role') == 'admin' %}
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel Totale</a>
                 {% endif %}
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_client') }}"><i class="bi bi-people"></i> Export per Cliente</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>
-                {% if can_use_buoni_qr() %}
-<a class="btn btn-outline-primary btn-sm" href="{{ url_for('scan_entrata') }}"><i class="bi bi-upc-scan"></i> Scan / Ricerca Entrata</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="card p-3 mb-3">
+            <h5 class="mb-3">Azioni rapide</h5>
+            <div class="home-action-grid">
+                <a class="btn btn-primary" href="{{ url_for('giacenze') }}"><i class="bi bi-box-seam"></i> Giacenze</a>
+                {% if session.get('role') == 'admin' %}<a class="btn btn-success" href="{{ url_for('nuovo_articolo') }}"><i class="bi bi-plus-lg"></i> Nuovo</a>{% endif %}
+                {% if session.get('role') == 'admin' %}<a class="btn btn-dark" href="{{ url_for('import_pdf') }}"><i class="bi bi-file-earmark-pdf"></i> Import PDF</a>{% endif %}
+                {% if session.get('role') == 'admin' %}<a class="btn btn-info text-white" href="{{ url_for('labels_form') }}"><i class="bi bi-tag"></i> Etichette</a>{% endif %}
+                <a class="btn btn-warning" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcoli</a>
+                {% if can_use_buoni_qr() %}<a class="btn btn-outline-primary" href="{{ url_for('scan_entrata') }}"><i class="bi bi-upc-scan"></i> Scan Entrata</a>{% endif %}
+            </div>
+        </div>
+
+        <div class="home-quick-search">
+            <h6 class="mb-2"><i class="bi bi-upc-scan"></i> Ricerca veloce entrata</h6>
+            <form action="{{ url_for('go_scan_entrata') }}" method="post" class="d-flex gap-2">
+                <input name="codice_entrata" class="form-control" placeholder="Scansiona o inserisci codice entrata" autocomplete="off">
+                <button class="btn btn-primary">Apri</button>
+            </form>
+            <div class="form-text">Funziona da PC con lettore barcode e da smartphone con QR.</div>
+        </div>
+    </div>
+</div>
+
+{% if dashboard_clienti is defined %}
+<div class="card p-3 mt-3">
+    <h5 class="mb-2"><i class="bi bi-people-fill text-primary"></i> Giacenza per cliente</h5>
+    <div class="table-responsive">
+        <table class="table table-sm table-striped mb-0">
+            <thead><tr><th>Cliente</th><th class="text-end">Righe</th><th class="text-end">Colli</th><th class="text-end">M²</th><th class="text-end">Peso kg</th></tr></thead>
+            <tbody>{% for r in dashboard_clienti %}<tr><td>{{ r.cliente }}</td><td class="text-end">{{ r.righe }}</td><td class="text-end">{{ r.colli }}</td><td class="text-end">{{ r.m2|it_num(2) }}</td><td class="text-end">{{ r.peso|it_num(2) }}</td></tr>{% endfor %}</tbody>
+        </table>
+    </div>
+</div>
 {% endif %}
-            </div>
-        </div>
-    </div>
-    <div class="col-lg-9">
-        <div class="card p-4">
-            <div class="row g-3 align-items-center">
-                <div class="col-lg-7">
-                    <div class="d-flex align-items-center gap-3">
-                {% if logo_url %}<img src="{{ logo_url }}" style="height:48px">{% endif %}
-                <div>
-                    <h4 class="m-0">Benvenuto nel Gestionale Camar</h4>
-                    <p class="text-muted m-0">Gestione completa di giacenze, DDT, buoni di prelievo e stampa PDF.</p>
-                </div>
-                </div>
-                <div class="col-lg-5">
-                    <div class="border rounded p-3 bg-light">
-                        <h6 class="mb-2"><i class="bi bi-upc-scan"></i> Ricerca veloce entrata</h6>
-                        <form action="{{ url_for('go_scan_entrata') }}" method="post" class="d-flex gap-2">
-                            <input name="codice_entrata" class="form-control" placeholder="Scansiona o inserisci codice entrata">
-                            <button class="btn btn-primary">Apri</button>
-                        </form>
-                        <div class="form-text">Funziona da PC con lettore barcode e da smartphone con QR.</div>
-                        {% if session.get('role') == 'admin' %}<div class="mt-2"><a href="{{ url_for('admin_genera_codici_entrata') }}" class="btn btn-outline-dark btn-sm"><i class="bi bi-arrow-repeat"></i> Genera codici entrata storici</a></div>{% endif %}
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+
+<div class="home-bottom-nav">
+    <a href="{{ url_for('home') }}"><i class="bi bi-house"></i>Home</a>
+    <a href="{{ url_for('giacenze') }}"><i class="bi bi-box-seam"></i>Magazzino</a>
+    {% if can_use_buoni_qr() %}<a href="{{ url_for('scan_entrata') }}"><i class="bi bi-upc-scan"></i>Scan</a>{% else %}<a href="{{ url_for('import_excel') }}"><i class="bi bi-upload"></i>Import</a>{% endif %}
+    <a href="{{ url_for('trasporti') if session.get('role') == 'admin' else url_for('giacenze') }}"><i class="bi bi-truck"></i>Trasporti</a>
+    <a data-bs-toggle="collapse" href="#navbarNav" role="button"><i class="bi bi-list"></i>Menu</a>
 </div>
 {% endblock %}
