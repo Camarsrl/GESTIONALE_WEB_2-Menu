@@ -516,6 +516,39 @@ def register_buono_routes(app_obj, deps):
         base = max_current_year or max_any
         return f"{base + 1:03d}/{yy}"
 
+
+    def _extract_ids_from_request(req_data):
+        """Legge gli ID selezionati anche quando arrivano da più pagine.
+
+        Accetta sia:
+        - ids ripetuti: ids=1&ids=2&ids=3
+        - ids come stringa: ids=1,2,3
+        - selected_ids_all: 1,2,3  (campo robusto aggiunto da giacenze.html)
+        """
+        raw_values = []
+        try:
+            all_ids = (req_data.get('selected_ids_all') or '').strip()
+            if all_ids:
+                raw_values.append(all_ids)
+        except Exception:
+            pass
+        try:
+            raw_values.extend(req_data.getlist('ids'))
+        except Exception:
+            v = req_data.get('ids') if hasattr(req_data, 'get') else ''
+            if v:
+                raw_values.append(v)
+
+        ids = []
+        seen = set()
+        for raw in raw_values:
+            for part in re.split(r'[,;\s]+', str(raw or '')):
+                part = part.strip()
+                if part.isdigit() and part not in seen:
+                    seen.add(part)
+                    ids.append(int(part))
+        return ids
+
     @app.route('/buono/preview', methods=['POST'])
     @login_required
     def buono_preview():
@@ -523,8 +556,7 @@ def register_buono_routes(app_obj, deps):
             flash('Accesso negato.', 'danger')
             return redirect(url_for('giacenze'))
 
-        ids_str_list = request.form.getlist('ids')
-        ids = [int(i) for i in ids_str_list if str(i).isdigit()]
+        ids = _extract_ids_from_request(request.form)
 
         if not ids:
             flash("Seleziona almeno un articolo per creare il buono.", "warning")
@@ -533,6 +565,8 @@ def register_buono_routes(app_obj, deps):
         db = SessionLocal()
         try:
             rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+            ordine_ids = {idv: idx for idx, idv in enumerate(ids)}
+            rows.sort(key=lambda r: ordine_ids.get(getattr(r, 'id_articolo', 0), 999999))
 
             protocolli_trovati = set()
             for r in rows:
@@ -577,8 +611,10 @@ def register_buono_routes(app_obj, deps):
         db = SessionLocal()
         try:
             req_data = request.form
-            ids = [int(i) for i in req_data.get('ids','').split(',') if i.strip().isdigit()]
+            ids = _extract_ids_from_request(req_data)
             rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+            ordine_ids = {idv: idx for idx, idv in enumerate(ids)}
+            rows.sort(key=lambda r: ordine_ids.get(getattr(r, 'id_articolo', 0), 999999))
 
             action = req_data.get('action')
             buono_mode = (req_data.get('buono_mode') or 'auto').strip().lower()
