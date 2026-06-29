@@ -170,47 +170,7 @@
 {% endif %}
     </div>
 
-
-    <div class="mobile-stock-list mobile-only">
-        {% for r in rows %}
-        <div class="mobile-stock-card">
-            <div class="mobile-stock-head">
-                <input type="checkbox" name="ids" value="{{ r.id_articolo }}" class="row-checkbox mt-1">
-                <div class="flex-grow-1">
-                    <div class="d-flex justify-content-between gap-2">
-                        <div class="mobile-stock-code">{{ r.codice_articolo or 'Senza codice' }}</div>
-                        {% if not r.data_uscita and not r.n_ddt_uscita %}
-                        <span class="mobile-stock-badge bg-success-subtle text-success">In giacenza</span>
-                        {% else %}
-                        <span class="mobile-stock-badge bg-danger-subtle text-danger">Uscito</span>
-                        {% endif %}
-                    </div>
-                    <div class="text-muted small mt-1">ID {{ r.id_articolo }}{% if r.descrizione %} · {{ (r.descrizione or '')[:70] }}{% endif %}</div>
-                </div>
-            </div>
-            <div class="mobile-stock-grid">
-                <div class="mobile-stock-field"><div class="mobile-stock-label">Cliente</div><div class="mobile-stock-value">{{ r.cliente or '-' }}</div></div>
-                <div class="mobile-stock-field"><div class="mobile-stock-label">Pezzi</div><div class="mobile-stock-value">{{ r.pezzo or '-' }}</div></div>
-                <div class="mobile-stock-field"><div class="mobile-stock-label">N. Arrivo</div><div class="mobile-stock-value">{{ r.n_arrivo or '-' }}</div></div>
-                <div class="mobile-stock-field"><div class="mobile-stock-label">Magazzino</div><div class="mobile-stock-value">{{ r.magazzino or '-' }}</div></div>
-                <div class="mobile-stock-field"><div class="mobile-stock-label">Data ingresso</div><div class="mobile-stock-value">{{ r.data_ingresso or '-' }}</div></div>
-                <div class="mobile-stock-field"><div class="mobile-stock-label">Peso</div><div class="mobile-stock-value">{{ r.peso|it_num(2) if r.peso else '-' }} kg</div></div>
-            </div>
-            <div class="mobile-stock-actions">
-                {% if session.get('role') == 'admin' %}
-                <a href="{{ url_for('edit_articolo', id=r.id_articolo, return_url=request.full_path) }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-pencil"></i> Modifica</a>
-                {% if not r.data_uscita and not r.n_ddt_uscita %}
-                <a href="{{ url_for('scarico_parziale', id_articolo=r.id_articolo, return_url=request.full_path) }}" class="btn btn-warning btn-sm fw-bold">📤 Scarico</a>
-                {% endif %}
-                {% endif %}
-            </div>
-        </div>
-        {% else %}
-        <div class="card p-3 text-center text-muted">Nessun articolo trovato.</div>
-        {% endfor %}
-    </div>
-
-    <div class="table-responsive shadow-sm giacenze-table-wrap" style="max-height: 65vh;">
+    <div class="table-responsive shadow-sm" style="max-height: 65vh;">
         <table class="table table-striped table-bordered table-hover table-compact mb-0">
             <thead class="sticky-top" style="top:0; z-index:5;">
                 <tr>
@@ -304,16 +264,6 @@
     <div class="text-end mt-2 text-muted small bg-light p-2 border-top fw-bold">
         Totali: Colli {{ total_colli }} | M2 {{ total_m2 }} | Peso {{ total_peso }}
     </div>
-
-    <div class="mobile-action-toolbar mobile-only">
-        {% if session.get('role') == 'admin' %}
-        <button type="submit" formaction="{{ url_for('buono_preview') }}" class="btn btn-outline-dark btn-sm">Buono</button>
-        <button type="submit" formaction="{{ url_for('ddt_preview') }}" class="btn btn-outline-dark btn-sm">DDT</button>
-        <button type="submit" formaction="{{ url_for('scarico_parziale_selezionato') }}" formmethod="post" class="btn btn-warning btn-sm">Scarico</button>
-        <button type="submit" formaction="{{ url_for('bulk_edit') }}" class="btn btn-info btn-sm text-white">Modifica</button>
-        {% endif %}
-    </div>
-
 </form>
 
 <script>
