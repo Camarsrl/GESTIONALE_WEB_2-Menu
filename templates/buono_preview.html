@@ -18,6 +18,7 @@
 
     <form id="buono-form" method="POST" action="{{ url_for('buono_finalize_and_get_pdf') }}">
         <input type="hidden" name="ids" value="{{ ids }}">
+        <input type="hidden" name="selected_ids_all" value="{{ ids }}">
         <input type="hidden" name="action" id="action_field" value="preview">
 
         <div class="row g-3 bg-light p-3 rounded border mb-3">
