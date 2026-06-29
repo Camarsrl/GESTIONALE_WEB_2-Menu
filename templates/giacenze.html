@@ -328,6 +328,17 @@
             alert('Seleziona almeno un articolo.');
             return false;
         }
+
+        // Campo unico e robusto: il server lo legge prima degli ids singoli.
+        let allField = form.querySelector('input[name="selected_ids_all"]');
+        if (!allField) {
+            allField = document.createElement('input');
+            allField.type = 'hidden';
+            allField.name = 'selected_ids_all';
+            allField.setAttribute('data-multipagina', '1');
+            form.appendChild(allField);
+        }
+        allField.value = saved.join(',');
         return true;
     }
 
