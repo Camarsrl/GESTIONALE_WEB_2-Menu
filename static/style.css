@@ -1,0 +1,32 @@
+
+/* ===== Gestionale Camar - Mobile/PWA Restyling ===== */
+:root{--camar-blue:#1f6fb2;--camar-dark:#0f315d;--camar-bg:#f3f6fb;--camar-radius:18px;}
+.camar-app-logo{height:32px;width:auto;margin-right:10px;background:#fff;border-radius:8px;padding:2px;}
+@media (max-width: 768px){
+  html,body{max-width:100%;overflow-x:hidden;background:var(--camar-bg);}
+  body{font-size:15px;padding-bottom:74px;}
+  .navbar{position:sticky;top:0;z-index:1030;padding:8px 10px;box-shadow:0 4px 12px rgba(0,0,0,.14);}
+  .navbar-brand{font-size:1.12rem;font-weight:800;}
+  .camar-app-logo,.navbar-brand img{height:42px!important;max-width:78px;object-fit:contain;background:#fff;border-radius:11px;padding:3px;}
+  .navbar-toggler{border:1px solid rgba(255,255,255,.45);padding:8px 10px;border-radius:12px;}
+  .navbar-collapse{margin-top:10px;background:rgba(0,0,0,.10);border-radius:14px;padding:8px;}
+  .navbar-nav{gap:6px;align-items:stretch!important;}
+  .nav-link{display:block;padding:12px 14px!important;border-radius:12px;background:rgba(255,255,255,.10);font-weight:700;}
+  .nav-link.btn{margin-left:0!important;width:100%;}
+  main.container{width:100%;max-width:100%;margin:0!important;border-radius:0;box-shadow:none;padding:12px!important;min-height:calc(100vh - 120px);}
+  .card{border:0;border-radius:var(--camar-radius)!important;box-shadow:0 5px 18px rgba(15,23,42,.08);}
+  .btn{min-height:44px;border-radius:12px;font-weight:700;}
+  input,select,textarea{font-size:16px!important;border-radius:12px!important;min-height:44px;}
+  .table-responsive{border-radius:16px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  footer{margin-top:10px;padding:10px;font-size:.72rem;}
+  .desktop-only{display:none!important;}
+}
+@media (min-width: 769px){.mobile-only{display:none!important;}}
+
+/* HOME */
+.home-mobile-hero{display:flex;align-items:center;gap:14px;margin-bottom:14px}.home-mobile-logo{height:56px;background:#fff;border-radius:14px;padding:4px;box-shadow:0 3px 10px rgba(0,0,0,.08)}.home-title{font-weight:800;margin:0}.home-subtitle{color:#6c757d;margin:0}.home-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.home-action-grid .btn{height:54px;display:flex;align-items:center;justify-content:center;gap:8px}.home-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.home-kpi{border:0;border-radius:16px;padding:14px 16px;box-shadow:0 4px 14px rgba(0,0,0,.07);background:#fff}.home-kpi-label{font-size:.82rem;color:#6c757d}.home-kpi-value{font-size:1.55rem;font-weight:800;line-height:1.1}.home-quick-search{background:#eef8ff;border:1px solid #cde9ff;border-radius:18px;padding:14px}.home-bottom-nav{display:none}
+@media(max-width:768px){.home-desktop-menu{display:none!important}.home-mobile-hero{align-items:flex-start}.home-mobile-logo{height:64px}.home-title{font-size:1.55rem}.home-subtitle{font-size:.9rem}.home-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px}.home-kpi{padding:13px}.home-kpi-value{font-size:1.75rem}.home-action-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.home-action-grid .btn{height:56px;font-size:.94rem;line-height:1.1;white-space:normal}.home-quick-search form{display:grid!important;grid-template-columns:1fr;gap:8px!important}.home-bottom-nav{display:grid;position:fixed;bottom:0;left:0;right:0;z-index:1040;grid-template-columns:repeat(5,1fr);background:#fff;border-top:1px solid #dee2e6;box-shadow:0 -4px 14px rgba(0,0,0,.08);padding:6px 4px}.home-bottom-nav a{color:#415166;text-decoration:none;text-align:center;font-size:.70rem;font-weight:700}.home-bottom-nav i{display:block;font-size:1.25rem;color:#0d6efd}}
+
+/* GIACENZE MOBILE */
+.mobile-stock-list{display:none}.mobile-stock-card{background:#fff;border-radius:18px;box-shadow:0 4px 14px rgba(15,23,42,.08);padding:13px;margin-bottom:10px;border:1px solid #eef1f5}.mobile-stock-head{display:flex;align-items:flex-start;gap:10px}.mobile-stock-code{font-weight:800;font-size:1rem;line-height:1.2;word-break:break-word}.mobile-stock-badge{font-size:.72rem;border-radius:999px;padding:4px 8px}.mobile-stock-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.mobile-stock-field{background:#f8fafc;border-radius:12px;padding:8px}.mobile-stock-label{font-size:.72rem;color:#6c757d}.mobile-stock-value{font-weight:800;word-break:break-word}.mobile-stock-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.mobile-action-toolbar{display:none}.top-magazzino-actions .input-group{min-width:280px}.add-buono-box{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fff;border:1px solid #dbe4f0;border-radius:12px;padding:8px;margin-bottom:8px}
+@media(max-width:768px){.top-magazzino-actions{display:grid!important;grid-template-columns:1fr 1fr;gap:8px;width:100%}.top-magazzino-actions .btn,.top-magazzino-actions form,.top-magazzino-actions .input-group{width:100%!important;min-width:0}.top-magazzino-actions .input-group{display:grid!important;grid-template-columns:1fr}.top-magazzino-actions .input-group .form-control,.top-magazzino-actions .input-group .btn{width:100%!important;max-width:100%!important}.btn-toolbar{display:grid!important;grid-template-columns:1fr 1fr;gap:8px}.btn-toolbar .btn{width:100%;white-space:normal}.add-buono-box{display:grid;grid-template-columns:1fr;gap:8px}.giacenze-table-wrap{display:none!important}.mobile-stock-list{display:block}.mobile-stock-card input[type=checkbox]{width:24px;height:24px}.mobile-action-toolbar{display:grid;position:fixed;bottom:0;left:0;right:0;z-index:1050;grid-template-columns:repeat(4,1fr);gap:6px;padding:8px;background:#fff;border-top:1px solid #dee2e6;box-shadow:0 -4px 14px rgba(0,0,0,.12)}.mobile-action-toolbar .btn{font-size:.72rem;min-height:48px;padding:6px}.pagination{width:100%;justify-content:space-between}.pagination .page-link{min-height:42px;display:flex;align-items:center}.card-header[data-bs-toggle="collapse"]{min-height:48px;display:flex;align-items:center}}
