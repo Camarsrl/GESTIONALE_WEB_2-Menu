@@ -527,6 +527,13 @@ def register_buono_routes(app_obj, deps):
         """
         raw_values = []
         try:
+            # Campo definitivo inviato da giacenze.html per selezioni su più pagine.
+            ids_all = (req_data.get('ids_all') or '').strip()
+            if ids_all:
+                raw_values.append(ids_all)
+        except Exception:
+            pass
+        try:
             all_ids = (req_data.get('selected_ids_all') or '').strip()
             if all_ids:
                 raw_values.append(all_ids)
