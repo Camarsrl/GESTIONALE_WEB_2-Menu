@@ -306,6 +306,16 @@
         form.querySelectorAll('input[data-multipagina="1"]').forEach(function(x){ x.remove(); });
 
         const saved = getSavedSelection();
+
+        // Campo unico definitivo: la route Buono legge prima ids_all.
+        // Serve per evitare che il browser invii solo le checkbox della pagina corrente.
+        const idsAll = document.createElement('input');
+        idsAll.type = 'hidden';
+        idsAll.name = 'ids_all';
+        idsAll.value = saved.join(',');
+        idsAll.setAttribute('data-multipagina', '1');
+        form.appendChild(idsAll);
+
         const currentInputs = Array.from(form.querySelectorAll('input[name="ids"]'));
         const currentIds = currentInputs.map(function(x){ return x.value; });
 
