@@ -5746,7 +5746,7 @@ templates = {
         'edit.html': EDIT_HTML,  
         
         'bulk_edit.html': BULK_EDIT_HTML,
-        'buono_preview.html': BUONO_PREVIEW_HTML,
+        # 'buono_preview.html': BUONO_PREVIEW_HTML,  # DISATTIVATO: usa templates/buono_preview.html esterno
         'ddt_preview.html': DDT_PREVIEW_HTML,
         'labels_form.html': LABELS_FORM_HTML,
         'accettazione_entrata.html': ACCETTAZIONE_ENTRATA_HTML,
@@ -5776,8 +5776,8 @@ templates = {
 # CONFIGURAZIONE FINALE (SENZA RICREARE L'APP)
 # ========================================================
 app.jinja_loader = ChoiceLoader([
-    DictLoader(templates),
-    FileSystemLoader(str(APP_DIR / 'templates'))
+    FileSystemLoader(str(APP_DIR / 'templates')),
+    DictLoader(templates)
 ])
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.jinja_env.globals['getattr'] = getattr
