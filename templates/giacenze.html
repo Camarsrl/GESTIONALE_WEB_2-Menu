@@ -410,16 +410,31 @@
                 const action = (btn && (btn.getAttribute('formaction') || '')) || '';
 
                 // Applica la selezione multipagina a tutte le azioni principali.
-                const usesSelection = action.includes('buono_preview') ||
-                                      action.includes('ddt_preview') ||
-                                      action.includes('invia_email') ||
-                                      action.includes('bulk_edit') ||
-                                      action.includes('labels_pdf') ||
-                                      action.includes('delete_rows') ||
-                                      action.includes('bulk_duplicate') ||
-                                      action.includes('buono_carico') ||
-                                      action.includes('aggiungi_righe_a_buono_carico') ||
-                                      action.includes('scarico_parziale_selezionato');
+                const actionLower = String(action || '').toLowerCase();
+
+                // IMPORTANTE:
+                // formaction contiene l'URL reale (es. /buono/preview), non il nome endpoint Flask
+                // (es. buono_preview). Per questo controlliamo sia endpoint sia percorsi URL.
+                const usesSelection = actionLower.includes('buono_preview') ||
+                                      actionLower.includes('/buono/preview') ||
+                                      actionLower.includes('ddt_preview') ||
+                                      actionLower.includes('/ddt/preview') ||
+                                      actionLower.includes('invia_email') ||
+                                      actionLower.includes('/invia_email') ||
+                                      actionLower.includes('bulk_edit') ||
+                                      actionLower.includes('/bulk/edit') ||
+                                      actionLower.includes('labels_pdf') ||
+                                      actionLower.includes('/labels') ||
+                                      actionLower.includes('delete_rows') ||
+                                      actionLower.includes('/delete') ||
+                                      actionLower.includes('bulk_duplicate') ||
+                                      actionLower.includes('/bulk/duplicate') ||
+                                      actionLower.includes('buono_carico') ||
+                                      actionLower.includes('/buono_carico') ||
+                                      actionLower.includes('aggiungi_righe_a_buono_carico') ||
+                                      actionLower.includes('/aggiungi_righe_a_buono_carico') ||
+                                      actionLower.includes('scarico_parziale_selezionato') ||
+                                      actionLower.includes('/scarico_parziale_selezionato');
 
                 if (usesSelection) {
                     if (!addSavedIdsToForm(mainForm)) {
