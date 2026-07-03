@@ -127,10 +127,27 @@
         </div>
 
         <div class="card border-warning mb-3">
-            <div class="card-header bg-warning bg-opacity-25">
-                <b>Cartello bancali / picking</b>
-                <div class="small text-muted">
-                    Verrà creato <b>un cartello per ogni riga</b> spuntata nella tabella sotto. Se non vuoi fare il cartello per una riga, togli la spunta.
+            <div class="card-header bg-warning bg-opacity-25 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <b>Cartello bancali / picking</b>
+                    <div class="small text-muted">
+                        Verrà creato <b>un cartello per ogni riga</b> spuntata nella tabella sotto. Se non vuoi fare il cartello per una riga, togli la spunta.
+                    </div>
+                </div>
+                <label class="form-check-label fw-bold">
+                    <input class="form-check-input" type="checkbox" name="cartelli_con_buono" value="1">
+                    Genera cartelli insieme al Buono
+                </label>
+            </div>
+            <div class="card-body py-2">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold">Destinazione generale cartelli</label>
+                        <input name="cartello_destinazione_generale" class="form-control form-control-sm" placeholder="Es. bordo / cantiere / magazzino cliente">
+                    </div>
+                    <div class="col-md-8 small text-muted">
+                        Puoi modificare anche posizione e destinazione su ogni singola riga.
+                    </div>
                 </div>
             </div>
         </div>
@@ -144,13 +161,15 @@
             <table class="table table-sm table-bordered align-middle table-hover">
                 <thead class="table-dark text-black" style="color:black !important;">
                     <tr>
-                        <th style="width:7%">Cartello?</th>
+                        <th style="width:6%">Cartello?</th>
                         <th style="width:7%">N.Pallet</th>
-                        <th style="width:10%">Ordine Orig.</th>
-                        <th style="width:22%">Codice da mettere nel buono</th>
-                        <th style="width:34%">Descrizione da mettere nel buono</th>
-                        <th style="width:8%">Q.tà</th>
-                        <th style="width:10%">N.Arr</th>
+                        <th style="width:8%">Posizione</th>
+                        <th style="width:10%">Destinazione</th>
+                        <th style="width:8%">Ordine Orig.</th>
+                        <th style="width:20%">Codice da mettere nel buono</th>
+                        <th style="width:28%">Descrizione da mettere nel buono</th>
+                        <th style="width:6%">Q.tà</th>
+                        <th style="width:7%">N.Arr</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -167,6 +186,14 @@
                                    title="Numero pallet per questa riga/cartello">
                             <input type="hidden" name="cartello_cliente_{{ r.id_articolo }}" value="{{ r.cliente or '' }}">
                             <input type="hidden" name="cartello_ditta_{{ r.id_articolo }}" value="{{ r.fornitore or '' }}">
+                        </td>
+                        <td>
+                            <input name="cartello_posizione_{{ r.id_articolo }}" class="form-control form-control-sm"
+                                   value="{{ r.posizione or '' }}" placeholder="Posizione">
+                        </td>
+                        <td>
+                            <input name="cartello_destinazione_{{ r.id_articolo }}" class="form-control form-control-sm"
+                                   placeholder="Destinazione">
                         </td>
                         <td class="small">{{ r.ordine or '' }}</td>
                         <td>
@@ -194,8 +221,8 @@
                         <td class="small text-center">{{ r.n_arrivo or '' }}</td>
                     </tr>
                     <tr>
-                        <td colspan="4" class="text-end small text-muted align-middle" style="border-top:none;">Note:</td>
-                        <td colspan="3" style="border-top:none;">
+                        <td colspan="5" class="text-end small text-muted align-middle" style="border-top:none;">Note:</td>
+                        <td colspan="4" style="border-top:none;">
                             <textarea class="form-control form-control-sm border-0 bg-white text-primary"
                                       name="note_{{ r.id_articolo }}" rows="1"
                                       placeholder="Inserisci note aggiuntive...">{{ r.note or '' }}</textarea>
@@ -237,21 +264,29 @@ function submitBuono(actionType) {
         const url = "{{ url_for('buono_finalize_and_get_pdf') }}"; 
         
         fetch(url, { method: 'POST', body: formData })
-        .then(resp => {
-            if (resp.ok) return resp.blob();
-            return resp.text().then(text => { throw new Error(text) });
+        .then(async resp => {
+            if (!resp.ok) {
+                const text = await resp.text();
+                throw new Error(text);
+            }
+            const disposition = resp.headers.get('Content-Disposition') || '';
+            let filename = 'Buono_Prelievo.pdf';
+            const match = disposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
+            if (match && match[1]) filename = decodeURIComponent(match[1].replace(/\"/g, '').trim());
+            const blob = await resp.blob();
+            return {blob, filename};
         })
-        .then(blob => {
+        .then(({blob, filename}) => {
             const urlBlob = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = urlBlob;
-            a.download = 'Buono_Prelievo.pdf';
+            a.download = filename;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(urlBlob);
             setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1500);
         })
-        .catch(err => alert("Errore durante il salvataggio:\\n" + err));
+        .catch(err => alert("Errore durante il salvataggio:\n" + err));
     }
 }
 </script>
