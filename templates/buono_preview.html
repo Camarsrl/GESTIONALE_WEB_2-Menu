@@ -12,6 +12,9 @@
             <button type="button" class="btn btn-success fw-bold" onclick="submitBuono('save')">
                 <i class="bi bi-file-earmark-arrow-down"></i> Genera e Salva
             </button>
+            <button type="button" class="btn btn-warning fw-bold" onclick="submitBuono('cartello')">
+                <i class="bi bi-printer"></i> Cartello Bancali
+            </button>
             <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
         </div>
     </div>
@@ -123,6 +126,37 @@
             </div>
         </div>
 
+        <div class="card border-warning mb-3">
+            <div class="card-header bg-warning bg-opacity-25">
+                <b>Cartello bancali / picking</b>
+                <div class="small text-muted">Funziona per tutti i clienti. Il titolo del cartello si adatta al cliente indicato.</div>
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">Cliente</label>
+                        <input name="cartello_cliente" class="form-control fw-bold" value="{{ meta.cartello_cliente }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">Ditta / Fornitore</label>
+                        <input name="cartello_ditta" class="form-control" value="{{ meta.cartello_ditta }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">N. Pallet</label>
+                        <input name="cartello_n_pallet" type="number" class="form-control fw-bold" value="{{ meta.cartello_n_pallet }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">N. Pezzi</label>
+                        <input name="cartello_n_pezzi" type="number" class="form-control fw-bold" value="{{ meta.cartello_n_pezzi }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Marca pezzi</label>
+                        <input name="cartello_marca_pezzi" class="form-control" value="{{ meta.cartello_marca_pezzi }}">
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="alert alert-warning py-2 small">
             <b>Scarico parziale:</b> se nella cella ci sono più codici/descrizioni, lascia nei campi sotto solo il codice e la descrizione che vuoi mettere nel buono.
             Quando premi <b>Genera e Salva</b>, quel codice/descrizione verrà tolto dalla riga originale e resterà in giacenza solo il residuo.
@@ -202,7 +236,7 @@ function submitBuono(actionType) {
     const form = document.getElementById('buono-form');
     document.getElementById('action_field').value = actionType;
 
-    if (actionType === 'preview') {
+    if (actionType === 'preview' || actionType === 'cartello') {
         form.target = '_blank';
         form.submit();
     } else {
