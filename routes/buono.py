@@ -539,55 +539,137 @@ def register_buono_routes(app_obj, deps):
         return str(round(tot, 2)).replace('.', ',')
 
     def _generate_cartello_fincantieri_pdf(form, rows, buono_n):
-        """Genera il cartello bancali FINCANTIERI in PDF A4 verticale."""
+        """Genera un PDF multipagina: 1 cartello per ogni riga spuntata."""
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.utils import ImageReader
         import io as _io
         import os as _os
+        import textwrap as _textwrap
 
         bio = _io.BytesIO()
         c = canvas.Canvas(bio, pagesize=A4)
         width, height = A4
 
-        ditta = _safe_text(form.get('cartello_ditta')) or _first_nonempty(rows, 'fornitore')
-        marca_pezzi = _safe_text(form.get('cartello_marca_pezzi'))
-        protocollo = _safe_text(form.get('protocollo')) or _first_nonempty(rows, 'protocollo')
-        arrivo = _safe_text(form.get('picking_n_arrivo')) or _first_nonempty(rows, 'n_arrivo')
-        n_pallet = _safe_text(form.get('cartello_n_pallet')) or _safe_text(form.get('picking_pallet_usciti'))
-        n_pezzi = _safe_text(form.get('cartello_n_pezzi')) or _sum_pezzi_rows(rows)
         bn = _safe_text(buono_n) or _safe_text(form.get('buono_n'))
 
-        # Logo in alto, se presente.
+        selected_ids = set()
         try:
-            logo_path = globals().get('LOGO_PATH')
-            if logo_path and _os.path.exists(logo_path):
-                img = ImageReader(logo_path)
-                c.drawImage(img, width/2 - 80, height - 95, width=160, height=55, preserveAspectRatio=True, mask='auto')
+            selected_ids = {str(x).strip() for x in form.getlist('cartello_id') if str(x).strip()}
         except Exception:
-            pass
+            selected_ids = set()
 
-        y = height - 155
-        c.setFont('Helvetica-Bold', 32)
-        c.drawCentredString(width/2, y, 'FINCANTIERI PICKING')
-        y -= 70
+        selected_rows = []
+        for r in rows or []:
+            rid = str(getattr(r, 'id_articolo', '') or '').strip()
+            if not selected_ids or rid in selected_ids:
+                selected_rows.append(r)
 
-        def line(label, value='', bold_label=True, size=34):
-            nonlocal y
-            c.setFont('Helvetica-Bold' if bold_label else 'Helvetica', size)
-            text = f"{label}{value}" if value else f"{label}"
-            c.drawString(35, y, text[:70])
-            y -= 70
+        def draw_wrapped(value, x, y, max_chars=38, size=30, bold=False, max_lines=3):
+            value = _safe_text(value)
+            if not value:
+                return y
+            font = 'Helvetica-Bold' if bold else 'Helvetica'
+            c.setFont(font, size)
+            lines = _textwrap.wrap(value, width=max_chars) or [value]
+            for line in lines[:max_lines]:
+                c.drawString(x, y, line)
+                y -= size + 8
+            return y
 
-        line('DITTA :', ditta, True, 34)
-        line('N.BUONO:', bn, True, 34)
-        line('MARCA PEZZI:', marca_pezzi, True, 34)
-        line('PROTOCOLLO:', protocollo, False, 32)
-        line('ARRIVO ', arrivo, False, 34)
-        line('N.PALLET:', n_pallet, True, 34)
-        line('N. PEZZI:', n_pezzi, True, 34)
+        if not selected_rows:
+            c.setFont('Helvetica-Bold', 24)
+            c.drawCentredString(width / 2, height / 2, 'Nessun cartello selezionato')
+            c.showPage()
+            c.save()
+            bio.seek(0)
+            return bio
 
-        c.showPage()
+        total = len(selected_rows)
+
+        for idx, r in enumerate(selected_rows, start=1):
+            rid = getattr(r, 'id_articolo', None)
+
+            cliente = (
+                _safe_text(form.get(f'cartello_cliente_{rid}'))
+                or _safe_text(getattr(r, 'cliente', ''))
+                or _safe_text(form.get('picking_cliente'))
+            )
+            ditta = (
+                _safe_text(form.get(f'cartello_ditta_{rid}'))
+                or _safe_text(getattr(r, 'fornitore', ''))
+                or _safe_text(form.get('fornitore'))
+            )
+            marca_pezzi = (
+                _safe_text(form.get(f'codice_buono_{rid}'))
+                or _safe_text(getattr(r, 'codice_articolo', ''))
+            )
+            descrizione = (
+                _safe_text(form.get(f'descrizione_buono_{rid}'))
+                or _safe_text(getattr(r, 'descrizione', ''))
+            )
+            protocollo = _safe_text(getattr(r, 'protocollo', '')) or _safe_text(form.get('protocollo'))
+            arrivo = _safe_text(getattr(r, 'n_arrivo', ''))
+            n_pallet = _safe_text(form.get(f'cartello_n_pallet_{rid}')) or str(idx)
+            posizione = _safe_text(form.get(f'cartello_posizione_{rid}')) or _safe_text(getattr(r, 'posizione', ''))
+            destinazione = _safe_text(form.get(f'cartello_destinazione_{rid}'))
+            n_pezzi = _safe_text(form.get(f'q_{rid}')) or _safe_text(getattr(r, 'pezzo', ''))
+
+            titolo_cliente = cliente.upper() if cliente else 'FINCANTIERI'
+            titolo = f"{titolo_cliente} PICKING"
+
+            try:
+                logo_path = globals().get('LOGO_PATH')
+                if logo_path and _os.path.exists(logo_path):
+                    img = ImageReader(logo_path)
+                    c.drawImage(img, width / 2 - 80, height - 95, width=160, height=55,
+                                preserveAspectRatio=True, mask='auto')
+            except Exception:
+                pass
+
+            y = height - 155
+            c.setFont('Helvetica-Bold', 30)
+            c.drawCentredString(width / 2, y, titolo[:34])
+            y -= 62
+
+            def line(label, value='', size=31, bold_value=True, max_chars=34, max_lines=2):
+                nonlocal y
+                label = _safe_text(label)
+                value = _safe_text(value)
+                c.setFont('Helvetica-Bold', size)
+                c.drawString(35, y, label)
+                x_val = 35 + c.stringWidth(label, 'Helvetica-Bold', size) + 8
+                if value:
+                    y_after = draw_wrapped(
+                        value, x_val, y,
+                        max_chars=max_chars,
+                        size=size,
+                        bold=bold_value,
+                        max_lines=max_lines
+                    )
+                    y = min(y - 58, y_after - 12)
+                else:
+                    y -= 58
+
+            line('DITTA :', ditta, 31, True, 32, 2)
+            line('N.BUONO:', bn, 31, True, 30, 1)
+            line('MARCA PEZZI:', marca_pezzi, 28, True, 30, 3)
+            line('DESCRIZIONE:', descrizione, 24, False, 38, 2)
+            line('PROTOCOLLO:', protocollo, 26, False, 36, 2)
+            line('ARRIVO ', arrivo, 31, False, 30, 1)
+            line('N.PALLET:', n_pallet, 31, True, 18, 1)
+            line('N. PEZZI:', n_pezzi, 31, True, 18, 1)
+
+            if posizione:
+                line('POSIZIONE:', posizione, 24, True, 34, 1)
+            if destinazione:
+                line('DESTINAZIONE:', destinazione, 24, True, 30, 1)
+
+            c.setFont('Helvetica-Bold', 18)
+            c.drawCentredString(width / 2, 45, f'CARTELLO {idx} DI {total}')
+
+            c.showPage()
+
         c.save()
         bio.seek(0)
         return bio
