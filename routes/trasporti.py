@@ -45,6 +45,36 @@ def register_trasporti_routes(app_obj, deps):
 
     _ensure_trasporti_schema_safe()
 
+    def _safe_date_ymd_local(value):
+        s = str(value or '').strip()
+        if not s:
+            return None
+        for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y'):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except Exception:
+                pass
+        try:
+            return to_date_db(s)
+        except Exception:
+            return None
+
+    def _safe_float_it_local(value):
+        if value is None or value == '':
+            return None
+        try:
+            if isinstance(value, (int, float)):
+                return float(value)
+            s = str(value).strip()
+            if not s:
+                return None
+            # 1.234,56 -> 1234.56 ; 1234,56 -> 1234.56
+            if ',' in s:
+                s = s.replace('.', '').replace(',', '.')
+            return float(s)
+        except Exception:
+            return None
+
     def _as_date_safe(v):
         try:
             d = parse_any_date(v)
@@ -227,10 +257,10 @@ def register_trasporti_routes(app_obj, deps):
             filtri['mese'] = mese_attivo
             filtri['view'] = vista_mese
 
-            data_da = _safe_date_ymd(filtri['data_da'])
-            data_a = _safe_date_ymd(filtri['data_a'])
-            costo_da = _safe_float_it(filtri['costo_da'])
-            costo_a = _safe_float_it(filtri['costo_a'])
+            data_da = _safe_date_ymd_local(filtri['data_da'])
+            data_a = _safe_date_ymd_local(filtri['data_a'])
+            costo_da = _safe_float_it_local(filtri['costo_da'])
+            costo_a = _safe_float_it_local(filtri['costo_a'])
 
             # Evita nullslast(): in alcuni ambienti può generare errore.
             dati = db.query(Trasporto).order_by(Trasporto.id.desc()).all()
@@ -256,7 +286,7 @@ def register_trasporti_routes(app_obj, deps):
                     continue
                 if not _match_txt(rec.consolidato, filtri['consolidato']):
                     continue
-                costo_val = _safe_float_it(rec.costo)
+                costo_val = _safe_float_it_local(rec.costo)
                 if costo_da is not None and (costo_val is None or costo_val < costo_da):
                     continue
                 if costo_a is not None and (costo_val is None or costo_val > costo_a):
@@ -287,7 +317,7 @@ def register_trasporti_routes(app_obj, deps):
             db.close()
 
 
-    @app.route('/report_trasporti', methods=['POST'])
+    @app.route('/report_trasporti', methods=['GET', 'POST'])
     @login_required
     def report_trasporti():
         if session.get('role') != 'admin':
@@ -298,11 +328,19 @@ def register_trasporti_routes(app_obj, deps):
         from openpyxl.styles import Font, Alignment, PatternFill
         from openpyxl.utils import get_column_letter
 
-        mese = (request.form.get('mese') or '').strip()
-        mezzo = (request.form.get('tipo_mezzo') or '').strip()
-        cliente = (request.form.get('cliente') or '').strip()
-        ddt_uscita = (request.form.get('ddt_uscita') or '').strip()
-        consolidato = (request.form.get('consolidato') or '').strip()
+        # Accetta sia POST dal bottone sia GET, così l'Excel si genera anche se il template cambia metodo.
+        req = request.values
+        mese = (req.get('mese') or '').strip()
+        mezzo = (req.get('tipo_mezzo') or '').strip()
+        cliente = (req.get('cliente') or '').strip()
+        trasportatore = (req.get('trasportatore') or '').strip()
+        ddt_uscita = (req.get('ddt_uscita') or '').strip()
+        magazzino = (req.get('magazzino') or '').strip()
+        consolidato = (req.get('consolidato') or '').strip()
+        data_da = _safe_date_ymd_local(req.get('data_da'))
+        data_a = _safe_date_ymd_local(req.get('data_a'))
+        costo_da = _safe_float_it_local(req.get('costo_da'))
+        costo_a = _safe_float_it_local(req.get('costo_a'))
 
         db = SessionLocal()
         try:
@@ -322,13 +360,26 @@ def register_trasporti_routes(app_obj, deps):
                 d_val = _as_date_safe(getattr(t, "data", None))
                 if mese_start and (not d_val or d_val < mese_start or d_val >= mese_end):
                     continue
+                if data_da and (not d_val or d_val < data_da):
+                    continue
+                if data_a and (not d_val or d_val > data_a):
+                    continue
                 if mezzo and not _match_txt(t.tipo_mezzo, mezzo):
                     continue
                 if cliente and not _match_txt(t.cliente, cliente):
                     continue
+                if trasportatore and not _match_txt(t.trasportatore, trasportatore):
+                    continue
                 if ddt_uscita and not _match_txt(t.ddt_uscita, ddt_uscita):
                     continue
+                if magazzino and not _match_txt(t.magazzino, magazzino):
+                    continue
                 if consolidato and not _match_txt(t.consolidato, consolidato):
+                    continue
+                costo_val_filter = _safe_float_it_local(getattr(t, 'costo', None))
+                if costo_da is not None and (costo_val_filter is None or costo_val_filter < costo_da):
+                    continue
+                if costo_a is not None and (costo_val_filter is None or costo_val_filter > costo_a):
                     continue
                 dati.append(t)
 
@@ -350,7 +401,7 @@ def register_trasporti_routes(app_obj, deps):
 
             ws["A3"] = "Filtri:"
             ws["A3"].font = bold
-            ws["B3"] = f"Mese={mese or 'Tutti'} | Cliente={cliente or 'Tutti'} | Mezzo={mezzo or 'Tutti'} | DDT={ddt_uscita or 'Tutti'} | Consolidato={consolidato or 'Tutti'}"
+            ws["B3"] = f"Mese={mese or 'Tutti'} | Cliente={cliente or 'Tutti'} | Mezzo={mezzo or 'Tutti'} | Trasportatore={trasportatore or 'Tutti'} | DDT={ddt_uscita or 'Tutti'} | Magazzino={magazzino or 'Tutti'} | Consolidato={consolidato or 'Tutti'}"
             ws.merge_cells("B3:H3")
 
             headers = ["Data", "Mezzo", "Cliente", "Trasportatore", "DDT", "Magazzino", "Consolidato", "Costo (€)"]
@@ -365,7 +416,7 @@ def register_trasporti_routes(app_obj, deps):
             totale = 0.0
 
             for t in dati:
-                costo_val = float(t.costo or 0.0)
+                costo_val = _safe_float_it_local(getattr(t, 'costo', None)) or 0.0
                 totale += costo_val
 
                 ws.cell(riga, 1, _fmt_date_safe(t.data)).alignment = center
