@@ -3197,8 +3197,139 @@ def register_camy_ai_routes(app_obj, deps):
             return "<br><hr>".join(blocks)
         return None
 
+
+    # ============================================================
+    # MEMORIA OPERATIVA CAMY
+    # Tiene traccia dell'ultimo riferimento usato nella chat, così CAMY
+    # può capire frasi come "fammi il buono", "crea il DDT" o "mostrami la foto"
+    # riferite all'ultimo arrivo/buono/codice cercato.
+    # ============================================================
+    def _camy_memory_get():
+        try:
+            mem = session.get("camy_memory") or {}
+            if not isinstance(mem, dict):
+                return {}
+            return dict(mem)
+        except Exception:
+            return {}
+
+    def _camy_memory_save(mem):
+        try:
+            mem = dict(mem or {})
+            mem["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            session["camy_memory"] = mem
+            session.modified = True
+        except Exception:
+            pass
+
+    def _camy_extract_context(msg):
+        """Estrae riferimenti operativi dalla frase dell'utente."""
+        ctx = {}
+        s = msg or ""
+        patterns = [
+            ("last_buono", r"\b(?:n\.?\s*)?buono(?:\s+di\s+prelievo)?\s*[:#\-]?\s*([A-Z0-9][A-Z0-9./_\-]{1,50})"),
+            ("last_arrivo", r"\b(?:n\.?\s*)?arrivo\s*[:#\-]?\s*([A-Z0-9][A-Z0-9./_\-]{1,50})"),
+            ("last_ddt", r"\bddt\s*[:#\-]?\s*([A-Z0-9][A-Z0-9./_\-]{1,50})"),
+            ("last_codice", r"\b(?:codice|marca\s+pezzo)\s*[:#\-]?\s*([A-Z0-9][A-Z0-9.*#/\\_\-]{1,60})"),
+            ("last_protocollo", r"\b(?:protocollo|prot\.?)\s*[:#\-]?\s*([A-Z0-9][A-Z0-9./_\-]{3,60})"),
+            ("last_id", r"\bID\s*[:#\-]?\s*(\d{1,12})\b"),
+        ]
+        stop = {"ARRIVO", "CODICE", "BUONO", "DDT", "ID", "QUESTO", "QUESTA", "QUELLO", "QUELLA"}
+        for key, pat in patterns:
+            m = re.search(pat, s, re.I)
+            if m:
+                val = (m.group(1) or "").strip().strip(".,;:")
+                if val and val.upper() not in stop:
+                    ctx[key] = val
+        try:
+            clienti = get_clienti_utenti()
+        except Exception:
+            clienti = []
+        msg_norm = _norm(s)
+        for cli in sorted(clienti, key=lambda x: len(_norm(x)), reverse=True):
+            if _norm(cli) and _norm(cli) in msg_norm:
+                ctx["last_cliente"] = cli
+                break
+        return ctx
+
+    def _camy_has_explicit_reference(msg):
+        ctx = _camy_extract_context(msg)
+        return any(ctx.get(k) for k in ("last_buono", "last_arrivo", "last_ddt", "last_codice", "last_protocollo", "last_id", "last_cliente"))
+
+    def _camy_resolve_message_with_memory(msg):
+        """Aggiunge il riferimento precedente quando la frase è contestuale."""
+        original = msg or ""
+        low = original.lower()
+        mem = _camy_memory_get()
+        if not mem or _camy_has_explicit_reference(original):
+            return original, ""
+
+        contextual_words = [
+            "questo", "questa", "quello", "quella", "stesso", "stessa", "precedente",
+            "ultimo", "ultima", "fallo", "falla", "fammi", "crealo", "creala", "preparalo", "preparala",
+            "mandalo", "mandala", "da li", "da lì", "di quello", "di questa", "di questo"
+        ]
+        looks_contextual = any(w in low for w in contextual_words)
+
+        # Frasi pratiche molto usate: "fammi il buono", "crea il ddt", "mostrami foto".
+        if "buono" in low and any(w in low for w in ["fammi", "fai", "crea", "prepara", "genera"]):
+            if mem.get("last_arrivo"):
+                return original + f" arrivo {mem['last_arrivo']}", f"arrivo {mem['last_arrivo']}"
+            if mem.get("last_codice"):
+                return original + f" codice {mem['last_codice']}", f"codice {mem['last_codice']}"
+
+        if "ddt" in low and any(w in low for w in ["fammi", "fai", "crea", "prepara", "genera"]):
+            if mem.get("last_buono"):
+                return original + f" dal buono {mem['last_buono']}", f"buono {mem['last_buono']}"
+            if mem.get("last_arrivo"):
+                return original + f" arrivo {mem['last_arrivo']}", f"arrivo {mem['last_arrivo']}"
+
+        if ("foto" in low or "pdf" in low or "documento" in low) and mem.get("last_arrivo"):
+            return original + f" arrivo {mem['last_arrivo']}", f"arrivo {mem['last_arrivo']}"
+
+        if "scarico" in low and "parziale" in low and mem.get("last_id"):
+            return original + f" ID {mem['last_id']}", f"ID {mem['last_id']}"
+
+        if "picking" in low and mem.get("last_buono"):
+            return original + f" buono {mem['last_buono']}", f"buono {mem['last_buono']}"
+
+        if looks_contextual:
+            if mem.get("last_arrivo"):
+                return original + f" arrivo {mem['last_arrivo']}", f"arrivo {mem['last_arrivo']}"
+            if mem.get("last_buono"):
+                return original + f" buono {mem['last_buono']}", f"buono {mem['last_buono']}"
+            if mem.get("last_codice"):
+                return original + f" codice {mem['last_codice']}", f"codice {mem['last_codice']}"
+        return original, ""
+
+    def _camy_update_memory_from_message(msg, filters=None):
+        mem = _camy_memory_get()
+        ctx = _camy_extract_context(msg)
+        filters = filters or {}
+        if filters.get("cliente"):
+            ctx["last_cliente"] = filters.get("cliente")
+        if filters.get("n_arrivo"):
+            ctx["last_arrivo"] = filters.get("n_arrivo")
+        if filters.get("codice_articolo"):
+            ctx["last_codice"] = filters.get("codice_articolo")
+        if filters.get("ddt"):
+            ctx["last_ddt"] = filters.get("ddt")
+        if ctx:
+            mem.update(ctx)
+            mem["last_message"] = (msg or "")[:300]
+            _camy_memory_save(mem)
+        return mem
+
+    def _camy_context_note(used_context):
+        if not used_context:
+            return ""
+        return f"<div class='small text-muted mt-2'>🧠 Ho usato il riferimento precedente: <b>{_esc(used_context)}</b>.</div>"
+
     def _process_camy_message(db, msg):
+        original_msg = msg or ""
+        msg, used_context = _camy_resolve_message_with_memory(original_msg)
         low = (msg or "").lower()
+        _camy_update_memory_from_message(msg)
 
         # ============================================================
         # CAMY BRAIN - livello decisionale centrale
@@ -3346,7 +3477,11 @@ def register_camy_ai_routes(app_obj, deps):
         if q:
             db = SessionLocal()
             try:
-                initial_answer, _, _ = _process_camy_message(db, q)
+                initial_answer, _, filters = _process_camy_message(db, q)
+                try:
+                    _camy_update_memory_from_message(q, filters if isinstance(filters, dict) else {})
+                except Exception:
+                    pass
             except Exception as e:
                 try:
                     scrivi_log_errore("Errore CAMY AI GET", e)
@@ -3375,7 +3510,11 @@ def register_camy_ai_routes(app_obj, deps):
         db = SessionLocal()
         try:
             answer, is_html, filters = _process_camy_message(db, msg)
-            return jsonify({"answer": answer, "html": is_html, "filters": filters})
+            try:
+                _camy_update_memory_from_message(msg, filters if isinstance(filters, dict) else {})
+            except Exception:
+                pass
+            return jsonify({"answer": answer, "html": is_html, "filters": filters, "memory": _camy_memory_get()})
         except Exception as e:
             try:
                 scrivi_log_errore("Errore CAMY AI", e)
