@@ -125,14 +125,14 @@ def decide_camy_intent(message):
         return {"action": "accettazione_entrata", "target": target, "confidence": 0.96, "raw": raw}
 
     # DDT
-    if "ddt" in low and _has_any(low, ["crea", "prepara", "genera"]):
+    if "ddt" in low and _has_any(low, ["crea", "prepara", "genera", "fammi", "fai", "fallo"]):
         return {"action": "prepare_ddt", "target": target, "confidence": 0.97, "raw": raw}
 
     # Buoni: distingue apertura da creazione
     if "buono" in low:
         if _has_any(low, ["aggiungi", "metti", "inserisci"]) and _has_any(low, ["al buono", "nel buono", "a buono"]):
             return {"action": "add_to_buono", "target": target, "confidence": 0.97, "raw": raw}
-        if _has_any(low, ["prepara", "crea", "genera", "assegna"]) and not _has_any(low, ["vedi", "vedere", "mostra", "apri", "aprire"]):
+        if _has_any(low, ["prepara", "crea", "genera", "assegna", "fammi", "fai", "fallo"]) and not _has_any(low, ["vedi", "vedere", "mostra", "apri", "aprire"]):
             return {"action": "prepare_buono", "target": target, "confidence": 0.97, "raw": raw}
         if _has_any(low, view_words) or target:
             return {"action": "open_buono", "target": target, "confidence": 0.98, "raw": raw}
@@ -148,6 +148,16 @@ def decide_camy_intent(message):
     # Scarico parziale
     if _has_any(low, ["scarico parziale", "scarica parziale"]):
         return {"action": "scarico_parziale", "target": target, "confidence": 0.96, "raw": raw}
+
+
+    # Comandi contestuali: CAMY AI aggiungerà il riferimento precedente dalla memoria operativa.
+    if _has_any(low, ["fallo", "falla", "fammi", "fai", "preparalo", "crealo", "creala"]):
+        if "buono" in low:
+            return {"action": "prepare_buono", "target": target, "confidence": 0.88, "raw": raw}
+        if "ddt" in low:
+            return {"action": "prepare_ddt", "target": target, "confidence": 0.88, "raw": raw}
+        if "scarico" in low:
+            return {"action": "scarico_parziale", "target": target, "confidence": 0.86, "raw": raw}
 
     # Ricerca globale se c'è un riferimento operativo e parole generiche
     if target and (_has_any(low, view_words) or _has_any(low, ["dove", "quale", "quali", "trova", "cerca"])):
