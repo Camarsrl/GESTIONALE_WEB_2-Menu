@@ -538,56 +538,131 @@ def register_buono_routes(app_obj, deps):
             return str(int(tot)) if tot else ''
         return str(round(tot, 2)).replace('.', ',')
 
-    def _generate_cartello_fincantieri_pdf(form, rows, buono_n):
-        """Genera il cartello bancali FINCANTIERI in PDF A4 verticale."""
+    def _wrap_text_canvas(c, text, x, y, max_width, font_name='Helvetica', font_size=30, leading=36, max_lines=3):
+        """Scrive testo grande andando a capo senza uscire dal foglio."""
+        text = str(text or '').strip()
+        if not text:
+            return y
+        words = text.split()
+        lines = []
+        cur = ''
+        for w in words:
+            test = (cur + ' ' + w).strip()
+            if c.stringWidth(test, font_name, font_size) <= max_width:
+                cur = test
+            else:
+                if cur:
+                    lines.append(cur)
+                cur = w
+        if cur:
+            lines.append(cur)
+        lines = lines[:max_lines]
+        c.setFont(font_name, font_size)
+        for line in lines:
+            c.drawString(x, y, line)
+            y -= leading
+        return y
+
+    def _generate_cartello_bancali_pdf(form, rows, buono_n):
+        """Genera un PDF A4 con 1 cartello per ogni riga selezionata/spuntata."""
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.utils import ImageReader
         import io as _io
         import os as _os
 
+        selected_cartelli = set()
+        try:
+            selected_cartelli = {str(x).strip() for x in form.getlist('cartello_id') if str(x).strip()}
+        except Exception:
+            selected_cartelli = set()
+
+        if not selected_cartelli:
+            selected_cartelli = {str(getattr(r, 'id_articolo', '')) for r in rows or [] if getattr(r, 'id_articolo', None)}
+
+        selected_rows = [
+            r for r in (rows or [])
+            if str(getattr(r, 'id_articolo', '')).strip() in selected_cartelli
+        ]
+
         bio = _io.BytesIO()
         c = canvas.Canvas(bio, pagesize=A4)
         width, height = A4
+        logo_path = globals().get('LOGO_PATH')
 
-        ditta = _safe_text(form.get('cartello_ditta')) or _first_nonempty(rows, 'fornitore')
-        marca_pezzi = _safe_text(form.get('cartello_marca_pezzi'))
-        protocollo = _safe_text(form.get('protocollo')) or _first_nonempty(rows, 'protocollo')
-        arrivo = _safe_text(form.get('picking_n_arrivo')) or _first_nonempty(rows, 'n_arrivo')
-        n_pallet = _safe_text(form.get('cartello_n_pallet')) or _safe_text(form.get('picking_pallet_usciti'))
-        n_pezzi = _safe_text(form.get('cartello_n_pezzi')) or _sum_pezzi_rows(rows)
+        if not selected_rows:
+            c.setFont('Helvetica-Bold', 22)
+            c.drawCentredString(width / 2, height / 2, 'Nessun cartello selezionato')
+            c.showPage()
+            c.save()
+            bio.seek(0)
+            return bio
+
         bn = _safe_text(buono_n) or _safe_text(form.get('buono_n'))
 
-        # Logo in alto, se presente.
-        try:
-            logo_path = globals().get('LOGO_PATH')
-            if logo_path and _os.path.exists(logo_path):
-                img = ImageReader(logo_path)
-                c.drawImage(img, width/2 - 80, height - 95, width=160, height=55, preserveAspectRatio=True, mask='auto')
-        except Exception:
-            pass
+        for r in selected_rows:
+            rid = getattr(r, 'id_articolo', None)
+            cliente = (
+                _safe_text(form.get(f'cartello_cliente_{rid}'))
+                or _safe_text(getattr(r, 'cliente', ''))
+                or _safe_text(form.get('picking_cliente'))
+            )
+            ditta = (
+                _safe_text(form.get(f'cartello_ditta_{rid}'))
+                or _safe_text(getattr(r, 'fornitore', ''))
+                or _safe_text(form.get('fornitore'))
+            )
+            marca_pezzi = (
+                _safe_text(form.get(f'codice_buono_{rid}'))
+                or _safe_text(getattr(r, 'codice_articolo', ''))
+            )
+            protocollo = _safe_text(getattr(r, 'protocollo', '')) or _safe_text(form.get('protocollo'))
+            arrivo = _safe_text(getattr(r, 'n_arrivo', ''))
+            n_pallet = _safe_text(form.get(f'cartello_n_pallet_{rid}')) or '1'
+            n_pezzi = _safe_text(form.get(f'q_{rid}')) or _safe_text(getattr(r, 'pezzo', ''))
 
-        y = height - 155
-        c.setFont('Helvetica-Bold', 32)
-        c.drawCentredString(width/2, y, 'FINCANTIERI PICKING')
-        y -= 70
+            titolo_cliente = cliente.upper() if cliente else ''
+            titolo = f"{titolo_cliente} PICKING" if titolo_cliente else "CARTELLO PICKING"
 
-        def line(label, value='', bold_label=True, size=34):
-            nonlocal y
-            c.setFont('Helvetica-Bold' if bold_label else 'Helvetica', size)
-            text = f"{label}{value}" if value else f"{label}"
-            c.drawString(35, y, text[:70])
-            y -= 70
+            try:
+                if logo_path and _os.path.exists(logo_path):
+                    img = ImageReader(logo_path)
+                    c.drawImage(img, width / 2 - 80, height - 95, width=160, height=55,
+                                preserveAspectRatio=True, mask='auto')
+            except Exception:
+                pass
 
-        line('DITTA :', ditta, True, 34)
-        line('N.BUONO:', bn, True, 34)
-        line('MARCA PEZZI:', marca_pezzi, True, 34)
-        line('PROTOCOLLO:', protocollo, False, 32)
-        line('ARRIVO ', arrivo, False, 34)
-        line('N.PALLET:', n_pallet, True, 34)
-        line('N. PEZZI:', n_pezzi, True, 34)
+            y = height - 155
+            c.setFont('Helvetica-Bold', 30)
+            c.drawCentredString(width / 2, y, titolo[:34])
+            y -= 65
 
-        c.showPage()
+            def label_value(label, value='', font_size=33, value_font='Helvetica'):
+                nonlocal y
+                label = str(label or '')
+                value = str(value or '').strip()
+                c.setFont('Helvetica-Bold', font_size)
+                c.drawString(35, y, label)
+                x_val = 35 + c.stringWidth(label, 'Helvetica-Bold', font_size) + 5
+                if value:
+                    y_after = _wrap_text_canvas(
+                        c, value, x_val, y, width - x_val - 25,
+                        font_name=value_font, font_size=font_size,
+                        leading=font_size + 8, max_lines=2
+                    )
+                    y = min(y - 62, y_after - 18)
+                else:
+                    y -= 62
+
+            label_value('DITTA :', ditta, 33)
+            label_value('N.BUONO:', bn, 33)
+            label_value('MARCA PEZZI:', marca_pezzi, 30, 'Helvetica-Bold')
+            label_value('PROTOCOLLO:', protocollo, 30)
+            label_value('ARRIVO ', arrivo, 33)
+            label_value('N.PALLET:', n_pallet, 33, 'Helvetica-Bold')
+            label_value('N. PEZZI:', n_pezzi, 33, 'Helvetica-Bold')
+            c.showPage()
+
         c.save()
         bio.seek(0)
         return bio
@@ -711,12 +786,12 @@ def register_buono_routes(app_obj, deps):
                 bn = _next_buono_number(db)
 
             if action == 'cartello':
-                pdf_bio = _generate_cartello_fincantieri_pdf(req_data, rows, bn)
+                pdf_bio = _generate_cartello_bancali_pdf(req_data, rows, bn)
                 safe_bn = (bn or "senza_numero").replace("/", "-").replace("\\", "-")
                 return send_file(
                     pdf_bio,
                     as_attachment=False,
-                    download_name=f'Cartello_Fincantieri_{safe_bn}.pdf',
+                    download_name=f'Cartello_Bancali_{safe_bn}.pdf',
                     mimetype='application/pdf'
                 )
 
