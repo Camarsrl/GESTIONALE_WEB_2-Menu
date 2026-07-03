@@ -129,7 +129,7 @@
     </div>
 </div>
 
-<form method="POST">
+<form id="bulk-actions-form" method="POST">
 
 {% if buono_carico_attivo %}
 <input type="hidden" name="buono_carico_id" value="{{ buono_carico_attivo }}">
@@ -403,7 +403,7 @@
             soloUscite.addEventListener('change', function(){ if (this.checked) soloGiacenza.checked = false; });
         }
 
-        const mainForm = document.querySelector('form[method="POST"]');
+        const mainForm = document.getElementById('bulk-actions-form');
         if (mainForm) {
             mainForm.addEventListener('submit', function(e) {
                 const btn = e.submitter;
