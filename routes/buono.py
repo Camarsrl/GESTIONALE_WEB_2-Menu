@@ -517,6 +517,81 @@ def register_buono_routes(app_obj, deps):
         return f"{base + 1:03d}/{yy}"
 
 
+    def _safe_text(value):
+        return str(value or '').strip()
+
+    def _first_nonempty(rows, attr):
+        for r in rows or []:
+            v = _safe_text(getattr(r, attr, ''))
+            if v:
+                return v
+        return ''
+
+    def _sum_pezzi_rows(rows):
+        tot = 0.0
+        for r in rows or []:
+            try:
+                tot += _num_float(getattr(r, 'pezzo', 0))
+            except Exception:
+                pass
+        if abs(tot - int(tot)) < 0.000001:
+            return str(int(tot)) if tot else ''
+        return str(round(tot, 2)).replace('.', ',')
+
+    def _generate_cartello_fincantieri_pdf(form, rows, buono_n):
+        """Genera il cartello bancali FINCANTIERI in PDF A4 verticale."""
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.utils import ImageReader
+        import io as _io
+        import os as _os
+
+        bio = _io.BytesIO()
+        c = canvas.Canvas(bio, pagesize=A4)
+        width, height = A4
+
+        ditta = _safe_text(form.get('cartello_ditta')) or _first_nonempty(rows, 'fornitore')
+        marca_pezzi = _safe_text(form.get('cartello_marca_pezzi'))
+        protocollo = _safe_text(form.get('protocollo')) or _first_nonempty(rows, 'protocollo')
+        arrivo = _safe_text(form.get('picking_n_arrivo')) or _first_nonempty(rows, 'n_arrivo')
+        n_pallet = _safe_text(form.get('cartello_n_pallet')) or _safe_text(form.get('picking_pallet_usciti'))
+        n_pezzi = _safe_text(form.get('cartello_n_pezzi')) or _sum_pezzi_rows(rows)
+        bn = _safe_text(buono_n) or _safe_text(form.get('buono_n'))
+
+        # Logo in alto, se presente.
+        try:
+            logo_path = globals().get('LOGO_PATH')
+            if logo_path and _os.path.exists(logo_path):
+                img = ImageReader(logo_path)
+                c.drawImage(img, width/2 - 80, height - 95, width=160, height=55, preserveAspectRatio=True, mask='auto')
+        except Exception:
+            pass
+
+        y = height - 155
+        c.setFont('Helvetica-Bold', 32)
+        c.drawCentredString(width/2, y, 'FINCANTIERI PICKING')
+        y -= 70
+
+        def line(label, value='', bold_label=True, size=34):
+            nonlocal y
+            c.setFont('Helvetica-Bold' if bold_label else 'Helvetica', size)
+            text = f"{label}{value}" if value else f"{label}"
+            c.drawString(35, y, text[:70])
+            y -= 70
+
+        line('DITTA :', ditta, True, 34)
+        line('N.BUONO:', bn, True, 34)
+        line('MARCA PEZZI:', marca_pezzi, True, 34)
+        line('PROTOCOLLO:', protocollo, False, 32)
+        line('ARRIVO ', arrivo, False, 34)
+        line('N.PALLET:', n_pallet, True, 34)
+        line('N. PEZZI:', n_pezzi, True, 34)
+
+        c.showPage()
+        c.save()
+        bio.seek(0)
+        return bio
+
     def _extract_ids_from_request(req_data):
         """Legge gli ID selezionati anche quando arrivano da più pagine.
 
@@ -606,6 +681,10 @@ def register_buono_routes(app_obj, deps):
                 "picking_seriali": buono_n_auto,
                 "picking_n_arrivo": picking_n_arrivo_auto,
                 "picking_colli": picking_colli_auto,
+                "cartello_ditta": fornitore_auto,
+                "cartello_n_pallet": "",
+                "cartello_n_pezzi": _sum_pezzi_rows(rows),
+                "cartello_marca_pezzi": "",
             }
 
             return render_template('buono_preview.html', rows=rows, meta=meta, ids=",".join(map(str, ids)))
@@ -630,6 +709,17 @@ def register_buono_routes(app_obj, deps):
                 # Se l'utente lascia automatico, oppure non compila il numero manuale,
                 # assegno il prossimo numero disponibile prima di salvare/generare il PDF.
                 bn = _next_buono_number(db)
+
+            if action == 'cartello':
+                pdf_bio = _generate_cartello_fincantieri_pdf(req_data, rows, bn)
+                safe_bn = (bn or "senza_numero").replace("/", "-").replace("\\", "-")
+                return send_file(
+                    pdf_bio,
+                    as_attachment=False,
+                    download_name=f'Cartello_Fincantieri_{safe_bn}.pdf',
+                    mimetype='application/pdf'
+                )
+
             scarico_parziale_eseguito = False
 
             for r in rows:
