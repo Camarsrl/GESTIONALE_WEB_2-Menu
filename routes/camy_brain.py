@@ -44,6 +44,39 @@ def _extract_reference(message):
 
 
 
+def _is_procedure_question(message):
+    """Riconosce richieste di manuale/procedura.
+
+    Esempi:
+    - Come faccio un'entrata?
+    - Non mi ricordo come si crea un buono
+    - Procedura DDT
+    - Come mando la mail al cliente?
+    """
+    low = _norm(message)
+    if not low:
+        return False
+
+    trigger = [
+        "come faccio", "come si fa", "come fare", "procedura", "passaggi",
+        "istruzioni", "manuale", "spiegami", "mi spieghi", "non ricordo",
+        "non mi ricordo", "mi sono dimenticato", "mi sono dimenticata"
+    ]
+    oggetti = [
+        "entrata", "accettazione", "buono", "prelievo", "ddt", "trasporto",
+        "trasporti", "picking", "lavorazione", "etichette", "etichetta",
+        "cartello", "cartelli", "bancali", "pallet", "email", "mail",
+        "inventario", "scarico parziale", "modifica multipla"
+    ]
+
+    if any(t in low for t in trigger) and any(o in low for o in oggetti):
+        return True
+    # Frasi brevi tipo "procedura buono", "manuale entrata"
+    if len(low.split()) <= 5 and any(t in low for t in ["procedura", "manuale", "istruzioni"]) and any(o in low for o in oggetti):
+        return True
+    return False
+
+
 def _is_smalltalk(message):
     """Riconosce frasi umane/generiche che NON devono avviare ricerche sul magazzino."""
     low = _norm(message)
@@ -88,6 +121,11 @@ def decide_camy_intent(message):
     # Prima regola: le frasi di saluto/cortesia non devono diventare ricerche su tutte le giacenze.
     if _is_smalltalk(raw):
         return {"action": "smalltalk", "target": target, "confidence": 0.99, "raw": raw}
+
+    # Manuale procedure: deve prevalere sulle azioni operative.
+    # Esempio: "Come faccio un buono?" deve spiegare, non creare un buono.
+    if _is_procedure_question(raw):
+        return {"action": "procedura", "target": target, "confidence": 0.99, "raw": raw}
 
     view_words = ["vedere", "vedi", "mostra", "mostrami", "aprire", "apri", "visualizza", "fammi vedere", "voglio vedere", "cerca", "trova", "dove"]
     create_words = ["crea", "creare", "prepara", "preparare", "genera", "generare", "aggiungi", "scarico", "scarica", "salva"]
@@ -183,6 +221,10 @@ def camy_brain_help():
         "• Crea DDT dal buono 586-ZETA<br>"
         "• Prepara buono arrivo 200/26<br>"
         "• Cerca codice CB050CF<br>"
-        "• Apri accettazione entrata<br><br>"
+        "• Apri accettazione entrata<br>"
+        "• Come faccio un'entrata?<br>"
+        "• Come preparo un buono?<br>"
+        "• Procedura DDT<br>"
+        "• Come mando email al cliente?<br><br>"
         "Le modifiche operative restano sempre con conferma."
     )
