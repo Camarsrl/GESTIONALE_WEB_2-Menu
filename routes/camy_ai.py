@@ -64,6 +64,16 @@ def register_camy_ai_routes(app_obj, deps):
         def camy_daily_briefing(db, deps, msg=""):
             return "Modulo report CAMY non disponibile."
 
+    try:
+        from routes.camy_procedure import is_procedure_request, render_procedure, render_procedure_index
+    except Exception:
+        def is_procedure_request(message):
+            return False
+        def render_procedure(message_or_key):
+            return "Modulo procedure CAMY non disponibile."
+        def render_procedure_index():
+            return "Modulo procedure CAMY non disponibile."
+
     CAMY_AI_HTML = """
     {% extends "base.html" %}
     {% block content %}
@@ -701,7 +711,11 @@ def register_camy_ai_routes(app_obj, deps):
             "• Genera registro giornaliero di oggi.<br>"
             "• Cosa manca da fare oggi?<br>• Cosa devo spedire oggi?<br>• RF-DE WAVE senza foto<br>• Fincantieri / Armatore / Scoperto senza protocollo<br>• Fincantieri / Armatore / Scoperto senza mezzo<br>• Crea buono da email/PDF/foto<br>"
             "• Crea report Excel giacenze Fincantieri.<br>"
-            "• Confronta inventario Galvano Tecnica.<br><br>"
+            "• Confronta inventario Galvano Tecnica.<br>"
+            "• Come faccio un'entrata?<br>"
+            "• Come preparo un buono?<br>"
+            "• Come creo un DDT?<br>"
+            "• Come mando email al cliente?<br><br>"
             "Le operazioni che modificano dati richiedono sempre conferma."
         )
 
@@ -3332,6 +3346,21 @@ def register_camy_ai_routes(app_obj, deps):
         _camy_update_memory_from_message(msg)
 
         # ============================================================
+        # MANUALE PROCEDURE CAMY
+        # Prima di qualunque ricerca/azione, intercetto domande tipo:
+        # "come faccio un'entrata", "non ricordo il buono",
+        # "procedura DDT", "come mando la mail al cliente".
+        # ============================================================
+        try:
+            if is_procedure_request(original_msg) or is_procedure_request(msg):
+                return render_procedure(original_msg or msg), True, {"action": "procedura", "raw": original_msg}
+        except Exception as e_proc:
+            try:
+                scrivi_log_errore("Errore manuale procedure CAMY", e_proc)
+            except Exception:
+                pass
+
+        # ============================================================
         # CAMY BRAIN - livello decisionale centrale
         # Serve a non trasformare ogni frase in una ricerca di giacenze.
         # Esempio: "ciao come stai" deve ricevere risposta umana,
@@ -3348,6 +3377,12 @@ def register_camy_ai_routes(app_obj, deps):
 
         if brain_action == "help":
             return camy_brain_help(), True, brain
+
+        if brain_action == "procedura":
+            try:
+                return render_procedure(msg), True, brain
+            except Exception:
+                return render_procedure_index(), True, brain
 
         if brain_action == "open_buono":
             return _answer_open_buono_prelievo(db, msg), True, brain
