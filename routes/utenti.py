@@ -36,19 +36,33 @@ def register_utenti_routes(app_obj, deps):
 
     def _save_all_users(users):
         """
-        Salva gli utenti nel file password Utenti Gestionale.txt
-        in formato dizionario Python semplice, compatibile con get_users().
+        Salva gli utenti nel file password Utenti Gestionale.txt.
+
+        IMPORTANTE:
+        il file originale usa il formato:
+            USER_CREDENTIALS = {...}
+
+        Prima il modulo salvava solo {...}; in alcuni casi get_users()
+        non riusciva più a rileggere correttamente il file e l'utente
+        aggiunto sembrava sparire dopo refresh/riavvio.
         """
         USERS_TXT_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-        righe = ["{"]
+        righe = [
+            "# -*- coding: utf-8 -*-",
+            "# File aggiornato automaticamente dalla pagina Gestione Utenti",
+            "USER_CREDENTIALS = {",
+        ]
 
         for username in sorted(users.keys()):
             password = str(users[username] or "").replace("\\", "\\\\").replace("'", "\\'")
-            user = str(username or "").replace("\\", "\\\\").replace("'", "\\'")
+            user = str(username or "").strip().upper().replace("\\", "\\\\").replace("'", "\\'")
+            if not user:
+                continue
             righe.append(f"    '{user}': '{password}',")
 
         righe.append("}")
+        righe.append("")
 
         USERS_TXT_FILE.write_text("\n".join(righe), encoding="utf-8")
 
@@ -91,9 +105,16 @@ def register_utenti_routes(app_obj, deps):
                         return redirect(url_for("admin_utenti"))
 
                     # Le password restano compatibili con il login attuale.
-                    # Non le salvo in json: aggiorno password Utenti Gestionale.txt
+                    # Aggiorno password Utenti Gestionale.txt mantenendo il formato USER_CREDENTIALS.
                     users[username] = password
                     _save_all_users(users)
+
+                    # Aggiorno anche la copia in memoria usata dal gestionale, se presente.
+                    try:
+                        DEFAULT_USERS.clear()
+                        DEFAULT_USERS.update(users)
+                    except Exception:
+                        pass
 
                     # Ruolo operativo:
                     # - i clienti nuovi sono client;
@@ -111,6 +132,13 @@ def register_utenti_routes(app_obj, deps):
 
                     users[username] = password
                     _save_all_users(users)
+
+                    # Aggiorno anche la copia in memoria usata dal gestionale, se presente.
+                    try:
+                        DEFAULT_USERS.clear()
+                        DEFAULT_USERS.update(users)
+                    except Exception:
+                        pass
 
                     flash(f"Password aggiornata per {username}.", "success")
                     return redirect(url_for("admin_utenti"))
