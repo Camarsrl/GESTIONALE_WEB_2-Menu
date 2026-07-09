@@ -729,6 +729,13 @@ def register_buono_routes(app_obj, deps):
         db = SessionLocal()
         try:
             rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+            if not rows:
+                flash("⚠️ Nessun articolo trovato per gli ID selezionati. Torna alle Giacenze e ripeti la selezione.", "warning")
+                return redirect(url_for('giacenze'))
+            if len(rows) != len(ids):
+                flash(f"⚠️ Attenzione: selezionati {len(ids)} ID ma trovati {len(rows)} articoli. Verifica eventuali righe eliminate o filtri attivi.", "warning")
+            if len(ids) > 50:
+                flash(f"ℹ️ Buono multipagina: {len(ids)} articoli selezionati. Controlla il numero righe nell'anteprima prima di salvare.", "info")
             ordine_ids = {idv: idx for idx, idv in enumerate(ids)}
             rows.sort(key=lambda r: ordine_ids.get(getattr(r, 'id_articolo', 0), 999999))
 
