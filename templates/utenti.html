@@ -9,12 +9,19 @@
         <a href="{{ url_for('home') }}" class="btn btn-secondary btn-sm">Torna alla Home</a>
     </div>
 
+
+    <div class="alert alert-warning shadow-sm">
+        <b>⚠️ Promemoria operativo CAMY</b><br>
+        Dopo aver creato o modificato un utente, verifica che il file <b>password Utenti Gestionale.txt</b> sia aggiornato su Render.
+        Finché non passeremo alla gestione utenti su database, questo controllo evita errori di accesso o funzioni mancanti.
+    </div>
+
     <div class="row g-3">
         <div class="col-lg-4">
             <div class="card shadow-sm h-100">
                 <div class="card-header fw-bold">➕ Nuovo utente / cliente</div>
                 <div class="card-body">
-                    <form method="post">
+                    <form method="post" onsubmit="return confirmUtenteNuovo();">
                         <input type="hidden" name="action" value="add_user">
                         <div class="mb-3">
                             <label class="form-label">Nome utente / Cliente</label>
@@ -86,4 +93,9 @@
         </div>
     </div>
 </div>
+<script>
+function confirmUtenteNuovo(){
+    return confirm("Confermi il salvataggio dell'utente?\n\nPromemoria: dopo il salvataggio verifica/aggiorna il file password Utenti Gestionale.txt su Render per evitare errori di accesso o permessi.");
+}
+</script>
 {% endblock %}
