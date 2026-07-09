@@ -71,7 +71,7 @@ def register_ddt_routes(app_obj, deps):
             # ✅ Mezzo giacenze / Trasporti obbligatori SOLO per clienti Fincantieri.
             # Per tutti gli altri clienti non vengono compilati né la colonna mezzo nelle Giacenze
             # né la funzione Trasporti, salvo futura scelta diversa.
-            CLIENTI_MEZZO_OBBLIGATORIO = {'FINCANTIERI', 'FINCANTIERI SCOPERTO', 'FINCANTIERI ARMATORE'}
+            CLIENTI_MEZZO_OBBLIGATORIO = {'FINCANTIERI', 'FINCANTIERI SCOPERTO', 'FINCANTIERI ARMATORE', 'MARINE INTERIORS', 'DE WAVE SAMA'}
             skip_mezzi_trasporti = (request.form.get('skip_mezzi_trasporti') or '').strip() == '1'
 
             def _cliente_norm_ddt(value):
@@ -164,16 +164,26 @@ def register_ddt_routes(app_obj, deps):
 
             # 4. Recupera Articoli
             articoli = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+            if not articoli:
+                flash("⚠️ Nessun articolo selezionato per il DDT. Torna alle Giacenze e seleziona almeno una riga.", "warning")
+                return redirect(url_for('giacenze'))
 
             clienti_ddt = {_cliente_norm_ddt(getattr(a, 'cliente', '')) for a in articoli}
             richiede_mezzi_trasporti = any(c in CLIENTI_MEZZO_OBBLIGATORIO for c in clienti_ddt)
             salva_mezzi_trasporti = bool(richiede_mezzi_trasporti and not skip_mezzi_trasporti)
 
+            CLIENTI_PROTOCOLLO_OBBLIGATORIO = {'FINCANTIERI', 'FINCANTIERI ARMATORE'}
+            if action == 'finalize' and any(c in CLIENTI_PROTOCOLLO_OBBLIGATORIO for c in clienti_ddt):
+                senza_protocollo = [a for a in articoli if not str(getattr(a, 'protocollo', '') or '').strip()]
+                if senza_protocollo:
+                    flash(f"⚠️ Protocollo obbligatorio per FINCANTIERI / FINCANTIERI ARMATORE. Mancano {len(senza_protocollo)} righe: correggi prima di finalizzare il DDT.", "danger")
+                    return redirect(url_for('giacenze'))
+
             if action == 'finalize' and salva_mezzi_trasporti and not mezzo_giacenze:
-                flash("Seleziona il Mezzo per Giacenze prima di finalizzare. Obbligatorio solo per Fincantieri.", "danger")
+                flash("⚠️ Seleziona il Mezzo per Giacenze prima di finalizzare. Obbligatorio per FINCANTIERI / ARMATORE / SCOPERTO e per MARINE INTERIORS o DE WAVE SAMA quando il trasporto è gestito da Camar.", "danger")
                 return redirect(url_for('giacenze'))
             if action == 'finalize' and salva_mezzi_trasporti and not mezzo_trasporti:
-                flash("Inserisci il Mezzo per Trasporti prima di finalizzare. Obbligatorio solo per Fincantieri.", "danger")
+                flash("⚠️ Inserisci il Mezzo per Trasporti prima di finalizzare. Verifica anche la funzione Trasporti.", "danger")
                 return redirect(url_for('giacenze'))
 
             righe_per_pdf = []
