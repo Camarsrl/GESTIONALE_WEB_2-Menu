@@ -47,6 +47,11 @@
     </div>
 </div>
 
+<div class="alert alert-info py-2 mb-2 shadow-sm" id="camyOperationalAlert">
+    <b>🧠 Controllo Operativo CAMY</b><br>
+    <span id="camyOperationalText">Seleziona gli articoli necessari. Le selezioni possono restare attive anche cambiando pagina: controlla sempre il totale e usa <b>Azzera selezione</b> al termine dell'operazione.</span>
+</div>
+
 <div class="card mb-2 bg-light shadow-sm">
     <div class="card-header py-1" data-bs-toggle="collapse" data-bs-target="#filterBody" style="cursor:pointer">
         <small><i class="bi bi-funnel"></i> <b>Filtri Avanzati</b></small>
@@ -352,6 +357,27 @@
         return true;
     }
 
+
+    function confermaOperazioneCamy(action, totalSelected) {
+        if (!totalSelected || totalSelected <= 0) {
+            alert('⚠️ Nessun articolo selezionato. Seleziona almeno una riga prima di procedere.');
+            return false;
+        }
+        if (action.includes('buono_preview')) {
+            return confirm('Confermi la creazione del Buono con ' + totalSelected + ' articoli selezionati?\n\nControlla che siano inclusi anche gli articoli selezionati nelle altre pagine.');
+        }
+        if (action.includes('ddt_preview')) {
+            return confirm('Confermi la creazione del DDT con ' + totalSelected + ' articoli selezionati?\n\nPrima di finalizzare verifica destinatario, protocollo e mezzo se obbligatori.');
+        }
+        if (action.includes('labels_pdf')) {
+            return confirm('Confermi la stampa etichette per ' + totalSelected + ' articoli selezionati?');
+        }
+        if (action.includes('delete_rows')) {
+            return confirm('ATTENZIONE: eliminare ' + totalSelected + ' articoli selezionati?');
+        }
+        return true;
+    }
+
     function clearSavedSelection() {
         localStorage.removeItem(STORAGE_KEY);
         document.querySelectorAll('input[name="ids"]').forEach(function(cb){ cb.checked = false; });
@@ -371,10 +397,14 @@
             toolbar.parentNode.insertBefore(box, toolbar);
         }
         if (saved.length > 0) {
+            const txt = document.getElementById('camyOperationalText');
+            if (txt) txt.innerHTML = '🔵 ' + saved.length + ' articoli selezionati. Verifica il totale prima di creare Buono, DDT, Etichette o Email. Al termine usa <b>Azzera selezione</b>.';
             box.style.display = 'flex';
-            box.innerHTML = '<strong>✓ ' + saved.length + ' articoli selezionati su più pagine</strong>' +
+            box.innerHTML = '<strong>✓ ' + saved.length + ' articoli selezionati. Controlla il totale prima di creare Buono/DDT.</strong>' +
                             '<button type="button" class="btn btn-sm btn-outline-danger" onclick="clearSavedSelection()">Azzera selezione</button>';
         } else {
+            const txt = document.getElementById('camyOperationalText');
+            if (txt) txt.innerHTML = 'Seleziona gli articoli necessari. Le selezioni possono restare attive anche cambiando pagina: controlla sempre il totale e usa <b>Azzera selezione</b> al termine dell\'operazione.';
             box.style.display = 'none';
             box.innerHTML = '';
         }
@@ -438,6 +468,10 @@
 
                 if (usesSelection) {
                     if (!addSavedIdsToForm(mainForm)) {
+                        e.preventDefault();
+                        return false;
+                    }
+                    if (!confermaOperazioneCamy(action, getSavedSelection().length)) {
                         e.preventDefault();
                         return false;
                     }
