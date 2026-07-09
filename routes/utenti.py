@@ -119,7 +119,7 @@ def register_utenti_routes(app_obj, deps):
                     # Ruolo operativo:
                     # - i clienti nuovi sono client;
                     # - admin/magazzino storici restano gestiti dagli insiemi ADMIN_USERS/WAREHOUSE_USERS.
-                    flash(f"Utente {username} creato/aggiornato nel file password Utenti Gestionale.txt.", "success")
+                    flash(f"✅ Utente {username} creato/aggiornato. Promemoria: aggiorna anche il file password Utenti Gestionale.txt su Render e verifica l'accesso prima di consegnare le credenziali.", "success")
                     return redirect(url_for("admin_utenti"))
 
                 if action == "change_password":
@@ -140,7 +140,7 @@ def register_utenti_routes(app_obj, deps):
                     except Exception:
                         pass
 
-                    flash(f"Password aggiornata per {username}.", "success")
+                    flash(f"✅ Password aggiornata per {username}. Promemoria: verifica che il file password Utenti Gestionale.txt sia aggiornato su Render.", "success")
                     return redirect(url_for("admin_utenti"))
 
                 if action == "update_role":
