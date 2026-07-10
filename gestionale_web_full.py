@@ -3840,7 +3840,8 @@ document.addEventListener('DOMContentLoaded', toggleBuonoMode);
 
 function submitBuono(actionType) {
     const form = document.getElementById('buono-form');
-    document.getElementById('action_field').value = actionType;
+    const actionField = document.getElementById('action_field');
+    if (actionField) actionField.value = actionType;
 
     if (actionType === 'preview') {
         form.target = '_blank';
@@ -4018,21 +4019,14 @@ DDT_PREVIEW_HTML = """
         </h5>
 
         <div class="btn-group ddt-actions">
-            <!-- Pulsanti nativi: funzionano anche se il JavaScript della pagina non parte -->
-            <button type="submit"
-                    form="ddt-form"
-                    name="action"
-                    value="preview"
-                    formtarget="_blank"
-                    class="btn btn-outline-primary">
+            <button type="button"
+                    class="btn btn-outline-primary"
+                    onclick="submitDdt('preview')">
                 <i class="bi bi-printer"></i> Anteprima PDF
             </button>
-            <button type="submit"
-                    form="ddt-form"
-                    name="action"
-                    value="finalize"
-                    formtarget="_self"
-                    class="btn btn-success">
+            <button type="button"
+                    class="btn btn-success"
+                    onclick="submitDdt('finalize')">
                 <i class="bi bi-check-circle-fill"></i> Finalizza e Scarica
             </button>
             <a href="{{ url_for('invia_email', ids=ids) }}" class="btn btn-warning">
@@ -4044,7 +4038,7 @@ DDT_PREVIEW_HTML = """
 
     <form id="ddt-form" method="POST" action="{{ url_for('ddt_finalize') }}">
         <input type="hidden" name="ids" value="{{ ids }}">
-        <input type="hidden" id="action_field" value="preview">
+        <input type="hidden" name="action" id="action_field" value="preview">
         <input type="hidden" name="dest_source" id="dest_source" value="saved">
         <input type="hidden" id="ddt_cliente_richiede_mezzi" value="{{ '1' if ddt_cliente_richiede_mezzi else '0' }}">
         <input type="hidden" id="ddt_total_righe" value="{{ total_righe_ddt or (rows|length) }}">
@@ -4273,23 +4267,30 @@ DDT_PREVIEW_HTML = """
 <script>
 const nDdtInput = document.getElementById('n_ddt_input');
 
-document.getElementById('get-next-ddt').addEventListener('click', function() {
-    const current = (nDdtInput.value || '').trim();
-    fetch('{{ url_for("get_next_ddt_number") }}?current=' + encodeURIComponent(current))
-      .then(r => r.json())
-      .then(d => {
-          if (d.next_ddt) nDdtInput.value = d.next_ddt;
-      });
-});
+function cambiaNumeroDdt(delta) {
+    if (!nDdtInput) return;
+    const raw = (nDdtInput.value || '').trim();
+    const match = raw.match(/^(\d+)\s*\/\s*(\d{2})$/);
+    let numero;
+    let anno;
 
-document.getElementById('get-prev-ddt').addEventListener('click', function() {
-    const current = (nDdtInput.value || '').trim();
-    fetch('{{ url_for("get_prev_ddt_number") }}?current=' + encodeURIComponent(current))
-      .then(r => r.json())
-      .then(d => {
-          if (d.prev_ddt) nDdtInput.value = d.prev_ddt;
-      });
-});
+    if (match) {
+        numero = parseInt(match[1], 10);
+        anno = match[2];
+    } else {
+        numero = 1;
+        anno = String(new Date().getFullYear()).slice(-2);
+    }
+
+    numero = Math.max(1, numero + delta);
+    nDdtInput.value = String(numero).padStart(2, '0') + '/' + anno;
+    nDdtInput.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+const btnNextDdt = document.getElementById('get-next-ddt');
+const btnPrevDdt = document.getElementById('get-prev-ddt');
+if (btnNextDdt) btnNextDdt.addEventListener('click', function() { cambiaNumeroDdt(1); });
+if (btnPrevDdt) btnPrevDdt.addEventListener('click', function() { cambiaNumeroDdt(-1); });
 
 function escapeHtml(value) {
     return String(value || '')
@@ -4494,9 +4495,18 @@ function submitDdt(actionType) {
     if (actionType === 'preview') {
         form.target = '_blank';
         form.submit();
+        form.target = '_self';
     } else {
         form.target = '_self';
+        const finalizeButton = document.querySelector("button[onclick=\"submitDdt('finalize')\"]");
+        if (finalizeButton) {
+            finalizeButton.disabled = true;
+            finalizeButton.dataset.originalText = finalizeButton.innerHTML;
+            finalizeButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Salvataggio...';
+        }
+
         const formData = new FormData(form);
+        formData.set('action', 'finalize');
         const url = form.getAttribute('action');
 
         fetch(url, { method: 'POST', body: formData, redirect: 'follow' })
@@ -4540,7 +4550,14 @@ function submitDdt(actionType) {
                 window.location.replace('{{ url_for("giacenze") }}');
             }, 700);
         })
-        .catch(err => alert('Errore: ' + err.message));
+        .catch(err => {
+            const finalizeButton = document.querySelector("button[onclick=\"submitDdt('finalize')\"]");
+            if (finalizeButton) {
+                finalizeButton.disabled = false;
+                finalizeButton.innerHTML = finalizeButton.dataset.originalText || '<i class="bi bi-check-circle-fill"></i> Finalizza e Scarica';
+            }
+            alert('Errore: ' + err.message);
+        });
     }
 }
 </script>
