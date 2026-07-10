@@ -3993,6 +3993,13 @@ DDT_PREVIEW_HTML = """
     .ddt-actions .btn{
         white-space:nowrap;
     }
+    .ddt-field-error{
+        border:2px solid #dc3545 !important;
+        background:#fff5f5 !important;
+    }
+    .ddt-camy-banner{
+        border-left:5px solid #0d6efd;
+    }
     @media (max-width: 991px){
         .ddt-manual-grid{ grid-template-columns:1fr; }
         .ddt-actions{ width:100%; justify-content:flex-start; flex-wrap:wrap; }
@@ -4030,10 +4037,23 @@ DDT_PREVIEW_HTML = """
         <input type="hidden" name="action" id="action_field" value="preview">
         <input type="hidden" name="dest_source" id="dest_source" value="saved">
         <input type="hidden" id="ddt_cliente_richiede_mezzi" value="{{ '1' if ddt_cliente_richiede_mezzi else '0' }}">
+        <input type="hidden" id="ddt_total_righe" value="{{ total_righe_ddt or (rows|length) }}">
+        <input type="hidden" id="ddt_total_colli" value="{{ total_colli_ddt or 0 }}">
+        <input type="hidden" id="ddt_total_peso" value="{{ total_peso_ddt or '0,00' }}">
+
+        <div class="alert alert-primary ddt-camy-banner py-2 mb-3" id="ddt_camy_banner">
+            <b>🧠 Controllo Operativo CAMY:</b> DDT con <b>{{ total_righe_ddt or (rows|length) }}</b> righe,
+            <b>{{ total_colli_ddt or 0 }}</b> colli e <b>{{ total_peso_ddt or '0,00' }} kg</b>.
+            {% if protocollo_mancanti_ddt and protocollo_mancanti_ddt > 0 %}
+                <div class="text-danger fw-bold mt-1">⚠️ Mancano {{ protocollo_mancanti_ddt }} protocolli obbligatori per FINCANTIERI / FINCANTIERI ARMATORE.</div>
+            {% endif %}
+            <div class="small mt-1">Prima di finalizzare controlla destinatario, numero DDT, data, mezzo e articoli selezionati.</div>
+        </div>
 
         <div class="alert alert-info py-2 mb-3">
             <b>Mezzi e Trasporti:</b> vengono compilati solo per
-            <b>FINCANTIERI</b>, <b>FINCANTIERI SCOPERTO</b> e <b>FINCANTIERI ARMATORE</b>.
+            <b>FINCANTIERI</b>, <b>FINCANTIERI SCOPERTO</b>, <b>FINCANTIERI ARMATORE</b>,
+            <b>MARINE INTERIORS</b> e <b>DE WAVE SAMA</b> quando il trasporto è gestito da Camar.
             <div class="form-check mt-1">
                 <input class="form-check-input" type="checkbox" value="1" name="skip_mezzi_trasporti" id="skip_mezzi_trasporti" {% if not ddt_cliente_richiede_mezzi %}checked{% endif %}>
                 <label class="form-check-label" for="skip_mezzi_trasporti">
@@ -4387,26 +4407,51 @@ function submitDdt(actionType) {
     const form = document.getElementById('ddt-form');
     document.getElementById('action_field').value = actionType;
 
+    function clearDdtErrors(){
+        ['dest_key','dest_ragione_manual','n_ddt_input','data_ddt','mezzo_giacenze','mezzo_trasporti'].forEach(function(id){
+            const el = document.getElementById(id);
+            if (el) el.classList.remove('ddt-field-error');
+        });
+    }
+    function markError(id, message){
+        const el = document.getElementById(id);
+        if (el) {
+            el.classList.add('ddt-field-error');
+            el.focus();
+        }
+        alert(message);
+    }
+
+    clearDdtErrors();
+
+    const nDdt = (document.getElementById('n_ddt_input')?.value || '').trim();
+    if (!nDdt) {
+        markError('n_ddt_input', '⚠️ Inserisci il numero DDT prima di continuare.');
+        return;
+    }
+
+    const dataDdt = (document.getElementById('data_ddt')?.value || '').trim();
+    if (!dataDdt) {
+        markError('data_ddt', '⚠️ Inserisci la data DDT prima di continuare.');
+        return;
+    }
+
     const destSource = (document.getElementById('dest_source').value || 'saved');
     if (destSource === 'saved') {
         const destKey = (document.getElementById('dest_key').value || '').trim();
         if (!destKey) {
-            alert("Seleziona un destinatario salvato oppure premi 'Usa destinatario occasionale'.");
-            document.getElementById('dest_key').focus();
+            markError('dest_key', "⚠️ Seleziona un destinatario salvato oppure premi 'Usa destinatario occasionale'.");
             return;
         }
     } else {
         const manualName = (document.getElementById('dest_ragione_manual').value || '').trim();
         if (!manualName) {
-            alert("Inserisci almeno la ragione sociale del destinatario occasionale.");
-            const active = document.activeElement;
-        const isManualField = active && ['dest_ragione_manual','dest_indirizzo_manual','dest_citta_manual'].includes(active.id);
-        if (!isManualField) document.getElementById('dest_ragione_manual').focus();
+            markError('dest_ragione_manual', '⚠️ Inserisci almeno la ragione sociale del destinatario occasionale.');
             return;
         }
     }
 
-    // ✅ Mezzo/Trasporti obbligatori solo per Fincantieri, se NON viene scelta l'opzione di esclusione
+    // ✅ Mezzo/Trasporti obbligatori solo per i clienti indicati, se NON viene scelta l'opzione di esclusione
     if (actionType === 'finalize') {
         const richiedeMezzi = (document.getElementById('ddt_cliente_richiede_mezzi')?.value || '0') === '1';
         const skipMezzi = !!document.getElementById('skip_mezzi_trasporti')?.checked;
@@ -4414,16 +4459,26 @@ function submitDdt(actionType) {
             const mezzoGiacenze = (document.getElementById('mezzo_giacenze').value || '').trim();
             const mezzoTrasporti = (document.getElementById('mezzo_trasporti').value || '').trim();
             if (!mezzoGiacenze) {
-                alert("Seleziona il Mezzo per Giacenze prima di finalizzare. Obbligatorio solo per Fincantieri.");
-                document.getElementById('mezzo_giacenze').focus();
+                markError('mezzo_giacenze', '⚠️ Seleziona il Mezzo per Giacenze prima di finalizzare il DDT.');
                 return;
             }
             if (!mezzoTrasporti) {
-                alert("Inserisci il Mezzo per Trasporti prima di finalizzare. Obbligatorio solo per Fincantieri.");
-                document.getElementById('mezzo_trasporti').focus();
+                markError('mezzo_trasporti', '⚠️ Inserisci il Mezzo per Trasporti prima di finalizzare il DDT.');
                 return;
             }
         }
+
+        const righe = document.getElementById('ddt_total_righe')?.value || '0';
+        const colli = document.getElementById('ddt_total_colli')?.value || '0';
+        const peso = document.getElementById('ddt_total_peso')?.value || '0,00';
+        const conferma = confirm(
+            'Confermi la creazione del DDT N. ' + nDdt + '?\n\n' +
+            'Righe: ' + righe + '\n' +
+            'Colli: ' + colli + '\n' +
+            'Peso: ' + peso + ' kg\n\n' +
+            'Controlla che destinatario, mezzo e articoli siano corretti prima di confermare.'
+        );
+        if (!conferma) return;
     }
 
     if (actionType === 'preview') {
@@ -4449,7 +4504,7 @@ function submitDdt(actionType) {
             window.URL.revokeObjectURL(urlBlob);
             setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1500);
         })
-        .catch(err => alert("Errore: " + err.message));
+        .catch(err => alert('Errore: ' + err.message));
     }
 }
 </script>
@@ -8036,13 +8091,29 @@ def ddt_preview():
 
     rows = _get_rows_from_ids(ids)
 
-    CLIENTI_MEZZO_OBBLIGATORIO = {'FINCANTIERI', 'FINCANTIERI SCOPERTO', 'FINCANTIERI ARMATORE'}
+    CLIENTI_MEZZO_OBBLIGATORIO = {'FINCANTIERI', 'FINCANTIERI SCOPERTO', 'FINCANTIERI ARMATORE', 'MARINE INTERIORS', 'DE WAVE SAMA'}
+    CLIENTI_PROTOCOLLO_OBBLIGATORIO = {'FINCANTIERI', 'FINCANTIERI ARMATORE'}
     def _cliente_norm_ddt_preview(value):
         return re.sub(r'\s+', ' ', str(value or '').strip().upper())
     ddt_cliente_richiede_mezzi = any(
         _cliente_norm_ddt_preview(getattr(r, 'cliente', '')) in CLIENTI_MEZZO_OBBLIGATORIO
         for r in rows
     )
+
+    total_colli_ddt = 0
+    total_peso_ddt = 0.0
+    protocollo_mancanti_ddt = 0
+    for r in rows:
+        try:
+            total_colli_ddt += int(float(getattr(r, 'n_colli', 0) or 0))
+        except Exception:
+            pass
+        try:
+            total_peso_ddt += float(getattr(r, 'peso', 0) or 0)
+        except Exception:
+            pass
+        if _cliente_norm_ddt_preview(getattr(r, 'cliente', '')) in CLIENTI_PROTOCOLLO_OBBLIGATORIO and not str(getattr(r, 'protocollo', '') or '').strip():
+            protocollo_mancanti_ddt += 1
 
     return render_template(
         'ddt_preview.html',
@@ -8051,7 +8122,11 @@ def ddt_preview():
         destinatari=load_destinatari(),
         n_ddt=peek_next_ddt_number(),
         oggi=date.today().isoformat(),
-        ddt_cliente_richiede_mezzi=ddt_cliente_richiede_mezzi
+        ddt_cliente_richiede_mezzi=ddt_cliente_richiede_mezzi,
+        total_righe_ddt=len(rows),
+        total_colli_ddt=total_colli_ddt,
+        total_peso_ddt=it_num(total_peso_ddt, 2),
+        protocollo_mancanti_ddt=protocollo_mancanti_ddt
     )
 
 
