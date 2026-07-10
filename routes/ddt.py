@@ -21,14 +21,9 @@ def register_ddt_routes(app_obj, deps):
         db = SessionLocal()
         try:
             # 1. Recupera ID e Azione
-            ids_values = request.form.getlist('ids')
-            ids_tokens = []
-            for value in ids_values:
-                ids_tokens.extend(str(value or '').split(','))
-            ids = list(dict.fromkeys(
-                int(token.strip()) for token in ids_tokens if token.strip().isdigit()
-            ))
-            action = (request.form.get('action') or 'preview').strip().lower()
+            ids_str = request.form.get('ids', '')
+            ids = [int(i) for i in ids_str.split(',') if i.strip().isdigit()]
+            action = request.form.get('action', 'preview')
 
             # ✅ CAMPI SEPARATI:
             # - mezzo_giacenze / mezzi_in_uscita: compila Articolo.mezzi_in_uscita nelle Giacenze
