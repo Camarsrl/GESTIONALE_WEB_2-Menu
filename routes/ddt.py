@@ -292,14 +292,52 @@ def register_ddt_routes(app_obj, deps):
                     mimetype='application/pdf'
                 )
 
-            # Finalizzazione: restituisce direttamente il PDF.
-            # Il JavaScript della schermata esegue il download e poi torna alle Giacenze.
-            return send_file(
-                pdf_bio,
-                as_attachment=True,
-                download_name=filename,
-                mimetype='application/pdf'
-            )
+            # Finalizzazione robusta: il form viene inviato normalmente, senza dipendere
+            # dal JavaScript della schermata DDT. La pagina scarica il PDF e torna alle Giacenze.
+            import base64
+            import json as _json
+
+            pdf_base64 = base64.b64encode(pdf_bio.getvalue()).decode('ascii')
+            filename_js = _json.dumps(filename)
+            giacenze_url_js = _json.dumps(url_for('giacenze'))
+
+            return f"""<!doctype html>
+<html lang="it">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DDT finalizzato</title>
+</head>
+<body>
+    <p>DDT N. {n_ddt} salvato correttamente. Download in corso...</p>
+    <script>
+    (function() {{
+        try {{
+            const binary = atob("{pdf_base64}");
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {{
+                bytes[i] = binary.charCodeAt(i);
+            }}
+            const blob = new Blob([bytes], {{type: "application/pdf"}});
+            const blobUrl = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = blobUrl;
+            link.download = {filename_js};
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(function() {{
+                URL.revokeObjectURL(blobUrl);
+                window.location.replace({giacenze_url_js});
+            }}, 1000);
+        }} catch (e) {{
+            document.body.innerHTML = '<p>Il DDT è stato salvato, ma il download automatico non è riuscito.</p>' +
+                '<p><a href=' + {giacenze_url_js} + '>Torna alle Giacenze</a></p>';
+        }}
+    }})();
+    </script>
+</body>
+</html>"""
 
         except Exception as e:
             db.rollback()
