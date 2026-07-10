@@ -34,6 +34,18 @@ def register_buono_routes(app_obj, deps):
         s = re.sub(r"[\r\n]+", " - ", s)
         s = re.sub(r"(?i)\bPackage\s+No\.?\s*", "Package No.", s)
 
+        # Se il Package è scritto attaccato al primo marca-pezzo, lo separo.
+        # Esempi:
+        #   PACKAGE 11-CB052CB-CB...  -> PACKAGE 11 - CB052CB-CB...
+        #   Package No.311-AP/060VR  -> Package No.311 - AP/060VR
+        # In questo modo il Package resta sempre sulla riga residua mentre viene
+        # eliminato soltanto il codice effettivamente prelevato.
+        s = re.sub(
+            r"(?i)\b((?:PACKAGE|PKG)\s*(?:(?:NO|N)\.?)?\s*[:#.]?\s*[A-Z0-9]+)\s*-\s*(?=[A-Z0-9])",
+            r"\1 - ",
+            s,
+        )
+
         # Se dopo un trattino inizia un marca-pezzo con / oppure *, separo.
         # Non rompe lo slash interno di SE/007VD e riconosce AV*002VD.
         s = re.sub(r"\s*-\s*(?=[A-Z0-9]{1,25}(?:/|\*)[A-Z0-9])", " - ", s, flags=re.I)
@@ -101,8 +113,21 @@ def register_buono_routes(app_obj, deps):
             return value
 
     def _is_package_token(value):
-        n = _norm_for_match(value)
-        return bool(re.search(r"\b(PACKAGE|PKG|PALLET|CASSA|CASE)\b", str(value or ""), re.I) or n.startswith("PACKAGENO") or n.startswith("PKG"))
+        """True solo per un riferimento logistico puro, non per Package+codice.
+
+        Prima bastava che la parola PACKAGE fosse presente nella stringa: quindi
+        una cella come ``PACKAGE 11-CB052CB`` veniva considerata interamente un
+        package e il codice CB052CB non veniva mai rimosso dal residuo.
+        """
+        txt = re.sub(r"\s+", " ", str(value or "").strip())
+        if not txt:
+            return False
+        patterns = (
+            r"(?:PACKAGE|PKG)\s*(?:(?:NO|N)\.?)?\s*[:#.]?\s*[A-Z0-9]+",
+            r"PALLET\s*[:#.]?\s*[A-Z0-9][A-Z0-9._/\-]*",
+            r"(?:CASSA|CASE)\s*[:#.]?\s*[A-Z0-9][A-Z0-9._/\-]*",
+        )
+        return any(re.fullmatch(pat, txt, flags=re.I) for pat in patterns)
 
     def _selected_matches_part(part, selected_norms):
         """True se un elemento della riga originale corrisponde a uno dei codici scelti.
