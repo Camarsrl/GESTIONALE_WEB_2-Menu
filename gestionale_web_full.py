@@ -4018,12 +4018,20 @@ DDT_PREVIEW_HTML = """
         </h5>
 
         <div class="btn-group ddt-actions">
-            <button type="button" class="btn btn-outline-primary"
-                    onclick="submitDdt('preview')">
+            <button type="submit"
+                    form="ddt-form"
+                    name="action"
+                    value="preview"
+                    formtarget="_blank"
+                    class="btn btn-outline-primary">
                 <i class="bi bi-printer"></i> Anteprima PDF
             </button>
-            <button type="button" class="btn btn-success"
-                    onclick="submitDdt('finalize')">
+            <button type="submit"
+                    form="ddt-form"
+                    name="action"
+                    value="finalize"
+                    class="btn btn-success"
+                    onclick="return confirm('Confermi la finalizzazione del DDT? Dopo il download tornerai automaticamente al Magazzino.');">
                 <i class="bi bi-check-circle-fill"></i> Finalizza e Scarica
             </button>
             <a href="{{ url_for('invia_email', ids=ids) }}" class="btn btn-warning">
