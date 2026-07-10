@@ -3660,7 +3660,6 @@ BUONO_PREVIEW_HTML = """
 
     <form id="buono-form" method="POST" action="{{ url_for('buono_finalize_and_get_pdf') }}">
         <input type="hidden" name="ids" value="{{ ids }}">
-        <input type="hidden" name="action" id="action_field" value="preview">
 
         <div class="row g-3 bg-light p-3 rounded border mb-3">
             <div class="col-md-3">
@@ -4019,10 +4018,13 @@ DDT_PREVIEW_HTML = """
         </h5>
 
         <div class="btn-group ddt-actions">
-            <button type="button" class="btn btn-outline-primary" onclick="submitDdt('preview')">
+            <button type="submit" form="ddt-form" name="action" value="preview"
+                    formtarget="_blank" class="btn btn-outline-primary">
                 <i class="bi bi-printer"></i> Anteprima PDF
             </button>
-            <button type="button" class="btn btn-success" onclick="submitDdt('finalize')">
+            <button type="submit" form="ddt-form" name="action" value="finalize"
+                    class="btn btn-success"
+                    onclick="return confirm('Confermi la finalizzazione del DDT? Controlla destinatario, mezzo e articoli selezionati.');">
                 <i class="bi bi-check-circle-fill"></i> Finalizza e Scarica
             </button>
             <a href="{{ url_for('invia_email', ids=ids) }}" class="btn btn-warning">
