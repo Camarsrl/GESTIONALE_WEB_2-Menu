@@ -4018,20 +4018,14 @@ DDT_PREVIEW_HTML = """
         </h5>
 
         <div class="btn-group ddt-actions">
-            <button type="submit"
-                    form="ddt-form"
-                    name="action"
-                    value="preview"
-                    formtarget="_blank"
-                    class="btn btn-outline-primary">
+            <button type="button"
+                    class="btn btn-outline-primary"
+                    onclick="submitDdt('preview')">
                 <i class="bi bi-printer"></i> Anteprima PDF
             </button>
-            <button type="submit"
-                    form="ddt-form"
-                    name="action"
-                    value="finalize"
+            <button type="button"
                     class="btn btn-success"
-                    onclick="return confirm('Confermi la finalizzazione del DDT? Dopo il download tornerai automaticamente al Magazzino.');">
+                    onclick="submitDdt('finalize')">
                 <i class="bi bi-check-circle-fill"></i> Finalizza e Scarica
             </button>
             <a href="{{ url_for('invia_email', ids=ids) }}" class="btn btn-warning">
@@ -4498,26 +4492,46 @@ function submitDdt(actionType) {
         const formData = new FormData(form);
         const url = form.getAttribute('action');
 
-        fetch(url, { method: 'POST', body: formData })
-        .then(resp => {
-            if (resp.ok) return resp.blob();
-            return resp.text().then(t => { throw new Error(t || 'Errore finalizzazione'); });
+        fetch(url, { method: 'POST', body: formData, redirect: 'follow' })
+        .then(async resp => {
+            const contentType = (resp.headers.get('content-type') || '').toLowerCase();
+
+            // Se il server ha rimandato alle Giacenze per un errore di validazione
+            // (es. destinatario non valido), non scaricare una pagina HTML come PDF.
+            if (contentType.includes('text/html')) {
+                window.location.replace(resp.url || '{{ url_for("giacenze") }}');
+                return null;
+            }
+
+            if (!resp.ok) {
+                const text = await resp.text();
+                throw new Error(text || 'Errore finalizzazione');
+            }
+
+            const disposition = resp.headers.get('content-disposition') || '';
+            let filename = 'DDT_Finale.pdf';
+            const utfMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+            const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+            if (utfMatch && utfMatch[1]) filename = decodeURIComponent(utfMatch[1]);
+            else if (plainMatch && plainMatch[1]) filename = plainMatch[1];
+
+            return { blob: await resp.blob(), filename };
         })
-        .then(blob => {
-            const urlBlob = window.URL.createObjectURL(blob);
+        .then(result => {
+            if (!result) return;
+            const urlBlob = window.URL.createObjectURL(result.blob);
             const a = document.createElement('a');
             a.href = urlBlob;
-            a.download = 'DDT_Finale.pdf';
+            a.download = result.filename;
             a.style.display = 'none';
             document.body.appendChild(a);
             a.click();
 
-            // Dopo il download torna automaticamente al Magazzino.
             setTimeout(() => {
                 window.URL.revokeObjectURL(urlBlob);
                 a.remove();
                 window.location.replace('{{ url_for("giacenze") }}');
-            }, 1200);
+            }, 700);
         })
         .catch(err => alert('Errore: ' + err.message));
     }
