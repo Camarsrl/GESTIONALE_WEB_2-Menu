@@ -4018,14 +4018,21 @@ DDT_PREVIEW_HTML = """
         </h5>
 
         <div class="btn-group ddt-actions">
-            <button type="button"
-                    class="btn btn-outline-primary"
-                    onclick="submitDdt('preview')">
+            <!-- Pulsanti nativi: funzionano anche se il JavaScript della pagina non parte -->
+            <button type="submit"
+                    form="ddt-form"
+                    name="action"
+                    value="preview"
+                    formtarget="_blank"
+                    class="btn btn-outline-primary">
                 <i class="bi bi-printer"></i> Anteprima PDF
             </button>
-            <button type="button"
-                    class="btn btn-success"
-                    onclick="submitDdt('finalize')">
+            <button type="submit"
+                    form="ddt-form"
+                    name="action"
+                    value="finalize"
+                    formtarget="_self"
+                    class="btn btn-success">
                 <i class="bi bi-check-circle-fill"></i> Finalizza e Scarica
             </button>
             <a href="{{ url_for('invia_email', ids=ids) }}" class="btn btn-warning">
@@ -4037,7 +4044,7 @@ DDT_PREVIEW_HTML = """
 
     <form id="ddt-form" method="POST" action="{{ url_for('ddt_finalize') }}">
         <input type="hidden" name="ids" value="{{ ids }}">
-        <input type="hidden" name="action" id="action_field" value="preview">
+        <input type="hidden" id="action_field" value="preview">
         <input type="hidden" name="dest_source" id="dest_source" value="saved">
         <input type="hidden" id="ddt_cliente_richiede_mezzi" value="{{ '1' if ddt_cliente_richiede_mezzi else '0' }}">
         <input type="hidden" id="ddt_total_righe" value="{{ total_righe_ddt or (rows|length) }}">
