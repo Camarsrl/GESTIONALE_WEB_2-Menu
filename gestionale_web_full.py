@@ -4018,13 +4018,12 @@ DDT_PREVIEW_HTML = """
         </h5>
 
         <div class="btn-group ddt-actions">
-            <button type="submit" form="ddt-form" name="action" value="preview"
-                    formtarget="_blank" class="btn btn-outline-primary">
+            <button type="button" class="btn btn-outline-primary"
+                    onclick="submitDdt('preview')">
                 <i class="bi bi-printer"></i> Anteprima PDF
             </button>
-            <button type="submit" form="ddt-form" name="action" value="finalize"
-                    class="btn btn-success"
-                    onclick="return confirm('Confermi la finalizzazione del DDT? Controlla destinatario, mezzo e articoli selezionati.');">
+            <button type="button" class="btn btn-success"
+                    onclick="submitDdt('finalize')">
                 <i class="bi bi-check-circle-fill"></i> Finalizza e Scarica
             </button>
             <a href="{{ url_for('invia_email', ids=ids) }}" class="btn btn-warning">
@@ -4501,10 +4500,16 @@ function submitDdt(actionType) {
             const a = document.createElement('a');
             a.href = urlBlob;
             a.download = 'DDT_Finale.pdf';
+            a.style.display = 'none';
             document.body.appendChild(a);
             a.click();
-            window.URL.revokeObjectURL(urlBlob);
-            setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1500);
+
+            // Dopo il download torna automaticamente al Magazzino.
+            setTimeout(() => {
+                window.URL.revokeObjectURL(urlBlob);
+                a.remove();
+                window.location.replace('{{ url_for("giacenze") }}');
+            }, 1200);
         })
         .catch(err => alert('Errore: ' + err.message));
     }
