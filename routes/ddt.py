@@ -281,12 +281,62 @@ def register_ddt_routes(app_obj, deps):
             safe_n = n_ddt.replace('/', '-').replace('\\', '-')
             filename = f"DDT_{safe_n}_{data_ddt_str}.pdf"
 
-            return send_file(
-                pdf_bio,
-                as_attachment=(action == 'finalize'),
-                download_name=filename,
-                mimetype='application/pdf'
-            )
+            # Anteprima: apre direttamente il PDF in una nuova scheda.
+            if action != 'finalize':
+                return send_file(
+                    pdf_bio,
+                    as_attachment=False,
+                    download_name=filename,
+                    mimetype='application/pdf'
+                )
+
+            # Finalizzazione: scarica il PDF e poi torna automaticamente alle Giacenze.
+            # Questa soluzione non dipende dal JavaScript della schermata DDT.
+            import base64
+            import json as _json
+
+            pdf_base64 = base64.b64encode(pdf_bio.getvalue()).decode('ascii')
+            filename_js = _json.dumps(filename)
+            giacenze_url_js = _json.dumps(url_for('giacenze'))
+
+            return f"""<!doctype html>
+<html lang="it">
+<head>
+    <meta charset="utf-8">
+    <title>DDT finalizzato</title>
+</head>
+<body>
+    <p>DDT finalizzato correttamente. Download in corso...</p>
+    <script>
+    (function() {{
+        try {{
+            const binary = atob("{pdf_base64}");
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {{
+                bytes[i] = binary.charCodeAt(i);
+            }}
+            const blob = new Blob([bytes], {{type: "application/pdf"}});
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = {filename_js};
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+
+            setTimeout(function() {{
+                URL.revokeObjectURL(url);
+                window.location.replace({giacenze_url_js});
+            }}, 900);
+        }} catch (e) {{
+            document.body.innerHTML =
+                "<p>DDT salvato, ma il download automatico non è riuscito.</p>" +
+                "<p><a href=" + {giacenze_url_js} + ">Torna al Magazzino</a></p>";
+        }}
+    }})();
+    </script>
+</body>
+</html>"""
 
         except Exception as e:
             db.rollback()
