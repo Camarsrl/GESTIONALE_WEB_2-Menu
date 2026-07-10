@@ -81,22 +81,6 @@ def register_ddt_routes(app_obj, deps):
             n_ddt = request.form.get('n_ddt', '').strip()
             data_ddt_str = request.form.get('data_ddt')
 
-            # ✅ Progressivo DDT: viene salvato SOLO quando si preme "Finalizza"
-            # In anteprima mostriamo il prossimo numero senza consumarlo.
-            if action == 'finalize':
-                try:
-                    if (not n_ddt) or (n_ddt == peek_next_ddt_number()):
-                        n_ddt = next_ddt_number()
-                except Exception:
-                    # fallback: se qualcosa va storto, non blocchiamo la finalizzazione
-                    if not n_ddt:
-                        n_ddt = next_ddt_number()
-
-            # ✅ Se l'utente ha scelto un numero diverso (con le frecce),
-            # aggiorniamo comunque il progressivo per evitare riutilizzi futuri.
-            if action == 'finalize':
-                consume_specific_ddt_number(n_ddt)
-
             try:
                 data_ddt_obj = datetime.strptime(data_ddt_str, "%Y-%m-%d").date()
                 data_formatted = data_ddt_obj.strftime("%d/%m/%Y")
@@ -185,6 +169,24 @@ def register_ddt_routes(app_obj, deps):
             if action == 'finalize' and salva_mezzi_trasporti and not mezzo_trasporti:
                 flash("⚠️ Inserisci il Mezzo per Trasporti prima di finalizzare. Verifica anche la funzione Trasporti.", "danger")
                 return redirect(url_for('giacenze'))
+
+            # ✅ Consuma il progressivo SOLO DOPO che tutti i controlli sono superati.
+            # In questo modo un destinatario mancante o un altro errore di validazione
+            # non fa avanzare inutilmente la numerazione DDT.
+            if action == 'finalize':
+                try:
+                    prossimo = peek_next_ddt_number()
+                    if (not n_ddt) or (n_ddt == prossimo):
+                        n_ddt = next_ddt_number()
+                    else:
+                        # Numero scelto manualmente con le frecce: memorizzalo
+                        # senza incrementare prima un altro progressivo.
+                        consume_specific_ddt_number(n_ddt)
+                except Exception:
+                    if not n_ddt:
+                        n_ddt = next_ddt_number()
+                    else:
+                        consume_specific_ddt_number(n_ddt)
 
             righe_per_pdf = []
 
@@ -290,53 +292,14 @@ def register_ddt_routes(app_obj, deps):
                     mimetype='application/pdf'
                 )
 
-            # Finalizzazione: scarica il PDF e poi torna automaticamente alle Giacenze.
-            # Questa soluzione non dipende dal JavaScript della schermata DDT.
-            import base64
-            import json as _json
-
-            pdf_base64 = base64.b64encode(pdf_bio.getvalue()).decode('ascii')
-            filename_js = _json.dumps(filename)
-            giacenze_url_js = _json.dumps(url_for('giacenze'))
-
-            return f"""<!doctype html>
-<html lang="it">
-<head>
-    <meta charset="utf-8">
-    <title>DDT finalizzato</title>
-</head>
-<body>
-    <p>DDT finalizzato correttamente. Download in corso...</p>
-    <script>
-    (function() {{
-        try {{
-            const binary = atob("{pdf_base64}");
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) {{
-                bytes[i] = binary.charCodeAt(i);
-            }}
-            const blob = new Blob([bytes], {{type: "application/pdf"}});
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = {filename_js};
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-
-            setTimeout(function() {{
-                URL.revokeObjectURL(url);
-                window.location.replace({giacenze_url_js});
-            }}, 900);
-        }} catch (e) {{
-            document.body.innerHTML =
-                "<p>DDT salvato, ma il download automatico non è riuscito.</p>" +
-                "<p><a href=" + {giacenze_url_js} + ">Torna al Magazzino</a></p>";
-        }}
-    }})();
-    </script>
-</body>
-</html>"""
+            # Finalizzazione: restituisce direttamente il PDF.
+            # Il JavaScript della schermata esegue il download e poi torna alle Giacenze.
+            return send_file(
+                pdf_bio,
+                as_attachment=True,
+                download_name=filename,
+                mimetype='application/pdf'
+            )
 
         except Exception as e:
             db.rollback()
