@@ -4019,14 +4019,19 @@ DDT_PREVIEW_HTML = """
         </h5>
 
         <div class="btn-group ddt-actions">
-            <button type="button"
-                    class="btn btn-outline-primary"
-                    onclick="submitDdt('preview')">
+            <button type="submit"
+                    form="ddt-form"
+                    name="action"
+                    value="preview"
+                    formtarget="_blank"
+                    class="btn btn-outline-primary">
                 <i class="bi bi-printer"></i> Anteprima PDF
             </button>
-            <button type="button"
-                    class="btn btn-success"
-                    onclick="submitDdt('finalize')">
+            <button type="submit"
+                    form="ddt-form"
+                    name="action"
+                    value="finalize"
+                    class="btn btn-success">
                 <i class="bi bi-check-circle-fill"></i> Finalizza e Scarica
             </button>
             <a href="{{ url_for('invia_email', ids=ids) }}" class="btn btn-warning">
@@ -4038,7 +4043,6 @@ DDT_PREVIEW_HTML = """
 
     <form id="ddt-form" method="POST" action="{{ url_for('ddt_finalize') }}">
         <input type="hidden" name="ids" value="{{ ids }}">
-        <input type="hidden" name="action" id="action_field" value="preview">
         <input type="hidden" name="dest_source" id="dest_source" value="saved">
         <input type="hidden" id="ddt_cliente_richiede_mezzi" value="{{ '1' if ddt_cliente_richiede_mezzi else '0' }}">
         <input type="hidden" id="ddt_total_righe" value="{{ total_righe_ddt or (rows|length) }}">
@@ -4157,7 +4161,7 @@ DDT_PREVIEW_HTML = """
                     <div class="col-md-3">
                         <div class="ddt-field-card">
                             <label class="form-label">Data DDT</label>
-                            <input name="data_ddt" type="date" class="form-control" value="{{ oggi }}" required>
+                            <input name="data_ddt" id="data_ddt" type="date" class="form-control" value="{{ oggi }}" required>
                         </div>
                     </div>
 
@@ -4414,152 +4418,47 @@ document.getElementById('btn_use_manual').addEventListener('click', function() {
 updateDestSavedPreview();
 setDestSource('saved');
 
-function submitDdt(actionType) {
-    const form = document.getElementById('ddt-form');
-    document.getElementById('action_field').value = actionType;
-
-    function clearDdtErrors(){
-        ['dest_key','dest_ragione_manual','n_ddt_input','data_ddt','mezzo_giacenze','mezzo_trasporti'].forEach(function(id){
-            const el = document.getElementById(id);
-            if (el) el.classList.remove('ddt-field-error');
-        });
-    }
-    function markError(id, message){
-        const el = document.getElementById(id);
-        if (el) {
-            el.classList.add('ddt-field-error');
-            el.focus();
-        }
-        alert(message);
-    }
-
-    clearDdtErrors();
-
+function confermaFinalizzazioneDdt() {
     const nDdt = (document.getElementById('n_ddt_input')?.value || '').trim();
+    const destSource = (document.getElementById('dest_source')?.value || 'saved');
+
     if (!nDdt) {
-        markError('n_ddt_input', '⚠️ Inserisci il numero DDT prima di continuare.');
-        return;
+        alert('⚠️ Inserisci il numero DDT prima di continuare.');
+        return false;
     }
 
-    const dataDdt = (document.getElementById('data_ddt')?.value || '').trim();
-    if (!dataDdt) {
-        markError('data_ddt', '⚠️ Inserisci la data DDT prima di continuare.');
-        return;
-    }
-
-    const destSource = (document.getElementById('dest_source').value || 'saved');
-    if (destSource === 'saved') {
-        const destKey = (document.getElementById('dest_key').value || '').trim();
-        if (!destKey) {
-            markError('dest_key', "⚠️ Seleziona un destinatario salvato oppure premi 'Usa destinatario occasionale'.");
-            return;
+    if (destSource === 'manual') {
+        const nome = (document.getElementById('dest_ragione_manual')?.value || '').trim();
+        if (!nome) {
+            alert('⚠️ Inserisci almeno la ragione sociale del destinatario occasionale.');
+            return false;
         }
     } else {
-        const manualName = (document.getElementById('dest_ragione_manual').value || '').trim();
-        if (!manualName) {
-            markError('dest_ragione_manual', '⚠️ Inserisci almeno la ragione sociale del destinatario occasionale.');
-            return;
+        const key = (document.getElementById('dest_key')?.value || '').trim();
+        if (!key) {
+            alert('⚠️ Seleziona un destinatario salvato.');
+            return false;
         }
     }
 
-    // ✅ Mezzo/Trasporti obbligatori solo per i clienti indicati, se NON viene scelta l'opzione di esclusione
-    if (actionType === 'finalize') {
-        const richiedeMezzi = (document.getElementById('ddt_cliente_richiede_mezzi')?.value || '0') === '1';
-        const skipMezzi = !!document.getElementById('skip_mezzi_trasporti')?.checked;
-        if (richiedeMezzi && !skipMezzi) {
-            const mezzoGiacenze = (document.getElementById('mezzo_giacenze').value || '').trim();
-            const mezzoTrasporti = (document.getElementById('mezzo_trasporti').value || '').trim();
-            if (!mezzoGiacenze) {
-                markError('mezzo_giacenze', '⚠️ Seleziona il Mezzo per Giacenze prima di finalizzare il DDT.');
-                return;
-            }
-            if (!mezzoTrasporti) {
-                markError('mezzo_trasporti', '⚠️ Inserisci il Mezzo per Trasporti prima di finalizzare il DDT.');
-                return;
-            }
+    const richiedeMezzi = (document.getElementById('ddt_cliente_richiede_mezzi')?.value || '0') === '1';
+    const skipMezzi = !!document.getElementById('skip_mezzi_trasporti')?.checked;
+    if (richiedeMezzi && !skipMezzi) {
+        const mezzoG = (document.getElementById('mezzo_giacenze')?.value || '').trim();
+        const mezzoT = (document.getElementById('mezzo_trasporti')?.value || '').trim();
+        if (!mezzoG) {
+            alert('⚠️ Seleziona il Mezzo per Giacenze.');
+            return false;
         }
-
-        const righe = document.getElementById('ddt_total_righe')?.value || '0';
-        const colli = document.getElementById('ddt_total_colli')?.value || '0';
-        const peso = document.getElementById('ddt_total_peso')?.value || '0,00';
-        const conferma = confirm(
-            'Confermi la creazione del DDT N. ' + nDdt + '?\n\n' +
-            'Righe: ' + righe + '\n' +
-            'Colli: ' + colli + '\n' +
-            'Peso: ' + peso + ' kg\n\n' +
-            'Controlla che destinatario, mezzo e articoli siano corretti prima di confermare.'
-        );
-        if (!conferma) return;
+        if (!mezzoT) {
+            alert('⚠️ Inserisci il Mezzo per Trasporti.');
+            return false;
+        }
     }
 
-    if (actionType === 'preview') {
-        form.target = '_blank';
-        form.submit();
-        form.target = '_self';
-    } else {
-        form.target = '_self';
-        const finalizeButton = document.querySelector("button[onclick=\"submitDdt('finalize')\"]");
-        if (finalizeButton) {
-            finalizeButton.disabled = true;
-            finalizeButton.dataset.originalText = finalizeButton.innerHTML;
-            finalizeButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Salvataggio...';
-        }
-
-        const formData = new FormData(form);
-        formData.set('action', 'finalize');
-        const url = form.getAttribute('action');
-
-        fetch(url, { method: 'POST', body: formData, redirect: 'follow' })
-        .then(async resp => {
-            const contentType = (resp.headers.get('content-type') || '').toLowerCase();
-
-            // Se il server ha rimandato alle Giacenze per un errore di validazione
-            // (es. destinatario non valido), non scaricare una pagina HTML come PDF.
-            if (contentType.includes('text/html')) {
-                window.location.replace(resp.url || '{{ url_for("giacenze") }}');
-                return null;
-            }
-
-            if (!resp.ok) {
-                const text = await resp.text();
-                throw new Error(text || 'Errore finalizzazione');
-            }
-
-            const disposition = resp.headers.get('content-disposition') || '';
-            let filename = 'DDT_Finale.pdf';
-            const utfMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
-            const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
-            if (utfMatch && utfMatch[1]) filename = decodeURIComponent(utfMatch[1]);
-            else if (plainMatch && plainMatch[1]) filename = plainMatch[1];
-
-            return { blob: await resp.blob(), filename };
-        })
-        .then(result => {
-            if (!result) return;
-            const urlBlob = window.URL.createObjectURL(result.blob);
-            const a = document.createElement('a');
-            a.href = urlBlob;
-            a.download = result.filename;
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-
-            setTimeout(() => {
-                window.URL.revokeObjectURL(urlBlob);
-                a.remove();
-                window.location.replace('{{ url_for("giacenze") }}');
-            }, 700);
-        })
-        .catch(err => {
-            const finalizeButton = document.querySelector("button[onclick=\"submitDdt('finalize')\"]");
-            if (finalizeButton) {
-                finalizeButton.disabled = false;
-                finalizeButton.innerHTML = finalizeButton.dataset.originalText || '<i class="bi bi-check-circle-fill"></i> Finalizza e Scarica';
-            }
-            alert('Errore: ' + err.message);
-        });
-    }
+    return confirm('Confermi la creazione del DDT N. ' + nDdt + '?');
 }
+
 </script>
 {% endblock %}
 """
