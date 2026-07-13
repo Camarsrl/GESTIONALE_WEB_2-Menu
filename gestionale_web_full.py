@@ -4023,6 +4023,7 @@ DDT_PREVIEW_HTML = """
                     form="ddt-form"
                     name="action"
                     value="preview"
+                    formaction="{{ url_for('ddt_finalize', mode='preview') }}"
                     formtarget="_blank"
                     class="btn btn-outline-primary">
                 <i class="bi bi-printer"></i> Anteprima PDF
@@ -4031,6 +4032,8 @@ DDT_PREVIEW_HTML = """
                     form="ddt-form"
                     name="action"
                     value="finalize"
+                    formaction="{{ url_for('ddt_finalize', mode='finalize') }}"
+                    formtarget="_self"
                     class="btn btn-success">
                 <i class="bi bi-check-circle-fill"></i> Finalizza e Scarica
             </button>
