@@ -23,15 +23,10 @@ def register_ddt_routes(app_obj, deps):
             # 1. Recupera ID e Azione
             ids_str = request.form.get('ids', '')
             ids = [int(i) for i in ids_str.split(',') if i.strip().isdigit()]
-            # Legge tutti i valori action: in caso di campi duplicati, Finalizza ha priorità.
+            # Legge l'azione in modo robusto. Se il form invia piu valori,
+            # la finalizzazione ha sempre la priorita sull'anteprima.
             action_values = [str(v or '').strip().lower() for v in request.form.getlist('action')]
-            if 'finalize' in action_values:
-                action = 'finalize'
-            elif 'preview' in action_values:
-                action = 'preview'
-            else:
-                action = (request.form.get('action') or 'preview').strip().lower()
-
+            action = 'finalize' if 'finalize' in action_values else 'preview'
 
             # ✅ CAMPI SEPARATI:
             # - mezzo_giacenze / mezzi_in_uscita: compila Articolo.mezzi_in_uscita nelle Giacenze
@@ -211,8 +206,10 @@ def register_ddt_routes(app_obj, deps):
 
                 # ✅ Se Finalizza -> Salva su DB
                 if action == 'finalize':
-                    # Nel modello Articolo questi campi sono String/Text: salviamo valori testuali stabili.
-                    art.data_uscita = data_ddt_str
+                    # I campi del modello Articolo sono String/Text: salviamo valori
+                    # espliciti e uniformi per evitare che il PDF venga creato senza
+                    # aggiornare le colonne Data Uscita e DDT Uscita.
+                    art.data_uscita = data_ddt_obj.strftime('%Y-%m-%d')
                     art.n_ddt_uscita = str(n_ddt or '').strip()
                     if salva_mezzi_trasporti:
                         art.mezzi_in_uscita = mezzo_giacenze  # ✅ Solo per FINCANTIERI / SCOPERTO / ARMATORE
@@ -263,16 +260,23 @@ def register_ddt_routes(app_obj, deps):
                     print(f"[WARN] Trasporto interno non salvato per DDT {n_ddt}: {e}")
 
             if action == 'finalize':
-                # Forza l'UPDATE e verifica prima del commit che ogni riga abbia ricevuto i dati di uscita.
+                # Forza il flush prima del commit e verifica che tutte le righe
+                # selezionate siano state effettivamente aggiornate.
                 db.flush()
-                mancanti = [
-                    art.id_articolo for art in articoli
-                    if str(getattr(art, 'data_uscita', '') or '').strip() != data_ddt_str
-                    or str(getattr(art, 'n_ddt_uscita', '') or '').strip() != str(n_ddt or '').strip()
-                ]
-                if mancanti:
+                data_salvata = data_ddt_obj.strftime('%Y-%m-%d')
+                n_ddt_salvato = str(n_ddt or '').strip()
+                aggiornate = (
+                    db.query(Articolo.id_articolo)
+                    .filter(
+                        Articolo.id_articolo.in_(ids),
+                        Articolo.data_uscita == data_salvata,
+                        Articolo.n_ddt_uscita == n_ddt_salvato,
+                    )
+                    .count()
+                )
+                if aggiornate != len(set(ids)):
                     raise RuntimeError(
-                        'Salvataggio DDT incompleto sulle righe: ' + ', '.join(map(str, mancanti))
+                        f'Salvataggio DDT incompleto: aggiornate {aggiornate} righe su {len(set(ids))}.'
                     )
                 db.commit()
                 if salva_mezzi_trasporti:
