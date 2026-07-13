@@ -23,10 +23,15 @@ def register_ddt_routes(app_obj, deps):
             # 1. Recupera ID e Azione
             ids_str = request.form.get('ids', '')
             ids = [int(i) for i in ids_str.split(',') if i.strip().isdigit()]
-            # Legge l'azione in modo robusto anche se nel form arrivano piu campi action.
-            # Finalizza ha sempre priorita sull'anteprima.
+            # Legge tutti i valori action: in caso di campi duplicati, Finalizza ha priorità.
             action_values = [str(v or '').strip().lower() for v in request.form.getlist('action')]
-            action = 'finalize' if 'finalize' in action_values else 'preview'
+            if 'finalize' in action_values:
+                action = 'finalize'
+            elif 'preview' in action_values:
+                action = 'preview'
+            else:
+                action = (request.form.get('action') or 'preview').strip().lower()
+
 
             # ✅ CAMPI SEPARATI:
             # - mezzo_giacenze / mezzi_in_uscita: compila Articolo.mezzi_in_uscita nelle Giacenze
@@ -206,8 +211,7 @@ def register_ddt_routes(app_obj, deps):
 
                 # ✅ Se Finalizza -> Salva su DB
                 if action == 'finalize':
-                    # Nel modello Articolo questi campi sono String/Text: salviamo valori testuali
-                    # compatibili con PostgreSQL e con i filtri delle Giacenze.
+                    # Nel modello Articolo questi campi sono String/Text: salviamo valori testuali stabili.
                     art.data_uscita = data_ddt_str
                     art.n_ddt_uscita = str(n_ddt or '').strip()
                     if salva_mezzi_trasporti:
@@ -259,8 +263,7 @@ def register_ddt_routes(app_obj, deps):
                     print(f"[WARN] Trasporto interno non salvato per DDT {n_ddt}: {e}")
 
             if action == 'finalize':
-                # Forza l'invio degli UPDATE prima del commit e verifica che tutte le righe
-                # selezionate abbiano ricevuto Data uscita e N. DDT uscita.
+                # Forza l'UPDATE e verifica prima del commit che ogni riga abbia ricevuto i dati di uscita.
                 db.flush()
                 mancanti = [
                     art.id_articolo for art in articoli
@@ -269,7 +272,7 @@ def register_ddt_routes(app_obj, deps):
                 ]
                 if mancanti:
                     raise RuntimeError(
-                        'Salvataggio DDT non completato sulle righe: ' + ', '.join(map(str, mancanti))
+                        'Salvataggio DDT incompleto sulle righe: ' + ', '.join(map(str, mancanti))
                     )
                 db.commit()
                 if salva_mezzi_trasporti:
