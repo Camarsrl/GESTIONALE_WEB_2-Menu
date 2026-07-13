@@ -26,7 +26,11 @@ def register_ddt_routes(app_obj, deps):
             # Legge l'azione in modo robusto. Se il form invia piu valori,
             # la finalizzazione ha sempre la priorita sull'anteprima.
             action_values = [str(v or '').strip().lower() for v in request.form.getlist('action')]
-            action = 'finalize' if 'finalize' in action_values else 'preview'
+            mode_arg = str(request.args.get('mode') or '').strip().lower()
+            if mode_arg in ('preview', 'finalize'):
+                action = mode_arg
+            else:
+                action = 'finalize' if 'finalize' in action_values else 'preview'
 
             # ✅ CAMPI SEPARATI:
             # - mezzo_giacenze / mezzi_in_uscita: compila Articolo.mezzi_in_uscita nelle Giacenze
@@ -260,11 +264,22 @@ def register_ddt_routes(app_obj, deps):
                     print(f"[WARN] Trasporto interno non salvato per DDT {n_ddt}: {e}")
 
             if action == 'finalize':
+                # Aggiornamento SQL esplicito: garantisce il salvataggio delle due
+                # colonne anche se la sessione ORM contiene oggetti gia caricati.
+                data_salvata = data_ddt_obj.strftime('%Y-%m-%d')
+                n_ddt_salvato = str(n_ddt or '').strip()
+                if not n_ddt_salvato:
+                    raise RuntimeError('Numero DDT vuoto: salvataggio annullato.')
+                db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).update(
+                    {
+                        Articolo.data_uscita: data_salvata,
+                        Articolo.n_ddt_uscita: n_ddt_salvato,
+                    },
+                    synchronize_session=False
+                )
                 # Forza il flush prima del commit e verifica che tutte le righe
                 # selezionate siano state effettivamente aggiornate.
                 db.flush()
-                data_salvata = data_ddt_obj.strftime('%Y-%m-%d')
-                n_ddt_salvato = str(n_ddt or '').strip()
                 aggiornate = (
                     db.query(Articolo.id_articolo)
                     .filter(
@@ -316,15 +331,28 @@ def register_ddt_routes(app_obj, deps):
                     mimetype='application/pdf'
                 )
 
-            # Finalizzazione veloce: restituisce direttamente il PDF come allegato.
-            # Il JavaScript della pagina scarica il file e poi torna alle Giacenze.
-            return send_file(
-                pdf_bio,
-                as_attachment=True,
-                download_name=filename,
-                mimetype='application/pdf',
-                max_age=0
-            )
+            # Finalizzazione: il DB e gia stato salvato. Avvia il download
+            # e poi torna automaticamente alle Giacenze.
+            import base64
+            import json as _json
+            pdf_base64 = base64.b64encode(pdf_bio.getvalue()).decode('ascii')
+            filename_js = _json.dumps(filename)
+            giacenze_url_js = _json.dumps(url_for('giacenze'))
+            return f"""<!doctype html>
+<html lang='it'><head><meta charset='utf-8'><title>DDT salvato</title></head>
+<body><p>DDT N. {n_ddt} salvato. Download in corso...</p>
+<script>
+(function() {{
+  const binary = atob('{pdf_base64}');
+  const bytes = new Uint8Array(binary.length);
+  for (let i=0; i<binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], {{type:'application/pdf'}});
+  const u = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = u; a.download = {filename_js}; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function() {{ URL.revokeObjectURL(u); window.location.replace({giacenze_url_js}); }}, 900);
+}})();
+</script></body></html>"""
 
         except Exception as e:
             db.rollback()
