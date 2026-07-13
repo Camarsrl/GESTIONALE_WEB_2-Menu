@@ -23,7 +23,9 @@ def register_ddt_routes(app_obj, deps):
             # 1. Recupera ID e Azione
             ids_str = request.form.get('ids', '')
             ids = [int(i) for i in ids_str.split(',') if i.strip().isdigit()]
-            action = request.form.get('action', 'preview')
+            action = (request.args.get('mode') or request.form.get('action') or 'preview').strip().lower()
+            if action not in {'preview', 'finalize'}:
+                action = 'preview'
 
             # ✅ CAMPI SEPARATI:
             # - mezzo_giacenze / mezzi_in_uscita: compila Articolo.mezzi_in_uscita nelle Giacenze
@@ -203,8 +205,9 @@ def register_ddt_routes(app_obj, deps):
 
                 # ✅ Se Finalizza -> Salva su DB
                 if action == 'finalize':
-                    art.data_uscita = data_ddt_obj
-                    art.n_ddt_uscita = n_ddt
+                    # Il modello Articolo usa campi String: salviamo sempre valori testuali stabili.
+                    art.data_uscita = data_ddt_obj.strftime('%Y-%m-%d')
+                    art.n_ddt_uscita = str(n_ddt).strip()
                     if salva_mezzi_trasporti:
                         art.mezzi_in_uscita = mezzo_giacenze  # ✅ Solo per FINCANTIERI / SCOPERTO / ARMATORE
                     if nuove_note is not None:
@@ -254,6 +257,22 @@ def register_ddt_routes(app_obj, deps):
                     print(f"[WARN] Trasporto interno non salvato per DDT {n_ddt}: {e}")
 
             if action == 'finalize':
+                # Forza l'UPDATE prima del commit e verifica che tutte le righe siano state aggiornate.
+                db.flush()
+                expected_ids = {a.id_articolo for a in articoli}
+                updated_rows = (
+                    db.query(Articolo.id_articolo)
+                    .filter(
+                        Articolo.id_articolo.in_(expected_ids),
+                        Articolo.n_ddt_uscita == str(n_ddt).strip(),
+                        Articolo.data_uscita == data_ddt_obj.strftime('%Y-%m-%d')
+                    )
+                    .all()
+                )
+                if len(updated_rows) != len(expected_ids):
+                    raise RuntimeError(
+                        f"Salvataggio DDT incompleto: aggiornate {len(updated_rows)} righe su {len(expected_ids)}."
+                    )
                 db.commit()
                 if salva_mezzi_trasporti:
                     msg_extra = f" - Trasportatore: {trasportatore_interno}" if trasportatore_interno else ""
@@ -304,7 +323,7 @@ def register_ddt_routes(app_obj, deps):
 
         except Exception as e:
             db.rollback()
-            print(f"Errore DDT Finalize: {e}")
+            print(f"Errore DDT Finalize [action={action if 'action' in locals() else '?'} ids={ids if 'ids' in locals() else []}]: {e}")
             return f"Errore durante la creazione del DDT: {e}", 500
         finally:
             db.close()
@@ -363,4 +382,3 @@ def register_ddt_routes(app_obj, deps):
             return f"Errore salvataggio mezzo in uscita: {e}", 500
         finally:
             db.close()
-
