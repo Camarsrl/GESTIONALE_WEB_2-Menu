@@ -164,7 +164,9 @@ def register_ddt_routes(app_obj, deps):
 
             # Il mezzo nelle Giacenze va salvato per qualunque cliente quando viene scelto.
             # L'obbligatorieta resta limitata ai clienti indicati sopra.
-            salva_mezzo_giacenze = bool(mezzo_giacenze and not skip_mezzi_trasporti)
+            salva_mezzo_giacenze = bool(mezzo_giacenze)
+            # Il checkbox di esclusione riguarda la funzione Trasporti, non la colonna
+            # Mezzo Uscita delle Giacenze: se il mezzo è stato scelto va sempre salvato.
 
             # Crea/aggiorna il record Trasporti quando l'utente compila almeno un dato
             # di trasporto e non ha selezionato l'opzione di esclusione.
@@ -280,25 +282,31 @@ def register_ddt_routes(app_obj, deps):
                 n_ddt_salvato = str(n_ddt or '').strip()
                 if not n_ddt_salvato:
                     raise RuntimeError('Numero DDT vuoto: salvataggio annullato.')
+                valori_uscita = {
+                    Articolo.data_uscita: data_salvata,
+                    Articolo.n_ddt_uscita: n_ddt_salvato,
+                }
+                # Aggiornamento SQL esplicito anche del mezzo: evita che il valore
+                # venga perso quando, nella stessa transazione, vengono eseguiti
+                # aggiornamenti bulk di data e numero DDT.
+                if mezzo_giacenze:
+                    valori_uscita[Articolo.mezzi_in_uscita] = mezzo_giacenze
+
                 db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).update(
-                    {
-                        Articolo.data_uscita: data_salvata,
-                        Articolo.n_ddt_uscita: n_ddt_salvato,
-                    },
+                    valori_uscita,
                     synchronize_session=False
                 )
                 # Forza il flush prima del commit e verifica che tutte le righe
                 # selezionate siano state effettivamente aggiornate.
                 db.flush()
-                aggiornate = (
-                    db.query(Articolo.id_articolo)
-                    .filter(
-                        Articolo.id_articolo.in_(ids),
-                        Articolo.data_uscita == data_salvata,
-                        Articolo.n_ddt_uscita == n_ddt_salvato,
-                    )
-                    .count()
+                verifica_q = db.query(Articolo.id_articolo).filter(
+                    Articolo.id_articolo.in_(ids),
+                    Articolo.data_uscita == data_salvata,
+                    Articolo.n_ddt_uscita == n_ddt_salvato,
                 )
+                if mezzo_giacenze:
+                    verifica_q = verifica_q.filter(Articolo.mezzi_in_uscita == mezzo_giacenze)
+                aggiornate = verifica_q.count()
                 if aggiornate != len(set(ids)):
                     raise RuntimeError(
                         f'Salvataggio DDT incompleto: aggiornate {aggiornate} righe su {len(set(ids))}.'
