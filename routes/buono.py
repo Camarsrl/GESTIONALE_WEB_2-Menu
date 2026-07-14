@@ -243,6 +243,37 @@ def register_buono_routes(app_obj, deps):
         new_val = re.sub(r"\s{2,}", " ", new_val).strip()
         return new_val
 
+    def _clean_residual_cell(original, selected):
+        """Calcola il residuo eliminando tutti gli elementi messi nel Buono.
+
+        Mantiene sempre Package/Pallet/Cassa. Se la separazione standard non basta,
+        esegue anche una rimozione testuale controllata dei singoli elementi scelti.
+        """
+        original = str(original or '').strip()
+        selected = str(selected or '').strip()
+        if not original or not selected:
+            return original
+
+        residuo = _remove_selected_from_cell(original, selected)
+        selected_parts = _split_multi_value(selected) or [selected]
+
+        # Se un codice scelto è ancora presente nel residuo, lo rimuove testualmente.
+        # Il confronto non tocca mai i riferimenti logistici puri.
+        for item in selected_parts:
+            item = str(item or '').strip()
+            if not item or _is_package_token(item):
+                continue
+            if _norm_for_match(item) and _norm_for_match(item) in _norm_for_match(residuo):
+                residuo = re.sub(re.escape(item), '', residuo, flags=re.I)
+
+        # Ripulisce separatori rimasti doppi o alle estremità.
+        residuo = re.sub(r'\s*(?:;|\||,|\+)\s*(?:;|\||,|\+)\s*', ' - ', residuo)
+        residuo = re.sub(r'\s+-\s+-\s+', ' - ', residuo)
+        residuo = re.sub(r'^(?:\s*[-/;,|+]\s*)+', '', residuo)
+        residuo = re.sub(r'(?:\s*[-/;,|+]\s*)+$', '', residuo)
+        residuo = re.sub(r'\s{2,}', ' ', residuo).strip(' -/;,|+')
+        return residuo
+
     def _extract_package_context(*values):
         """Estrae riferimenti logistici da conservare sulla riga residua.
 
@@ -908,6 +939,10 @@ def register_buono_routes(app_obj, deps):
                                 except Exception:
                                     pass
 
+                        # Lo scarico parziale rappresenta una riga logica per il materiale
+                        # prelevato e una per il residuo: entrambe restano a 1 collo.
+                        riga_buono.n_colli = 1
+                        r.n_colli = 1
                         riga_buono.data_uscita = getattr(r, 'data_uscita', '') or ''
                         riga_buono.n_ddt_uscita = getattr(r, 'n_ddt_uscita', '') or ''
 
@@ -920,18 +955,19 @@ def register_buono_routes(app_obj, deps):
                         # Poi aggiorno la riga originale lasciando solo il residuo.
                         # Se il parziale è solo quantitativo, codice e descrizione devono restare sulla riga in giacenza.
                         if cod_parziale:
-                            codice_residuo = _remove_selected_from_cell(old_cod, codice_scelto)
+                            codice_residuo = _clean_residual_cell(old_cod, codice_scelto)
                             # Mantiene sulla riga residua eventuale N. package / pallet / cassa.
                             r.codice_articolo = _preserve_package_context(codice_residuo, old_cod, codice_scelto)
                         else:
                             r.codice_articolo = old_cod
 
-                        if desc_parziale and _description_has_multiple_items(old_desc):
-                            descr_residua = _remove_selected_from_cell(old_desc, descr_scelta)
-                            # Mantiene sulla riga residua eventuale N. package / pallet / cassa anche se scritto in descrizione.
-                            r.descrizione = _preserve_package_context(descr_residua, old_desc, descr_scelta)
+                        if desc_parziale:
+                            descr_residua = _clean_residual_cell(old_desc, descr_scelta)
+                            descr_residua = _preserve_package_context(descr_residua, old_desc, descr_scelta)
+                            # Se la descrizione scelta era una parte della cella originale,
+                            # sulla riga residua resta soltanto la parte non prelevata.
+                            r.descrizione = descr_residua if descr_residua else old_desc
                         else:
-                            # Se la descrizione è unica, va mantenuta anche sulla riga residua.
                             r.descrizione = old_desc
 
                         # La riga residua mantiene le note originali.
