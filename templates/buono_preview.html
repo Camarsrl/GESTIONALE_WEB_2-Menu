@@ -19,17 +19,19 @@
         </div>
     </div>
 
-    
-    
-<div class="alert alert-info py-2">
-    <h5 class="mb-0">ðŸ§  CAMY AI - Assistente intelligente</h5>
-    Hai selezionato <b>{{ rows|length }}</b>
-    {% if rows|length == 1 %}riga{% else %}righe{% endif %}.<br>
-    Prima di generare il PDF verifica codice articolo, descrizione, quantitÃ , note e cartelli bancali.
-    {% if rows|length > 50 %}
-    Controlla che il numero totale delle righe sia corretto.
-    {% endif %}
-</div>
+    <div class="alert alert-primary py-2 mb-3" id="buono_camy_banner">
+        <b>ðŸ§  Controllo Operativo CAMY:</b>
+        Buono con <b>{{ rows|length }}</b>
+        {% if rows|length == 1 %}riga{% else %}righe{% endif %}.
+        <div class="small mt-1">
+            Prima di generare il PDF controlla codice articolo, descrizione, quantitÃ , note e cartelli bancali.
+            {% if rows|length > 50 %}
+            La selezione comprende piÃ¹ pagine: verifica che il numero totale delle righe sia corretto.
+            {% endif %}
+        </div>
+    </div>
+
+
 
 
     <form id="buono-form" method="POST" action="{{ url_for('buono_finalize_and_get_pdf') }}">
