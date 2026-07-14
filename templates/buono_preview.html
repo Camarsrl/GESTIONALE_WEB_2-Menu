@@ -21,8 +21,8 @@
 
     
     <div class="alert alert-info py-2">
-        <b>🧠 Controllo Buono CAMY</b><br>
-        Stai preparando un Buono con <b>{{ rows|length }}</b> righe. Prima di generare il PDF verifica codice articolo, descrizione, quantità, note e cartelli bancali.
+        <b>ðŸ§  Controllo Buono CAMY</b><br>
+        Stai preparando un Buono con <b>{{ rows|length }}</b> righe. Prima di generare il PDF verifica codice articolo, descrizione, quantitÃ , note e cartelli bancali.
         Se provieni da una selezione multipagina, controlla che il numero righe sia corretto.
     </div>
 
@@ -138,7 +138,7 @@
                 <div>
                     <b>Cartello bancali / picking</b>
                     <div class="small text-muted">
-                        Verrà creato <b>un cartello per ogni riga</b> spuntata nella tabella sotto. Se non vuoi fare il cartello per una riga, togli la spunta.
+                        VerrÃ  creato <b>un cartello per ogni riga</b> spuntata nella tabella sotto. Se non vuoi fare il cartello per una riga, togli la spunta.
                     </div>
                 </div>
                 <label class="form-check-label fw-bold">
@@ -160,8 +160,8 @@
         </div>
 
         <div class="alert alert-warning py-2 small">
-            <b>Scarico parziale:</b> se nella cella ci sono più codici/descrizioni, lascia nei campi sotto solo il codice e la descrizione che vuoi mettere nel buono.
-            Quando premi <b>Genera e Salva</b>, quel codice/descrizione verrà tolto dalla riga originale e resterà in giacenza solo il residuo.
+            <b>Scarico parziale:</b> se nella cella ci sono piÃ¹ codici/descrizioni, lascia nei campi sotto solo il codice e la descrizione che vuoi mettere nel buono.
+            Quando premi <b>Genera e Salva</b>, quel codice/descrizione verrÃ  tolto dalla riga originale e resterÃ  in giacenza solo il residuo.
         </div>
 
         <div class="table-responsive">
@@ -175,7 +175,7 @@
                         <th style="width:8%">Ordine Orig.</th>
                         <th style="width:20%">Codice da mettere nel buono</th>
                         <th style="width:28%">Descrizione da mettere nel buono</th>
-                        <th style="width:6%">Q.tà</th>
+                        <th style="width:6%">Q.tÃ </th>
                         <th style="width:7%">N.Arr</th>
                     </tr>
                 </thead>
@@ -206,7 +206,7 @@
                         <td>
                             <textarea name="codice_buono_{{ r.id_articolo }}" rows="2"
                                       class="form-control form-control-sm fw-bold"
-                                      title="Scrivi qui SOLO il codice articolo da inserire nel buono. Se lo modifichi, quando salvi verrà tolto dalla cella originale.">{{ r.codice_articolo or '' }}</textarea>
+                                      title="Scrivi qui SOLO il codice articolo da inserire nel buono. Se lo modifichi, quando salvi verrÃ  tolto dalla cella originale.">{{ r.codice_articolo or '' }}</textarea>
                             <div class="small text-muted mt-1">
                                 Orig.: {{ r.codice_articolo or '' }}
                             </div>
@@ -214,13 +214,13 @@
                         <td>
                             <textarea name="descrizione_buono_{{ r.id_articolo }}" rows="2"
                                       class="form-control form-control-sm"
-                                      title="Scrivi qui SOLO la descrizione da inserire nel buono. Se la modifichi, quando salvi verrà tolta dalla cella originale.">{{ r.descrizione or '' }}</textarea>
+                                      title="Scrivi qui SOLO la descrizione da inserire nel buono. Se la modifichi, quando salvi verrÃ  tolta dalla cella originale.">{{ r.descrizione or '' }}</textarea>
                             <div class="small text-muted mt-1">
                                 Orig.: {{ r.descrizione or '' }}
                             </div>
                         </td>
                         <td>
-                            <!-- ✅ Q.tà prende PEZZI -->
+                            <!-- âœ… Q.tÃ  prende PEZZI -->
                             <input name="q_{{ r.id_articolo }}" type="number"
                                    class="form-control form-control-sm text-center fw-bold"
                                    value="{{ r.pezzo or 1 }}">
@@ -261,8 +261,8 @@ document.addEventListener('DOMContentLoaded', toggleBuonoMode);
 function submitBuono(actionType) {
     const form = document.getElementById('buono-form');
     const totalRows = {{ rows|length }};
-    if (totalRows <= 0) { alert('⚠️ Nessuna riga nel Buono. Torna alle Giacenze e seleziona almeno un articolo.'); return; }
-    if (!confirm('Confermi operazione Buono: ' + actionType + ' con ' + totalRows + ' righe?\n\nVerifica quantità, codici, descrizioni e note prima di procedere.')) return;
+    if (totalRows <= 0) { alert('âš ï¸ Nessuna riga nel Buono. Torna alle Giacenze e seleziona almeno un articolo.'); return; }
+    if (!confirm('Confermi operazione Buono: ' + actionType + ' con ' + totalRows + ' righe?\n\nVerifica quantitÃ , codici, descrizioni e note prima di procedere.')) return;
     document.getElementById('action_field').value = actionType;
 
     if (actionType === 'preview' || actionType === 'cartello') {
