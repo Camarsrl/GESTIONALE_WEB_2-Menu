@@ -1,0 +1,589 @@
+ 
+{% extends 'base.html' %}
+{% block content %}
+<style>
+    .ddt-page-card{
+        border:0;
+        border-radius:18px;
+        box-shadow:0 8px 26px rgba(15,23,42,.08);
+        overflow:hidden;
+    }
+    .ddt-title{
+        font-weight:700;
+        letter-spacing:.02em;
+        color:#172033;
+    }
+    .ddt-section-title{
+        font-size:.82rem;
+        font-weight:800;
+        text-transform:uppercase;
+        letter-spacing:.03em;
+        color:#1f2937;
+        margin-bottom:.25rem;
+    }
+    .ddt-helper{
+        font-size:.76rem;
+        color:#6b7280;
+        margin:0;
+    }
+    .ddt-recipient-card{
+        border:1px solid #dbe3ef;
+        border-radius:14px;
+        background:#fff;
+        box-shadow:0 4px 14px rgba(15,23,42,.04);
+    }
+    .ddt-recipient-card.active{
+        border-color:#0d6efd;
+        box-shadow:0 0 0 .16rem rgba(13,110,253,.10);
+    }
+    .ddt-recipient-card.manual-active{
+        border-color:#198754;
+        box-shadow:0 0 0 .16rem rgba(25,135,84,.10);
+    }
+    .ddt-card-head{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:.75rem;
+        padding:.75rem .85rem;
+        background:#f8fafc;
+        border-bottom:1px solid #e5eaf2;
+        border-radius:14px 14px 0 0;
+    }
+    .ddt-list-toolbar{
+        display:flex;
+        gap:.45rem;
+        align-items:center;
+        margin-bottom:.55rem;
+    }
+    .ddt-search-wrap{
+        position:relative;
+        flex:1;
+    }
+    .ddt-search-wrap i{
+        position:absolute;
+        right:.7rem;
+        top:50%;
+        transform:translateY(-50%);
+        color:#64748b;
+    }
+    #dest_search{
+        padding-right:2rem;
+    }
+    #dest_key{
+        height:178px;
+        overflow:auto;
+        font-size:.86rem;
+        border-radius:10px;
+    }
+    #dest_key option{
+        padding:7px 8px;
+        white-space:normal;
+    }
+    .ddt-preview-box{
+        border-left:4px solid #0d6efd;
+        background:#f8fbff;
+        border-radius:12px;
+        padding:.65rem .75rem;
+        min-height:86px;
+    }
+    .ddt-preview-row{
+        display:grid;
+        grid-template-columns:120px 1fr;
+        gap:.6rem;
+        margin-bottom:.25rem;
+        align-items:start;
+    }
+    .ddt-preview-label{
+        color:#64748b;
+        font-size:.74rem;
+    }
+    .ddt-preview-value{
+        font-weight:700;
+        color:#111827;
+        word-break:break-word;
+    }
+    .ddt-manual-grid{
+        display:grid;
+        grid-template-columns:1.2fr 1fr 1fr;
+        gap:.55rem;
+    }
+    .ddt-field-card{
+        border:1px solid #e5e7eb;
+        border-radius:12px;
+        padding:.75rem;
+        background:#fff;
+        height:100%;
+    }
+    .ddt-actions .btn{
+        white-space:nowrap;
+    }
+    .ddt-field-error{
+        border:2px solid #dc3545 !important;
+        background:#fff5f5 !important;
+    }
+    .ddt-camy-banner{
+        border-left:5px solid #0d6efd;
+    }
+    @media (max-width: 991px){
+        .ddt-manual-grid{ grid-template-columns:1fr; }
+        .ddt-actions{ width:100%; justify-content:flex-start; flex-wrap:wrap; }
+    }
+</style>
+
+<div class="card p-3 ddt-page-card">
+
+    <!-- тЬЕ HEADER -->
+    <div class="d-flex align-items-center gap-3 mb-4" style="padding-bottom:10px;">
+        {% if logo_url %}
+            <img src="{{ logo_url }}" style="height:70px; margin-bottom:10px;">
+        {% endif %}
+
+        <h5 class="flex-grow-1 text-center m-0 ddt-title" style="padding-top:10px;">
+            DOCUMENTO DI TRASPORTO
+        </h5>
+
+        <div class="btn-group ddt-actions">
+            <button type="submit"
+                    form="ddt-form"
+                    name="action"
+                    value="preview"
+                    formaction="{{ url_for('ddt_finalize', mode='preview') }}"
+                    formtarget="_blank"
+                    class="btn btn-outline-primary">
+                <i class="bi bi-printer"></i> Anteprima PDF
+            </button>
+            <button type="submit"
+                    form="ddt-form"
+                    name="action"
+                    value="finalize"
+                    formaction="{{ url_for('ddt_finalize', mode='finalize') }}"
+                    formtarget="_self"
+                    class="btn btn-success">
+                <i class="bi bi-check-circle-fill"></i> Finalizza e Scarica
+            </button>
+            <a href="{{ url_for('invia_email', ids=ids) }}" class="btn btn-warning">
+                <i class="bi bi-envelope"></i> Invia Email
+            </a>
+            <a href="{{ url_for('giacenze') }}" class="btn btn-secondary">Annulla</a>
+        </div>
+    </div>
+
+    <form id="ddt-form" method="POST" action="{{ url_for('ddt_finalize') }}">
+        <input type="hidden" name="ids" value="{{ ids }}">
+        <input type="hidden" name="dest_source" id="dest_source" value="saved">
+        <input type="hidden" id="ddt_cliente_richiede_mezzi" value="{{ '1' if ddt_cliente_richiede_mezzi else '0' }}">
+        <input type="hidden" id="ddt_total_righe" value="{{ total_righe_ddt or (rows|length) }}">
+        <input type="hidden" id="ddt_total_colli" value="{{ total_colli_ddt or 0 }}">
+        <input type="hidden" id="ddt_total_peso" value="{{ total_peso_ddt or '0,00' }}">
+
+        <div class="alert alert-primary ddt-camy-banner py-2 mb-3" id="ddt_camy_banner">
+            <b>ЁЯза Controllo Operativo CAMY:</b> DDT con <b>{{ total_righe_ddt or (rows|length) }}</b> righe,
+            <b>{{ total_colli_ddt or 0 }}</b> colli e <b>{{ total_peso_ddt or '0,00' }} kg</b>.
+            {% if protocollo_mancanti_ddt and protocollo_mancanti_ddt > 0 %}
+                <div class="text-danger fw-bold mt-1">тЪая╕П Mancano {{ protocollo_mancanti_ddt }} protocolli obbligatori per FINCANTIERI / FINCANTIERI ARMATORE.</div>
+            {% endif %}
+            <div class="small mt-1">Prima di finalizzare controlla destinatario, numero DDT, data, mezzo e articoli selezionati.</div>
+        </div>
+
+        <div class="alert alert-info py-2 mb-3">
+            <b>Mezzi e Trasporti:</b> se compili il campo <b>Mezzo per Giacenze</b>, il valore viene salvato nella riga di magazzino. Per FINCANTIERI, FINCANTIERI SCOPERTO, FINCANTIERI ARMATORE, MARINE INTERIORS e DE WAVE SAMA i dati mezzo/trasporto sono obbligatori quando il trasporto ├и gestito da Camar.
+            <div class="form-check mt-1">
+                <input class="form-check-input" type="checkbox" value="1" name="skip_mezzi_trasporti" id="skip_mezzi_trasporti" >
+                <label class="form-check-label" for="skip_mezzi_trasporti">
+                    Non compilare Mezzo nelle Giacenze e non inserire il record nella funzione Trasporti
+                </label>
+            </div>
+        </div>
+
+        <div class="row g-3 align-items-start">
+            <!-- тЬЕ COLONNA DESTINATARIO -->
+            <div class="col-lg-4 col-xl-4">
+                <div class="ddt-section-title">Destinatario DDT</div>
+
+                <div class="ddt-recipient-card active mb-3" id="box_dest_saved">
+                    <div class="ddt-card-head">
+                        <div>
+                            <div class="fw-bold">Destinatari salvati <span class="text-muted fw-normal">(rubrica)</span></div>
+                            <p class="ddt-helper">Cerca e seleziona il destinatario dalla lista.</p>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-sm" id="btn_use_saved">
+                            <i class="bi bi-check2-circle"></i> Usa salvato
+                        </button>
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="ddt-list-toolbar">
+                            <div class="ddt-search-wrap">
+                                <input type="text" id="dest_search" class="form-control form-control-sm" placeholder="Cerca destinatario...">
+                                <i class="bi bi-search"></i>
+                            </div>
+                            <a href="{{ url_for('manage_destinatari') }}" class="btn btn-outline-secondary btn-sm" target="_blank" title="Gestisci rubrica destinatari">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                        </div>
+
+                        <select class="form-select" name="dest_key" id="dest_key" size="7">
+                            {% for k, v in destinatari.items() %}
+                            <option value="{{ k }}"
+                                    data-search="{{ (k ~ ' ' ~ (v.ragione_sociale or '') ~ ' ' ~ (v.indirizzo or '') ~ ' ' ~ (v.citta or ''))|lower }}"
+                                    data-ragione="{{ v.ragione_sociale or '' }}"
+                                    data-indirizzo="{{ v.indirizzo or '' }}"
+                                    data-citta="{{ v.citta or '' }}">
+                                {{ k }}{% if v.ragione_sociale %} - {{ v.ragione_sociale }}{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+
+                        <div id="dest_saved_preview" class="ddt-preview-box small mt-2">
+                            Seleziona un destinatario dalla lista.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ddt-recipient-card" id="box_dest_manual">
+                    <div class="ddt-card-head">
+                        <div>
+                            <div class="fw-bold">Destinatario occasionale <span class="text-muted fw-normal">(da non salvare)</span></div>
+                            <p class="ddt-helper">Compila solo per questo DDT.</p>
+                        </div>
+                        <button type="button" class="btn btn-outline-success btn-sm" id="btn_use_manual">
+                            <i class="bi bi-person-plus"></i> Usa occasionale
+                        </button>
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="mb-2">
+                            <input type="text" name="dest_ragione_manual" id="dest_ragione_manual" class="form-control form-control-sm" placeholder="Ragione sociale destinatario *">
+                        </div>
+                        <div class="mb-2">
+                            <textarea name="dest_indirizzo_manual" id="dest_indirizzo_manual" class="form-control form-control-sm" rows="2" placeholder="Indirizzo" autocomplete="off" style="position:relative; z-index:5; pointer-events:auto;"></textarea>
+                            <div class="form-text small">Puoi scrivere anche su pi├╣ righe.</div>
+                        </div>
+                        <div>
+                            <textarea name="dest_citta_manual" id="dest_citta_manual" class="form-control form-control-sm" rows="2" placeholder="Citt├а / CAP / Prov." autocomplete="off" style="position:relative; z-index:5; pointer-events:auto;"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- тЬЕ COLONNA DATI DDT -->
+            <div class="col-lg-8 col-xl-8">
+                <div class="row g-3 align-items-start">
+                    <div class="col-md-5">
+                        <div class="ddt-field-card">
+                            <label class="form-label">N. DDT</label>
+                            <div class="input-group">
+                                <button class="btn btn-outline-secondary" type="button" id="get-prev-ddt" title="Numero precedente">
+                                    <i class="bi bi-arrow-left"></i>
+                                </button>
+                                <input name="n_ddt" id="n_ddt_input" class="form-control text-center" value="{{ n_ddt }}" required>
+                                <button class="btn btn-outline-secondary" type="button" id="get-next-ddt" title="Numero successivo">
+                                    <i class="bi bi-arrow-right"></i>
+                                </button>
+                            </div>
+                            <div class="form-text">Usa тмЕя╕П/тЮбя╕П per cambiare progressivo.</div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-3">
+                        <div class="ddt-field-card">
+                            <label class="form-label">Data DDT</label>
+                            <input name="data_ddt" id="data_ddt" type="date" class="form-control" value="{{ oggi }}" required>
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="ddt-field-card">
+                            <label class="form-label">Targa</label>
+                            <input name="targa" class="form-control" placeholder="Inserisci targa (opzionale)">
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Causale</label>
+                        <input name="causale" class="form-control" value="TRASFERIMENTO">
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Porto</label>
+                        <input name="porto" class="form-control" value="FRANCO">
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Aspetto</label>
+                        <input name="aspetto" class="form-control" value="A VISTA">
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Trasportatore interno</label>
+                        <input name="trasportatore_interno" class="form-control" placeholder="Es. Donato">
+                        <div class="form-text">Salvato nei Trasporti, non stampato sul DDT cliente.</div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Mezzo per Giacenze</label>
+                        <select name="mezzo_giacenze" id="mezzo_giacenze" class="form-select">
+                            <option value="" selected>-- Seleziona --</option>
+                            <option value="MOTRICE">Motrice</option>
+                            <option value="BILICO">Bilico</option>
+                            <option value="FURGONE">Furgone</option>
+                        </select>
+                        <div class="form-text">Obbligatorio solo per Fincantieri, Fincantieri Scoperto e Fincantieri Armatore.</div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Mezzo per Trasporti</label>
+                        <input name="mezzo_trasporti" id="mezzo_trasporti" class="form-control" placeholder="Es. Motrice / Bilico / Furgone / Corriere">
+                        <div class="form-text">Obbligatorio solo per Fincantieri, Fincantieri Scoperto e Fincantieri Armatore.</div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Costo trasporto interno тВм</label>
+                        <input name="costo_trasporto" class="form-control" placeholder="Es. 120,00">
+                        <div class="form-text">Salvato nei Trasporti, non stampato sul DDT cliente.</div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Note viaggio interne</label>
+                        <input name="note_viaggio" class="form-control" placeholder="Es. consolidato / viaggio unico">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <hr style="margin-top:18px; margin-bottom:18px;">
+
+        <div class="mt-3" style="margin-bottom:18px;">
+            <h5 class="mb-0" style="font-weight:600;">Articoli nel DDT</h5>
+        </div>
+
+        <div class="table-responsive" style="margin-top:8px;">
+            <table class="table table-sm table-bordered align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Cod.Art.</th>
+                        <th>Descrizione</th>
+                        <th style="width: 250px;">Note (Editabili)</th>
+                        <th style="width: 70px;">Pezzi</th>
+                        <th style="width: 70px;">Colli</th>
+                        <th style="width: 80px;">Peso</th>
+                        <th>N.Arrivo</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for r in rows %}
+                    <tr>
+                        <td>{{ r.id_articolo }}</td>
+                        <td>{{ r.codice_articolo or '' }}</td>
+                        <td>{{ r.descrizione or '' }}</td>
+                        <td>
+                            <textarea class="form-control form-control-sm" name="note_{{ r.id_articolo }}" rows="1">{{ r.note or '' }}</textarea>
+                        </td>
+                        <td><input class="form-control form-control-sm" name="pezzi_{{ r.id_articolo }}" value="{{ r.pezzo or 1 }}"></td>
+                        <td><input class="form-control form-control-sm" name="colli_{{ r.id_articolo }}" value="{{ r.n_colli or 1 }}"></td>
+                        <td><input class="form-control form-control-sm" name="peso_{{ r.id_articolo }}" value="{{ r.peso or '' }}"></td>
+                        <td>{{ r.n_arrivo or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const nDdtInput = document.getElementById('n_ddt_input');
+
+function cambiaNumeroDdt(delta) {
+    if (!nDdtInput) return;
+    const raw = (nDdtInput.value || '').trim();
+    const match = raw.match(/^(\d+)\s*\/\s*(\d{2})$/);
+    let numero;
+    let anno;
+
+    if (match) {
+        numero = parseInt(match[1], 10);
+        anno = match[2];
+    } else {
+        numero = 1;
+        anno = String(new Date().getFullYear()).slice(-2);
+    }
+
+    numero = Math.max(1, numero + delta);
+    nDdtInput.value = String(numero).padStart(2, '0') + '/' + anno;
+    nDdtInput.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+const btnNextDdt = document.getElementById('get-next-ddt');
+const btnPrevDdt = document.getElementById('get-prev-ddt');
+if (btnNextDdt) btnNextDdt.addEventListener('click', function() { cambiaNumeroDdt(1); });
+if (btnPrevDdt) btnPrevDdt.addEventListener('click', function() { cambiaNumeroDdt(-1); });
+
+function escapeHtml(value) {
+    return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+}
+
+function updateDestSavedPreview() {
+    const sel = document.getElementById('dest_key');
+    const box = document.getElementById('dest_saved_preview');
+    if (!sel || !box) return;
+
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt) {
+        box.innerHTML = 'Seleziona un destinatario dalla lista.';
+        return;
+    }
+
+    const ragione = opt.dataset.ragione || opt.text || '';
+    const indirizzo = opt.dataset.indirizzo || '';
+    const citta = opt.dataset.citta || '';
+
+    box.innerHTML = `
+        <div class="ddt-preview-row"><div class="ddt-preview-label">Ragione sociale</div><div class="ddt-preview-value">${escapeHtml(ragione)}</div></div>
+        <div class="ddt-preview-row"><div class="ddt-preview-label">Indirizzo</div><div class="ddt-preview-value">${escapeHtml(indirizzo)}</div></div>
+        <div class="ddt-preview-row mb-0"><div class="ddt-preview-label">Citt├а / CAP / Prov.</div><div class="ddt-preview-value">${escapeHtml(citta)}</div></div>
+    `;
+}
+
+function setDestSource(source) {
+    const hidden = document.getElementById('dest_source');
+    const savedBox = document.getElementById('box_dest_saved');
+    const manualBox = document.getElementById('box_dest_manual');
+    const savedBtn = document.getElementById('btn_use_saved');
+    const manualBtn = document.getElementById('btn_use_manual');
+
+    hidden.value = source;
+
+    if (source === 'manual') {
+        savedBox.classList.remove('active');
+        manualBox.classList.add('manual-active');
+        savedBtn.className = 'btn btn-outline-primary btn-sm';
+        manualBtn.className = 'btn btn-success btn-sm';
+        const active = document.activeElement;
+        const isManualField = active && ['dest_ragione_manual','dest_indirizzo_manual','dest_citta_manual'].includes(active.id);
+        if (!isManualField) document.getElementById('dest_ragione_manual').focus();
+    } else {
+        manualBox.classList.remove('manual-active');
+        savedBox.classList.add('active');
+        manualBtn.className = 'btn btn-outline-success btn-sm';
+        savedBtn.className = 'btn btn-primary btn-sm';
+        updateDestSavedPreview();
+    }
+}
+
+function filterDestinatari() {
+    const search = (document.getElementById('dest_search').value || '').toLowerCase().trim();
+    const sel = document.getElementById('dest_key');
+    if (!sel) return;
+
+    let firstVisible = -1;
+    for (let i = 0; i < sel.options.length; i++) {
+        const opt = sel.options[i];
+        const haystack = (opt.dataset.search || opt.text || '').toLowerCase();
+        const visible = !search || haystack.includes(search);
+        opt.hidden = !visible;
+        opt.disabled = !visible;
+        if (visible && firstVisible === -1) firstVisible = i;
+    }
+
+    if (firstVisible >= 0 && (sel.selectedIndex < 0 || sel.options[sel.selectedIndex].hidden)) {
+        sel.selectedIndex = firstVisible;
+    }
+    updateDestSavedPreview();
+}
+
+const destSelect = document.getElementById('dest_key');
+if (destSelect) {
+    if (destSelect.options.length && !destSelect.value) {
+        destSelect.selectedIndex = 0;
+    }
+    destSelect.addEventListener('change', function() {
+        updateDestSavedPreview();
+        setDestSource('saved');
+    });
+    destSelect.addEventListener('click', function() {
+        setDestSource('saved');
+    });
+}
+
+const destSearch = document.getElementById('dest_search');
+if (destSearch) {
+    destSearch.addEventListener('input', filterDestinatari);
+}
+
+document.getElementById('btn_use_saved').addEventListener('click', function() {
+    setDestSource('saved');
+});
+
+document.getElementById('btn_use_manual').addEventListener('click', function() {
+    setDestSource('manual');
+});
+
+['dest_ragione_manual', 'dest_indirizzo_manual', 'dest_citta_manual'].forEach(function(id) {
+    const el = document.getElementById(id);
+    if (el) {
+        ['input','focus','click'].forEach(function(evt){
+            el.addEventListener(evt, function(){ setDestSource('manual'); });
+        });
+        el.removeAttribute('readonly');
+        el.removeAttribute('disabled');
+        el.style.pointerEvents = 'auto';
+        el.style.position = 'relative';
+        el.style.zIndex = '5';
+    }
+});
+
+updateDestSavedPreview();
+setDestSource('saved');
+
+function confermaFinalizzazioneDdt() {
+    const nDdt = (document.getElementById('n_ddt_input')?.value || '').trim();
+    const destSource = (document.getElementById('dest_source')?.value || 'saved');
+
+    if (!nDdt) {
+        alert('тЪая╕П Inserisci il numero DDT prima di continuare.');
+        return false;
+    }
+
+    if (destSource === 'manual') {
+        const nome = (document.getElementById('dest_ragione_manual')?.value || '').trim();
+        if (!nome) {
+            alert('тЪая╕П Inserisci almeno la ragione sociale del destinatario occasionale.');
+            return false;
+        }
+    } else {
+        const key = (document.getElementById('dest_key')?.value || '').trim();
+        if (!key) {
+            alert('тЪая╕П Seleziona un destinatario salvato.');
+            return false;
+        }
+    }
+
+    const richiedeMezzi = (document.getElementById('ddt_cliente_richiede_mezzi')?.value || '0') === '1';
+    const skipMezzi = !!document.getElementById('skip_mezzi_trasporti')?.checked;
+    if (richiedeMezzi && !skipMezzi) {
+        const mezzoG = (document.getElementById('mezzo_giacenze')?.value || '').trim();
+        const mezzoT = (document.getElementById('mezzo_trasporti')?.value || '').trim();
+        if (!mezzoG) {
+            alert('тЪая╕П Seleziona il Mezzo per Giacenze.');
+            return false;
+        }
+        if (!mezzoT) {
+            alert('тЪая╕П Inserisci il Mezzo per Trasporti.');
+            return false;
+        }
+    }
+
+    return confirm('Confermi la creazione del DDT N. ' + nDdt + '?');
+}
+
+</script>
+{% endblock %}
