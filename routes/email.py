@@ -105,8 +105,8 @@ def register_email_routes(app_obj, deps):
             Sig.  Tazio Marcellino&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; +39 334 6892992<br>
             Sig.ra Alessia Moncalvo&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; +39 324 9255537<br>
             Sig.  Giorgio Cabella&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; +39 338 7255224<br>
-            Sig.  Hugo Esviza&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; +39 327 4573767<br><br>
-            Sig.  Allosia Alessandro;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; +39 351 5105697<br><br>
+            Sig.  Hugo Esviza&nbsp&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; +39 327 4573767<br>
+            Sig.  Allosia Alessandro&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; +39 351 5105697<br>
 
             <i>a simple but ingenious company ®</i><br><br>
 
