@@ -955,7 +955,23 @@ def register_buono_routes(app_obj, deps):
                 selected_norms = [_norm_for_match(p) for p in selected_parts if _norm_for_match(p)]
 
                 if selected_norms and original_norms:
-                    mancanti = [p for p in selected_parts if _norm_for_match(p) not in original_norms]
+                    # Il codice può essere composto da più marca-pezzi consecutivi, ad esempio
+                    # CB052CF-CB053CF, mentre la riga originale contiene anche CB051CF prima.
+                    # In questo caso il blocco completo selezionato è comunque presente nella
+                    # stringa originale e non deve essere segnalato come mancante.
+                    original_full_norm = _norm_for_match(old_cod)
+                    mancanti = []
+                    for parte in selected_parts:
+                        parte_norm = _norm_for_match(parte)
+                        if not parte_norm:
+                            continue
+                        presente = (
+                            parte_norm in original_norms
+                            or parte_norm in original_full_norm
+                        )
+                        if not presente:
+                            mancanti.append(parte)
+
                     if mancanti:
                         raise BuonoValidationError(
                             "CAMY AI - MARCA PEZZO NON DISPONIBILE\n\n"
