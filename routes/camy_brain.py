@@ -162,9 +162,9 @@ def decide_camy_intent(message):
     if _has_any(low, ["accettazione entrata", "apri entrata", "nuova entrata", "nuovo arrivo", "documento entrata", "carica documento"]):
         return {"action": "accettazione_entrata", "target": target, "confidence": 0.96, "raw": raw}
 
-    # DDT
+    # DDT: CAMY prepara il documento dal Buono e chiede sempre conferma.
     if "ddt" in low and _has_any(low, ["crea", "prepara", "genera", "fammi", "fai", "fallo"]):
-        return {"action": "prepare_ddt", "target": target, "confidence": 0.97, "raw": raw}
+        return {"action": "prepare_ddt", "target": target, "confidence": 0.99, "raw": raw}
 
     # Buoni: distingue apertura da creazione
     if "buono" in low:
@@ -219,6 +219,7 @@ def camy_brain_help():
         "• Quali DDT Fincantieri sono senza mezzo?<br>"
         "• Genera registro giornaliero di oggi<br>"
         "• Crea DDT dal buono 586-ZETA<br>"
+        "• Crea un solo buono per commessa 6321 con:<br>CB051CF 2 pezzi<br>CB052CF 4 pezzi<br>Note: consegna urgente<br>"
         "• Prepara buono arrivo 200/26<br>"
         "• Cerca codice CB050CF<br>"
         "• Apri accettazione entrata<br>"
