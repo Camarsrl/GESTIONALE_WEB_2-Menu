@@ -126,7 +126,7 @@ def register_camy_ai_routes(app_obj, deps):
             <a class="btn btn-sm btn-outline-primary" href="/camy-ai?prefill=Mostrami%20articoli%20DOGANALI%20cliente%20">Dogana</a>
             <a class="btn btn-sm btn-outline-primary" href="/camy-ai?prefill=Cerca%20DDT%20">Cerca DDT</a>
             {% if can_operate %}
-            <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Prepara%20buono%20arrivo%20">Prepara Buono</a>
+            <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Prepara%20buono%20del%20marca%20pezzo%20">Prepara Buono</a>
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Scarico%20parziale%20ID%20">Scarico parziale</a>
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Aggiungi%20al%20buono%20">Aggiungi a Buono</a>
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Crea%20DDT%20arrivo%20">Crea DDT</a>
@@ -139,7 +139,7 @@ def register_camy_ai_routes(app_obj, deps):
             <a class="btn btn-sm btn-outline-info" href="/camy-ai?prefill=Cosa%20manca%20da%20fare%20oggi%3F">✅ Cosa manca?</a>
             <a class="btn btn-sm btn-outline-dark" href="/camy-ai?prefill=Apri%20accettazione%20entrata">🎤 Apri entrata</a>
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Cerca arrivo ">🎤 Cerca arrivo</button>
-            <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Prepara buono arrivo ">🎤 Prepara buono</button>
+            <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Prepara buono del marca pezzo ">🎤 Prepara buono</button>
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Crea DDT dal buono ">🎤 Crea DDT</button>
             <button type="button" class="btn btn-sm btn-outline-dark" data-camy-fill="Fammi vedere la foto dell'arrivo ">🎤 Mostra foto</button>
             {% endif %}
@@ -941,7 +941,7 @@ def register_camy_ai_routes(app_obj, deps):
 
     def _join_multi_values(parts):
         parts = [str(p or "").strip() for p in (parts or []) if str(p or "").strip()]
-        return " / ".join(parts)
+        return "-".join(parts)
 
     def _extract_logistic_refs(value):
         """Estrae riferimenti logistici da conservare sia sulla riga Buono sia sulla residua.
@@ -974,8 +974,8 @@ def register_camy_ai_routes(app_obj, deps):
         missing = [r for r in refs if _norm_part(r) and _norm_part(r) not in current_norm]
         if not missing:
             return value
-        extra = " / ".join(missing)
-        return f"{value} / {extra}".strip(" /") if value else extra
+        extra = "-".join(missing)
+        return f"{value}-{extra}".strip("-") if value else extra
 
     def _row_needs_partial_details(row):
         """True se la riga sembra contenere più codici/descrizioni e quindi serve scegliere cosa prelevare."""
@@ -1006,43 +1006,71 @@ def register_camy_ai_routes(app_obj, deps):
         return -1
 
     def _extract_buono_line_items(msg):
-        """Estrae più marca-pezzi con quantità dalla stessa richiesta.
+        """Estrae marca-pezzi e quantità da una richiesta di Buono.
 
-        Esempi supportati:
-        - CB051CF 2 pezzi
-        - CB052CF: 4
-        - codice CB053CF quantità 1
+        Formati supportati:
+        - CB051CF 4 pezzi
+        - CB051CF pezzi 4
+        - marca pezzo CB051CF pezzi 4
+        - codice articolo CB051CF quantità 4
+        - CB051CF: 4
 
-        MARCA PEZZO e CODICE ARTICOLO sono trattati come sinonimi.
+        Le parole PEZZI, CLIENTE, PACKAGE, COMMESSA, ORDINE, NOTE ecc.
+        non vengono mai interpretate come codici articolo.
         """
         text_msg = str(msg or "")
         items = []
         seen = set()
-        # Una riga per codice è il formato più sicuro. Accetta anche separatori ; e virgola.
-        chunks = re.split(r"[\n\r;]+", text_msg)
+
+        stop_codes = {
+            "BUONO", "COMMESSA", "ORDINE", "CLIENTE", "CLIENTI",
+            "NOTE", "NOTA", "DDT", "ARRIVO", "ARRIVI",
+            "PEZZI", "PEZZO", "PZ", "QTA", "QTÀ", "QUANTITA", "QUANTITÀ",
+            "PACKAGE", "PKG", "PALLET", "CASSA", "CASE",
+            "CODICE", "CODICI", "ARTICOLO", "ARTICOLI",
+            "MARCA", "MARCAPEZZO", "MARCAPEZZI",
+            "FORNITORE", "DESCRIZIONE", "DESC", "PROTOCOLLO",
+            "MAGAZZINO", "POSIZIONE", "AUTOMATICO", "MANUALE",
+            "CREA", "CREARE", "PREPARA", "PREPARARE", "DEL", "DELLA", "CON"
+        }
+
+        code_re = r"([A-Z0-9][A-Z0-9./_*\\-]{1,60})"
+        qty_re = r"([0-9]+(?:[,.][0-9]+)?)"
+
+        patterns = [
+            rf"(?:marca\s*[- ]?pezzi?|codice(?:\s+articolo)?)\s*[:\-]?\s*{code_re}\s*(?:pezzi?|pz|qta|qtà|quantita|quantità)\s*[:=\-]?\s*{qty_re}",
+            rf"\b{code_re}\b\s*(?:pezzi?|pz|qta|qtà|quantita|quantità)\s*[:=\-]?\s*{qty_re}",
+            rf"\b{code_re}\b\s*[:=\-]?\s*{qty_re}\s*(?:pezzi?|pz)\b",
+            rf"\b{code_re}\b\s*(?:q(?:uan)?t(?:it[aà])?)\s*[:=\-]?\s*{qty_re}",
+            rf"\b{code_re}\b\s*[:=]\s*{qty_re}\b",
+        ]
+
+        chunks = re.split(r"[\n\r;]+", text_msg) or [text_msg]
         for chunk in chunks:
-            line = chunk.strip()
+            line = str(chunk or "").strip()
             if not line:
                 continue
-            # Elimina prefissi descrittivi senza toccare il codice.
-            line = re.sub(r"^\s*(?:marca\s*pezzo|marca\s*pezzi|codice\s*articolo|codice)\s*[:\-]?\s*", "", line, flags=re.I)
-            m = re.search(
-                r"\b([A-Z0-9][A-Z0-9./_*\-]{2,60})\b\s*(?:[:=\-]\s*)?(?:q(?:uan)?t(?:it[aà])?\s*[:=\-]?\s*)?([0-9]+(?:[,.][0-9]+)?)\s*(?:pezzi?|pz)?\b",
-                line,
-                re.I,
-            )
-            if not m:
-                continue
-            code = (m.group(1) or "").strip().strip(".,;:")
-            qty = (m.group(2) or "").strip().replace(",", ".")
-            # Evita di interpretare riferimenti generici come codici.
-            if code.upper() in {"BUONO", "COMMESSA", "ORDINE", "CLIENTE", "NOTE", "NOTA", "DDT", "ARRIVO"}:
-                continue
-            key = _norm_part(code)
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            items.append({"codice": code, "pezzi": qty})
+
+            for pat in patterns:
+                for m in re.finditer(pat, line, re.I):
+                    code = (m.group(1) or "").strip().strip(".,;:")
+                    qty = (m.group(2) or "").strip().replace(",", ".")
+                    upper_code = re.sub(r"[^A-ZÀ-Ù0-9]+", "", code.upper())
+
+                    if not re.search(r"[A-Z]", code, re.I) or not re.search(r"\d", code):
+                        continue
+                    if upper_code in stop_codes:
+                        continue
+                    if re.match(r"^(?:PACKAGE|PKG|PALLET|CASSA|CASE)(?:N|NO)?\d*$", upper_code):
+                        continue
+
+                    key = _norm_part(code)
+                    if not key or key in seen:
+                        continue
+
+                    seen.add(key)
+                    items.append({"codice": code, "pezzi": qty})
+
         return items
 
     def _extract_requested_pezzi(msg):
