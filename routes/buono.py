@@ -106,6 +106,22 @@ def register_buono_routes(app_obj, deps):
         except Exception:
             return str(value or '')
 
+
+    def _piece_value_for_db(value):
+        """Salva i pezzi senza .0 quando il valore è intero.
+
+        Il campo pezzo del gestionale può essere testuale o numerico a seconda
+        dello schema esistente. Restituendo un intero per i valori interi si
+        evita che una nuova riga venga visualizzata come 4.0 invece di 4.
+        """
+        try:
+            f = float(value or 0)
+            if abs(f - round(f)) < 0.000001:
+                return int(round(f))
+            return _fmt_num_clean(f)
+        except Exception:
+            return _fmt_num_clean(value)
+
     def _split_quantita(orig_pezzi, q_scelta, orig_valore):
         """Ripartisce peso/m2/m3 proporzionalmente ai pezzi."""
         op = _num_float(orig_pezzi)
@@ -144,6 +160,56 @@ def register_buono_routes(app_obj, deps):
             r"(?:CASSA|CASE)\s*[:#.]?\s*[A-Z0-9][A-Z0-9._/\-]*",
         )
         return any(re.fullmatch(pat, txt, flags=re.I) for pat in patterns)
+
+
+    def _dedupe_code_parts(parts):
+        """Rimuove duplicati da package e marca-pezzi mantenendo l'ordine."""
+        out = []
+        seen = set()
+        for part in parts or []:
+            value = str(part or '').strip(' -/')
+            key = _norm_for_match(value)
+            if value and key and key not in seen:
+                seen.add(key)
+                out.append(value)
+        return out
+
+    def _normalizza_codice_articolo(value):
+        """Normalizza il campo Codice usando sempre il trattino come separatore.
+
+        Esempio:
+        PACKAGE N.11 / CB051CF / CB052CF
+        diventa:
+        PACKAGE N.11-CB051CF-CB052CF
+        """
+        parts = _split_multi_value(value) or [str(value or '').strip()]
+        package_parts = _dedupe_code_parts([p for p in parts if _is_package_token(p)])
+        code_parts = _dedupe_code_parts([p for p in parts if not _is_package_token(p)])
+        return '-'.join(package_parts + code_parts).strip('-')
+
+    def _ricostruisci_codice_residuo(original, selected):
+        """Ricostruisce da zero il codice della riga residua.
+
+        Non usa replace e non riaggiunge la stringa originale. Conserva una sola
+        volta PACKAGE/PALLET/CASSA, elimina esclusivamente i marca-pezzi scelti e
+        usa sempre '-' come separatore.
+        """
+        original_parts = _split_multi_value(original) or [str(original or '').strip()]
+        selected_parts = _split_multi_value(selected) or [str(selected or '').strip()]
+
+        package_parts = _dedupe_code_parts([p for p in original_parts if _is_package_token(p)])
+        original_codes = _dedupe_code_parts([p for p in original_parts if not _is_package_token(p)])
+        selected_norms = {
+            _norm_for_match(p)
+            for p in selected_parts
+            if p and not _is_package_token(p) and _norm_for_match(p)
+        }
+
+        residual_codes = [
+            code for code in original_codes
+            if _norm_for_match(code) not in selected_norms
+        ]
+        return '-'.join(package_parts + residual_codes).strip('-')
 
     def _selected_matches_part(part, selected_norms):
         """True se un elemento della riga originale corrisponde a uno dei codici scelti.
@@ -1107,11 +1173,11 @@ def register_buono_routes(app_obj, deps):
                         if col.name != 'id_articolo':
                             setattr(riga_buono, col.name, getattr(r, col.name))
 
-                    riga_buono.codice_articolo = codice_scelto
+                    riga_buono.codice_articolo = _normalizza_codice_articolo(codice_scelto)
                     riga_buono.descrizione = descr_scelta or old_desc
                     riga_buono.buono_n = bn
-                    riga_buono.pezzo = _fmt_num_clean(pezzi_scelti)
-                    r.pezzo = _fmt_num_clean(pezzi_residui)
+                    riga_buono.pezzo = _piece_value_for_db(pezzi_scelti)
+                    r.pezzo = _piece_value_for_db(pezzi_residui)
 
                     for campo in ('peso', 'm2', 'm3'):
                         residuo_val, scelto_val = _split_quantita(
@@ -1127,12 +1193,13 @@ def register_buono_routes(app_obj, deps):
                     db.add(riga_buono)
 
                     if cod_parziale:
-                        codice_residuo = _clean_residual_cell(old_cod, codice_scelto)
-                        r.codice_articolo = _preserve_package_context(
-                            codice_residuo, old_cod, codice_scelto
+                        # Ricostruzione deterministica: PACKAGE una sola volta,
+                        # solo i marca-pezzi residui e separatore sempre '-'.
+                        r.codice_articolo = _ricostruisci_codice_residuo(
+                            old_cod, codice_scelto
                         )
                     else:
-                        r.codice_articolo = old_cod
+                        r.codice_articolo = _normalizza_codice_articolo(old_cod)
 
                     if desc_parziale:
                         descr_residua = _clean_residual_cell(old_desc, descr_scelta)
@@ -1148,7 +1215,7 @@ def register_buono_routes(app_obj, deps):
                     r.buono_n = bn
                     if note_inserite is not None:
                         r.note = note_inserite
-                    r.pezzo = _fmt_num_clean(pezzi_scelti)
+                    r.pezzo = _piece_value_for_db(pezzi_scelti)
                     r.n_colli = 1
 
             # Genera il PDF prima del commit: se il PDF fallisce, il DB resta invariato.
