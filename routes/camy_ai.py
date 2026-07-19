@@ -2350,7 +2350,8 @@ def register_camy_ai_routes(app_obj, deps):
                     )
                     if new_row is not None:
                         if note_buono:
-                            new_row.note = _merge_note(getattr(new_row, "note", ""), note_buono)
+                            # Le note del Buono vanno solo sulla nuova riga del Buono.
+                            new_row.note = note_buono
                         db.add(new_row)
                         created += 1
                         updated += 1
@@ -2384,8 +2385,8 @@ def register_camy_ai_routes(app_obj, deps):
                             except Exception:
                                 pass
                         r.buono_n = buono
-                        if note_buono:
-                            r.note = _merge_note(getattr(r, "note", ""), note_buono)
+                        # La riga residua mantiene le note originali.
+                        # Non copiare le note del Buono sulla giacenza residua.
                         updated += 1
 
                 db.commit()
