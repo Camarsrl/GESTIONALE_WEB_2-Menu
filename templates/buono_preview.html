@@ -10,7 +10,7 @@
             <button type="button" class="btn btn-outline-primary" onclick="submitBuono('preview')">
                 <i class="bi bi-eye"></i> Anteprima PDF
             </button>
-            <button type="button" class="btn btn-success fw-bold" onclick="submitBuono('save')">
+            <button type="button" id="btn-salva-buono" class="btn btn-success fw-bold" onclick="submitBuono('save')">
                 <i class="bi bi-file-earmark-arrow-down"></i> Genera e Salva
             </button>
             <button type="button" class="btn btn-warning fw-bold" onclick="submitBuono('cartello')">
@@ -25,6 +25,10 @@
         <b>🧠 Controllo Buono CAMY</b><br>
         Stai preparando un Buono con <b>{{ rows|length }}</b> righe. Prima di generare il PDF verifica codice articolo, descrizione, quantità, note e cartelli bancali.
         Se provieni da una selezione multipagina, controlla che il numero righe sia corretto.
+    </div>
+
+    <div id="camy-saving" class="alert alert-primary py-2 d-none" role="alert">
+        <b>⏳ CAMY AI</b> — Controllo disponibilità e salvataggio in corso. Non chiudere la pagina.
     </div>
 
     <form id="buono-form" method="POST" action="{{ url_for('buono_finalize_and_get_pdf') }}">
@@ -139,7 +143,7 @@
                 <div>
                     <b>Cartello bancali / picking</b>
                     <div class="small text-muted">
-                        VerrÃ  creato <b>un cartello per ogni riga</b> spuntata nella tabella sotto. Se non vuoi fare il cartello per una riga, togli la spunta.
+                        Verrà creato <b>un cartello per ogni riga</b> spuntata nella tabella sotto. Se non vuoi fare il cartello per una riga, togli la spunta.
                     </div>
                 </div>
                 <label class="form-check-label fw-bold">
@@ -161,8 +165,8 @@
         </div>
 
         <div class="alert alert-warning py-2 small">
-            <b>Scarico parziale:</b> se nella cella ci sono piÃ¹ codici/descrizioni, lascia nei campi sotto solo il codice e la descrizione che vuoi mettere nel buono.
-            Quando premi <b>Genera e Salva</b>, quel codice/descrizione verrÃ  tolto dalla riga originale e resterÃ  in giacenza solo il residuo.
+            <b>Scarico parziale:</b> se nella cella ci sono più codici/descrizioni, lascia nei campi sotto solo il codice e la descrizione che vuoi mettere nel buono.
+            Quando premi <b>Genera e Salva</b>, quel codice/descrizione verrà tolto dalla riga originale e resterÃ  in giacenza solo il residuo.
         </div>
 
         <div class="table-responsive">
@@ -176,7 +180,7 @@
                         <th style="width:8%">Ordine Orig.</th>
                         <th style="width:20%">Codice da mettere nel buono</th>
                         <th style="width:28%">Descrizione da mettere nel buono</th>
-                        <th style="width:6%">Q.tÃ </th>
+                        <th style="width:6%">Q.tà</th>
                         <th style="width:7%">N.Arr</th>
                     </tr>
                 </thead>
@@ -194,6 +198,8 @@
                                    title="Numero pallet per questa riga/cartello">
                             <input type="hidden" name="cartello_cliente_{{ r.id_articolo }}" value="{{ r.cliente or '' }}">
                             <input type="hidden" name="cartello_ditta_{{ r.id_articolo }}" value="{{ r.fornitore or '' }}">
+                            <input type="hidden" name="original_codice_{{ r.id_articolo }}" value="{{ r.codice_articolo or '' }}">
+                            <input type="hidden" name="original_pezzi_{{ r.id_articolo }}" value="{{ r.pezzo or 0 }}">
                         </td>
                         <td>
                             <input name="cartello_posizione_{{ r.id_articolo }}" class="form-control form-control-sm"
@@ -207,7 +213,7 @@
                         <td>
                             <textarea name="codice_buono_{{ r.id_articolo }}" rows="2"
                                       class="form-control form-control-sm fw-bold"
-                                      title="Scrivi qui SOLO il codice articolo da inserire nel buono. Se lo modifichi, quando salvi verrÃ  tolto dalla cella originale.">{{ r.codice_articolo or '' }}</textarea>
+                                      title="Scrivi qui SOLO il codice articolo da inserire nel buono. Se lo modifichi, quando salvi verrà tolto dalla cella originale.">{{ r.codice_articolo or '' }}</textarea>
                             <div class="small text-muted mt-1">
                                 Orig.: {{ r.codice_articolo or '' }}
                             </div>
@@ -215,16 +221,20 @@
                         <td>
                             <textarea name="descrizione_buono_{{ r.id_articolo }}" rows="2"
                                       class="form-control form-control-sm"
-                                      title="Scrivi qui SOLO la descrizione da inserire nel buono. Se la modifichi, quando salvi verrÃ  tolta dalla cella originale.">{{ r.descrizione or '' }}</textarea>
+                                      title="Scrivi qui SOLO la descrizione da inserire nel buono. Se la modifichi, quando salvi verrà tolta dalla cella originale.">{{ r.descrizione or '' }}</textarea>
                             <div class="small text-muted mt-1">
                                 Orig.: {{ r.descrizione or '' }}
                             </div>
                         </td>
                         <td>
-                            <!-- âœ… Q.tÃ  prende PEZZI -->
+                            <!-- ✅ Q.tà prende PEZZI -->
                             <input name="q_{{ r.id_articolo }}" type="number"
+                                   min="0.001" max="{{ r.pezzo or 0 }}" step="0.001" required
+                                   data-disponibili="{{ r.pezzo or 0 }}"
+                                   data-codice="{{ r.codice_articolo or '' }}"
                                    class="form-control form-control-sm text-center fw-bold"
-                                   value="{{ r.pezzo or 1 }}">
+                                   value="{{ r.pezzo or 0 }}">
+                            <div class="small text-muted">Disponibili: {{ r.pezzo or 0 }} pezzi</div>
                         </td>
                         <td class="small text-center">{{ r.n_arrivo or '' }}</td>
                     </tr>
@@ -259,26 +269,84 @@ function toggleBuonoMode() {
 }
 document.addEventListener('DOMContentLoaded', toggleBuonoMode);
 
+let buonoInSalvataggio = false;
+
+function setSalvataggioInCorso(attivo) {
+    const btn = document.getElementById('btn-salva-buono');
+    const box = document.getElementById('camy-saving');
+    buonoInSalvataggio = attivo;
+    if (btn) {
+        btn.disabled = attivo;
+        btn.innerHTML = attivo
+            ? '<span class="spinner-border spinner-border-sm me-1"></span> Salvataggio in corso...'
+            : '<i class="bi bi-file-earmark-arrow-down"></i> Genera e Salva';
+    }
+    if (box) box.classList.toggle('d-none', !attivo);
+}
+
+function validaQuantitaBuono() {
+    const inputs = document.querySelectorAll('input[name^="q_"]');
+    for (const input of inputs) {
+        const disponibili = Number(String(input.dataset.disponibili || '0').replace(',', '.'));
+        const richiesti = Number(String(input.value || '').replace(',', '.'));
+        const codice = input.dataset.codice || 'non indicato';
+
+        if (!Number.isFinite(disponibili) || disponibili <= 0) {
+            alert('🧠 CAMY AI - PRELIEVO BLOCCATO\n\nMarca pezzo: ' + codice +
+                  '\nDisponibilità: 0 pezzi.\n\nIl Buono non verrà creato.');
+            input.focus();
+            return false;
+        }
+        if (!Number.isFinite(richiesti) || richiesti <= 0) {
+            alert('🧠 CAMY AI\n\nInserisci una quantità maggiore di zero per: ' + codice);
+            input.focus();
+            return false;
+        }
+        if (richiesti > disponibili) {
+            alert('🧠 CAMY AI - GIACENZA INSUFFICIENTE\n\nMarca pezzo: ' + codice +
+                  '\nRichiesti: ' + richiesti + '\nDisponibili: ' + disponibili +
+                  '\n\nRiduci la quantità prima di salvare.');
+            input.focus();
+            return false;
+        }
+    }
+    return true;
+}
+
 function submitBuono(actionType) {
     const form = document.getElementById('buono-form');
     const totalRows = {{ rows|length }};
-    if (totalRows <= 0) { alert('âš ï¸ Nessuna riga nel Buono. Torna alle Giacenze e seleziona almeno un articolo.'); return; }
-    if (!confirm('Confermi operazione Buono: ' + actionType + ' con ' + totalRows + ' righe?\n\nVerifica quantitÃ , codici, descrizioni e note prima di procedere.')) return;
+
+    if (totalRows <= 0) {
+        alert('⚠️ Nessuna riga nel Buono. Torna alle Giacenze e seleziona almeno un articolo.');
+        return;
+    }
+    if (actionType === 'save' && buonoInSalvataggio) return;
+    if (actionType === 'save' && !validaQuantitaBuono()) return;
+
+    const azioneLabel = actionType === 'save' ? 'Genera e Salva' :
+                        actionType === 'preview' ? 'Anteprima PDF' : 'Cartello Bancali';
+    if (!confirm('Confermi: ' + azioneLabel + ' con ' + totalRows +
+                 ' righe?\n\nVerifica quantità, codici, descrizioni e note prima di procedere.')) return;
+
     document.getElementById('action_field').value = actionType;
 
     if (actionType === 'preview' || actionType === 'cartello') {
         form.target = '_blank';
         form.submit();
-    } else {
-        form.target = '_self';
-        const formData = new FormData(form);
-        const url = "{{ url_for('buono_finalize_and_get_pdf') }}"; 
-        
-        fetch(url, { method: 'POST', body: formData })
+        return;
+    }
+
+    setSalvataggioInCorso(true);
+    form.target = '_self';
+    const formData = new FormData(form);
+    const url = "{{ url_for('buono_finalize_and_get_pdf') }}";
+
+    fetch(url, { method: 'POST', body: formData })
         .then(async resp => {
             if (!resp.ok) {
                 const text = await resp.text();
-                throw new Error(text);
+                throw new Error(text || 'Errore durante il salvataggio del Buono.');
             }
             const disposition = resp.headers.get('Content-Disposition') || '';
             let filename = 'Buono_Prelievo.pdf';
@@ -294,11 +362,15 @@ function submitBuono(actionType) {
             a.download = filename;
             document.body.appendChild(a);
             a.click();
-            window.URL.revokeObjectURL(urlBlob);
-            setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1500);
+            a.remove();
+            setTimeout(() => window.URL.revokeObjectURL(urlBlob), 2000);
+            setTimeout(() => { window.location.href = '{{ url_for("giacenze") }}'; }, 1200);
         })
-        .catch(err => alert("Errore durante il salvataggio:\n" + err));
-    }
+        .catch(err => {
+            setSalvataggioInCorso(false);
+            alert(err.message || 'Errore durante il salvataggio del Buono.');
+        });
 }
+
 </script>
 {% endblock %}
