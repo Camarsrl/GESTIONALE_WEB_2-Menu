@@ -28,7 +28,7 @@ def _extract_reference(message):
         r"\blavorazione\s+([A-Z0-9][A-Z0-9./_\-]{1,50})",
         r"\b(?:n\.?\s*)?arrivo\s+([A-Z0-9][A-Z0-9./_\-]{1,50})",
         r"\bddt\s+([A-Z0-9][A-Z0-9./_\-]{1,50})",
-        r"\bcodice\s+([A-Z0-9][A-Z0-9./_\-]{1,50})",
+        r"\b(?:marca\s*[- ]?pezzo|codice(?:\s+articolo)?)\s+([A-Z0-9][A-Z0-9./_*_\-]{1,50})",
         r"\bseriale?\s+([A-Z0-9][A-Z0-9./_\-]{1,50})",
     ]
     stop = {"CREA", "CREARE", "PREPARA", "PREPARARE", "VEDERE", "VEDI", "APRI", "MOSTRA", "CERCA"}
@@ -219,7 +219,7 @@ def camy_brain_help():
         "• Quali DDT Fincantieri sono senza mezzo?<br>"
         "• Genera registro giornaliero di oggi<br>"
         "• Crea DDT dal buono 586-ZETA<br>"
-        "• Crea un solo buono per commessa 6321 con:<br>CB051CF 2 pezzi<br>CB052CF 4 pezzi<br>Note: consegna urgente<br>"
+        "• Prepara buono del marca pezzo CB051CF pezzi 4 cliente FINCANTIERI package N.11<br>"
         "• Prepara buono arrivo 200/26<br>"
         "• Cerca codice CB050CF<br>"
         "• Apri accettazione entrata<br>"
