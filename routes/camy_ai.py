@@ -1005,6 +1005,46 @@ def register_camy_ai_routes(app_obj, deps):
                 return i
         return -1
 
+    def _extract_buono_line_items(msg):
+        """Estrae più marca-pezzi con quantità dalla stessa richiesta.
+
+        Esempi supportati:
+        - CB051CF 2 pezzi
+        - CB052CF: 4
+        - codice CB053CF quantità 1
+
+        MARCA PEZZO e CODICE ARTICOLO sono trattati come sinonimi.
+        """
+        text_msg = str(msg or "")
+        items = []
+        seen = set()
+        # Una riga per codice è il formato più sicuro. Accetta anche separatori ; e virgola.
+        chunks = re.split(r"[\n\r;]+", text_msg)
+        for chunk in chunks:
+            line = chunk.strip()
+            if not line:
+                continue
+            # Elimina prefissi descrittivi senza toccare il codice.
+            line = re.sub(r"^\s*(?:marca\s*pezzo|marca\s*pezzi|codice\s*articolo|codice)\s*[:\-]?\s*", "", line, flags=re.I)
+            m = re.search(
+                r"\b([A-Z0-9][A-Z0-9./_*\-]{2,60})\b\s*(?:[:=\-]\s*)?(?:q(?:uan)?t(?:it[aà])?\s*[:=\-]?\s*)?([0-9]+(?:[,.][0-9]+)?)\s*(?:pezzi?|pz)?\b",
+                line,
+                re.I,
+            )
+            if not m:
+                continue
+            code = (m.group(1) or "").strip().strip(".,;:")
+            qty = (m.group(2) or "").strip().replace(",", ".")
+            # Evita di interpretare riferimenti generici come codici.
+            if code.upper() in {"BUONO", "COMMESSA", "ORDINE", "CLIENTE", "NOTE", "NOTA", "DDT", "ARRIVO"}:
+                continue
+            key = _norm_part(code)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            items.append({"codice": code, "pezzi": qty})
+        return items
+
     def _extract_requested_pezzi(msg):
         s = msg or ""
         patterns = [
@@ -1258,6 +1298,40 @@ def register_camy_ai_routes(app_obj, deps):
                 desc_selected_indices.append(d_idx)
                 if not selected_indices and d_idx < len(code_parts):
                     selected_indices.append(d_idx)
+
+        # Scarico parziale solo quantitativo su una riga con un unico marca-pezzo.
+        # Esempio: riga CB051CF con 10 pezzi, richiesta CAMY CB051CF 2 pezzi.
+        # Crea una nuova riga da 2 pezzi per il Buono e lascia 8 pezzi in giacenza.
+        if not is_multi and requested_pezzi:
+            original_num = _safe_float_or_none(getattr(row, "pezzo", ""))
+            selected_num = _safe_float_or_none(requested_pezzi)
+            if original_num is not None and selected_num is not None and 0 < selected_num < original_num:
+                new_row = _copy_articolo_for_partial(row)
+                new_row.buono_n = buono
+                new_row.codice_articolo = requested_code or original_code_value
+                new_row.descrizione = requested_descr or original_desc_value
+                new_row.pezzo = str(int(selected_num)) if float(selected_num).is_integer() else str(round(selected_num, 3))
+                new_row.n_colli = 1
+                residuo_num = original_num - selected_num
+                row.pezzo = str(int(residuo_num)) if float(residuo_num).is_integer() else str(round(residuo_num, 3))
+                row.buono_n = ""
+                row.n_colli = 1
+                # Ripartizione proporzionale dei valori quantitativi.
+                for field in ("peso", "m2", "m3"):
+                    try:
+                        original_value = float(getattr(row, field, 0) or 0)
+                        selected_value = original_value * (selected_num / original_num) if original_num else 0
+                        setattr(new_row, field, round(selected_value, 6))
+                        setattr(row, field, round(max(0, original_value - selected_value), 6))
+                    except Exception:
+                        pass
+                return new_row, {
+                    "reason": "quantity_split",
+                    "is_multi": False,
+                    "selected_code": new_row.codice_articolo,
+                    "selected_pezzi": selected_num,
+                    "residuo_pezzi": residuo_num,
+                }
 
         if not selected_indices or not is_multi:
             return None, {"reason": "no_split", "is_multi": is_multi, "idx": selected_indices[0] if selected_indices else -1}
@@ -1576,7 +1650,8 @@ def register_camy_ai_routes(app_obj, deps):
         # Evito modifiche troppo generiche: serve almeno un riferimento preciso.
         # Ora CAMY supporta anche un Buono unico con più ID, più codici o più arrivi.
         multi_ids = _extract_multi_ids(msg)
-        multi_codici = _extract_multi_codici(msg)
+        line_items = _extract_buono_line_items(msg)
+        multi_codici = [x.get("codice", "") for x in line_items] or _extract_multi_codici(msg)
         multi_arrivi = _extract_multi_arrivi(msg)
 
         has_key = any((filters.get(k) or "").strip() for k in ("n_arrivo", "codice_articolo", "ddt", "serial_number", "lotto"))
@@ -1653,6 +1728,61 @@ def register_camy_ai_routes(app_obj, deps):
                 "Restringi la ricerca con N. arrivo, codice articolo, DDT o ID."
             )
 
+        # Se la richiesta contiene più marca-pezzi con quantità, associa ogni codice
+        # alla riga di giacenza corretta e prepara UN SOLO Buono con più righe.
+        row_requests = {}
+        if line_items:
+            missing = []
+            ambiguous = []
+            for item in line_items:
+                code = (item.get("codice") or "").strip()
+                code_norm = _norm_part(code)
+                candidates = []
+                for r in rows:
+                    original_norm = _norm_part(getattr(r, "codice_articolo", "") or "")
+                    parts = _split_multi_values(getattr(r, "codice_articolo", ""), allow_dash=True)
+                    part_norms = {_norm_part(x) for x in parts if _norm_part(x)}
+                    if code_norm and (code_norm in part_norms or code_norm in original_norm):
+                        candidates.append(r)
+                if not candidates:
+                    missing.append(code)
+                    continue
+                if len(candidates) > 1:
+                    # Preferisce una corrispondenza esatta su una singola parte.
+                    exact = [r for r in candidates if code_norm in {_norm_part(x) for x in _split_multi_values(getattr(r, "codice_articolo", ""), allow_dash=True)}]
+                    if len(exact) == 1:
+                        candidates = exact
+                    else:
+                        ambiguous.append((code, candidates))
+                        continue
+                r = candidates[0]
+                rid = int(r.id_articolo)
+                bucket = row_requests.setdefault(rid, {"codes": [], "qty": 0.0})
+                bucket["codes"].append(code)
+                try:
+                    bucket["qty"] += float(item.get("pezzi") or 0)
+                except Exception:
+                    pass
+
+            if missing:
+                return "<b>Buono non preparato.</b><br>Marca-pezzi non trovati in giacenza: <b>" + _esc(", ".join(missing)) + "</b>."
+            if ambiguous:
+                details = []
+                for code, candidates in ambiguous:
+                    details.append(_esc(code) + ": " + ", ".join("ID " + _esc(getattr(r, "id_articolo", "")) for r in candidates[:8]))
+                return "<b>Buono non preparato.</b><br>Alcuni marca-pezzi sono presenti in più righe. Indica anche N. arrivo o ID:<br>" + "<br>".join(details)
+
+            rows = [r for r in rows if int(r.id_articolo) in row_requests]
+            for r in rows:
+                req = row_requests[int(r.id_articolo)]
+                disponibili = _available_pezzi_for_request(r, requested_code=" - ".join(req["codes"]))
+                if disponibili is not None and req["qty"] > float(disponibili):
+                    return (
+                        "<b>Operazione bloccata.</b><br>"
+                        f"ID {_esc(r.id_articolo)} | Marca-pezzi: <b>{_esc(' - '.join(req['codes']))}</b><br>"
+                        f"Richiesti: <b>{_esc(req['qty'])}</b> | Disponibili: <b>{_esc(disponibili)}</b>"
+                    )
+
         prossimo_auto = _peek_next_buono_number(db)
         manual_buono = _extract_manual_buono_number(msg)
         requested_code = (filters.get("codice_articolo") or "").strip()
@@ -1685,6 +1815,7 @@ def register_camy_ai_routes(app_obj, deps):
             "requested_pezzi": requested_pezzi,
             "note_buono": note_buono,
             "needs_partial_details": bool(needs_partial_details),
+            "row_requests": {str(k): v for k, v in row_requests.items()},
         })
 
         scelta_manual = f"<br>Numero manuale letto dal messaggio: <b>{_esc(manual_buono)}</b>" if manual_buono else ""
@@ -1704,6 +1835,17 @@ def register_camy_ai_routes(app_obj, deps):
                 "Alla conferma CAMY ti chiederà <b>codice, descrizione e pezzi</b> da mettere nel Buono, "
                 "poi creerà una nuova riga e lascerà sulla riga originale solo il residuo."
             )
+
+        dettagli_multi = ""
+        if row_requests:
+            lines = []
+            for r in rows:
+                req = row_requests.get(int(r.id_articolo), {})
+                lines.append(
+                    f"ID {_esc(r.id_articolo)} | Marca-pezzi: <b>{_esc(' - '.join(req.get('codes') or []))}</b> | "
+                    f"Pezzi richiesti: <b>{_esc(req.get('qty') or 0)}</b> | Disponibili: {_esc(getattr(r, 'pezzo', 0) or 0)}"
+                )
+            dettagli_multi = "<br><b>Righe del Buono unico:</b><br>" + "<br>".join(lines) + "<br>"
 
         dettagli_usciti = ""
         if rows_uscite:
@@ -1746,6 +1888,7 @@ def register_camy_ai_routes(app_obj, deps):
             f"Prossimo numero automatico previsto: <b>{_esc(prossimo_auto)}</b>{scelta_manual}{dettagli_multi}{dettagli_parziale}{dettagli_note}{dettagli_usciti}{dettagli_buoni_esistenti}<br>",
             "CAMY applicherà la modifica solo dopo conferma. Nessuno scarico definitivo verrà eseguito automaticamente.<br>"
         ]
+        riepilogo.append(dettagli_multi)
         for r in rows[:8]:
             riepilogo.append(
                 f"<div class='camy-ai-result'>"
@@ -2165,13 +2308,17 @@ def register_camy_ai_routes(app_obj, deps):
                 created = 0
                 split_infos = []
 
+                row_requests = op.get("row_requests") or {}
                 for r in rows:
+                    per_row = row_requests.get(str(getattr(r, "id_articolo", ""))) or {}
+                    row_requested_code = " - ".join(per_row.get("codes") or []) or requested_code
+                    row_requested_pezzi = str(per_row.get("qty") or "") or requested_pezzi
                     new_row, info = _prepare_partial_split_for_buono(
                         r,
                         buono,
-                        requested_code=requested_code,
+                        requested_code=row_requested_code,
                         requested_descr=requested_descr,
-                        requested_pezzi=requested_pezzi,
+                        requested_pezzi=row_requested_pezzi,
                     )
                     if new_row is not None:
                         if note_buono:
@@ -2194,6 +2341,20 @@ def register_camy_ai_routes(app_obj, deps):
                             }), 400
 
                         # Caso normale: una riga singola viene assegnata direttamente al Buono.
+                        # Se CAMY ha letto una quantità specifica, non deve ignorarla.
+                        if row_requested_pezzi:
+                            try:
+                                req_num = float(str(row_requested_pezzi).replace(',', '.'))
+                                disp_num = float(str(getattr(r, 'pezzo', 0) or 0).replace(',', '.'))
+                                if req_num < disp_num:
+                                    # Una quantità inferiore richiede lo split controllato del modulo Buono.
+                                    db.rollback()
+                                    return jsonify({
+                                        "answer": "La quantità richiesta è inferiore alla disponibilità. Apri l’anteprima del Buono per completare lo scarico parziale in sicurezza.",
+                                        "html": False
+                                    }), 409
+                            except Exception:
+                                pass
                         r.buono_n = buono
                         if note_buono:
                             r.note = _merge_note(getattr(r, "note", ""), note_buono)
