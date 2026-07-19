@@ -1280,192 +1280,202 @@ def register_camy_ai_routes(app_obj, deps):
                     setattr(new, name, getattr(src, name))
         return new
 
+
+    def _clean_piece_value(value):
+        """Salva quantità intere senza .0; mantiene gli eventuali decimali reali."""
+        try:
+            num = float(str(value or "0").strip().replace(",", "."))
+            if abs(num - round(num)) < 0.000001:
+                return str(int(round(num)))
+            return str(round(num, 3)).rstrip("0").rstrip(".")
+        except Exception:
+            return str(value or "").strip()
+
+    def _parse_logistic_code(value):
+        """Separa PACKAGE/PALLET/CASSA dai marca-pezzi senza duplicare il testo originale."""
+        raw = re.sub(r"\s+", " ", str(value or "").strip())
+        if not raw:
+            return "", []
+
+        # Riferimento logistico limitato al solo nome + identificativo.
+        # Non cattura i marca-pezzi che seguono dopo il trattino.
+        m = re.search(
+            r"\b((?:PACKAGE|PKG|PALLET|CASSA|CASE)\s*"
+            r"(?:(?:NO|N)\.?\s*)?[:#.]?\s*[A-Z0-9]+)\b",
+            raw,
+            flags=re.I,
+        )
+        logistic = re.sub(r"\s+", " ", m.group(1).strip()) if m else ""
+
+        rest = raw
+        if m:
+            rest = (raw[:m.start()] + " " + raw[m.end():]).strip()
+
+        # I codici articolo vengono separati con il trattino.
+        rest = re.sub(r"^[\s\-/:;,|+]+|[\s\-/:;,|+]+$", "", rest)
+        candidates = re.split(r"\s*(?:;|\||\+|,|\s/\s|\s*-\s*)\s*", rest)
+
+        codes = []
+        seen = set()
+        for item in candidates:
+            item = str(item or "").strip(" -/;,|+")
+            if not item:
+                continue
+            # Evita di reinserire un secondo riferimento logistico.
+            if re.match(r"^(?:PACKAGE|PKG|PALLET|CASSA|CASE)\b", item, re.I):
+                continue
+            key = _norm_part(item)
+            if key and key not in seen:
+                seen.add(key)
+                codes.append(item)
+
+        return logistic, codes
+
+    def _build_logistic_code(logistic, codes):
+        """Ricostruisce sempre: PACKAGE N.11-CODICE1-CODICE2."""
+        parts = []
+        if str(logistic or "").strip():
+            parts.append(str(logistic).strip())
+        seen = {_norm_part(parts[0])} if parts else set()
+        for code in codes or []:
+            code = str(code or "").strip(" -/")
+            key = _norm_part(code)
+            if not code or not key or key in seen:
+                continue
+            seen.add(key)
+            parts.append(code)
+        return "-".join(parts)
+
     def _prepare_partial_split_for_buono(row, buono, requested_code="", requested_descr="", requested_pezzi=""):
-        """Crea la nuova riga per il Buono e aggiorna la riga originale con il residuo.
+        """Crea la riga del Buono e lascia sulla riga originale solo il residuo.
 
-        Versione corretta: se nella richiesta sono presenti più codici da prelevare,
-        CAMY li mette tutti nella riga del Buono e lascia sulla riga originale solo i codici residui.
-        Ritorna (new_row, info_dict) se fa split, altrimenti (None, info_dict).
+        Regole:
+        - PACKAGE/PALLET/CASSA compare una sola volta e sempre all'inizio;
+        - i marca-pezzi sono separati esclusivamente con "-";
+        - le quantità intere vengono salvate come 4 e non 4.0;
+        - la riga residua non riceve le note del Buono.
         """
-        original_code_value = getattr(row, "codice_articolo", "") or ""
-        original_desc_value = getattr(row, "descrizione", "") or ""
-        code_parts = _split_multi_values(original_code_value, allow_dash=True)
-        desc_parts = _split_multi_values(original_desc_value, allow_dash=True)
-        pezzi_parts = _split_multi_values(getattr(row, "pezzo", ""))
-        code_logistic_refs = _extract_logistic_refs(original_code_value)
-        desc_logistic_refs = _extract_logistic_refs(original_desc_value)
+        original_code = str(getattr(row, "codice_articolo", "") or "").strip()
+        original_desc = str(getattr(row, "descrizione", "") or "").strip()
+        requested_code = str(requested_code or "").strip()
+        requested_descr = str(requested_descr or "").strip()
+        requested_pezzi = str(requested_pezzi or "").strip()
 
-        requested_code = (requested_code or "").strip()
-        requested_descr = (requested_descr or "").strip()
-        requested_pezzi = (requested_pezzi or "").strip()
+        logistic, original_codes = _parse_logistic_code(original_code)
+        req_logistic, requested_codes = _parse_logistic_code(requested_code)
 
-        is_multi = len(code_parts) > 1 or len(desc_parts) > 1 or len(pezzi_parts) > 1
+        # Se l'utente ha scritto soltanto il marca-pezzo, usa quello.
+        if not requested_codes and requested_code and not req_logistic:
+            requested_codes = [requested_code]
 
-        # Codici richiesti: possono essere uno o più, separati da trattino, slash, virgola, ecc.
-        requested_code_parts = _split_multi_values(requested_code, allow_dash=True) if requested_code else []
-        # Tolgo eventuali parole generiche finite nel parser.
-        requested_code_parts = [p for p in requested_code_parts if _norm_part(p) not in {"CODICE", "CODICI", "ARTICOLO", "ARTICOLI"}]
+        # Il riferimento logistico deve provenire dalla riga originale.
+        logistic = logistic or req_logistic
 
-        selected_indices = []
-        for rc in requested_code_parts:
-            idx = _find_requested_index(code_parts, rc)
-            if idx >= 0 and idx not in selected_indices:
-                selected_indices.append(idx)
+        original_qty = _safe_float_or_none(getattr(row, "pezzo", ""))
+        selected_qty = _safe_float_or_none(requested_pezzi)
 
-        # Compatibilità con il vecchio caso singolo.
-        if not selected_indices and requested_code:
-            idx = _find_requested_index(code_parts, requested_code)
-            if idx >= 0:
-                selected_indices.append(idx)
+        # Se manca una quantità esplicita, usa tutta la disponibilità.
+        if selected_qty is None:
+            selected_qty = original_qty
 
-        # Se non trovo il codice ma trovo la descrizione, uso la descrizione per individuare la parte.
-        desc_selected_indices = []
-        if requested_descr:
-            d_idx = _find_requested_index(desc_parts, requested_descr)
-            if d_idx >= 0:
-                desc_selected_indices.append(d_idx)
-                if not selected_indices and d_idx < len(code_parts):
-                    selected_indices.append(d_idx)
+        if original_qty is None or selected_qty is None or selected_qty <= 0:
+            return None, {"reason": "invalid_quantity", "is_multi": len(original_codes) > 1}
 
-        # Scarico parziale solo quantitativo su una riga con un unico marca-pezzo.
-        # Esempio: riga CB051CF con 10 pezzi, richiesta CAMY CB051CF 2 pezzi.
-        # Crea una nuova riga da 2 pezzi per il Buono e lascia 8 pezzi in giacenza.
-        if not is_multi and requested_pezzi:
-            original_num = _safe_float_or_none(getattr(row, "pezzo", ""))
-            selected_num = _safe_float_or_none(requested_pezzi)
-            if original_num is not None and selected_num is not None and 0 < selected_num < original_num:
-                new_row = _copy_articolo_for_partial(row)
-                new_row.buono_n = buono
-                new_row.codice_articolo = requested_code or original_code_value
-                new_row.descrizione = requested_descr or original_desc_value
-                new_row.pezzo = str(int(selected_num)) if float(selected_num).is_integer() else str(round(selected_num, 3))
-                new_row.n_colli = 1
-                residuo_num = original_num - selected_num
-                row.pezzo = str(int(residuo_num)) if float(residuo_num).is_integer() else str(round(residuo_num, 3))
-                row.buono_n = ""
-                row.n_colli = 1
-                # Ripartizione proporzionale dei valori quantitativi.
-                for field in ("peso", "m2", "m3"):
-                    try:
-                        original_value = float(getattr(row, field, 0) or 0)
-                        selected_value = original_value * (selected_num / original_num) if original_num else 0
-                        setattr(new_row, field, round(selected_value, 6))
-                        setattr(row, field, round(max(0, original_value - selected_value), 6))
-                    except Exception:
-                        pass
-                return new_row, {
-                    "reason": "quantity_split",
-                    "is_multi": False,
-                    "selected_code": new_row.codice_articolo,
-                    "selected_pezzi": selected_num,
-                    "residuo_pezzi": residuo_num,
-                }
+        if selected_qty > original_qty:
+            return None, {"reason": "quantity_exceeds", "is_multi": len(original_codes) > 1}
 
-        if not selected_indices or not is_multi:
-            return None, {"reason": "no_split", "is_multi": is_multi, "idx": selected_indices[0] if selected_indices else -1}
+        original_norm_map = {_norm_part(c): c for c in original_codes if _norm_part(c)}
+        selected_exact = []
+        missing = []
 
-        selected_indices = sorted(set(selected_indices))
-
-        # Sicurezza: se l'utente ha selezionato tutti i codici della riga,
-        # non creo una riga residua vuota/pezzi zero. La conferma assegnerà
-        # il Buono direttamente alla riga originale.
-        if is_multi and code_parts and len(selected_indices) >= len(code_parts):
-            return None, {"reason": "all_selected_no_split", "is_multi": False, "idx": selected_indices}
-
-        # Codici in uscita: tutti quelli richiesti.
-        selected_code_parts = [code_parts[i] for i in selected_indices if i < len(code_parts)]
-        selected_code = _join_multi_values(selected_code_parts) or requested_code
-
-        # Descrizione in uscita: se l'utente l'ha indicata, ha priorità.
-        if requested_descr:
-            selected_desc = requested_descr
-        else:
-            selected_desc_parts = [desc_parts[i] for i in selected_indices if i < len(desc_parts)]
-            selected_desc = _join_multi_values(selected_desc_parts) or (getattr(row, "descrizione", "") or "")
-
-        # Pezzi in uscita.
-        if requested_pezzi:
-            selected_pezzi = requested_pezzi
-        else:
-            selected_pezzi_parts = [pezzi_parts[i] for i in selected_indices if i < len(pezzi_parts)]
-            selected_pezzi = _join_multi_values(selected_pezzi_parts)
-
-        original_pezzo_num = _safe_float_or_none(getattr(row, "pezzo", ""))
-        selected_pezzo_num = _safe_float_or_none(selected_pezzi)
-
-        # Residuo codici: elimino tutti gli indici usciti.
-        resid_code_parts = [p for i, p in enumerate(code_parts) if i not in selected_indices]
-
-        # Residuo descrizioni:
-        # - se l'utente ha indicato una descrizione precisa, tolgo quella descrizione;
-        # - altrimenti tolgo le descrizioni con gli stessi indici dei codici usciti.
-        if desc_parts:
-            if desc_selected_indices:
-                resid_desc_parts = [p for i, p in enumerate(desc_parts) if i not in set(desc_selected_indices)]
+        for code in requested_codes:
+            key = _norm_part(code)
+            if not key:
+                continue
+            if key in original_norm_map:
+                selected_exact.append(original_norm_map[key])
             else:
-                resid_desc_parts = [p for i, p in enumerate(desc_parts) if i not in selected_indices]
-        else:
-            resid_desc_parts = []
+                missing.append(code)
 
-        # Residuo pezzi.
-        # Regola operativa CAMY:
-        # - se il campo Pezzi della riga originale è un numero unico (es. 5),
-        #   e l'utente indica i pezzi da mettere nel Buono (es. pezzi 2),
-        #   la riga nuova prende 2 e la riga residua deve diventare 3.
-        # - non bisogna lasciare il valore originale sulla residua solo perché
-        #   il codice selezionato non è il primo della lista.
-        if len(pezzi_parts) <= 1 and original_pezzo_num is not None and selected_pezzo_num is not None:
-            resid = max(0, original_pezzo_num - selected_pezzo_num)
-            resid_pezzi_parts = [str(int(resid)) if abs(resid - int(resid)) < 0.0001 else str(round(resid, 3))]
-        else:
-            resid_pezzi_parts = [p for i, p in enumerate(pezzi_parts) if i not in selected_indices] if pezzi_parts else []
-            if not resid_pezzi_parts and original_pezzo_num is not None and selected_pezzo_num is not None:
-                resid = max(0, original_pezzo_num - selected_pezzo_num)
-                resid_pezzi_parts = [str(int(resid)) if abs(resid - int(resid)) < 0.0001 else str(round(resid, 3))]
+        # Con una riga semplice senza package il codice originale è il marca-pezzo.
+        if not original_codes and original_code:
+            original_codes = [original_code]
+            original_norm_map = {_norm_part(original_code): original_code}
+            if requested_codes:
+                selected_exact = [
+                    original_code for c in requested_codes
+                    if _norm_part(c) == _norm_part(original_code)
+                ]
+            elif requested_code:
+                selected_exact = [original_code]
+
+        if missing:
+            return None, {
+                "reason": "requested_code_not_found",
+                "is_multi": len(original_codes) > 1,
+                "missing": missing,
+            }
+
+        if not selected_exact:
+            # Se il codice non è stato specificato ma la riga ha un solo marca-pezzo,
+            # considera selezionato quel codice.
+            if len(original_codes) == 1:
+                selected_exact = [original_codes[0]]
+            else:
+                return None, {"reason": "no_code_selected", "is_multi": len(original_codes) > 1}
+
+        selected_norms = {_norm_part(c) for c in selected_exact}
+        residual_codes = [c for c in original_codes if _norm_part(c) not in selected_norms]
+
+        full_quantity = abs(selected_qty - original_qty) < 0.000001
+        all_codes_selected = not residual_codes
+
+        # Se esce tutta la quantità e tutti i codici, non serve creare una seconda riga.
+        if full_quantity and all_codes_selected:
+            row.codice_articolo = _build_logistic_code(logistic, selected_exact)
+            row.pezzo = _clean_piece_value(selected_qty)
+            row.buono_n = buono
+            row.n_colli = 1
+            return None, {
+                "reason": "full_selection",
+                "is_multi": False,
+                "selected_code": row.codice_articolo,
+                "selected_pezzi": _clean_piece_value(selected_qty),
+            }
 
         new_row = _copy_articolo_for_partial(row)
-        # PACKAGE / CASSA / PALLET restano sia sulla riga Buono sia sulla residua.
-        new_row.codice_articolo = _append_refs_if_missing(selected_code, code_logistic_refs)
-        new_row.descrizione = _append_refs_if_missing(selected_desc, desc_logistic_refs)
-        new_row.pezzo = selected_pezzi
+        new_row.codice_articolo = _build_logistic_code(logistic, selected_exact)
+        new_row.descrizione = requested_descr or original_desc
+        new_row.pezzo = _clean_piece_value(selected_qty)
         new_row.buono_n = buono
         new_row.n_colli = 1
 
-        # Peso proporzionale, se possibile.
-        try:
-            original_peso = float(getattr(row, "peso", None) or 0)
-            all_nums = [_safe_float_or_none(x) for x in pezzi_parts]
-            if original_peso and all_nums and all(v is not None for v in all_nums):
-                total_pz = sum(all_nums)
-                sel_pz = _safe_float_or_none(selected_pezzi)
-                if total_pz and sel_pz is not None:
-                    new_row.peso = round(original_peso * sel_pz / total_pz, 3)
-                    row.peso = round(original_peso - float(new_row.peso or 0), 3)
-        except Exception:
-            pass
-
-        row.codice_articolo = _append_refs_if_missing(_join_multi_values(resid_code_parts), code_logistic_refs)
-        if desc_parts:
-            row.descrizione = _append_refs_if_missing(_join_multi_values(resid_desc_parts), desc_logistic_refs)
-        else:
-            row.descrizione = _append_refs_if_missing(getattr(row, "descrizione", ""), desc_logistic_refs)
-        if resid_pezzi_parts:
-            row.pezzo = _join_multi_values(resid_pezzi_parts)
-
-        row.n_colli = 1
+        residual_qty = max(0.0, original_qty - selected_qty)
+        row.codice_articolo = _build_logistic_code(logistic, residual_codes)
+        row.pezzo = _clean_piece_value(residual_qty)
         row.buono_n = ""
+        row.n_colli = 1
+
+        # Ripartizione proporzionale di peso, M2 e M3.
+        for field in ("peso", "m2", "m3"):
+            try:
+                original_value = float(getattr(row, field, 0) or 0)
+                selected_value = original_value * (selected_qty / original_qty) if original_qty else 0
+                setattr(new_row, field, round(selected_value, 6))
+                setattr(row, field, round(max(0, original_value - selected_value), 6))
+            except Exception:
+                pass
 
         return new_row, {
             "reason": "split",
-            "idx": selected_indices,
-            "selected_code": selected_code,
-            "selected_desc": selected_desc,
-            "selected_pezzi": selected_pezzi,
+            "is_multi": len(original_codes) > 1,
+            "selected_code": new_row.codice_articolo,
+            "selected_desc": new_row.descrizione,
+            "selected_pezzi": _clean_piece_value(selected_qty),
             "residue_codes": row.codice_articolo,
             "residue_desc": row.descrizione,
-            "residue_pezzi": row.pezzo,
+            "residue_pezzi": _clean_piece_value(residual_qty),
         }
-
 
 
     def _extract_existing_buono_target(msg):
@@ -2339,8 +2349,8 @@ def register_camy_ai_routes(app_obj, deps):
                 row_requests = op.get("row_requests") or {}
                 for r in rows:
                     per_row = row_requests.get(str(getattr(r, "id_articolo", ""))) or {}
-                    row_requested_code = " - ".join(per_row.get("codes") or []) or requested_code
-                    row_requested_pezzi = str(per_row.get("qty") or "") or requested_pezzi
+                    row_requested_code = "-".join(per_row.get("codes") or []) or requested_code
+                    row_requested_pezzi = _clean_piece_value(per_row.get("qty") or requested_pezzi)
                     new_row, info = _prepare_partial_split_for_buono(
                         r,
                         buono,
@@ -2385,8 +2395,11 @@ def register_camy_ai_routes(app_obj, deps):
                             except Exception:
                                 pass
                         r.buono_n = buono
-                        # La riga residua mantiene le note originali.
-                        # Non copiare le note del Buono sulla giacenza residua.
+                        r.pezzo = _clean_piece_value(getattr(r, "pezzo", ""))
+                        # In questo ramo la riga originale è interamente assegnata al Buono,
+                        # quindi non è una riga residua e può ricevere la nota del Buono.
+                        if note_buono:
+                            r.note = note_buono
                         updated += 1
 
                 db.commit()
@@ -2435,7 +2448,7 @@ def register_camy_ai_routes(app_obj, deps):
                         + "<br>".join(_uscito_info(r) for r in rows_uscite[:10])
                     )
                 if note_buono:
-                    extra += f"<br>Note salvate in giacenze: <b>{_esc(note_buono)}</b><br>"
+                    extra += f"<br>Note salvate esclusivamente sulla riga del Buono: <b>{_esc(note_buono)}</b><br>"
                 if created:
                     dettagli = []
                     for info in split_infos[:5]:
