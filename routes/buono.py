@@ -50,6 +50,22 @@ def register_buono_routes(app_obj, deps):
         # Non rompe lo slash interno di SE/007VD e riconosce AV*002VD.
         s = re.sub(r"\s*-\s*(?=[A-Z0-9]{1,25}(?:/|\*)[A-Z0-9])", " - ", s, flags=re.I)
 
+        # Se i marca-pezzi sono concatenati con trattini senza spazi, li separo.
+        # Esempio operativo:
+        #   PACKAGE N.11-CB051CF-CB052CF-CB053CF
+        # diventa:
+        #   PACKAGE N.11 - CB051CF - CB052CF - CB053CF
+        #
+        # Il controllo richiede che il token successivo inizi con lettere seguite
+        # da almeno una cifra: in questo modo evitiamo di spezzare indiscriminatamente
+        # normali descrizioni con trattino.
+        s = re.sub(
+            r"(?<=[A-Z0-9])\s*-\s*(?=[A-Z]{1,12}\d[A-Z0-9]*(?:\b|$))",
+            " - ",
+            s,
+            flags=re.I,
+        )
+
         # Lo slash con spazi viene considerato separatore tra codici.
         # Lo slash senza spazi resta dentro il codice.
         parts = re.split(r"\s*(?:;|\||,|\s/\s|\s\+\s|\s-\s)\s*", s)
@@ -144,7 +160,10 @@ def register_buono_routes(app_obj, deps):
         for sn in selected_norms:
             if not sn:
                 continue
-            if pn == sn or sn in pn or pn in sn:
+            # Dopo la separazione dei marca-pezzi concatenati il confronto deve
+            # essere esatto: così togliamo soltanto i codici realmente richiesti
+            # e non l'intero blocco residuo.
+            if pn == sn:
                 return True
         return False
 
@@ -621,15 +640,53 @@ def register_buono_routes(app_obj, deps):
             if not selected_ids or rid in selected_ids:
                 selected_rows.append(r)
 
-        def draw_wrapped(value, x, y, max_chars=38, size=30, bold=False, max_lines=3):
+        def draw_wrapped(value, x, y, max_width=None, size=30, bold=False, max_lines=3):
+            """Scrive il testo andando a capo in base allo spazio reale disponibile.
+
+            Per i marca-pezzi prova prima a spezzare dopo i trattini, così codici come
+            PACKAGE N.11-CB051CF-CB052CF-CB053CF non vengono tagliati fuori pagina.
+            """
             value = _safe_text(value)
             if not value:
                 return y
+
             font = 'Helvetica-Bold' if bold else 'Helvetica'
             c.setFont(font, size)
-            lines = _textwrap.wrap(value, width=max_chars) or [value]
-            for line in lines[:max_lines]:
-                c.drawString(x, y, line)
+            max_width = float(max_width or (width - x - 35))
+
+            # Mantiene il trattino sul codice precedente e permette il ritorno a capo
+            # subito dopo ogni marca-pezzo.
+            tokens = [t for t in re.split(r'(?<=-)|\s+', value) if t]
+            lines = []
+            current = ''
+
+            for token in tokens:
+                candidate = token if not current else current + token
+                if c.stringWidth(candidate, font, size) <= max_width:
+                    current = candidate
+                    continue
+
+                if current:
+                    lines.append(current.rstrip())
+                    current = token.lstrip()
+                else:
+                    # Token eccezionalmente lungo: lo divide carattere per carattere
+                    # per garantire che non esca mai dal foglio.
+                    piece = ''
+                    for ch in token:
+                        test = piece + ch
+                        if piece and c.stringWidth(test, font, size) > max_width:
+                            lines.append(piece)
+                            piece = ch
+                        else:
+                            piece = test
+                    current = piece
+
+            if current:
+                lines.append(current.rstrip())
+
+            for text_line in lines[:max_lines]:
+                c.drawString(x, y, text_line)
                 y -= size + 8
             return y
 
@@ -688,33 +745,49 @@ def register_buono_routes(app_obj, deps):
             c.drawCentredString(width / 2, y, titolo[:34])
             y -= 62
 
-            def line(label, value='', size=31, bold_value=True, max_chars=34, max_lines=2):
+            def line(label, value='', size=31, bold_value=True, max_lines=2, value_below=False):
                 nonlocal y
                 label = _safe_text(label)
                 value = _safe_text(value)
                 c.setFont('Helvetica-Bold', size)
                 c.drawString(35, y, label)
-                x_val = 35 + c.stringWidth(label, 'Helvetica-Bold', size) + 8
-                if value:
+
+                if not value:
+                    y -= 58
+                    return
+
+                if value_below:
+                    # Il valore parte dalla riga successiva e sfrutta tutta la larghezza.
+                    value_y = y - size - 10
+                    y_after = draw_wrapped(
+                        value, 35, value_y,
+                        max_width=width - 70,
+                        size=size,
+                        bold=bold_value,
+                        max_lines=max_lines
+                    )
+                    y = y_after - 12
+                else:
+                    x_val = 35 + c.stringWidth(label, 'Helvetica-Bold', size) + 8
                     y_after = draw_wrapped(
                         value, x_val, y,
-                        max_chars=max_chars,
+                        max_width=width - x_val - 35,
                         size=size,
                         bold=bold_value,
                         max_lines=max_lines
                     )
                     y = min(y - 58, y_after - 12)
-                else:
-                    y -= 58
 
-            line('DITTA :', ditta, 31, True, 32, 2)
-            line('N.BUONO:', bn, 31, True, 30, 1)
-            line('MARCA PEZZI:', marca_pezzi, 28, True, 30, 3)
-            line('DESCRIZIONE:', descrizione, 24, False, 38, 2)
-            line('PROTOCOLLO:', protocollo, 26, False, 36, 2)
-            line('ARRIVO ', arrivo, 31, False, 30, 1)
-            line('N.PALLET:', n_pallet, 31, True, 18, 1)
-            line('N. PEZZI:', n_pezzi, 31, True, 18, 1)
+            line('DITTA :', ditta, 31, True, 2)
+            line('N.BUONO:', bn, 31, True, 1)
+            # I marca-pezzi vanno sotto l'etichetta e a capo dopo i trattini:
+            # in questo modo non vengono mai tagliati sul bordo destro del cartello.
+            line('MARCA PEZZI:', marca_pezzi, 26, True, 4, value_below=True)
+            line('DESCRIZIONE:', descrizione, 24, False, 2)
+            line('PROTOCOLLO:', protocollo, 26, False, 2)
+            line('ARRIVO ', arrivo, 31, False, 1)
+            line('N.PALLET:', n_pallet, 31, True, 1)
+            line('N. PEZZI:', n_pezzi, 31, True, 1)
 
             if posizione:
                 line('POSIZIONE:', posizione, 24, True, 34, 1)
