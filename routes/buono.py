@@ -839,20 +839,31 @@ def register_buono_routes(app_obj, deps):
     @app.route('/buono/finalize_and_get_pdf', methods=['POST'])
     @login_required
     def buono_finalize_and_get_pdf():
+        """Valida, genera e salva il Buono senza consentire giacenze negative o doppie righe."""
         db = SessionLocal()
+
+        class BuonoValidationError(Exception):
+            pass
+
         try:
             req_data = request.form
             ids = _extract_ids_from_request(req_data)
+            if not ids:
+                raise BuonoValidationError("Nessuna riga selezionata per il Buono.")
+
             rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+            if len(rows) != len(ids):
+                raise BuonoValidationError(
+                    "Una o più righe non sono più disponibili. Aggiorna le Giacenze e ripeti la selezione."
+                )
+
             ordine_ids = {idv: idx for idx, idv in enumerate(ids)}
             rows.sort(key=lambda r: ordine_ids.get(getattr(r, 'id_articolo', 0), 999999))
 
-            action = req_data.get('action')
+            action = (req_data.get('action') or 'preview').strip().lower()
             buono_mode = (req_data.get('buono_mode') or 'auto').strip().lower()
             bn = (req_data.get('buono_n') or '').strip()
             if buono_mode == 'auto' or not bn:
-                # Se l'utente lascia automatico, oppure non compila il numero manuale,
-                # assegno il prossimo numero disponibile prima di salvare/generare il PDF.
                 bn = _next_buono_number(db)
 
             if action == 'cartello':
@@ -865,190 +876,247 @@ def register_buono_routes(app_obj, deps):
                     mimetype='application/pdf'
                 )
 
-            scarico_parziale_eseguito = False
+            # Anteprima: nessuna modifica al database.
+            if action != 'save':
+                pdf_bio = _generate_buono_pdf(req_data, rows)
+                safe_bn = (bn or "senza_numero").replace("/", "-").replace("\\", "-")
+                return send_file(
+                    pdf_bio,
+                    as_attachment=False,
+                    download_name=f'Buono_{safe_bn}.pdf',
+                    mimetype='application/pdf'
+                )
+
+            # -----------------------------------------------------------------
+            # VALIDAZIONE COMPLETA PRIMA DI MODIFICARE QUALSIASI RIGA
+            # -----------------------------------------------------------------
+            prepared = []
+            marca_pezzi_visti = {}
 
             for r in rows:
-                codice_scelto = (req_data.get(f"codice_buono_{r.id_articolo}") or str(r.codice_articolo or '')).strip()
-                descr_scelta = (req_data.get(f"descrizione_buono_{r.id_articolo}") or str(r.descrizione or '')).strip()
+                rid = r.id_articolo
+                old_cod = (r.codice_articolo or '').strip()
+                old_desc = (r.descrizione or '').strip()
+                codice_scelto = (req_data.get(f"codice_buono_{rid}") or old_cod).strip()
+                descr_scelta = (req_data.get(f"descrizione_buono_{rid}") or old_desc).strip()
+                q_raw = (req_data.get(f"q_{rid}") or '').strip()
 
-                # Le note del buono NON devono essere copiate subito sulla riga originale.
-                # Nel parziale vanno solo sulla nuova riga creata; la riga residua mantiene le sue note originali.
-                note_inserite = req_data.get(f"note_{r.id_articolo}")
-                note_originale = r.note
-
-                # Scarico parziale:
-                # deve funzionare sia quando viene tolto solo un codice/descrizione da una cella multi-valore,
-                # sia quando viene prelevata solo una parte dei pezzi/colli della stessa riga.
-                #
-                # Logica corretta:
-                # 1) la riga originale resta in giacenza con il residuo;
-                # 2) viene creata una nuova riga per il materiale messo nel buono;
-                # 3) la nuova riga mantiene codice/descrizione del buono e N. buono;
-                # 4) se lo scarico è solo quantitativo, la riga residua mantiene lo stesso codice/descrizione.
-                if action == 'save':
-                    old_cod = (r.codice_articolo or '').strip()
-                    old_desc = (r.descrizione or '').strip()
-
-                    q_scelta = req_data.get(f"q_{r.id_articolo}")
-                    pezzi_originali = _num_float(getattr(r, 'pezzo', None))
-                    pezzi_scelti = _num_float(q_scelta) if q_scelta is not None else pezzi_originali
-                    if pezzi_originali > 0 and (pezzi_scelti <= 0 or pezzi_scelti > pezzi_originali):
-                        pezzi_scelti = pezzi_originali
-                    pezzi_residui = max(0.0, pezzi_originali - pezzi_scelti) if pezzi_originali > 0 else 0.0
-
-                    cod_parziale = bool(codice_scelto and _norm_for_match(codice_scelto) != _norm_for_match(old_cod))
-                    desc_parziale = bool(descr_scelta and _norm_for_match(descr_scelta) != _norm_for_match(old_desc))
-
-                    # Parziale anche se il codice/descrizione resta uguale ma viene indicata una quantità inferiore.
-                    qta_parziale = bool(
-                        q_scelta is not None
-                        and pezzi_originali > 0
-                        and pezzi_scelti > 0
-                        and pezzi_scelti < pezzi_originali
+                # Controllo concorrenza: la riga deve essere ancora uguale a quella mostrata nell'anteprima.
+                old_cod_form = (req_data.get(f"original_codice_{rid}") or old_cod).strip()
+                old_pezzi_form = _num_float(req_data.get(f"original_pezzi_{rid}"))
+                if _norm_for_match(old_cod_form) != _norm_for_match(old_cod):
+                    raise BuonoValidationError(
+                        f"La riga ID {rid} è stata modificata da un altro utente. "
+                        "Aggiorna le Giacenze e ripeti il Buono."
                     )
 
-                    if cod_parziale or desc_parziale or qta_parziale:
-                        scarico_parziale_eseguito = True
+                pezzi_originali = _num_float(getattr(r, 'pezzo', None))
+                if abs(old_pezzi_form - pezzi_originali) > 0.000001:
+                    raise BuonoValidationError(
+                        f"La disponibilità della riga ID {rid} è cambiata da "
+                        f"{_fmt_num_clean(old_pezzi_form)} a {_fmt_num_clean(pezzi_originali)} pezzi. "
+                        "Aggiorna le Giacenze e ripeti il Buono."
+                    )
 
-                        # Scarico parziale:
-                        # la riga originale resta in giacenza SENZA numero buono;
-                        # il numero buono va solo sulla nuova riga del materiale prelevato.
-                        r.buono_n = ""
+                if pezzi_originali <= 0:
+                    raise BuonoValidationError(
+                        "CAMY AI - PRELIEVO BLOCCATO\n\n"
+                        f"Marca pezzo: {codice_scelto or old_cod or 'non indicato'}\n"
+                        "Disponibilità: 0 pezzi.\n\n"
+                        "Il materiale risulta esaurito o già prelevato. Il Buono non è stato creato."
+                    )
 
-                        # Prima creo la riga "materiale del buono", così non si perde nulla.
-                        riga_buono = Articolo()
-                        for col in Articolo.__table__.columns:
-                            if col.name == 'id_articolo':
-                                continue
+                if not q_raw:
+                    raise BuonoValidationError(
+                        f"Inserisci la quantità da prelevare per il marca pezzo {codice_scelto or old_cod}."
+                    )
+
+                pezzi_scelti = _num_float(q_raw)
+                if pezzi_scelti <= 0:
+                    raise BuonoValidationError(
+                        f"La quantità del marca pezzo {codice_scelto or old_cod} deve essere maggiore di zero."
+                    )
+                if pezzi_scelti > pezzi_originali:
+                    raise BuonoValidationError(
+                        "CAMY AI - GIACENZA INSUFFICIENTE\n\n"
+                        f"Marca pezzo: {codice_scelto or old_cod}\n"
+                        f"Richiesti: {_fmt_num_clean(pezzi_scelti)} pezzi\n"
+                        f"Disponibili: {_fmt_num_clean(pezzi_originali)} pezzi\n\n"
+                        "Riduci la quantità e riprova. Il Buono non è stato creato."
+                    )
+
+                if not codice_scelto:
+                    raise BuonoValidationError(f"Il codice/marca pezzo della riga ID {rid} è vuoto.")
+
+                # I marca-pezzi scelti devono esistere davvero nella riga originale.
+                original_parts = [p for p in (_split_multi_value(old_cod) or [old_cod]) if not _is_package_token(p)]
+                original_norms = {_norm_for_match(p) for p in original_parts if _norm_for_match(p)}
+                selected_parts = [p for p in (_split_multi_value(codice_scelto) or [codice_scelto]) if not _is_package_token(p)]
+                selected_norms = [_norm_for_match(p) for p in selected_parts if _norm_for_match(p)]
+
+                if selected_norms and original_norms:
+                    mancanti = [p for p in selected_parts if _norm_for_match(p) not in original_norms]
+                    if mancanti:
+                        raise BuonoValidationError(
+                            "CAMY AI - MARCA PEZZO NON DISPONIBILE\n\n"
+                            f"Riga ID: {rid}\n"
+                            f"Non presente nella giacenza: {', '.join(mancanti)}\n\n"
+                            "Controlla il codice richiesto. Il Buono non è stato creato."
+                        )
+
+                # Evita lo stesso marca-pezzo inserito due volte nello stesso Buono.
+                for token, norm in zip(selected_parts, selected_norms):
+                    if norm in marca_pezzi_visti:
+                        raise BuonoValidationError(
+                            "CAMY AI - MARCA PEZZO DUPLICATO\n\n"
+                            f"Il marca pezzo {token} è presente sia nella riga ID "
+                            f"{marca_pezzi_visti[norm]} sia nella riga ID {rid}.\n\n"
+                            "Rimuovi il duplicato prima di salvare."
+                        )
+                    marca_pezzi_visti[norm] = rid
+
+                prepared.append({
+                    'row': r,
+                    'old_cod': old_cod,
+                    'old_desc': old_desc,
+                    'codice_scelto': codice_scelto,
+                    'descr_scelta': descr_scelta,
+                    'note_inserite': req_data.get(f"note_{rid}"),
+                    'note_originale': r.note,
+                    'pezzi_originali': pezzi_originali,
+                    'pezzi_scelti': pezzi_scelti,
+                    'pezzi_residui': pezzi_originali - pezzi_scelti,
+                })
+
+            scarico_parziale_eseguito = False
+
+            # -----------------------------------------------------------------
+            # APPLICAZIONE DELLE MODIFICHE DOPO CHE TUTTE LE RIGHE SONO VALIDE
+            # -----------------------------------------------------------------
+            for item in prepared:
+                r = item['row']
+                old_cod = item['old_cod']
+                old_desc = item['old_desc']
+                codice_scelto = item['codice_scelto']
+                descr_scelta = item['descr_scelta']
+                note_inserite = item['note_inserite']
+                note_originale = item['note_originale']
+                pezzi_originali = item['pezzi_originali']
+                pezzi_scelti = item['pezzi_scelti']
+                pezzi_residui = item['pezzi_residui']
+
+                cod_parziale = bool(_norm_for_match(codice_scelto) != _norm_for_match(old_cod))
+                desc_parziale = bool(descr_scelta and _norm_for_match(descr_scelta) != _norm_for_match(old_desc))
+                qta_parziale = pezzi_scelti < pezzi_originali
+
+                if cod_parziale or desc_parziale or qta_parziale:
+                    scarico_parziale_eseguito = True
+                    r.buono_n = ""
+
+                    riga_buono = Articolo()
+                    for col in Articolo.__table__.columns:
+                        if col.name != 'id_articolo':
                             setattr(riga_buono, col.name, getattr(r, col.name))
 
-                        riga_buono.codice_articolo = codice_scelto or old_cod
-                        riga_buono.descrizione = descr_scelta or old_desc
-                        riga_buono.buono_n = bn or r.buono_n
+                    riga_buono.codice_articolo = codice_scelto
+                    riga_buono.descrizione = descr_scelta or old_desc
+                    riga_buono.buono_n = bn
+                    riga_buono.pezzo = _fmt_num_clean(pezzi_scelti)
+                    r.pezzo = _fmt_num_clean(pezzi_residui)
 
-                        # I pezzi scaricati vanno sulla nuova riga; sulla riga originale resta il residuo.
-                        if pezzi_originali > 0:
-                            riga_buono.pezzo = _fmt_num_clean(pezzi_scelti)
-                            r.pezzo = _fmt_num_clean(pezzi_residui)
+                    for campo in ('peso', 'm2', 'm3'):
+                        residuo_val, scelto_val = _split_quantita(
+                            pezzi_originali, pezzi_scelti, getattr(r, campo, None)
+                        )
+                        setattr(riga_buono, campo, _round_db_number(scelto_val))
+                        setattr(r, campo, _round_db_number(residuo_val))
 
-                            for campo in ('peso', 'm2', 'm3'):
-                                residuo_val, scelto_val = _split_quantita(pezzi_originali, pezzi_scelti, getattr(r, campo, None))
-                                try:
-                                    setattr(riga_buono, campo, _round_db_number(scelto_val))
-                                    setattr(r, campo, _round_db_number(residuo_val))
-                                except Exception:
-                                    pass
+                    # Regola aziendale: una riga rappresenta sempre un collo.
+                    riga_buono.n_colli = 1
+                    r.n_colli = 1
+                    riga_buono.note = (note_inserite or '').strip()
+                    db.add(riga_buono)
 
-                        # Lo scarico parziale rappresenta una riga logica per il materiale
-                        # prelevato e una per il residuo: entrambe restano a 1 collo.
-                        riga_buono.n_colli = 1
-                        r.n_colli = 1
-                        riga_buono.data_uscita = getattr(r, 'data_uscita', '') or ''
-                        riga_buono.n_ddt_uscita = getattr(r, 'n_ddt_uscita', '') or ''
-
-                        # Le note scritte nel buono vanno solo sulla nuova riga.
-                        # Non aggiungo testi automatici tipo "scarico parziale".
-                        riga_buono.note = (note_inserite or '').strip()
-
-                        db.add(riga_buono)
-
-                        # Poi aggiorno la riga originale lasciando solo il residuo.
-                        # Se il parziale è solo quantitativo, codice e descrizione devono restare sulla riga in giacenza.
-                        if cod_parziale:
-                            codice_residuo = _clean_residual_cell(old_cod, codice_scelto)
-                            # Mantiene sulla riga residua eventuale N. package / pallet / cassa.
-                            r.codice_articolo = _preserve_package_context(codice_residuo, old_cod, codice_scelto)
-                        else:
-                            r.codice_articolo = old_cod
-
-                        if desc_parziale:
-                            descr_residua = _clean_residual_cell(old_desc, descr_scelta)
-                            descr_residua = _preserve_package_context(descr_residua, old_desc, descr_scelta)
-                            # Se la descrizione scelta era una parte della cella originale,
-                            # sulla riga residua resta soltanto la parte non prelevata.
-                            r.descrizione = descr_residua if descr_residua else old_desc
-                        else:
-                            r.descrizione = old_desc
-
-                        # La riga residua mantiene le note originali.
-                        r.note = note_originale
+                    if cod_parziale:
+                        codice_residuo = _clean_residual_cell(old_cod, codice_scelto)
+                        r.codice_articolo = _preserve_package_context(
+                            codice_residuo, old_cod, codice_scelto
+                        )
                     else:
-                        # Buono normale/non parziale: qui il N. buono e le note restano sulla riga selezionata.
-                        if bn:
-                            r.buono_n = bn
-                        if note_inserite is not None:
-                            r.note = note_inserite
-                        if q_scelta is not None and _num_float(q_scelta) > 0:
-                            r.pezzo = _fmt_num_clean(_num_float(q_scelta))
+                        r.codice_articolo = old_cod
 
-            picking_msg = ""
-            if action == 'save':
-                # 1) Salvo SEMPRE prima il Buono e le modifiche alle Giacenze.
-                # Il Picking è un'operazione collegata ma non deve mai bloccare
-                # la creazione del PDF del Buono.
-                db.commit()
+                    if desc_parziale:
+                        descr_residua = _clean_residual_cell(old_desc, descr_scelta)
+                        descr_residua = _preserve_package_context(
+                            descr_residua, old_desc, descr_scelta
+                        )
+                        r.descrizione = descr_residua if descr_residua else old_desc
+                    else:
+                        r.descrizione = old_desc
 
-                # 2) Creo il Picking in una transazione separata.
-                # Se il Picking fallisce per schema/colonne/dati, faccio rollback
-                # solo del Picking e lascio valido il Buono appena creato.
-                picking_created = False
-                try:
-                    try:
-                        # Crea il Picking SOLO se la spunta è attiva.
-                        # Quando la checkbox non viene selezionata, il browser non invia picking_enable.
-                        picking_enable = (req_data.get('picking_enable') == '1')
-                        if picking_enable:
-                            fresh_rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-                            picking_created, picking_msg = _create_picking_from_buono_form(db, req_data, fresh_rows, bn)
-                            db.commit()
-                        else:
-                            picking_created = False
-                            picking_msg = ''
-                    except Exception as e_pick_inner:
-                        try:
-                            db.rollback()
-                        except Exception:
-                            pass
-                        picking_msg = str(e_pick_inner) if "e_pick_inner" in locals() else "Picking non creato automaticamente: controllare la sezione Picking/Lavorazioni."
-                        try:
-                            scrivi_log_errore("Errore creazione picking da buono", e_pick_inner)
-                        except Exception:
-                            pass
-                except Exception as e_pick:
-                    picking_msg = str(e_pick_inner) if "e_pick_inner" in locals() else "Picking non creato automaticamente: controllare la sezione Picking/Lavorazioni."
-                    try:
-                        scrivi_log_errore("Errore creazione picking da buono", e_pick)
-                    except Exception:
-                        pass
-
-                if picking_msg:
-                    try:
-                        flash(picking_msg, "success" if picking_created else "warning")
-                    except Exception:
-                        pass
-
-                if scarico_parziale_eseguito:
-                    flash(
-                        "Scarico parziale salvato. Pezzi, note e N. buono sono stati inseriti solo sulla nuova riga prelevata; la riga residua resta pulita.",
-                        "success"
-                    )
+                    r.note = note_originale
                 else:
-                    flash("Buono salvato correttamente.", "success")
+                    r.buono_n = bn
+                    if note_inserite is not None:
+                        r.note = note_inserite
+                    r.pezzo = _fmt_num_clean(pezzi_scelti)
+                    r.n_colli = 1
 
+            # Genera il PDF prima del commit: se il PDF fallisce, il DB resta invariato.
+            db.flush()
             pdf_bio = _generate_buono_pdf(req_data, rows)
+            db.commit()
+
+            # Picking separato: un eventuale errore non annulla il Buono già salvato.
+            picking_msg = ""
+            picking_created = False
+            try:
+                if req_data.get('picking_enable') == '1':
+                    fresh_rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
+                    picking_created, picking_msg = _create_picking_from_buono_form(
+                        db, req_data, fresh_rows, bn
+                    )
+                    db.commit()
+            except Exception as e_pick:
+                db.rollback()
+                picking_msg = "Picking non creato automaticamente: controllare la sezione Picking/Lavorazioni."
+                try:
+                    scrivi_log_errore("Errore creazione picking da buono", e_pick)
+                except Exception:
+                    pass
+
+            if picking_msg:
+                flash(picking_msg, "success" if picking_created else "warning")
+
+            if scarico_parziale_eseguito:
+                flash(
+                    "Scarico parziale salvato: i pezzi sono stati scalati, i marca-pezzi del Buono "
+                    "sono stati rimossi dal residuo e PACKAGE/PALLET/CASSA sono rimasti in giacenza.",
+                    "success"
+                )
+            else:
+                flash("Buono salvato correttamente.", "success")
 
             safe_bn = (bn or "senza_numero").replace("/", "-").replace("\\", "-")
             return send_file(
                 pdf_bio,
-                as_attachment=(action == 'save'),
+                as_attachment=True,
                 download_name=f'Buono_{safe_bn}.pdf',
                 mimetype='application/pdf'
             )
 
+        except BuonoValidationError as e:
+            db.rollback()
+            return str(e), 409, {'Content-Type': 'text/plain; charset=utf-8'}
         except Exception as e:
             db.rollback()
-            scrivi_log_errore("Errore Buono di Prelievo", e)
+            try:
+                scrivi_log_errore("Errore Buono di Prelievo", e)
+            except Exception:
+                pass
             print(f"ERRORE BUONO: {e}")
-            return f"Errore server: {e}", 500
+            return "Errore durante la creazione del Buono. Nessuna modifica è stata salvata.", 500, {
+                'Content-Type': 'text/plain; charset=utf-8'
+            }
         finally:
             db.close()
