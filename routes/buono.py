@@ -46,6 +46,26 @@ def register_buono_routes(app_obj, deps):
             s,
         )
 
+        # Se il riferimento logistico e il primo marca-pezzo sono separati
+        # soltanto da uno spazio, li divide comunque.
+        # Esempi:
+        #   Package No.311 UR/014VD
+        #   Package No.311 VA/002VR
+        #   PACKAGE N.11 CB051CF
+        #   CASSA 12 AV*002VD
+        s = re.sub(
+            r"(?i)\b("
+            r"(?:PACKAGE|PKG)\s*(?:(?:NO|N)\.?)?\s*[:#.]?\s*[A-Z0-9]+"
+            r"|PALLET\s*[:#.]?\s*[A-Z0-9]+"
+            r"|(?:CASSA|CASE)\s*[:#.]?\s*[A-Z0-9]+"
+            r")\s+(?="
+            r"(?:[A-Z0-9]{1,25}(?:/|\*)[A-Z0-9]+)"
+            r"|(?:[A-Z]{1,12}\d[A-Z0-9]*)"
+            r")",
+            r"\1 - ",
+            s,
+        )
+
         # Se dopo un trattino inizia un marca-pezzo con / oppure *, separo.
         # Non rompe lo slash interno di SE/007VD e riconosce AV*002VD.
         s = re.sub(r"\s*-\s*(?=[A-Z0-9]{1,25}(?:/|\*)[A-Z0-9])", " - ", s, flags=re.I)
@@ -978,7 +998,7 @@ def register_buono_routes(app_obj, deps):
     @app.route('/buono/finalize_and_get_pdf', methods=['POST'])
     @login_required
     def buono_finalize_and_get_pdf():
-        """Valida, genera e salva il Buono senza consentire giacenze negative o doppie righe."""
+        """Valida, genera e salva il Buono senza consentire giacenze negative o duplicati nella stessa riga."""
         db = SessionLocal()
 
         class BuonoValidationError(Exception):
@@ -1030,7 +1050,6 @@ def register_buono_routes(app_obj, deps):
             # VALIDAZIONE COMPLETA PRIMA DI MODIFICARE QUALSIASI RIGA
             # -----------------------------------------------------------------
             prepared = []
-            marca_pezzi_visti = {}
 
             for r in rows:
                 rid = r.id_articolo
@@ -1119,16 +1138,25 @@ def register_buono_routes(app_obj, deps):
                             "Controlla il codice richiesto. Il Buono non è stato creato."
                         )
 
-                # Evita lo stesso marca-pezzo inserito due volte nello stesso Buono.
+                # Lo stesso marca-pezzo può esistere su casse/package o ID diversi.
+                # Si blocca soltanto una ripetizione reale all'interno della stessa riga.
+                duplicati_riga = set()
+                visti_riga = set()
                 for token, norm in zip(selected_parts, selected_norms):
-                    if norm in marca_pezzi_visti:
-                        raise BuonoValidationError(
-                            "CAMY AI - MARCA PEZZO DUPLICATO\n\n"
-                            f"Il marca pezzo {token} è presente sia nella riga ID "
-                            f"{marca_pezzi_visti[norm]} sia nella riga ID {rid}.\n\n"
-                            "Rimuovi il duplicato prima di salvare."
-                        )
-                    marca_pezzi_visti[norm] = rid
+                    if not norm:
+                        continue
+                    if norm in visti_riga:
+                        duplicati_riga.add(token)
+                    else:
+                        visti_riga.add(norm)
+
+                if duplicati_riga:
+                    raise BuonoValidationError(
+                        "CAMY AI - MARCA PEZZO DUPLICATO NELLA STESSA RIGA\n\n"
+                        f"Riga ID: {rid}\n"
+                        f"Codici ripetuti: {', '.join(sorted(duplicati_riga))}\n\n"
+                        "Rimuovi la ripetizione dalla stessa riga prima di salvare."
+                    )
 
                 prepared.append({
                     'row': r,
