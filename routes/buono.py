@@ -998,7 +998,7 @@ def register_buono_routes(app_obj, deps):
     @app.route('/buono/finalize_and_get_pdf', methods=['POST'])
     @login_required
     def buono_finalize_and_get_pdf():
-        """Valida, genera e salva il Buono senza consentire giacenze negative o duplicati nella stessa riga."""
+        """Valida, genera e salva il Buono senza consentire giacenze negative o codici non presenti."""
         db = SessionLocal()
 
         class BuonoValidationError(Exception):
@@ -1138,25 +1138,12 @@ def register_buono_routes(app_obj, deps):
                             "Controlla il codice richiesto. Il Buono non è stato creato."
                         )
 
-                # Lo stesso marca-pezzo può esistere su casse/package o ID diversi.
-                # Si blocca soltanto una ripetizione reale all'interno della stessa riga.
-                duplicati_riga = set()
-                visti_riga = set()
-                for token, norm in zip(selected_parts, selected_norms):
-                    if not norm:
-                        continue
-                    if norm in visti_riga:
-                        duplicati_riga.add(token)
-                    else:
-                        visti_riga.add(norm)
-
-                if duplicati_riga:
-                    raise BuonoValidationError(
-                        "CAMY AI - MARCA PEZZO DUPLICATO NELLA STESSA RIGA\n\n"
-                        f"Riga ID: {rid}\n"
-                        f"Codici ripetuti: {', '.join(sorted(duplicati_riga))}\n\n"
-                        "Rimuovi la ripetizione dalla stessa riga prima di salvare."
-                    )
+                # Nel magazzino lo stesso marca-pezzo può comparire più volte:
+                # - nella stessa cassa/package, quando rappresenta più pezzi uguali;
+                # - su casse/package o ID differenti.
+                # Non viene quindi applicato alcun blocco per codici ripetuti.
+                # Restano attivi i controlli su disponibilità, quantità e presenza
+                # reale del codice nella riga selezionata.
 
                 prepared.append({
                     'row': r,
