@@ -351,11 +351,11 @@ def register_camy_ai_routes(app_obj, deps):
             msg += String.fromCharCode(10,10) + 'Scarico parziale:' + String.fromCharCode(10) + 'Codice: ' + requestedCode + String.fromCharCode(10) + 'Descrizione: ' + (requestedDescr || '-') + String.fromCharCode(10) + 'Pezzi: ' + requestedPezzi;
           }
 
-          noteBuono = prompt('Vuoi inserire una nota da salvare nella tabella Giacenze? Lascia vuoto se non serve:', '');
+          noteBuono = prompt('Vuoi inserire una nota da salvare solo sulla riga del Buono? Lascia vuoto se non serve:', '');
           if(noteBuono === null) noteBuono = '';
           noteBuono = (noteBuono || '').trim();
           if(noteBuono){
-            msg += String.fromCharCode(10,10) + 'Note giacenza: ' + noteBuono;
+            msg += String.fromCharCode(10,10) + 'Note del Buono: ' + noteBuono;
           }
 
           if(!confirm(msg)) return;
@@ -1806,9 +1806,37 @@ def register_camy_ai_routes(app_obj, deps):
                 return "<b>Buono non preparato.</b><br>Marca-pezzi non trovati in giacenza: <b>" + _esc(", ".join(missing)) + "</b>."
             if ambiguous:
                 details = []
+                candidate_ids = []
                 for code, candidates in ambiguous:
-                    details.append(_esc(code) + ": " + ", ".join("ID " + _esc(getattr(r, "id_articolo", "")) for r in candidates[:8]))
-                return "<b>Buono non preparato.</b><br>Alcuni marca-pezzi sono presenti in più righe. Indica anche N. arrivo o ID:<br>" + "<br>".join(details)
+                    ids_code = []
+                    for r in candidates[:12]:
+                        try:
+                            rid = int(getattr(r, "id_articolo", 0) or 0)
+                        except Exception:
+                            rid = 0
+                        if rid and rid not in candidate_ids:
+                            candidate_ids.append(rid)
+                        if rid:
+                            ids_code.append(f"ID {rid}")
+                    details.append(_esc(code) + ": " + ", ".join(ids_code))
+
+                _camy_dialog_save({
+                    "state": "waiting_id",
+                    "operation": "prepare_buono",
+                    "original_message": msg,
+                    "candidate_ids": candidate_ids,
+                    "requested_codes": [code for code, _ in ambiguous],
+                })
+
+                return (
+                    "<b>Buono non ancora preparato.</b><br>"
+                    "Alcuni marca-pezzi sono presenti in più righe.<br>"
+                    + "<br>".join(details)
+                    + "<br><br><b>Quale ID devo usare?</b><br>"
+                    "Rispondi semplicemente, per esempio: <b>ID "
+                    + _esc(candidate_ids[0] if candidate_ids else "")
+                    + "</b>, oppure scrivi <b>il primo</b>."
+                )
 
             rows = [r for r in rows if int(r.id_articolo) in row_requests]
             for r in rows:
@@ -3415,6 +3443,102 @@ def register_camy_ai_routes(app_obj, deps):
         return None
 
 
+
+    # ============================================================
+    # MEMORIA DIALOGO CAMY
+    # Conserva una domanda operativa incompleta (per esempio la scelta
+    # dell'ID) e collega la risposta successiva alla richiesta originale.
+    # ============================================================
+    def _camy_dialog_get():
+        try:
+            data = session.get("camy_dialog") or {}
+            return dict(data) if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _camy_dialog_save(data):
+        try:
+            payload = dict(data or {})
+            payload["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            session["camy_dialog"] = payload
+            session.modified = True
+        except Exception:
+            pass
+
+    def _camy_dialog_clear():
+        try:
+            session.pop("camy_dialog", None)
+            session.modified = True
+        except Exception:
+            pass
+
+    def _camy_dialog_extract_selected_id(message, candidates):
+        """Legge ID 258521, 258521, 'il primo', 'il secondo'."""
+        msg = str(message or "").strip()
+        ids = []
+        for value in candidates or []:
+            try:
+                ids.append(int(value))
+            except Exception:
+                pass
+
+        low = msg.lower()
+        ordinali = {
+            "primo": 0, "prima": 0, "1": 0,
+            "secondo": 1, "seconda": 1, "2": 1,
+            "terzo": 2, "terza": 2, "3": 2,
+            "quarto": 3, "quarta": 3, "4": 3,
+            "quinto": 4, "quinta": 4, "5": 4,
+        }
+        for parola, pos in ordinali.items():
+            if re.search(rf"\b(?:il|la)?\s*{re.escape(parola)}\b", low):
+                if 0 <= pos < len(ids):
+                    return ids[pos]
+
+        m = re.search(r"\b(?:id\s*[:#\-]?\s*)?(\d{4,12})\b", msg, re.I)
+        if m:
+            try:
+                selected = int(m.group(1))
+                return selected if selected in ids else None
+            except Exception:
+                return None
+        return None
+
+    def _camy_resolve_open_dialog(message):
+        """Completa la richiesta precedente quando CAMY attende una risposta."""
+        dialog = _camy_dialog_get()
+        if not dialog:
+            return None, None
+
+        msg = str(message or "").strip()
+        low = msg.lower()
+
+        if low in {"annulla", "annulla operazione", "cancella", "lascia perdere", "stop"}:
+            _camy_dialog_clear()
+            return "", (
+                "Operazione annullata. Ho dimenticato la richiesta in sospeso."
+            )
+
+        state = str(dialog.get("state") or "")
+        if state == "waiting_id" and dialog.get("operation") == "prepare_buono":
+            candidates = dialog.get("candidate_ids") or []
+            selected_id = _camy_dialog_extract_selected_id(msg, candidates)
+            if selected_id is None:
+                elenco = ", ".join(f"ID {x}" for x in candidates[:12])
+                return "", (
+                    "<b>Sto ancora aspettando la scelta della riga.</b><br>"
+                    f"Scrivi uno degli ID proposti: {elenco}.<br>"
+                    "Puoi anche scrivere <b>il primo</b>, <b>il secondo</b> oppure <b>annulla</b>."
+                )
+
+            original = str(dialog.get("original_message") or "").strip()
+            _camy_dialog_clear()
+            # L'ID viene aggiunto alla richiesta completa: cliente, codice,
+            # quantità e note rimangono quindi disponibili.
+            return f"{original} ID {selected_id}", None
+
+        return None, None
+
     # ============================================================
     # MEMORIA OPERATIVA CAMY
     # Tiene traccia dell'ultimo riferimento usato nella chat, così CAMY
@@ -3544,6 +3668,15 @@ def register_camy_ai_routes(app_obj, deps):
 
     def _process_camy_message(db, msg):
         original_msg = msg or ""
+
+        # Prima del parser normale, verifica se CAMY aveva fatto una domanda.
+        # Esempio: richiesta Buono -> CAMY chiede ID -> utente risponde solo "258521".
+        resolved_dialog_msg, dialog_answer = _camy_resolve_open_dialog(original_msg)
+        if dialog_answer is not None:
+            return dialog_answer, True, {"action": "dialogo_in_corso"}
+        if resolved_dialog_msg:
+            original_msg = resolved_dialog_msg
+
         msg, used_context = _camy_resolve_message_with_memory(original_msg)
         low = (msg or "").lower()
         _camy_update_memory_from_message(msg)
