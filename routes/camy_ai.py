@@ -2013,6 +2013,47 @@ def register_camy_ai_routes(app_obj, deps):
         except Exception:
             return s
 
+    def _camy_pdf_dir():
+        """Cartella persistente e scrivibile per i PDF creati da CAMY.
+
+        Priorità:
+        1) DOCS_DIR già configurata dal gestionale;
+        2) /var/data/app/documenti_buoni_camy su Render;
+        3) instance/camy_buoni dell'app Flask;
+        4) /tmp/camy_buoni come ultima alternativa.
+        """
+        from pathlib import Path as _Path
+
+        candidates = []
+
+        configured = globals().get("DOCS_DIR")
+        if configured:
+            candidates.append(_Path(str(configured)))
+
+        candidates.append(_Path("/var/data/app/documenti_buoni_camy"))
+
+        try:
+            instance_path = getattr(app, "instance_path", "")
+            if instance_path:
+                candidates.append(_Path(instance_path) / "camy_buoni")
+        except Exception:
+            pass
+
+        candidates.append(_Path("/tmp/camy_buoni"))
+
+        last_error = None
+        for folder in candidates:
+            try:
+                folder.mkdir(parents=True, exist_ok=True)
+                test_file = folder / ".camy_write_test"
+                test_file.write_text("ok", encoding="utf-8")
+                test_file.unlink(missing_ok=True)
+                return folder
+            except Exception as exc:
+                last_error = exc
+
+        raise RuntimeError(f"Nessuna cartella PDF scrivibile disponibile: {last_error}")
+
     def _generate_buono_pdf(db, buono):
         """Genera il PDF del Buono di Prelievo CAMY usando lo stesso layout standard del gestionale."""
         buono = str(buono or "").strip()
@@ -2028,11 +2069,7 @@ def register_camy_ai_routes(app_obj, deps):
         if not rows:
             return "", None
 
-        try:
-            base_dir = DOCS_DIR
-        except Exception:
-            base_dir = MEDIA_DIR / "docs"
-        base_dir.mkdir(parents=True, exist_ok=True)
+        base_dir = _camy_pdf_dir()
 
         filename = f"Buono_{_safe_pdf_filename(buono)}.pdf"
         pdf_path = base_dir / filename
@@ -2177,16 +2214,23 @@ def register_camy_ai_routes(app_obj, deps):
     def camy_ai_buono_pdf(filename):
         if not _can_operate():
             abort(403)
+
         safe_name = _safe_pdf_filename(filename)
         if not safe_name.lower().endswith(".pdf"):
             abort(404)
-        try:
-            pdf_path = DOCS_DIR / safe_name
-        except Exception:
-            pdf_path = MEDIA_DIR / "docs" / safe_name
-        if not pdf_path.exists():
+
+        pdf_path = _camy_pdf_dir() / safe_name
+        if not pdf_path.exists() or not pdf_path.is_file():
             abort(404)
-        return send_file(str(pdf_path), as_attachment=True, download_name=safe_name)
+
+        download = str(request.args.get("download") or "").strip() == "1"
+        return send_file(
+            str(pdf_path),
+            as_attachment=download,
+            download_name=safe_name,
+            mimetype="application/pdf",
+            conditional=True,
+        )
 
     def _answer_scarico_parziale(db, msg):
         if not _can_operate():
@@ -2515,9 +2559,14 @@ def register_camy_ai_routes(app_obj, deps):
                     pdf_filename, pdf_path = _generate_buono_pdf(db, buono)
                     if pdf_filename and pdf_path:
                         pdf_url = url_for("camy_ai_buono_pdf", filename=pdf_filename)
+                        pdf_download_url = pdf_url + "?download=1"
                         pdf_link_html = (
-                            f"<br><a class='btn btn-sm btn-danger mt-2' href='{_esc(pdf_url)}' target='_blank'>"
-                            "Scarica PDF Buono di Prelievo</a>"
+                            "<br><div class='mt-2 d-flex flex-wrap gap-2'>"
+                            f"<a class='btn btn-sm btn-success' href='{_esc(pdf_url)}' target='_blank' rel='noopener'>"
+                            "Apri / Stampa PDF Buono</a>"
+                            f"<a class='btn btn-sm btn-outline-danger' href='{_esc(pdf_download_url)}'>"
+                            "Scarica PDF</a>"
+                            "</div>"
                         )
                 except Exception as pdf_err:
                     try:
@@ -2561,7 +2610,7 @@ def register_camy_ai_routes(app_obj, deps):
                         f"{picking_msg}"
                         f"{extra}"
                         f"{pdf_link_html}<br>"
-                        "Il PDF del Buono di Prelievo è stato generato direttamente da CAMY."
+                        "Usa il pulsante Apri / Stampa PDF per visualizzarlo e stamparlo, oppure Scarica PDF per salvarlo."
                     ),
                     "html": True
                 })
@@ -3357,7 +3406,13 @@ def register_camy_ai_routes(app_obj, deps):
         try:
             filename, pdf_path = _generate_buono_pdf(db, buono)
             if filename:
-                out.append(f"<br><a class='btn btn-sm btn-success mt-2' href='{_esc(url_for('camy_ai_buono_pdf', filename=filename))}'>Scarica PDF Buono</a>")
+                pdf_url = url_for('camy_ai_buono_pdf', filename=filename)
+                out.append(
+                    "<br><div class='mt-2 d-flex flex-wrap gap-2'>"
+                    f"<a class='btn btn-sm btn-success' href='{_esc(pdf_url)}' target='_blank' rel='noopener'>Apri / Stampa PDF Buono</a>"
+                    f"<a class='btn btn-sm btn-outline-danger' href='{_esc(pdf_url + '?download=1')}'>Scarica PDF</a>"
+                    "</div>"
+                )
         except Exception:
             pass
         if _can_operate():
