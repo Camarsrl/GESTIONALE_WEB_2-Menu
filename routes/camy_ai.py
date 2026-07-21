@@ -1107,8 +1107,6 @@ def register_camy_ai_routes(app_obj, deps):
         patterns = [
             r"\b(?:note|nota)\s*[:\-]?\s*(.+?)(?=\s+(?:buono|automatico|manuale|codice|descrizione|pezzi|pezzo|pz|qta|qtà|quantita|quantità)\b|$)",
         ]
-        if re.search(r"\b(?:senza\s+note|nessuna\s+nota|no\s+note)\b", s, re.I):
-            return ""
         for pat in patterns:
             m = re.search(pat, s, re.I)
             if m:
@@ -1284,7 +1282,7 @@ def register_camy_ai_routes(app_obj, deps):
 
 
     def _clean_piece_value(value):
-        """Salva quantità intere senza .0; mantiene gli eventuali decimali reali."""
+        """Formatta quantità intere senza .0; mantiene gli eventuali decimali reali."""
         try:
             num = float(str(value or "0").strip().replace(",", "."))
             if abs(num - round(num)) < 0.000001:
@@ -1292,6 +1290,16 @@ def register_camy_ai_routes(app_obj, deps):
             return str(round(num, 3)).rstrip("0").rstrip(".")
         except Exception:
             return str(value or "").strip()
+
+    def _piece_value_for_db(value):
+        """Restituisce un intero per 2, 8, 10 e un decimale solo quando reale."""
+        try:
+            num = float(str(value or "0").strip().replace(",", "."))
+            if abs(num - round(num)) < 0.000001:
+                return int(round(num))
+            return float(_clean_piece_value(num))
+        except Exception:
+            return _clean_piece_value(value)
 
     def _parse_logistic_code(value):
         """Separa PACKAGE/PALLET/CASSA dai marca-pezzi senza duplicare il testo originale."""
@@ -1348,7 +1356,14 @@ def register_camy_ai_routes(app_obj, deps):
             parts.append(code)
         return "-".join(parts)
 
-    def _prepare_partial_split_for_buono(row, buono, requested_code="", requested_descr="", requested_pezzi=""):
+    def _prepare_partial_split_for_buono(
+        row,
+        buono,
+        requested_code="",
+        requested_descr="",
+        requested_pezzi="",
+        original_qty_override=None,
+    ):
         """Crea la riga del Buono e lascia sulla riga originale solo il residuo.
 
         Regole:
@@ -1373,7 +1388,9 @@ def register_camy_ai_routes(app_obj, deps):
         # Il riferimento logistico deve provenire dalla riga originale.
         logistic = logistic or req_logistic
 
-        original_qty = _safe_float_or_none(getattr(row, "pezzo", ""))
+        original_qty = _safe_float_or_none(original_qty_override)
+        if original_qty is None:
+            original_qty = _safe_float_or_none(getattr(row, "pezzo", ""))
         selected_qty = _safe_float_or_none(requested_pezzi)
 
         # Se manca una quantità esplicita, usa tutta la disponibilità.
@@ -1435,7 +1452,7 @@ def register_camy_ai_routes(app_obj, deps):
         # Se esce tutta la quantità e tutti i codici, non serve creare una seconda riga.
         if full_quantity and all_codes_selected:
             row.codice_articolo = _build_logistic_code(logistic, selected_exact)
-            row.pezzo = _clean_piece_value(selected_qty)
+            row.pezzo = _piece_value_for_db(selected_qty)
             row.buono_n = buono
             row.n_colli = 1
             return None, {
@@ -1448,13 +1465,13 @@ def register_camy_ai_routes(app_obj, deps):
         new_row = _copy_articolo_for_partial(row)
         new_row.codice_articolo = _build_logistic_code(logistic, selected_exact)
         new_row.descrizione = requested_descr or original_desc
-        new_row.pezzo = _clean_piece_value(selected_qty)
+        new_row.pezzo = _piece_value_for_db(selected_qty)
         new_row.buono_n = buono
         new_row.n_colli = 1
 
         residual_qty = max(0.0, original_qty - selected_qty)
         row.codice_articolo = _build_logistic_code(logistic, residual_codes)
-        row.pezzo = _clean_piece_value(residual_qty)
+        row.pezzo = _piece_value_for_db(residual_qty)
         row.buono_n = ""
         row.n_colli = 1
 
@@ -1870,29 +1887,21 @@ def register_camy_ai_routes(app_obj, deps):
             )
 
         note_buono = _extract_note_buono(msg)
-
-        # Se la richiesta del Buono è completa ma non contiene ancora note,
-        # CAMY apre una breve domanda guidata e ricorda tutto il contesto.
-        # Evita il ciclo quando il messaggio contiene esplicitamente "senza note".
-        low_msg = (msg or "").lower()
-        no_note_explicit = any(x in low_msg for x in ("senza note", "nessuna nota", "no note"))
-        dialog_now = _camy_dialog_get()
-        if not note_buono and not no_note_explicit and not dialog_now:
-            _camy_dialog_save({
-                "state": "waiting_note",
-                "operation": "prepare_buono",
-                "resolved_message": msg,
-            })
-            return (
-                "<b>Ho trovato il materiale e ho conservato la richiesta.</b><br>"
-                "Vuoi inserire una nota da riportare solamente sulla riga del Buono?<br>"
-                "Scrivi la nota, oppure rispondi <b>senza note</b>."
-            )
-
         needs_partial_details = any(_row_needs_partial_details(r) for r in rows) and not (requested_code or requested_descr)
 
         token = _make_token()
         ids = [int(r.id_articolo) for r in rows]
+        row_snapshots = {}
+        for r in rows:
+            rid_key = str(getattr(r, "id_articolo", "") or "")
+            req_for_row = row_requests.get(int(r.id_articolo), {}) if row_requests else {}
+            req_codes = "-".join(req_for_row.get("codes") or [])
+            available_now = _available_pezzi_for_request(r, requested_code=req_codes or requested_code)
+            row_snapshots[rid_key] = {
+                "original_pezzi": available_now,
+                "original_code": str(getattr(r, "codice_articolo", "") or ""),
+            }
+
         _save_pending_op(token, {
             "type": "set_buono",
             "ids": ids,
@@ -1903,6 +1912,7 @@ def register_camy_ai_routes(app_obj, deps):
             "note_buono": note_buono,
             "needs_partial_details": bool(needs_partial_details),
             "row_requests": {str(k): v for k, v in row_requests.items()},
+            "row_snapshots": row_snapshots,
         })
 
         scelta_manual = f"<br>Numero manuale letto dal messaggio: <b>{_esc(manual_buono)}</b>" if manual_buono else ""
@@ -1955,7 +1965,7 @@ def register_camy_ai_routes(app_obj, deps):
 
         dettagli_note = ""
         if note_buono:
-            dettagli_note = f"<br><b>Nota da salvare solo sulla riga del Buono:</b> {_esc(note_buono)}<br>"
+            dettagli_note = f"<br><b>Nota da salvare in giacenze:</b> {_esc(note_buono)}<br>"
 
         dettagli_multi = ""
         if multi_ids or len(multi_codici) > 1 or len(multi_arrivi) > 1:
@@ -2396,16 +2406,42 @@ def register_camy_ai_routes(app_obj, deps):
                 split_infos = []
 
                 row_requests = op.get("row_requests") or {}
+                row_snapshots = op.get("row_snapshots") or {}
                 for r in rows:
-                    per_row = row_requests.get(str(getattr(r, "id_articolo", ""))) or {}
+                    rid_key = str(getattr(r, "id_articolo", "") or "")
+                    per_row = row_requests.get(rid_key) or {}
+                    snapshot = row_snapshots.get(rid_key) or {}
                     row_requested_code = "-".join(per_row.get("codes") or []) or requested_code
                     row_requested_pezzi = _clean_piece_value(per_row.get("qty") or requested_pezzi)
+
+                    original_qty_snapshot = _safe_float_or_none(snapshot.get("original_pezzi"))
+                    current_qty = _safe_float_or_none(getattr(r, "pezzo", ""))
+
+                    # Se la disponibilità è cambiata tra proposta e conferma, blocca:
+                    # evita di calcolare un residuo su dati non più aggiornati.
+                    if (
+                        original_qty_snapshot is not None
+                        and current_qty is not None
+                        and abs(original_qty_snapshot - current_qty) > 0.000001
+                    ):
+                        db.rollback()
+                        return jsonify({
+                            "answer": (
+                                f"La disponibilità della riga ID {_esc(rid_key)} è cambiata "
+                                f"da {_esc(_clean_piece_value(original_qty_snapshot))} a "
+                                f"{_esc(_clean_piece_value(current_qty))} pezzi.<br>"
+                                "Aggiorna la richiesta prima di creare il Buono."
+                            ),
+                            "html": True
+                        }), 409
+
                     new_row, info = _prepare_partial_split_for_buono(
                         r,
                         buono,
                         requested_code=row_requested_code,
                         requested_descr=requested_descr,
                         requested_pezzi=row_requested_pezzi,
+                        original_qty_override=original_qty_snapshot,
                     )
                     if new_row is not None:
                         if note_buono:
@@ -2444,7 +2480,7 @@ def register_camy_ai_routes(app_obj, deps):
                             except Exception:
                                 pass
                         r.buono_n = buono
-                        r.pezzo = _clean_piece_value(getattr(r, "pezzo", ""))
+                        r.pezzo = _piece_value_for_db(getattr(r, "pezzo", ""))
                         # In questo ramo la riga originale è interamente assegnata al Buono,
                         # quindi non è una riga residua e può ricevere la nota del Buono.
                         if note_buono:
@@ -3541,7 +3577,6 @@ def register_camy_ai_routes(app_obj, deps):
             )
 
         state = str(dialog.get("state") or "")
-
         if state == "waiting_id" and dialog.get("operation") == "prepare_buono":
             candidates = dialog.get("candidate_ids") or []
             selected_id = _camy_dialog_extract_selected_id(msg, candidates)
@@ -3554,47 +3589,10 @@ def register_camy_ai_routes(app_obj, deps):
                 )
 
             original = str(dialog.get("original_message") or "").strip()
-            resolved = f"{original} ID {selected_id}".strip()
-
-            # Dopo la scelta dell'ID CAMY non perde la richiesta: chiede le note
-            # e conserva cliente, codice, quantità e ID nella sessione.
-            _camy_dialog_save({
-                "state": "waiting_note",
-                "operation": "prepare_buono",
-                "resolved_message": resolved,
-                "selected_id": selected_id,
-            })
-            return "", (
-                f"<b>Ho selezionato la riga ID {selected_id}.</b><br>"
-                "Vuoi inserire una nota da riportare solamente sulla riga del Buono?<br>"
-                "Scrivi la nota, oppure rispondi <b>senza note</b>."
-            )
-
-        if state == "waiting_note" and dialog.get("operation") == "prepare_buono":
-            resolved = str(dialog.get("resolved_message") or "").strip()
-            if not resolved:
-                _camy_dialog_clear()
-                return "", "La richiesta in sospeso non è più completa. Ripeti la preparazione del Buono."
-
-            no_note_values = {
-                "senza note", "nessuna nota", "no note", "no", "niente",
-                "non serve", "salta", "continua senza note"
-            }
-            if low in no_note_values:
-                final_message = resolved
-            else:
-                note_text = msg
-                note_text = re.sub(r"^\s*(?:nota|note)\s*[:\-]?\s*", "", note_text, flags=re.I).strip()
-                if not note_text:
-                    return "", (
-                        "Scrivi la nota da inserire nel Buono oppure rispondi <b>senza note</b>."
-                    )
-                final_message = f"{resolved} note: {note_text}"
-
             _camy_dialog_clear()
-            # Il messaggio completo viene rimandato al normale motore CAMY,
-            # che prepara il riepilogo e mostra i pulsanti di conferma.
-            return final_message, None
+            # L'ID viene aggiunto alla richiesta completa: cliente, codice,
+            # quantità e note rimangono quindi disponibili.
+            return f"{original} ID {selected_id}", None
 
         return None, None
 
