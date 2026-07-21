@@ -1107,6 +1107,8 @@ def register_camy_ai_routes(app_obj, deps):
         patterns = [
             r"\b(?:note|nota)\s*[:\-]?\s*(.+?)(?=\s+(?:buono|automatico|manuale|codice|descrizione|pezzi|pezzo|pz|qta|qtà|quantita|quantità)\b|$)",
         ]
+        if re.search(r"\b(?:senza\s+note|nessuna\s+nota|no\s+note)\b", s, re.I):
+            return ""
         for pat in patterns:
             m = re.search(pat, s, re.I)
             if m:
@@ -1868,6 +1870,25 @@ def register_camy_ai_routes(app_obj, deps):
             )
 
         note_buono = _extract_note_buono(msg)
+
+        # Se la richiesta del Buono è completa ma non contiene ancora note,
+        # CAMY apre una breve domanda guidata e ricorda tutto il contesto.
+        # Evita il ciclo quando il messaggio contiene esplicitamente "senza note".
+        low_msg = (msg or "").lower()
+        no_note_explicit = any(x in low_msg for x in ("senza note", "nessuna nota", "no note"))
+        dialog_now = _camy_dialog_get()
+        if not note_buono and not no_note_explicit and not dialog_now:
+            _camy_dialog_save({
+                "state": "waiting_note",
+                "operation": "prepare_buono",
+                "resolved_message": msg,
+            })
+            return (
+                "<b>Ho trovato il materiale e ho conservato la richiesta.</b><br>"
+                "Vuoi inserire una nota da riportare solamente sulla riga del Buono?<br>"
+                "Scrivi la nota, oppure rispondi <b>senza note</b>."
+            )
+
         needs_partial_details = any(_row_needs_partial_details(r) for r in rows) and not (requested_code or requested_descr)
 
         token = _make_token()
@@ -1934,7 +1955,7 @@ def register_camy_ai_routes(app_obj, deps):
 
         dettagli_note = ""
         if note_buono:
-            dettagli_note = f"<br><b>Nota da salvare in giacenze:</b> {_esc(note_buono)}<br>"
+            dettagli_note = f"<br><b>Nota da salvare solo sulla riga del Buono:</b> {_esc(note_buono)}<br>"
 
         dettagli_multi = ""
         if multi_ids or len(multi_codici) > 1 or len(multi_arrivi) > 1:
@@ -3520,6 +3541,7 @@ def register_camy_ai_routes(app_obj, deps):
             )
 
         state = str(dialog.get("state") or "")
+
         if state == "waiting_id" and dialog.get("operation") == "prepare_buono":
             candidates = dialog.get("candidate_ids") or []
             selected_id = _camy_dialog_extract_selected_id(msg, candidates)
@@ -3532,10 +3554,47 @@ def register_camy_ai_routes(app_obj, deps):
                 )
 
             original = str(dialog.get("original_message") or "").strip()
+            resolved = f"{original} ID {selected_id}".strip()
+
+            # Dopo la scelta dell'ID CAMY non perde la richiesta: chiede le note
+            # e conserva cliente, codice, quantità e ID nella sessione.
+            _camy_dialog_save({
+                "state": "waiting_note",
+                "operation": "prepare_buono",
+                "resolved_message": resolved,
+                "selected_id": selected_id,
+            })
+            return "", (
+                f"<b>Ho selezionato la riga ID {selected_id}.</b><br>"
+                "Vuoi inserire una nota da riportare solamente sulla riga del Buono?<br>"
+                "Scrivi la nota, oppure rispondi <b>senza note</b>."
+            )
+
+        if state == "waiting_note" and dialog.get("operation") == "prepare_buono":
+            resolved = str(dialog.get("resolved_message") or "").strip()
+            if not resolved:
+                _camy_dialog_clear()
+                return "", "La richiesta in sospeso non è più completa. Ripeti la preparazione del Buono."
+
+            no_note_values = {
+                "senza note", "nessuna nota", "no note", "no", "niente",
+                "non serve", "salta", "continua senza note"
+            }
+            if low in no_note_values:
+                final_message = resolved
+            else:
+                note_text = msg
+                note_text = re.sub(r"^\s*(?:nota|note)\s*[:\-]?\s*", "", note_text, flags=re.I).strip()
+                if not note_text:
+                    return "", (
+                        "Scrivi la nota da inserire nel Buono oppure rispondi <b>senza note</b>."
+                    )
+                final_message = f"{resolved} note: {note_text}"
+
             _camy_dialog_clear()
-            # L'ID viene aggiunto alla richiesta completa: cliente, codice,
-            # quantità e note rimangono quindi disponibili.
-            return f"{original} ID {selected_id}", None
+            # Il messaggio completo viene rimandato al normale motore CAMY,
+            # che prepara il riepilogo e mostra i pulsanti di conferma.
+            return final_message, None
 
         return None, None
 
