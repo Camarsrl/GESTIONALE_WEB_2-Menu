@@ -1,1293 +1,1842 @@
 # -*- coding: utf-8 -*-
 """
-Modulo Buono di Prelievo.
+Modulo Buoni di Carico QR.
 
-Gestisce:
-- anteprima buono
-- generazione/salvataggio buono
-- scarico parziale da celle "codice articolo" e "descrizione"
+Questo modulo contiene:
+- elenco buoni di carico QR
+- creazione buono da righe magazzino
+- aggiunta arrivi a buono esistente
+- dettaglio buono
+- scansione QR
+- stampa PDF
+- eliminazione buono
+- QR immagine
 
-Uso operativo:
-se in una riga sono presenti più codici/descrizioni, nel preview del buono si lascia
-solo il codice/descrizione da prelevare. Con lo scarico parziale viene creata una nuova riga con N. buono, note e pezzi prelevati;
-la riga originale resta in giacenza con il residuo, senza note del buono e senza N. buono.
+Le route vengono registrate sull'app principale mantenendo gli stessi endpoint.
 """
 
-def register_buono_routes(app_obj, deps):
+def register_buoni_qr_routes(app_obj, deps):
+    """Registra le route Buoni QR sull'app principale.
+
+    deps = globals() del file principale, così il modulo usa gli stessi modelli,
+    sessione DB, helper, template base e funzioni già presenti nel gestionale.
+    """
     globals().update(deps)
     globals()["app"] = app_obj
 
-    def _split_multi_value(value):
-        """Divide una cella multi-valore senza rompere gli slash/asterischi interni.
+    # Permessi Buoni QR:
+    # ADMIN/OPS = role admin, MAGAZZINO = role magazzino, CLIENTI esclusi
+    if "require_admin_or_magazzino" not in globals():
+        def require_admin_or_magazzino(view_func):
+            @wraps(view_func)
+            def _wrapped(*args, **kwargs):
+                if session.get("role") not in ("admin", "magazzino"):
+                    flash("Accesso negato.", "danger")
+                    return redirect(url_for("giacenze"))
+                return view_func(*args, **kwargs)
+            return _wrapped
 
-        Esempi gestiti:
-        - Package No.305 -DR/018DF -DR/021DF
-        - Package No.311-AP/060VR -VA/002VR -AV*002VD
-        - NG/147VD / NG/146VD
 
-        Il Package resta separato; i codici vengono poi ricostruiti con " - ".
-        """
-        s = str(value or "").strip()
-        if not s:
+
+    # ========================================================
+    #  BUONI DI CARICO CON QR COLLEGATO ALL'ARRIVO
+    # ========================================================
+
+    BUONI_CARICO_HTML = """
+    {% extends 'base.html' %}
+    {% block content %}
+    <div class="container-fluid py-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3>📦 Buoni di carico QR</h3>
+        <a href="{{ url_for('giacenze') }}" class="btn btn-secondary btn-sm">Magazzino</a>
+      </div>
+
+      <div class="card shadow-sm mb-3">
+        <div class="card-header fw-bold">Nuovo buono di carico</div>
+        <div class="card-body">
+          <form method="POST" class="row g-2">
+            <div class="col-md-3">
+              <label class="form-label">Cliente</label>
+              <select name="cliente" class="form-select" required>
+                <option value="">-- seleziona --</option>
+                {% for c in clienti %}
+                <option value="{{ c }}">{{ c }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Fornitore</label>
+              <input type="text" name="fornitore" class="form-control">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">N. arrivo</label>
+              <input type="text" name="n_arrivo" class="form-control" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Codice articolo</label>
+              <input type="text" name="codice_articolo" class="form-control">
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">Descrizione</label>
+              <input type="text" name="descrizione" class="form-control">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">DDT ingresso</label>
+              <input type="text" name="n_ddt_ingresso" class="form-control">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Data ingresso</label>
+              <input type="date" name="data_ingresso" value="{{ oggi }}" class="form-control" required>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Colli previsti</label>
+              <input type="number" min="1" name="pallet_previsti" class="form-control" required>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Peso previsto kg</label>
+              <input type="text" name="peso_previsto" class="form-control">
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">QR/Codice entrata già esistente</label>
+              <input type="text" name="codice_entrata" class="form-control" placeholder="facoltativo ENT-...">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Note</label>
+              <input type="text" name="note" class="form-control">
+            </div>
+            <div class="col-12 mt-3">
+              <button class="btn btn-success">Crea buono di carico</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card shadow-sm">
+        <div class="card-header fw-bold">Buoni creati</div>
+        <div class="table-responsive">
+          <table class="table table-sm table-striped mb-0 align-middle">
+            <thead>
+              <tr>
+                <th>Buono</th><th>Cliente</th><th>N. arrivo</th><th>DDT</th>
+                <th>Previsti</th><th>Caricati</th><th>Mancanti</th><th>Stato</th><th>Azioni</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for b in buoni %}
+              <tr>
+                <td><strong>{{ b.codice_buono }}</strong></td>
+                <td>{{ b.cliente }}</td>
+                <td>{{ b.n_arrivo }}</td>
+                <td>{{ b.n_ddt_ingresso or '' }}</td>
+                <td>{{ b.pallet_previsti or 0 }}</td>
+                <td>{{ stats[b.id]['ok'] }}</td>
+                <td>{{ stats[b.id]['mancanti'] }}</td>
+                <td>
+                  <span class="badge {% if b.stato == 'COMPLETATO' %}bg-success{% elif b.stato == 'PARZIALE' %}bg-warning text-dark{% elif b.stato == 'ERRORE' %}bg-danger{% else %}bg-secondary{% endif %}">
+                    {{ b.stato or 'DA CARICARE' }}
+                  </span>
+                </td>
+                <td>
+                  <a class="btn btn-primary btn-sm" href="{{ url_for('dettaglio_buono_carico', buono_id=b.id) }}">Apri</a>
+                  <form method="POST" action="{{ url_for('elimina_buono_carico', buono_id=b.id) }}" style="display:inline;" onsubmit="return confirm('Eliminare questo buono di carico? Assicurati di aver salvato/stampato il PDF.');">
+                    <button type="submit" class="btn btn-danger btn-sm">Elimina</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="9" class="text-muted">Nessun buono creato.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endblock %}
+    """
+
+    BUONO_CARICO_DETTAGLIO_HTML = """
+    {% extends 'base.html' %}
+    {% block content %}
+    <div class="container-fluid py-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3>📦 Buono di carico {{ buono.codice_buono }}</h3>
+        <div>
+          <a href="{{ url_for('buoni_carico') }}" class="btn btn-secondary btn-sm">Elenco buoni</a>
+          <a href="{{ url_for('stampa_buono_carico_pdf', buono_id=buono.id) }}" class="btn btn-success btn-sm" target="_blank" rel="noopener">🖨️ Stampa buono</a>
+          <a href="{{ url_for('giacenze', aggiungi_buono_carico=buono.id) }}" class="btn btn-primary btn-sm">➕ Aggiungi arrivi</a>
+          <form method="POST" action="{{ url_for('elimina_buono_carico', buono_id=buono.id) }}" style="display:inline;" onsubmit="return confirm('Eliminare questo buono di carico? Assicurati di aver salvato/stampato il PDF.');">
+            <button type="submit" class="btn btn-danger btn-sm">🗑️ Elimina buono</button>
+          </form>
+          <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm">Magazzino</a>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-3">
+        <div class="col-md-8">
+          <div class="card shadow-sm h-100">
+            <div class="card-header fw-bold">Dati buono</div>
+            <div class="card-body">
+              <div class="row g-2">
+                <div class="col-md-3"><strong>Cliente</strong><br>{{ buono.cliente }}</div>
+                <div class="col-md-3"><strong class="buono-wrap-text">Fornitore</strong><br>{{ buono.fornitore or '-' }}</div>
+                <div class="col-md-3"><span style="white-space:pre-wrap;word-break:break-word;"><strong>Codice articolo</strong><br>{{ buono.codice_articolo or '-' }}</span></div>
+                <div class="col-md-3"><strong>Descrizione</strong><br>{{ buono.descrizione or '-' }}</div>
+                <div class="col-md-2 mt-3"><strong>N. arrivo</strong><br>{{ buono.n_arrivo }}</div>
+                <div class="col-md-2"><strong>DDT</strong><br>{{ buono.n_ddt_ingresso or '-' }}</div>
+                <div class="col-md-2"><strong>Data</strong><br>{{ buono.data_ingresso or '-' }}</div>
+                <div class="col-md-3 mt-3"><strong>Colli previsti</strong><br>{{ buono.pallet_previsti or 0 }}</div>
+                <div class="col-md-3 mt-3"><strong>Colli caricati</strong><br>{{ caricati_ok }}</div>
+                <div class="col-md-3 mt-3"><strong>Mancanti</strong><br>{{ mancanti }}</div>
+                <div class="col-md-3 mt-3"><strong>Stato</strong><br>{{ buono.stato or 'DA CARICARE' }}</div>
+              </div>
+              <hr>
+              <strong>QR/Codice entrata corretto:</strong><br>
+              <code>{{ buono.codice_entrata }}</code>
+              {% if mancanti > 0 %}
+              <div class="alert alert-warning mt-3 mb-0">Mancano ancora <strong>{{ mancanti }}</strong> colli da caricare/scansionare.</div>
+              {% else %}
+              <div class="alert alert-success mt-3 mb-0">Tutti i colli previsti risultano caricati.</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card shadow-sm h-100 text-center">
+            <div class="card-header fw-bold">QR arrivo</div>
+            <div class="card-body">
+              <img src="{{ url_for('qr_buono_carico', buono_id=buono.id) }}" style="max-width:220px;width:100%;height:auto;">
+              <div class="small text-muted mt-2">QR collegato all'arrivo corretto.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+  
+      <div class="card shadow-sm mb-3">
+        <div class="card-header fw-bold">Riepilogo controllo scansioni</div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <div class="alert alert-warning mb-0">
+                <strong>Arrivi non ancora scansionati:</strong>
+                {% if riepilogo_scan.mancanti %}
+                  <ul class="mb-0 mt-2">
+                    {% for r in riepilogo_scan.mancanti %}
+                    <li>
+                      <strong>{{ r.n_arrivo or '-' }}</strong>
+                      {% if r.codice_articolo %} - {{ r.codice_articolo }}{% endif %}
+                      {% if r.descrizione %} - {{ r.descrizione }}{% endif %}
+                      <br><small>QR: {{ r.codice_entrata }}</small>
+                    </li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <div class="mt-2">Nessun arrivo mancante.</div>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="col-md-6">
+              <div class="alert {% if riepilogo_scan.sbagliati %}alert-danger{% else %}alert-success{% endif %} mb-0">
+                <strong>Scansioni non presenti nel buono:</strong>
+                {% if riepilogo_scan.sbagliati %}
+                  <ul class="mb-0 mt-2">
+                    {% for s in riepilogo_scan.sbagliati %}
+                    <li>
+                      <strong>{{ s.codice_scansionato }}</strong>
+                      <br><small>{{ s.scanned_at }} - {{ s.messaggio }}</small>
+                    </li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <div class="mt-2">Nessuna scansione errata.</div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-header fw-bold d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <span>Arrivi collegati al buono</span>
+          <small class="text-muted">Puoi spuntare manualmente gli arrivi caricati, come se avessi sparato il QR.</small>
+        </div>
+        <form method="POST" action="{{ url_for('segna_righe_buono_carico', buono_id=buono.id) }}" onsubmit="return confirm('Segnare gli arrivi selezionati come caricati?');">
+        <div class="p-2 d-flex gap-2 flex-wrap align-items-center">
+          <button type="submit" class="btn btn-success btn-sm">✅ Segna selezionati come caricati</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.querySelectorAll('.chk-arrivo-carico:not(:disabled)').forEach(c => c.checked = true);">Seleziona mancanti</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.querySelectorAll('.chk-arrivo-carico').forEach(c => c.checked = false);">Deseleziona</button>
+          <span class="small text-muted">Utile se non riesci a leggere il QR con pistola/fotocamera.</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-striped mb-0">
+            <thead>
+              <tr>
+                <th style="width:60px;">Spunta</th>
+                <th>ID Art.</th><th>Cliente</th><th>Fornitore</th><th>Codice</th><th>Descrizione</th>
+                <th>N. Arrivo</th><th>DDT Ing</th><th>Colli</th><th>Peso</th><th>QR/Codice entrata</th><th>Stato scansione</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in righe %}
+              <tr>
+                {% set stato_riga = (riepilogo_scan.row_status or {}).get(r.id|string, 'mancante') %}
+                <td class="text-center">
+                  <input type="checkbox"
+                         class="form-check-input chk-arrivo-carico"
+                         name="riga_ids"
+                         value="{{ r.id }}"
+                         {% if stato_riga == 'caricato' %}disabled{% endif %}>
+                </td>
+                <td>{{ r.id_articolo }}</td>
+                <td>{{ r.cliente }}</td>
+                <td>{{ r.fornitore or '' }}</td>
+                <td>{{ r.codice_articolo or '' }}</td>
+                <td>{{ r.descrizione or '' }}</td>
+                <td>{{ r.n_arrivo or '' }}</td>
+                <td>{{ r.n_ddt_ingresso or '' }}</td>
+                <td>{{ r.colli_previsti or 0 }}</td>
+                <td>{{ r.peso_previsto|it_num(2) }}</td>
+                <td><code>{{ r.codice_entrata }}</code></td>
+                <td>
+                  {% if stato_riga == 'caricato' %}
+                    <span class="badge bg-success">Caricato</span>
+                  {% elif stato_riga == 'parziale' %}
+                    <span class="badge bg-info text-dark">Parziale</span>
+                  {% else %}
+                    <span class="badge bg-warning text-dark">Mancante</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="12" class="text-muted">Vecchio buono senza righe dettagliate.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        </form>
+      </div>
+
+      <div class="card shadow-sm mb-3">
+        <div class="card-header fw-bold">Scansiona pallet / arrivo</div>
+        <div class="card-body">
+          <form id="form_scansione_qr" method="POST" action="{{ url_for('scansiona_buono_carico', buono_id=buono.id) }}" class="row g-2">
+            <div class="col-md-8">
+              <input type="text" id="codice_scansionato" name="codice_scansionato" class="form-control form-control-lg" placeholder="Scansiona QR o incolla codice entrata ENT-..." autofocus required>
+            </div>
+            <div class="col-md-4">
+              <button class="btn btn-success btn-sm w-100">Registra scansione</button>
+            </div>
+          </form>
+
+        <div class="mt-3 d-flex gap-2 flex-wrap">
+          <button type="button" class="btn btn-outline-primary btn-sm" onclick="avviaScannerQR()">
+            📷 Apri fotocamera QR
+          </button>
+          <button type="button" class="btn btn-outline-danger btn-sm" onclick="fermaScannerQR()">
+            ✖ Chiudi fotocamera
+          </button>
+        </div>
+
+        <div id="qr_reader_box" class="mt-3" style="display:none;">
+          <div id="reader" style="width:100%;max-width:420px;margin:auto;border:1px solid #ddd;border-radius:8px;padding:8px;background:#fff;"></div>
+          <div class="small text-muted mt-2 text-center">
+            Su smartphone autorizza l'uso della fotocamera. Se non si apre, verifica che il sito sia in HTTPS.
+          </div>
+        </div>
+
+        </div>
+      </div>
+
+      <div class="card shadow-sm">
+        <div class="card-header fw-bold">Storico scansioni</div>
+        <div class="table-responsive">
+          <table class="table table-sm table-striped mb-0">
+            <thead><tr><th>Data/Ora</th><th>Utente</th><th>Codice scansionato</th><th>Esito</th><th>Messaggio</th></tr></thead>
+            <tbody>
+              {% for s in scansioni %}
+              <tr>
+                <td>{{ s.scanned_at }}</td>
+                <td>{{ s.scanned_by or '-' }}</td>
+                <td><code>{{ s.codice_scansionato }}</code></td>
+                <td>{{ s.esito }}</td>
+                <td>{{ s.messaggio }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="text-muted">Nessuna scansione registrata.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    let qrScannerInstance = null;
+    let qrScannerRunning = false;
+
+    function setQrStatus(msg, type) {
+        let el = document.getElementById("qr_status_msg");
+        if (!el) {
+            const box = document.getElementById("qr_reader_box");
+            if (box) {
+                el = document.createElement("div");
+                el.id = "qr_status_msg";
+                el.className = "alert mt-2";
+                box.appendChild(el);
+            }
+        }
+        if (el) {
+            el.className = "alert mt-2 " + (type || "alert-info");
+            el.innerText = msg;
+        }
+    }
+
+    function caricaHtml5QrCodeSeServe(callback) {
+        if (typeof Html5Qrcode !== "undefined") {
+            callback();
+            return;
+        }
+
+        const old = document.getElementById("html5-qrcode-dynamic");
+        if (old) {
+            old.addEventListener("load", callback);
+            return;
+        }
+
+        const s = document.createElement("script");
+        s.id = "html5-qrcode-dynamic";
+        s.src = "https://unpkg.com/html5-qrcode";
+        s.onload = callback;
+        s.onerror = function() {
+            setQrStatus("Impossibile caricare il lettore QR. Controlla la connessione internet del telefono.", "alert-danger");
+        };
+        document.head.appendChild(s);
+    }
+
+    async function avviaScannerQR() {
+        const box = document.getElementById("qr_reader_box");
+        const readerEl = document.getElementById("reader");
+        const input = document.getElementById("codice_scansionato");
+
+        if (!box || !readerEl || !input) {
+            alert("Lettore QR non trovato nella pagina.");
+            return;
+        }
+
+        box.style.display = "block";
+        readerEl.innerHTML = "";
+
+        if (!window.isSecureContext) {
+            setQrStatus("La fotocamera dello smartphone funziona solo con sito HTTPS. Apri il gestionale dal link https://...", "alert-danger");
+            return;
+        }
+
+        caricaHtml5QrCodeSeServe(async function() {
+            try {
+                if (qrScannerRunning && qrScannerInstance) {
+                    await fermaScannerQR();
+                }
+
+                qrScannerInstance = new Html5Qrcode("reader");
+
+                let config = {
+                    fps: 10,
+                    qrbox: function(viewfinderWidth, viewfinderHeight) {
+                        const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+                        const boxSize = Math.floor(minEdge * 0.75);
+                        return { width: boxSize, height: boxSize };
+                    },
+                    aspectRatio: 1.0
+                };
+
+                // Su smartphone è più affidabile chiedere direttamente la camera posteriore
+                await qrScannerInstance.start(
+                    { facingMode: { exact: "environment" } },
+                    config,
+                    function(decodedText) {
+                        input.value = decodedText;
+                        setQrStatus("QR letto correttamente. Invio scansione...", "alert-success");
+
+                        setTimeout(async function() {
+                            try { await fermaScannerQR(); } catch(e) {}
+                            const form = document.getElementById("form_scansione_qr") || input.closest("form");
+                            if (form) form.submit();
+                        }, 300);
+                    },
+                    function(errorMessage) {
+                        // errori normali durante la ricerca del QR: non mostrare alert continui
+                    }
+                );
+
+                qrScannerRunning = true;
+                setQrStatus("Fotocamera attiva. Inquadra il QR dell'arrivo.", "alert-info");
+
+            } catch (err1) {
+                console.warn("Camera environment exact fallita, provo fallback", err1);
+
+                try {
+                    // Fallback per iPhone/Android che non accettano exact
+                    if (qrScannerInstance) {
+                        try { await qrScannerInstance.clear(); } catch(e) {}
+                    }
+                    qrScannerInstance = new Html5Qrcode("reader");
+
+                    await qrScannerInstance.start(
+                        { facingMode: "environment" },
+                        {
+                            fps: 10,
+                            qrbox: { width: 250, height: 250 }
+                        },
+                        function(decodedText) {
+                            input.value = decodedText;
+                            setQrStatus("QR letto correttamente. Invio scansione...", "alert-success");
+
+                            setTimeout(async function() {
+                                try { await fermaScannerQR(); } catch(e) {}
+                                const form = document.getElementById("form_scansione_qr") || input.closest("form");
+                                if (form) form.submit();
+                            }, 300);
+                        },
+                        function(errorMessage) {}
+                    );
+
+                    qrScannerRunning = true;
+                    setQrStatus("Fotocamera attiva. Inquadra il QR dell'arrivo.", "alert-info");
+
+                } catch (err2) {
+                    console.error(err2);
+                    setQrStatus(
+                        "Non riesco ad aprire la fotocamera. Controlla i permessi del browser e che il sito sia aperto in HTTPS. Errore: " + err2,
+                        "alert-danger"
+                    );
+                }
+            }
+        });
+    }
+
+    async function fermaScannerQR() {
+        try {
+            if (qrScannerInstance && qrScannerRunning) {
+                await qrScannerInstance.stop();
+            }
+        } catch(e) {
+            console.warn(e);
+        }
+
+        try {
+            if (qrScannerInstance) {
+                await qrScannerInstance.clear();
+            }
+        } catch(e) {}
+
+        qrScannerRunning = false;
+
+        const readerEl = document.getElementById("reader");
+        if (readerEl) readerEl.innerHTML = "";
+
+        const box = document.getElementById("qr_reader_box");
+        if (box) box.style.display = "none";
+    }
+    </script>
+
+    {% endblock %}
+    """
+
+
+    def _trova_buono_carico_da_input(db, valore):
+        """Trova un buono carico da ID numerico oppure da codice tipo BC-2026-0001."""
+        raw = (str(valore or "")).strip()
+        if not raw:
+            return None
+        if raw.isdigit():
+            b = db.query(BuonoCarico).filter(BuonoCarico.id == int(raw)).first()
+            if b:
+                return b
+        return db.query(BuonoCarico).filter(func.upper(BuonoCarico.codice_buono) == raw.upper()).first()
+
+
+    def _next_codice_buono_carico(db):
+        anno = date.today().year
+        prefix = f"BC-{anno}-"
+        max_n = 0
+        try:
+            rows = db.query(BuonoCarico.codice_buono).filter(BuonoCarico.codice_buono.ilike(f"{prefix}%")).all()
+            for row in rows:
+                codice = row[0] if isinstance(row, (tuple, list)) else getattr(row, "codice_buono", "")
+                m = re.search(r"(\d+)$", codice or "")
+                if m:
+                    max_n = max(max_n, int(m.group(1)))
+        except Exception:
+            max_n = 0
+
+        for n in range(max_n + 1, max_n + 10000):
+            candidate = f"{prefix}{n:04d}"
+            if not db.query(BuonoCarico).filter(BuonoCarico.codice_buono == candidate).first():
+                return candidate
+
+        return f"{prefix}{uuid.uuid4().hex[:6].upper()}"
+
+
+    def _righe_buono_carico(db, buono):
+        try:
+            return db.query(BuonoCaricoRiga).filter(BuonoCaricoRiga.buono_id == buono.id).order_by(BuonoCaricoRiga.id.asc()).all()
+        except Exception:
             return []
 
-        s = re.sub(r"[\r\n]+", " - ", s)
-        s = re.sub(r"(?i)\bPackage\s+No\.?\s*", "Package No.", s)
+    def _codici_validi_buono_carico(db, buono):
+        codici = []
+        righe = _righe_buono_carico(db, buono)
+        if righe:
+            for r in righe:
+                if (r.codice_entrata or "").strip():
+                    codici.append((r.codice_entrata or "").strip())
+        elif (buono.codice_entrata or "").strip():
+            codici.append((buono.codice_entrata or "").strip())
 
-        # Se il Package è scritto attaccato al primo marca-pezzo, lo separo.
-        # Esempi:
-        #   PACKAGE 11-CB052CB-CB...  -> PACKAGE 11 - CB052CB-CB...
-        #   Package No.311-AP/060VR  -> Package No.311 - AP/060VR
-        # In questo modo il Package resta sempre sulla riga residua mentre viene
-        # eliminato soltanto il codice effettivamente prelevato.
-        s = re.sub(
-            r"(?i)\b((?:PACKAGE|PKG)\s*(?:(?:NO|N)\.?)?\s*[:#.]?\s*[A-Z0-9]+)\s*-\s*(?=[A-Z0-9])",
-            r"\1 - ",
-            s,
-        )
-
-        # Se il riferimento logistico e il primo marca-pezzo sono separati
-        # soltanto da uno spazio, li divide comunque.
-        # Esempi:
-        #   Package No.311 UR/014VD
-        #   Package No.311 VA/002VR
-        #   PACKAGE N.11 CB051CF
-        #   CASSA 12 AV*002VD
-        s = re.sub(
-            r"(?i)\b("
-            r"(?:PACKAGE|PKG)\s*(?:(?:NO|N)\.?)?\s*[:#.]?\s*[A-Z0-9]+"
-            r"|PALLET\s*[:#.]?\s*[A-Z0-9]+"
-            r"|(?:CASSA|CASE)\s*[:#.]?\s*[A-Z0-9]+"
-            r")\s+(?="
-            r"(?:[A-Z0-9]{1,25}(?:/|\*)[A-Z0-9]+)"
-            r"|(?:[A-Z]{1,12}\d[A-Z0-9]*)"
-            r")",
-            r"\1 - ",
-            s,
-        )
-
-        # Se dopo un trattino inizia un marca-pezzo con / oppure *, separo.
-        # Non rompe lo slash interno di SE/007VD e riconosce AV*002VD.
-        s = re.sub(r"\s*-\s*(?=[A-Z0-9]{1,25}(?:/|\*)[A-Z0-9])", " - ", s, flags=re.I)
-
-        # Se i marca-pezzi sono concatenati con trattini senza spazi, li separo.
-        # Esempio operativo:
-        #   PACKAGE N.11-CB051CF-CB052CF-CB053CF
-        # diventa:
-        #   PACKAGE N.11 - CB051CF - CB052CF - CB053CF
-        #
-        # Il controllo richiede che il token successivo inizi con lettere seguite
-        # da almeno una cifra: in questo modo evitiamo di spezzare indiscriminatamente
-        # normali descrizioni con trattino.
-        s = re.sub(
-            r"(?<=[A-Z0-9])\s*-\s*(?=[A-Z]{1,12}\d[A-Z0-9]*(?:\b|$))",
-            " - ",
-            s,
-            flags=re.I,
-        )
-
-        # Lo slash con spazi viene considerato separatore tra codici.
-        # Lo slash senza spazi resta dentro il codice.
-        parts = re.split(r"\s*(?:;|\||,|\s/\s|\s\+\s|\s-\s)\s*", s)
-
-        out = []
-        for part in parts:
-            part = (part or "").strip(" -/")
-            if not part:
-                continue
-            part = re.sub(r"(?i)\bPackage\s+No\.?\s*", "Package No.", part).strip()
-            out.append(part)
-        return out
-
-    def _norm_for_match(value):
-        return re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
-
-    def _num_float(value):
-        """Converte numeri italiani/inglesi in float."""
-        try:
-            if value is None:
-                return 0.0
-            s = str(value).strip()
-            if not s:
-                return 0.0
-            if ',' in s:
-                s = s.replace('.', '').replace(',', '.')
-            return float(s)
-        except Exception:
-            return 0.0
-
-    def _fmt_num_clean(value):
-        """Restituisce numero pulito da salvare nel campo pezzo."""
-        try:
-            f = float(value or 0)
-            if abs(f - int(f)) < 0.000001:
-                return str(int(f))
-            return str(round(f, 3))
-        except Exception:
-            return str(value or '')
-
-
-    def _piece_value_for_db(value):
-        """Salva i pezzi senza .0 quando il valore è intero.
-
-        Il campo pezzo del gestionale può essere testuale o numerico a seconda
-        dello schema esistente. Restituendo un intero per i valori interi si
-        evita che una nuova riga venga visualizzata come 4.0 invece di 4.
-        """
-        try:
-            f = float(value or 0)
-            if abs(f - round(f)) < 0.000001:
-                return int(round(f))
-            return _fmt_num_clean(f)
-        except Exception:
-            return _fmt_num_clean(value)
-
-    def _split_quantita(orig_pezzi, q_scelta, orig_valore):
-        """Ripartisce peso/m2/m3 proporzionalmente ai pezzi."""
-        op = _num_float(orig_pezzi)
-        q = _num_float(q_scelta)
-        val = _num_float(orig_valore)
-        if op <= 0 or q <= 0 or val <= 0:
-            return orig_valore, orig_valore
-        if q > op:
-            q = op
-        scelto = val * (q / op)
-        residuo = max(0.0, val - scelto)
-        return residuo, scelto
-
-
-    def _round_db_number(value, ndigits=6):
-        """Numero pulito per DB/campi numerici: usa float e punto decimale, non virgola."""
-        try:
-            f = float(value or 0)
-            return round(f, ndigits)
-        except Exception:
-            return value
-
-    def _is_package_token(value):
-        """True solo per un riferimento logistico puro, non per Package+codice.
-
-        Prima bastava che la parola PACKAGE fosse presente nella stringa: quindi
-        una cella come ``PACKAGE 11-CB052CB`` veniva considerata interamente un
-        package e il codice CB052CB non veniva mai rimosso dal residuo.
-        """
-        txt = re.sub(r"\s+", " ", str(value or "").strip())
-        if not txt:
-            return False
-        patterns = (
-            r"(?:PACKAGE|PKG)\s*(?:(?:NO|N)\.?)?\s*[:#.]?\s*[A-Z0-9]+",
-            r"PALLET\s*[:#.]?\s*[A-Z0-9][A-Z0-9._/\-]*",
-            r"(?:CASSA|CASE)\s*[:#.]?\s*[A-Z0-9][A-Z0-9._/\-]*",
-        )
-        return any(re.fullmatch(pat, txt, flags=re.I) for pat in patterns)
-
-
-    def _dedupe_code_parts(parts):
-        """Rimuove duplicati da package e marca-pezzi mantenendo l'ordine."""
         out = []
         seen = set()
-        for part in parts or []:
-            value = str(part or '').strip(' -/')
-            key = _norm_for_match(value)
-            if value and key and key not in seen:
-                seen.add(key)
-                out.append(value)
-        return out
-
-    def _normalizza_codice_articolo(value):
-        """Normalizza il campo Codice usando sempre il trattino come separatore.
-
-        Esempio:
-        PACKAGE N.11 / CB051CF / CB052CF
-        diventa:
-        PACKAGE N.11-CB051CF-CB052CF
-        """
-        parts = _split_multi_value(value) or [str(value or '').strip()]
-        package_parts = _dedupe_code_parts([p for p in parts if _is_package_token(p)])
-        code_parts = _dedupe_code_parts([p for p in parts if not _is_package_token(p)])
-        return '-'.join(package_parts + code_parts).strip('-')
-
-    def _ricostruisci_codice_residuo(original, selected):
-        """Ricostruisce da zero il codice della riga residua.
-
-        Non usa replace e non riaggiunge la stringa originale. Conserva una sola
-        volta PACKAGE/PALLET/CASSA, elimina esclusivamente i marca-pezzi scelti e
-        usa sempre '-' come separatore.
-        """
-        original_parts = _split_multi_value(original) or [str(original or '').strip()]
-        selected_parts = _split_multi_value(selected) or [str(selected or '').strip()]
-
-        package_parts = _dedupe_code_parts([p for p in original_parts if _is_package_token(p)])
-        original_codes = _dedupe_code_parts([p for p in original_parts if not _is_package_token(p)])
-        selected_norms = {
-            _norm_for_match(p)
-            for p in selected_parts
-            if p and not _is_package_token(p) and _norm_for_match(p)
-        }
-
-        residual_codes = [
-            code for code in original_codes
-            if _norm_for_match(code) not in selected_norms
-        ]
-        return '-'.join(package_parts + residual_codes).strip('-')
-
-    def _selected_matches_part(part, selected_norms):
-        """True se un elemento della riga originale corrisponde a uno dei codici scelti.
-
-        Non elimina mai il Package/Pallet/Cassa: quelli devono restare sulla riga residua.
-        """
-        if _is_package_token(part):
-            return False
-
-        pn = _norm_for_match(part)
-        if not pn or not selected_norms:
-            return False
-
-        for sn in selected_norms:
-            if not sn:
-                continue
-            # Dopo la separazione dei marca-pezzi concatenati il confronto deve
-            # essere esatto: così togliamo soltanto i codici realmente richiesti
-            # e non l'intero blocco residuo.
-            if pn == sn:
-                return True
-        return False
-
-    def _dedupe_keep_order(values):
-        """Rimuove duplicati mantenendo l'ordine."""
-        out = []
-        seen = set()
-        for v in values or []:
-            s = str(v or "").strip()
-            if not s:
-                continue
-            key = _norm_for_match(s)
-            if key and key not in seen:
-                seen.add(key)
-                out.append(s)
+        for c in codici:
+            for v in _codice_entrata_varianti(c):
+                if v and v not in seen:
+                    seen.add(v)
+                    out.append(v)
         return out
 
 
+    def _key_codice_entrata_buono(codice):
+        """Chiave normalizzata stabile per confrontare QR/codici entrata."""
+        vars_ = _codice_entrata_varianti(codice)
+        if vars_:
+            # usa la variante più corta/vecchia se presente, così vecchio e nuovo barcode coincidono
+            return normalize_text_key(sorted(vars_, key=lambda x: len(x))[0])
+        return normalize_text_key(codice)
 
-    def _format_residuo_parts(parts):
-        """Ricostruisce la cella residua con separatore richiesto: ' - '."""
-        clean = _dedupe_keep_order(parts)
-        return " - ".join(clean).strip(" -")
 
-    def _description_has_multiple_items(value):
-        """Indica se la descrizione sembra davvero composta da più descrizioni separate.
+    def _conteggi_qr_buono_carico(db, buono):
+        """Restituisce conteggi per QR del buono.
 
-        Se la descrizione è una frase unica, anche se l'utente nel buono la lascia uguale,
-        NON va cancellata dalla riga residua.
+        expected_by_key = colli previsti per QR
+        ok_by_key = scansioni OK registrate per QR
+        canonical_by_key = codice originale da mostrare/salvare
         """
-        parts = _split_multi_value(value)
-        return len(parts) > 1
-
-    def _remove_selected_from_cell(original, selected):
-        """Rimuove dalla cella originale SOLO i codici/descrizioni scelti per il buono.
-
-        Regole definitive:
-        1) Package No. / PKG / Pallet / Cassa non si eliminano mai.
-        2) I marca-pezzo scelti nel buono vengono tolti dalla riga residua.
-        3) Il confronto ignora spazi, trattini, slash e maiuscole/minuscole.
-        4) Funziona anche quando il codice è attaccato al package:
-           "Package No.311-AP/060VR -VA/002VR".
-        """
-        original = str(original or "").strip()
-        selected = str(selected or "").strip()
-
-        if not original or not selected:
-            return original
-
-        original_parts = _split_multi_value(original) or [original]
-        selected_parts = _split_multi_value(selected) or [selected]
-
-        # I package presenti nel selezionato NON sono mai codici da togliere.
-        selected_norms = {
-            _norm_for_match(x)
-            for x in selected_parts
-            if _norm_for_match(x) and not _is_package_token(x)
-        }
-
-        if not selected_norms:
-            return original
-
-        kept = []
-        removed_any = False
-
-        for part in original_parts:
-            if not part:
-                continue
-
-            # Package/Pallet/Cassa sempre conservati.
-            if _is_package_token(part):
-                kept.append(part)
-                continue
-
-            if _selected_matches_part(part, selected_norms):
-                removed_any = True
-                continue
-
-            kept.append(part)
-
-        if removed_any:
-            return _format_residuo_parts(kept)
-
-        # Fallback per casi in cui non si riesce a separare bene la cella:
-        # rimuove testualmente solo i codici scelti, mai il package.
-        new_val = original
-        for item in selected_parts:
-            item = str(item or "").strip()
-            if not item or _is_package_token(item):
-                continue
-            new_val = re.sub(re.escape(item), "", new_val, flags=re.I)
-
-        new_val = re.sub(r"\s*(?:/|;|\||,|\+|-)\s*(?:/|;|\||,|\+|-)\s*", " - ", new_val)
-        new_val = re.sub(r"^\s*(?:/|;|\||,|\+|-)\s*", "", new_val)
-        new_val = re.sub(r"\s*(?:/|;|\||,|\+|-)\s*$", "", new_val)
-        new_val = re.sub(r"\s{2,}", " ", new_val).strip()
-        return new_val
-
-    def _clean_residual_cell(original, selected):
-        """Calcola il residuo eliminando tutti gli elementi messi nel Buono.
-
-        Mantiene sempre Package/Pallet/Cassa. Se la separazione standard non basta,
-        esegue anche una rimozione testuale controllata dei singoli elementi scelti.
-        """
-        original = str(original or '').strip()
-        selected = str(selected or '').strip()
-        if not original or not selected:
-            return original
-
-        residuo = _remove_selected_from_cell(original, selected)
-        selected_parts = _split_multi_value(selected) or [selected]
-
-        # Se un codice scelto è ancora presente nel residuo, lo rimuove testualmente.
-        # Il confronto non tocca mai i riferimenti logistici puri.
-        for item in selected_parts:
-            item = str(item or '').strip()
-            if not item or _is_package_token(item):
-                continue
-            if _norm_for_match(item) and _norm_for_match(item) in _norm_for_match(residuo):
-                residuo = re.sub(re.escape(item), '', residuo, flags=re.I)
-
-        # Ripulisce separatori rimasti doppi o alle estremità.
-        residuo = re.sub(r'\s*(?:;|\||,|\+)\s*(?:;|\||,|\+)\s*', ' - ', residuo)
-        residuo = re.sub(r'\s+-\s+-\s+', ' - ', residuo)
-        residuo = re.sub(r'^(?:\s*[-/;,|+]\s*)+', '', residuo)
-        residuo = re.sub(r'(?:\s*[-/;,|+]\s*)+$', '', residuo)
-        residuo = re.sub(r'\s{2,}', ' ', residuo).strip(' -/;,|+')
-        return residuo
-
-    def _extract_package_context(*values):
-        """Estrae riferimenti logistici da conservare sulla riga residua.
-
-        Riconosce anche formati tipo:
-        Package No.305, Package No. 305, PACKAGE 305, PKG 305.
-        """
-        found = []
-        seen = set()
-        patterns = [
-            r"\bPACKAGE\s*(?:NO\.?|N\.?|NUM\.?)?\s*[:#.]?\s*[A-Z0-9]+",
-            r"\bPKG\s*(?:NO\.?|N\.?)?\s*[:#.]?\s*[A-Z0-9]+",
-            r"\bPALLET\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
-            r"\bCASSA\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
-            r"\bCASE\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
-        ]
-        for value in values:
-            txt = str(value or "")
-            for pat in patterns:
-                for m in re.finditer(pat, txt, flags=re.I):
-                    label = re.sub(r"\s+", " ", m.group(0).strip())
-                    label = re.sub(r"(?i)\bPackage\s+No\.?\s*", "Package No.", label)
-                    key = _norm_for_match(label)
-                    if key and key not in seen:
-                        seen.add(key)
-                        found.append(label)
-        return found
-
-    def _preserve_package_context(residuo, *sources):
-        """Garantisce che Package/Pallet/Cassa restino sulla riga residua.
-
-        Se il package era nella riga originale e la pulizia lo ha tolto per errore,
-        lo reinserisce in testa alla cella, non in fondo.
-        """
-        residuo = (residuo or "").strip()
-        labels = _extract_package_context(*sources)
-        if not labels:
-            return residuo
-
-        parts = _split_multi_value(residuo) if residuo else []
-        current_norms = {_norm_for_match(x) for x in parts}
-
-        # Package prima, poi tutti gli altri codici rimasti.
-        final_parts = []
-        for label in labels:
-            if _norm_for_match(label) not in current_norms:
-                final_parts.append(label)
-
-        final_parts.extend(parts)
-        final_parts = _dedupe_keep_order(final_parts)
-
-        return _format_residuo_parts(final_parts)
-
-
-
-
-    def _safe_int_picking(value):
-        """Converte interi lasciando None se il campo è vuoto."""
-        s = str(value or "").strip().replace(",", ".")
-        if not s:
-            return None
-        try:
-            return int(float(s))
-        except Exception:
-            return None
-
-    def _safe_float_picking(value):
-        """Converte numeri italiani/inglesi lasciando None se il campo è vuoto."""
-        s = str(value or "").strip().replace(",", ".")
-        if not s:
-            return None
-        try:
-            return float(s)
-        except Exception:
-            return None
-
-    def _date_from_buono_form(value):
-        """Accetta DD/MM/YYYY o YYYY-MM-DD e restituisce date."""
-        s = str(value or "").strip()
-        if not s:
-            return date.today()
-        for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
-            try:
-                return datetime.strptime(s, fmt).date()
-            except Exception:
-                pass
-        return date.today()
-
-    def _join_unique(values, max_len=500):
-        out, seen = [], set()
-        for v in values or []:
-            s = str(v or "").strip()
-            if not s:
-                continue
-            key = s.upper()
-            if key not in seen:
-                seen.add(key)
-                out.append(s)
-        return "; ".join(out)[:max_len]
-
-    def _sum_int_attr(rows, attr):
-        tot = 0
-        for r in rows or []:
-            try:
-                tot += int(float(getattr(r, attr, 0) or 0))
-            except Exception:
-                pass
-        return tot
-
-    def _create_picking_from_buono_form(db, form, rows, buono_n):
-        """Crea o aggiorna la riga Picking/Lavorazioni collegata al Buono.
-
-        Scrive direttamente nella tabella lavorazioni.
-        Se trova stesso giorno + stesso buono/seriale aggiorna il record invece di bloccare.
-        """
-        try:
-            dt = _date_from_buono_form(form.get('picking_data') or form.get('data_em'))
-            cliente = (form.get('picking_cliente') or _join_unique([getattr(r, 'cliente', '') for r in rows], 120)).strip()
-            descrizione = (form.get('picking_descrizione') or 'PICKING+FILMATURA+PALLETIZZAZIONE').strip()
-            richiesta_di = (form.get('picking_richiesta_di') or '').strip()
-            seriali = (form.get('picking_seriali') or buono_n or '').strip()
-            if not seriali:
-                seriali = str(buono_n or '').strip()
-            n_arrivo = (form.get('picking_n_arrivo') or _join_unique([getattr(r, 'n_arrivo', '') for r in rows], 500)).strip()
-
-            colli = _safe_int_picking(form.get('picking_colli'))
-            if colli is None:
-                colli = _sum_int_attr(rows, 'n_colli') or len(rows or []) or 0
-
-            pallet_forniti = _safe_int_picking(form.get('picking_pallet_entrati'))
-            pallet_uscita = _safe_int_picking(form.get('picking_pallet_usciti'))
-            ore_blue = _safe_float_picking(form.get('picking_ore_blue'))
-            ore_white = _safe_float_picking(form.get('picking_ore_white'))
-
-            if not cliente:
-                cliente = _join_unique([getattr(r, 'cliente', '') for r in rows], 120)
-            if not descrizione:
-                descrizione = 'PICKING+FILMATURA+PALLETIZZAZIONE'
-            if not (cliente or seriali or n_arrivo):
-                return False, "Picking non creato: dati insufficienti."
-
-            params = {
-                "data": dt,
-                "cliente": cliente,
-                "descrizione": descrizione,
-                "richiesta_di": richiesta_di,
-                "seriali": seriali,
-                "n_arrivo": n_arrivo,
-                "colli": colli,
-                "pallet_forniti": pallet_forniti,
-                "pallet_uscita": pallet_uscita,
-                "ore_blue_collar": ore_blue,
-                "ore_white_collar": ore_white,
-            }
-
-            # Assicura colonna n_arrivo su PostgreSQL. Se non supportato, non blocca.
-            try:
-                db.execute(text("ALTER TABLE lavorazioni ADD COLUMN IF NOT EXISTS n_arrivo TEXT"))
-                db.commit()
-            except Exception:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
-
-            # Verifica colonne realmente disponibili.
-            has_n_arrivo = True
-            try:
-                cols = db.execute(text("""
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_name = 'lavorazioni'
-                """)).fetchall()
-                col_names = {str(c[0]) for c in cols}
-                has_n_arrivo = 'n_arrivo' in col_names
-            except Exception:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
-                has_n_arrivo = hasattr(Lavorazione, 'n_arrivo') if 'Lavorazione' in globals() else True
-
-            # Cerca record esistente: stesso giorno + stesso buono/seriale.
-            existing = None
-            try:
-                existing = db.execute(text("""
-                    SELECT id FROM lavorazioni
-                    WHERE data = :data
-                      AND UPPER(COALESCE(seriali, '')) = UPPER(:seriali)
-                    LIMIT 1
-                """), {"data": dt, "seriali": seriali}).fetchone()
-            except Exception:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
-                existing = None
-
-            if existing:
-                params["id"] = existing[0]
-                if has_n_arrivo:
-                    db.execute(text("""
-                        UPDATE lavorazioni
-                        SET cliente = :cliente,
-                            descrizione = :descrizione,
-                            richiesta_di = :richiesta_di,
-                            seriali = :seriali,
-                            n_arrivo = :n_arrivo,
-                            colli = :colli,
-                            pallet_forniti = :pallet_forniti,
-                            pallet_uscita = :pallet_uscita,
-                            ore_blue_collar = :ore_blue_collar,
-                            ore_white_collar = :ore_white_collar
-                        WHERE id = :id
-                    """), params)
-                else:
-                    db.execute(text("""
-                        UPDATE lavorazioni
-                        SET cliente = :cliente,
-                            descrizione = :descrizione,
-                            richiesta_di = :richiesta_di,
-                            seriali = :seriali,
-                            colli = :colli,
-                            pallet_forniti = :pallet_forniti,
-                            pallet_uscita = :pallet_uscita,
-                            ore_blue_collar = :ore_blue_collar,
-                            ore_white_collar = :ore_white_collar
-                        WHERE id = :id
-                    """), params)
-                db.commit()
-                return True, "Picking aggiornato correttamente."
-
-            if has_n_arrivo:
-                db.execute(text("""
-                    INSERT INTO lavorazioni
-                    (data, cliente, descrizione, richiesta_di, seriali, n_arrivo, colli,
-                     pallet_forniti, pallet_uscita, ore_blue_collar, ore_white_collar)
-                    VALUES
-                    (:data, :cliente, :descrizione, :richiesta_di, :seriali, :n_arrivo, :colli,
-                     :pallet_forniti, :pallet_uscita, :ore_blue_collar, :ore_white_collar)
-                """), params)
-            else:
-                db.execute(text("""
-                    INSERT INTO lavorazioni
-                    (data, cliente, descrizione, richiesta_di, seriali, colli,
-                     pallet_forniti, pallet_uscita, ore_blue_collar, ore_white_collar)
-                    VALUES
-                    (:data, :cliente, :descrizione, :richiesta_di, :seriali, :colli,
-                     :pallet_forniti, :pallet_uscita, :ore_blue_collar, :ore_white_collar)
-                """), params)
-            db.commit()
-            return True, "Picking creato correttamente."
-
-        except Exception as e:
-            try:
-                db.rollback()
-            except Exception:
-                pass
-            try:
-                scrivi_log_errore("Errore salvataggio picking da buono", e)
-            except Exception:
-                pass
-            return False, f"Picking non creato: {e}"
-
-    def _next_buono_number(db):
-        """Genera automaticamente il prossimo N. buono.
-
-        Formato usato: 001/26, 002/26, ...
-        Legge i buoni già presenti in Articolo.buono_n e incrementa il numero più alto
-        riferito all'anno corrente; se non trova riferimenti all'anno, incrementa comunque
-        il numero più alto disponibile.
-        """
-        yy = datetime.today().strftime("%y")
-        max_current_year = 0
-        max_any = 0
-        try:
-            values = db.query(Articolo.buono_n).filter(Articolo.buono_n != None).all()
-        except Exception:
-            values = []
-
-        for row in values:
-            raw = row[0] if isinstance(row, (tuple, list)) else row
-            txt = str(raw or "").strip()
-            if not txt:
-                continue
-            m = re.search(r"(\d{1,6})", txt)
-            if not m:
-                continue
-            try:
-                n = int(m.group(1))
-            except Exception:
-                continue
-            max_any = max(max_any, n)
-            if re.search(rf"(?:/|-|\b){re.escape(yy)}\b", txt):
-                max_current_year = max(max_current_year, n)
-
-        base = max_current_year or max_any
-        return f"{base + 1:03d}/{yy}"
-
-
-    def _safe_text(value):
-        return str(value or '').strip()
-
-    def _first_nonempty(rows, attr):
-        for r in rows or []:
-            v = _safe_text(getattr(r, attr, ''))
-            if v:
-                return v
-        return ''
-
-    def _sum_pezzi_rows(rows):
-        tot = 0.0
-        for r in rows or []:
-            try:
-                tot += _num_float(getattr(r, 'pezzo', 0))
-            except Exception:
-                pass
-        if abs(tot - int(tot)) < 0.000001:
-            return str(int(tot)) if tot else ''
-        return str(round(tot, 2)).replace('.', ',')
-
-    def _generate_cartello_fincantieri_pdf(form, rows, buono_n):
-        """Genera un PDF multipagina: 1 cartello per ogni riga spuntata."""
-        from reportlab.pdfgen import canvas
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.utils import ImageReader
-        import io as _io
-        import os as _os
-        import textwrap as _textwrap
-
-        bio = _io.BytesIO()
-        c = canvas.Canvas(bio, pagesize=A4)
-        width, height = A4
-
-        bn = _safe_text(buono_n) or _safe_text(form.get('buono_n'))
-
-        selected_ids = set()
-        try:
-            selected_ids = {str(x).strip() for x in form.getlist('cartello_id') if str(x).strip()}
-        except Exception:
-            selected_ids = set()
-
-        selected_rows = []
-        for r in rows or []:
-            rid = str(getattr(r, 'id_articolo', '') or '').strip()
-            if not selected_ids or rid in selected_ids:
-                selected_rows.append(r)
-
-        def draw_wrapped(value, x, y, max_width=None, size=30, bold=False, max_lines=3):
-            """Scrive il testo andando a capo in base allo spazio reale disponibile.
-
-            Per i marca-pezzi prova prima a spezzare dopo i trattini, così codici come
-            PACKAGE N.11-CB051CF-CB052CF-CB053CF non vengono tagliati fuori pagina.
-            """
-            value = _safe_text(value)
-            if not value:
-                return y
-
-            font = 'Helvetica-Bold' if bold else 'Helvetica'
-            c.setFont(font, size)
-            max_width = float(max_width or (width - x - 35))
-
-            # Mantiene il trattino sul codice precedente e permette il ritorno a capo
-            # subito dopo ogni marca-pezzo.
-            tokens = [t for t in re.split(r'(?<=-)|\s+', value) if t]
-            lines = []
-            current = ''
-
-            for token in tokens:
-                candidate = token if not current else current + token
-                if c.stringWidth(candidate, font, size) <= max_width:
-                    current = candidate
+        righe = _righe_buono_carico(db, buono)
+
+        expected_by_key = {}
+        canonical_by_key = {}
+
+        if righe:
+            for r in righe:
+                cod = (r.codice_entrata or "").strip()
+                if not cod:
                     continue
+                k = _key_codice_entrata_buono(cod)
+                expected_by_key[k] = expected_by_key.get(k, 0) + int(r.colli_previsti or 0)
+                canonical_by_key.setdefault(k, cod)
+        else:
+            cod = (buono.codice_entrata or "").strip()
+            if cod:
+                for c in [x.strip() for x in cod.split(";") if x.strip()]:
+                    k = _key_codice_entrata_buono(c)
+                    expected_by_key[k] = expected_by_key.get(k, 0) + int(buono.pallet_previsti or 0)
+                    canonical_by_key.setdefault(k, c)
 
-                if current:
-                    lines.append(current.rstrip())
-                    current = token.lstrip()
-                else:
-                    # Token eccezionalmente lungo: lo divide carattere per carattere
-                    # per garantire che non esca mai dal foglio.
-                    piece = ''
-                    for ch in token:
-                        test = piece + ch
-                        if piece and c.stringWidth(test, font, size) > max_width:
-                            lines.append(piece)
-                            piece = ch
-                        else:
-                            piece = test
-                    current = piece
+        ok_by_key = {}
+        scansioni_ok = db.query(BuonoCaricoScan).filter(
+            BuonoCaricoScan.buono_id == buono.id,
+            BuonoCaricoScan.esito == "OK"
+        ).all()
 
-            if current:
-                lines.append(current.rstrip())
+        for s in scansioni_ok:
+            cod = (s.codice_scansionato or "").strip()
+            if not cod:
+                continue
+            k = _key_codice_entrata_buono(cod)
+            ok_by_key[k] = ok_by_key.get(k, 0) + 1
 
-            for text_line in lines[:max_lines]:
-                c.drawString(x, y, text_line)
-                y -= size + 8
-            return y
+        return expected_by_key, ok_by_key, canonical_by_key
 
-        if not selected_rows:
-            c.setFont('Helvetica-Bold', 24)
-            c.drawCentredString(width / 2, height / 2, 'Nessun cartello selezionato')
-            c.showPage()
-            c.save()
-            bio.seek(0)
-            return bio
 
-        total = len(selected_rows)
+    def _match_key_qr_buono(db, buono, codice_scansionato):
+        """Trova la chiave QR del buono compatibile con il codice scansionato."""
+        expected_by_key, ok_by_key, canonical_by_key = _conteggi_qr_buono_carico(db, buono)
 
-        for idx, r in enumerate(selected_rows, start=1):
-            rid = getattr(r, 'id_articolo', None)
+        scan_variants = {_key_codice_entrata_buono(v) for v in _codice_entrata_varianti(codice_scansionato)}
+        scan_variants.add(_key_codice_entrata_buono(codice_scansionato))
 
-            cliente = (
-                _safe_text(form.get(f'cartello_cliente_{rid}'))
-                or _safe_text(getattr(r, 'cliente', ''))
-                or _safe_text(form.get('picking_cliente'))
-            )
-            ditta = (
-                _safe_text(form.get(f'cartello_ditta_{rid}'))
-                or _safe_text(getattr(r, 'fornitore', ''))
-                or _safe_text(form.get('fornitore'))
-            )
-            marca_pezzi = (
-                _safe_text(form.get(f'codice_buono_{rid}'))
-                or _safe_text(getattr(r, 'codice_articolo', ''))
-            )
-            descrizione = (
-                _safe_text(form.get(f'descrizione_buono_{rid}'))
-                or _safe_text(getattr(r, 'descrizione', ''))
-            )
-            protocollo = _safe_text(getattr(r, 'protocollo', '')) or _safe_text(form.get('protocollo'))
-            arrivo = _safe_text(getattr(r, 'n_arrivo', ''))
-            n_pallet = _safe_text(form.get(f'cartello_n_pallet_{rid}')) or str(idx)
-            posizione = _safe_text(form.get(f'cartello_posizione_{rid}')) or _safe_text(getattr(r, 'posizione', ''))
-            destinazione = _safe_text(form.get(f'cartello_destinazione_{rid}'))
-            n_pezzi = _safe_text(form.get(f'q_{rid}')) or _safe_text(getattr(r, 'pezzo', ''))
+        for k in expected_by_key.keys():
+            if k in scan_variants:
+                return k, canonical_by_key.get(k) or codice_scansionato
 
-            titolo_cliente = cliente.upper() if cliente else 'FINCANTIERI'
-            titolo = f"{titolo_cliente} PICKING"
+        # confronto extra tollerante sulle varianti testuali
+        scan_norms = {normalize_text_key(v) for v in _codice_entrata_varianti(codice_scansionato)}
+        scan_norms.add(normalize_text_key(codice_scansionato))
+        for k, canon in canonical_by_key.items():
+            vars_norm = {normalize_text_key(v) for v in _codice_entrata_varianti(canon)}
+            if vars_norm.intersection(scan_norms):
+                return k, canon
 
-            try:
-                logo_path = globals().get('LOGO_PATH')
-                if logo_path and _os.path.exists(logo_path):
-                    img = ImageReader(logo_path)
-                    c.drawImage(img, width / 2 - 80, height - 95, width=160, height=55,
-                                preserveAspectRatio=True, mask='auto')
-            except Exception:
-                pass
+        return None, codice_scansionato
 
-            y = height - 155
-            c.setFont('Helvetica-Bold', 30)
-            c.drawCentredString(width / 2, y, titolo[:34])
-            y -= 62
 
-            def line(label, value='', size=31, bold_value=True, max_lines=2, value_below=False):
-                nonlocal y
-                label = _safe_text(label)
-                value = _safe_text(value)
-                c.setFont('Helvetica-Bold', size)
-                c.drawString(35, y, label)
+    def _stats_buono_carico(db, buono):
+        """Statistiche buono carico: conta i colli reali per QR, non solo le righe."""
+        righe = _righe_buono_carico(db, buono)
 
-                if not value:
-                    y -= 58
-                    return
+        if righe:
+            previsti = sum(int(r.colli_previsti or 0) for r in righe)
+        else:
+            previsti = int(buono.pallet_previsti or 0)
 
-                if value_below:
-                    # Il valore parte dalla riga successiva e sfrutta tutta la larghezza.
-                    value_y = y - size - 10
-                    y_after = draw_wrapped(
-                        value, 35, value_y,
-                        max_width=width - 70,
-                        size=size,
-                        bold=bold_value,
-                        max_lines=max_lines
-                    )
-                    y = y_after - 12
-                else:
-                    x_val = 35 + c.stringWidth(label, 'Helvetica-Bold', size) + 8
-                    y_after = draw_wrapped(
-                        value, x_val, y,
-                        max_width=width - x_val - 35,
-                        size=size,
-                        bold=bold_value,
-                        max_lines=max_lines
-                    )
-                    y = min(y - 58, y_after - 12)
+        expected_by_key, ok_by_key, canonical_by_key = _conteggi_qr_buono_carico(db, buono)
 
-            line('DITTA :', ditta, 31, True, 2)
-            line('N.BUONO:', bn, 31, True, 1)
-            # I marca-pezzi vanno sotto l'etichetta e a capo dopo i trattini:
-            # in questo modo non vengono mai tagliati sul bordo destro del cartello.
-            line('MARCA PEZZI:', marca_pezzi, 26, True, 4, value_below=True)
-            line('DESCRIZIONE:', descrizione, 24, False, 2)
-            line('PROTOCOLLO:', protocollo, 26, False, 2)
-            line('ARRIVO ', arrivo, 31, False, 1)
-            line('N.PALLET:', n_pallet, 31, True, 1)
-            line('N. PEZZI:', n_pezzi, 31, True, 1)
+        ok = 0
+        for k, prev in expected_by_key.items():
+            ok += min(int(ok_by_key.get(k, 0)), int(prev or 0))
 
-            if posizione:
-                line('POSIZIONE:', posizione, 24, True, 34, 1)
-            if destinazione:
-                line('DESTINAZIONE:', destinazione, 24, True, 30, 1)
+        # fallback vecchi buoni senza righe/codici
+        if not expected_by_key:
+            ok = db.query(BuonoCaricoScan).filter(
+                BuonoCaricoScan.buono_id == buono.id,
+                BuonoCaricoScan.esito == "OK"
+            ).count()
 
-            c.setFont('Helvetica-Bold', 18)
-            c.drawCentredString(width / 2, 45, f'CARTELLO {idx} DI {total}')
+        return {
+            "ok": ok,
+            "mancanti": max(0, previsti - ok),
+            "previsti": previsti
+        }
 
-            c.showPage()
 
-        c.save()
-        bio.seek(0)
-        return bio
+    def _riepilogo_scansioni_buono_carico(db, buono):
+        """Riepiloga arrivi caricati/mancanti e scansioni non presenti nel buono.
 
-    def _extract_ids_from_request(req_data):
-        """Legge gli ID selezionati anche quando arrivano da più pagine.
-
-        Accetta sia:
-        - ids ripetuti: ids=1&ids=2&ids=3
-        - ids come stringa: ids=1,2,3
-        - selected_ids_all: 1,2,3  (campo robusto aggiunto da giacenze.html)
+        Nota: se un QR ha 2 colli previsti, servono 2 scansioni OK dello stesso QR.
         """
-        raw_values = []
-        try:
-            # Campo definitivo inviato da giacenze.html per selezioni su più pagine.
-            ids_all = (req_data.get('ids_all') or '').strip()
-            if ids_all:
-                raw_values.append(ids_all)
-        except Exception:
-            pass
-        try:
-            all_ids = (req_data.get('selected_ids_all') or '').strip()
-            if all_ids:
-                raw_values.append(all_ids)
-        except Exception:
-            pass
-        try:
-            raw_values.extend(req_data.getlist('ids'))
-        except Exception:
-            v = req_data.get('ids') if hasattr(req_data, 'get') else ''
-            if v:
-                raw_values.append(v)
+        righe = _righe_buono_carico(db, buono)
+        scansioni = db.query(BuonoCaricoScan).filter(
+            BuonoCaricoScan.buono_id == buono.id
+        ).order_by(BuonoCaricoScan.id.desc()).all()
 
-        ids = []
-        seen = set()
-        for raw in raw_values:
-            for part in re.split(r'[,;\s]+', str(raw or '')):
-                part = part.strip()
-                if part.isdigit() and part not in seen:
-                    seen.add(part)
-                    ids.append(int(part))
-        return ids
+        expected_by_key, ok_by_key, canonical_by_key = _conteggi_qr_buono_carico(db, buono)
 
-    @app.route('/buono/preview', methods=['POST'])
+        wrong_scans = []
+        for s in scansioni:
+            if s.esito in ("SBAGLIATO", "ERRORE"):
+                wrong_scans.append(s)
+
+        # Per lo stato riga: assegna le scansioni disponibili alle righe dello stesso QR in ordine.
+        usate_by_key = {}
+        mancanti = []
+        caricati = []
+        row_status = {}
+
+        for r in righe:
+            cod = (r.codice_entrata or "").strip()
+            k = _key_codice_entrata_buono(cod)
+            prev_riga = int(r.colli_previsti or 0)
+            ok_disponibili = int(ok_by_key.get(k, 0))
+            gia_usate = int(usate_by_key.get(k, 0))
+            residuo_ok = max(0, ok_disponibili - gia_usate)
+
+            if residuo_ok >= prev_riga and prev_riga > 0:
+                row_status[str(r.id)] = "caricato"
+                caricati.append(r)
+                usate_by_key[k] = gia_usate + prev_riga
+            elif residuo_ok > 0:
+                row_status[str(r.id)] = "parziale"
+                mancanti.append(r)
+                usate_by_key[k] = gia_usate + residuo_ok
+            else:
+                row_status[str(r.id)] = "mancante"
+                mancanti.append(r)
+
+        ok_codes = set()
+        for k, n_ok in ok_by_key.items():
+            if int(n_ok or 0) > 0:
+                ok_codes.add(k)
+
+        return {
+            "mancanti": mancanti,
+            "caricati": caricati,
+            "sbagliati": wrong_scans,
+            "ok_codes": ok_codes,
+            "row_status": row_status,
+            "expected_by_key": expected_by_key,
+            "ok_by_key": ok_by_key,
+        }
+
+
+    def _aggiorna_stato_buono_carico(db, buono):
+        st = _stats_buono_carico(db, buono)
+        errori = db.query(BuonoCaricoScan).filter(BuonoCaricoScan.buono_id == buono.id, BuonoCaricoScan.esito.in_(["ERRORE", "SBAGLIATO"])).count()
+        if errori and st["ok"] < st["previsti"]:
+            buono.stato = "ERRORE"
+        elif st["ok"] >= st["previsti"] and st["previsti"] > 0:
+            buono.stato = "COMPLETATO"
+        elif st["ok"] > 0:
+            buono.stato = "PARZIALE"
+        else:
+            buono.stato = "DA CARICARE"
+        db.commit()
+
+
+    @app.route("/buono_carico_da_riga", methods=["POST"])
     @login_required
-    def buono_preview():
-        if session.get('role') != 'admin':
-            flash('Accesso negato.', 'danger')
-            return redirect(url_for('giacenze'))
+    @require_admin_or_magazzino
+    def buono_carico_da_riga():
+        """Crea un buono di carico QR partendo da una o più righe selezionate in Magazzino."""
+        ids = request.form.getlist("ids") or request.form.getlist("selected_ids") or request.form.getlist("selected") or []
+        ids = [str(x).strip() for x in ids if str(x).strip().isdigit()]
 
-        ids = _extract_ids_from_request(request.form)
-
-        if not ids:
-            flash("Seleziona almeno un articolo per creare il buono.", "warning")
-            return redirect(url_for('giacenze'))
+        if len(ids) < 1:
+            flash("Seleziona almeno una riga per creare il buono di carico QR.", "warning")
+            return redirect(url_for("giacenze"))
 
         db = SessionLocal()
         try:
-            rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-            if not rows:
-                flash("⚠️ Nessun articolo trovato per gli ID selezionati. Torna alle Giacenze e ripeti la selezione.", "warning")
-                return redirect(url_for('giacenze'))
-            if len(rows) != len(ids):
-                flash(f"⚠️ Attenzione: selezionati {len(ids)} ID ma trovati {len(rows)} articoli. Verifica eventuali righe eliminate o filtri attivi.", "warning")
-            if len(ids) > 50:
-                flash(f"ℹ️ Buono multipagina: {len(ids)} articoli selezionati. Controlla il numero righe nell'anteprima prima di salvare.", "info")
-            ordine_ids = {idv: idx for idx, idv in enumerate(ids)}
-            rows.sort(key=lambda r: ordine_ids.get(getattr(r, 'id_articolo', 0), 999999))
+            Base.metadata.create_all(engine)
 
-            protocolli_trovati = set()
-            for r in rows:
-                if r.protocollo and str(r.protocollo).strip():
-                    protocolli_trovati.add(str(r.protocollo).strip())
-            protocollo_auto = ", ".join(sorted(protocolli_trovati))
+            articoli = (
+                db.query(Articolo)
+                .filter(Articolo.id_articolo.in_([int(x) for x in ids]))
+                .order_by(Articolo.id_articolo.asc())
+                .all()
+            )
 
-            commessa_auto = next((r.commessa for r in rows if r.commessa), "")
-            fornitore_auto = next((r.fornitore for r in rows if r.fornitore), "")
-            buono_n_esistente = next((r.buono_n for r in rows if r.buono_n), "")
-            buono_n_auto = buono_n_esistente or _next_buono_number(db)
-            ordine_auto = next((r.ordine for r in rows if r.ordine), "")
+            if not articoli:
+                flash("Nessuna riga selezionata trovata.", "danger")
+                return redirect(url_for("giacenze"))
 
-            picking_cliente_auto = _join_unique([getattr(r, 'cliente', '') for r in rows], 120)
-            picking_n_arrivo_auto = _join_unique([getattr(r, 'n_arrivo', '') for r in rows], 500)
-            picking_colli_auto = _sum_int_attr(rows, 'n_colli') or len(rows)
+            usciti = [str(a.id_articolo) for a in articoli if (a.data_uscita or a.n_ddt_uscita)]
+            if usciti:
+                flash("Alcune righe selezionate risultano già uscite: " + ", ".join(usciti), "warning")
+                return redirect(url_for("giacenze"))
 
-            meta = {
-                "buono_n": buono_n_auto,
-                "buono_n_auto": buono_n_auto,
-                "buono_n_esistente": buono_n_esistente,
-                "data_em": datetime.today().strftime("%d/%m/%Y"),
-                "commessa": commessa_auto,
-                "fornitore": fornitore_auto,
-                "protocollo": protocollo_auto,
-                "ordine": ordine_auto,
-                "picking_cliente": picking_cliente_auto,
-                "picking_descrizione": "PICKING+FILMATURA+PALLETIZZAZIONE",
-                "picking_richiesta_di": "",
-                "picking_seriali": buono_n_auto,
-                "picking_n_arrivo": picking_n_arrivo_auto,
-                "picking_colli": picking_colli_auto,
-                "cartello_ditta": fornitore_auto,
-                "cartello_n_pallet": "",
-                "cartello_n_pezzi": _sum_pezzi_rows(rows),
-                "cartello_marca_pezzi": "",
-            }
+            clienti = {validate_cliente_or_raise(a.cliente) for a in articoli}
+            if len(clienti) > 1:
+                flash("Per creare un buono di carico unico seleziona righe dello stesso cliente.", "warning")
+                return redirect(url_for("giacenze"))
 
-            return render_template('buono_preview.html', rows=rows, meta=meta, ids=",".join(map(str, ids)))
+            cliente = list(clienti)[0]
+            primo = articoli[0]
+
+            buono = BuonoCarico(
+                codice_buono=_next_codice_buono_carico(db),
+                id_articolo_origine=primo.id_articolo,
+                cliente=cliente,
+                fornitore="",
+                codice_articolo="",
+                descrizione="",
+                n_arrivo="",
+                n_ddt_ingresso="",
+                data_ingresso=primo.data_ingresso or date.today().strftime("%Y-%m-%d"),
+                codice_entrata="",
+                pallet_previsti=0,
+                peso_previsto=0.0,
+                stato="DA CARICARE",
+                note=f"Creato da {len(articoli)} righe magazzino",
+                created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                created_by=_current_username_for_audit()
+            )
+            db.add(buono)
+            db.flush()
+
+            totale_colli = 0
+            totale_peso = 0.0
+            codici_entrata = []
+            codici_articolo = []
+            descrizioni = []
+            arrivi = []
+            ddt_ing = []
+            fornitori = []
+
+            def _add_unique(lista, valore):
+                valore = (str(valore or "")).strip()
+                if valore and valore not in lista:
+                    lista.append(valore)
+
+            for art in articoli:
+                n_arrivo_base = strip_arrivo_progressivo(art.n_arrivo)
+                codice_entrata = ensure_codice_entrata(
+                    getattr(art, "codice_entrata", None),
+                    n_arrivo=n_arrivo_base or art.n_arrivo,
+                    n_ddt=art.n_ddt_ingresso,
+                    data_ingresso=art.data_ingresso,
+                    cliente=cliente
+                )
+
+                if not (getattr(art, "codice_entrata", "") or "").strip():
+                    art.codice_entrata = codice_entrata
+
+                try:
+                    colli = int(art.n_colli or 0)
+                except Exception:
+                    colli = 0
+                if colli <= 0:
+                    colli = 1
+
+                try:
+                    peso = float(art.peso or 0)
+                except Exception:
+                    peso = 0.0
+
+                totale_colli += colli
+                totale_peso += peso
+
+                _add_unique(codici_entrata, codice_entrata)
+                _add_unique(codici_articolo, art.codice_articolo)
+                _add_unique(descrizioni, art.descrizione)
+                _add_unique(arrivi, n_arrivo_base or art.n_arrivo)
+                _add_unique(ddt_ing, art.n_ddt_ingresso)
+                _add_unique(fornitori, art.fornitore)
+
+                db.add(BuonoCaricoRiga(
+                    buono_id=buono.id,
+                    id_articolo=art.id_articolo,
+                    cliente=cliente,
+                    fornitore=art.fornitore or "",
+                    codice_articolo=art.codice_articolo or "",
+                    descrizione=art.descrizione or "",
+                    n_arrivo=n_arrivo_base or (art.n_arrivo or ""),
+                    n_ddt_ingresso=art.n_ddt_ingresso or "",
+                    data_ingresso=art.data_ingresso or "",
+                    codice_entrata=codice_entrata,
+                    colli_previsti=colli,
+                    peso_previsto=peso
+                ))
+
+            buono.fornitore = " / ".join(fornitori)[:500]
+            buono.codice_articolo = "; ".join(codici_articolo)[:500]
+            buono.descrizione = "; ".join(descrizioni)[:800]
+            buono.n_arrivo = "; ".join(arrivi)[:500]
+            buono.n_ddt_ingresso = "; ".join(ddt_ing)[:500]
+            buono.codice_entrata = "; ".join(codici_entrata)[:1500]
+            buono.pallet_previsti = totale_colli
+            buono.peso_previsto = totale_peso
+
+            db.commit()
+            flash(f"Buono di carico QR creato con {len(articoli)} righe/arrivi selezionati.", "success")
+            return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
+
+        except Exception as e:
+            db.rollback()
+            try:
+                scrivi_log_errore("Errore buono_carico_da_riga multi", e)
+            except Exception:
+                pass
+            flash(f"Errore creazione buono di carico: {e}", "danger")
+            return redirect(url_for("giacenze"))
         finally:
             db.close()
 
-    @app.route('/buono/finalize_and_get_pdf', methods=['POST'])
+
+    @app.route("/buoni_carico", methods=["GET", "POST"])
     @login_required
-    def buono_finalize_and_get_pdf():
-        """Valida, genera e salva il Buono senza consentire giacenze negative o codici non presenti."""
+    @require_admin_or_magazzino
+    def buoni_carico():
         db = SessionLocal()
-
-        class BuonoValidationError(Exception):
-            pass
-
         try:
-            req_data = request.form
-            ids = _extract_ids_from_request(req_data)
-            if not ids:
-                raise BuonoValidationError("Nessuna riga selezionata per il Buono.")
+            Base.metadata.create_all(engine)
+            if request.method == "POST":
+                cliente = validate_cliente_or_raise(request.form.get("cliente"))
+                fornitore = (request.form.get("fornitore") or "").strip()
+                codice_articolo = (request.form.get("codice_articolo") or "").strip()
+                descrizione = (request.form.get("descrizione") or "").strip()
+                n_arrivo = (request.form.get("n_arrivo") or "").strip()
+                n_ddt_ingresso = (request.form.get("n_ddt_ingresso") or "").strip()
+                data_ingresso = (request.form.get("data_ingresso") or date.today().strftime("%Y-%m-%d")).strip()
+                codice_entrata = (request.form.get("codice_entrata") or "").strip()
+                note = (request.form.get("note") or "").strip()
 
-            rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-            if len(rows) != len(ids):
-                raise BuonoValidationError(
-                    "Una o più righe non sono più disponibili. Aggiorna le Giacenze e ripeti la selezione."
-                )
-
-            ordine_ids = {idv: idx for idx, idv in enumerate(ids)}
-            rows.sort(key=lambda r: ordine_ids.get(getattr(r, 'id_articolo', 0), 999999))
-
-            action = (req_data.get('action') or 'preview').strip().lower()
-            buono_mode = (req_data.get('buono_mode') or 'auto').strip().lower()
-            bn = (req_data.get('buono_n') or '').strip()
-            if buono_mode == 'auto' or not bn:
-                bn = _next_buono_number(db)
-
-            if action == 'cartello':
-                pdf_bio = _generate_cartello_fincantieri_pdf(req_data, rows, bn)
-                safe_bn = (bn or "senza_numero").replace("/", "-").replace("\\", "-")
-                return send_file(
-                    pdf_bio,
-                    as_attachment=False,
-                    download_name=f'Cartello_Fincantieri_{safe_bn}.pdf',
-                    mimetype='application/pdf'
-                )
-
-            # Anteprima: nessuna modifica al database.
-            if action != 'save':
-                pdf_bio = _generate_buono_pdf(req_data, rows)
-                safe_bn = (bn or "senza_numero").replace("/", "-").replace("\\", "-")
-                return send_file(
-                    pdf_bio,
-                    as_attachment=False,
-                    download_name=f'Buono_{safe_bn}.pdf',
-                    mimetype='application/pdf'
-                )
-
-            # -----------------------------------------------------------------
-            # VALIDAZIONE COMPLETA PRIMA DI MODIFICARE QUALSIASI RIGA
-            # -----------------------------------------------------------------
-            prepared = []
-
-            for r in rows:
-                rid = r.id_articolo
-                old_cod = (r.codice_articolo or '').strip()
-                old_desc = (r.descrizione or '').strip()
-                codice_scelto = (req_data.get(f"codice_buono_{rid}") or old_cod).strip()
-                descr_scelta = (req_data.get(f"descrizione_buono_{rid}") or old_desc).strip()
-                q_raw = (req_data.get(f"q_{rid}") or '').strip()
-
-                # Controllo concorrenza: la riga deve essere ancora uguale a quella mostrata nell'anteprima.
-                old_cod_form = (req_data.get(f"original_codice_{rid}") or old_cod).strip()
-                old_pezzi_form = _num_float(req_data.get(f"original_pezzi_{rid}"))
-                if _norm_for_match(old_cod_form) != _norm_for_match(old_cod):
-                    raise BuonoValidationError(
-                        f"La riga ID {rid} è stata modificata da un altro utente. "
-                        "Aggiorna le Giacenze e ripeti il Buono."
-                    )
-
-                pezzi_originali = _num_float(getattr(r, 'pezzo', None))
-                if abs(old_pezzi_form - pezzi_originali) > 0.000001:
-                    raise BuonoValidationError(
-                        f"La disponibilità della riga ID {rid} è cambiata da "
-                        f"{_fmt_num_clean(old_pezzi_form)} a {_fmt_num_clean(pezzi_originali)} pezzi. "
-                        "Aggiorna le Giacenze e ripeti il Buono."
-                    )
-
-                if pezzi_originali <= 0:
-                    raise BuonoValidationError(
-                        "CAMY AI - PRELIEVO BLOCCATO\n\n"
-                        f"Marca pezzo: {codice_scelto or old_cod or 'non indicato'}\n"
-                        "Disponibilità: 0 pezzi.\n\n"
-                        "Il materiale risulta esaurito o già prelevato. Il Buono non è stato creato."
-                    )
-
-                if not q_raw:
-                    raise BuonoValidationError(
-                        f"Inserisci la quantità da prelevare per il marca pezzo {codice_scelto or old_cod}."
-                    )
-
-                pezzi_scelti = _num_float(q_raw)
-                if pezzi_scelti <= 0:
-                    raise BuonoValidationError(
-                        f"La quantità del marca pezzo {codice_scelto or old_cod} deve essere maggiore di zero."
-                    )
-                if pezzi_scelti > pezzi_originali:
-                    raise BuonoValidationError(
-                        "CAMY AI - GIACENZA INSUFFICIENTE\n\n"
-                        f"Marca pezzo: {codice_scelto or old_cod}\n"
-                        f"Richiesti: {_fmt_num_clean(pezzi_scelti)} pezzi\n"
-                        f"Disponibili: {_fmt_num_clean(pezzi_originali)} pezzi\n\n"
-                        "Riduci la quantità e riprova. Il Buono non è stato creato."
-                    )
-
-                if not codice_scelto:
-                    raise BuonoValidationError(f"Il codice/marca pezzo della riga ID {rid} è vuoto.")
-
-                # I marca-pezzi scelti devono esistere davvero nella riga originale.
-                original_parts = [p for p in (_split_multi_value(old_cod) or [old_cod]) if not _is_package_token(p)]
-                original_norms = {_norm_for_match(p) for p in original_parts if _norm_for_match(p)}
-                selected_parts = [p for p in (_split_multi_value(codice_scelto) or [codice_scelto]) if not _is_package_token(p)]
-                selected_norms = [_norm_for_match(p) for p in selected_parts if _norm_for_match(p)]
-
-                if selected_norms and original_norms:
-                    # Il codice può essere composto da più marca-pezzi consecutivi, ad esempio
-                    # CB052CF-CB053CF, mentre la riga originale contiene anche CB051CF prima.
-                    # In questo caso il blocco completo selezionato è comunque presente nella
-                    # stringa originale e non deve essere segnalato come mancante.
-                    original_full_norm = _norm_for_match(old_cod)
-                    mancanti = []
-                    for parte in selected_parts:
-                        parte_norm = _norm_for_match(parte)
-                        if not parte_norm:
-                            continue
-                        presente = (
-                            parte_norm in original_norms
-                            or parte_norm in original_full_norm
-                        )
-                        if not presente:
-                            mancanti.append(parte)
-
-                    if mancanti:
-                        raise BuonoValidationError(
-                            "CAMY AI - MARCA PEZZO NON DISPONIBILE\n\n"
-                            f"Riga ID: {rid}\n"
-                            f"Non presente nella giacenza: {', '.join(mancanti)}\n\n"
-                            "Controlla il codice richiesto. Il Buono non è stato creato."
-                        )
-
-                # Nel magazzino lo stesso marca-pezzo può comparire più volte:
-                # - nella stessa cassa/package, quando rappresenta più pezzi uguali;
-                # - su casse/package o ID differenti.
-                # Non viene quindi applicato alcun blocco per codici ripetuti.
-                # Restano attivi i controlli su disponibilità, quantità e presenza
-                # reale del codice nella riga selezionata.
-
-                prepared.append({
-                    'row': r,
-                    'old_cod': old_cod,
-                    'old_desc': old_desc,
-                    'codice_scelto': codice_scelto,
-                    'descr_scelta': descr_scelta,
-                    'note_inserite': req_data.get(f"note_{rid}"),
-                    'note_originale': r.note,
-                    'pezzi_originali': pezzi_originali,
-                    'pezzi_scelti': pezzi_scelti,
-                    'pezzi_residui': pezzi_originali - pezzi_scelti,
-                })
-
-            scarico_parziale_eseguito = False
-
-            # -----------------------------------------------------------------
-            # APPLICAZIONE DELLE MODIFICHE DOPO CHE TUTTE LE RIGHE SONO VALIDE
-            # -----------------------------------------------------------------
-            for item in prepared:
-                r = item['row']
-                old_cod = item['old_cod']
-                old_desc = item['old_desc']
-                codice_scelto = item['codice_scelto']
-                descr_scelta = item['descr_scelta']
-                note_inserite = item['note_inserite']
-                note_originale = item['note_originale']
-                pezzi_originali = item['pezzi_originali']
-                pezzi_scelti = item['pezzi_scelti']
-                pezzi_residui = item['pezzi_residui']
-
-                cod_parziale = bool(_norm_for_match(codice_scelto) != _norm_for_match(old_cod))
-                desc_parziale = bool(descr_scelta and _norm_for_match(descr_scelta) != _norm_for_match(old_desc))
-                qta_parziale = pezzi_scelti < pezzi_originali
-
-                if cod_parziale or desc_parziale or qta_parziale:
-                    scarico_parziale_eseguito = True
-                    r.buono_n = ""
-
-                    riga_buono = Articolo()
-                    for col in Articolo.__table__.columns:
-                        if col.name != 'id_articolo':
-                            setattr(riga_buono, col.name, getattr(r, col.name))
-
-                    riga_buono.codice_articolo = _normalizza_codice_articolo(codice_scelto)
-                    riga_buono.descrizione = descr_scelta or old_desc
-                    riga_buono.buono_n = bn
-                    riga_buono.pezzo = _piece_value_for_db(pezzi_scelti)
-                    r.pezzo = _piece_value_for_db(pezzi_residui)
-
-                    for campo in ('peso', 'm2', 'm3'):
-                        residuo_val, scelto_val = _split_quantita(
-                            pezzi_originali, pezzi_scelti, getattr(r, campo, None)
-                        )
-                        setattr(riga_buono, campo, _round_db_number(scelto_val))
-                        setattr(r, campo, _round_db_number(residuo_val))
-
-                    # Regola aziendale: una riga rappresenta sempre un collo.
-                    riga_buono.n_colli = 1
-                    r.n_colli = 1
-                    riga_buono.note = (note_inserite or '').strip()
-                    db.add(riga_buono)
-
-                    if cod_parziale:
-                        # Ricostruzione deterministica: PACKAGE una sola volta,
-                        # solo i marca-pezzi residui e separatore sempre '-'.
-                        r.codice_articolo = _ricostruisci_codice_residuo(
-                            old_cod, codice_scelto
-                        )
-                    else:
-                        r.codice_articolo = _normalizza_codice_articolo(old_cod)
-
-                    if desc_parziale:
-                        descr_residua = _clean_residual_cell(old_desc, descr_scelta)
-                        descr_residua = _preserve_package_context(
-                            descr_residua, old_desc, descr_scelta
-                        )
-                        r.descrizione = descr_residua if descr_residua else old_desc
-                    else:
-                        r.descrizione = old_desc
-
-                    r.note = note_originale
-                else:
-                    r.buono_n = bn
-                    if note_inserite is not None:
-                        r.note = note_inserite
-                    r.pezzo = _piece_value_for_db(pezzi_scelti)
-                    r.n_colli = 1
-
-            # Genera il PDF prima del commit: se il PDF fallisce, il DB resta invariato.
-            db.flush()
-            pdf_bio = _generate_buono_pdf(req_data, rows)
-            db.commit()
-
-            # Picking separato: un eventuale errore non annulla il Buono già salvato.
-            picking_msg = ""
-            picking_created = False
-            try:
-                if req_data.get('picking_enable') == '1':
-                    fresh_rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-                    picking_created, picking_msg = _create_picking_from_buono_form(
-                        db, req_data, fresh_rows, bn
-                    )
-                    db.commit()
-            except Exception as e_pick:
-                db.rollback()
-                picking_msg = "Picking non creato automaticamente: controllare la sezione Picking/Lavorazioni."
                 try:
-                    scrivi_log_errore("Errore creazione picking da buono", e_pick)
+                    pallet_previsti = int(float((request.form.get("pallet_previsti") or "0").replace(",", ".")))
                 except Exception:
-                    pass
+                    pallet_previsti = 0
+                try:
+                    peso_previsto = float((request.form.get("peso_previsto") or "0").replace(".", "").replace(",", "."))
+                except Exception:
+                    peso_previsto = 0.0
 
-            if picking_msg:
-                flash(picking_msg, "success" if picking_created else "warning")
+                if pallet_previsti <= 0:
+                    flash("Inserisci i pallet previsti.", "danger")
+                    return redirect(url_for("buoni_carico"))
 
-            if scarico_parziale_eseguito:
-                flash(
-                    "Scarico parziale salvato: i pezzi sono stati scalati, i marca-pezzi del Buono "
-                    "sono stati rimossi dal residuo e PACKAGE/PALLET/CASSA sono rimasti in giacenza.",
-                    "success"
+                if not codice_entrata:
+                    codice_entrata = genera_codice_entrata(n_arrivo=n_arrivo, n_ddt=n_ddt_ingresso, data_ingresso=data_ingresso, cliente=cliente)
+
+                buono = BuonoCarico(
+                    codice_buono=_next_codice_buono_carico(db),
+                    cliente=cliente,
+                    fornitore=fornitore,
+                    codice_articolo=codice_articolo,
+                    descrizione=descrizione,
+                    n_arrivo=n_arrivo,
+                    n_ddt_ingresso=n_ddt_ingresso,
+                    data_ingresso=data_ingresso,
+                    codice_entrata=codice_entrata,
+                    pallet_previsti=pallet_previsti,
+                    peso_previsto=peso_previsto,
+                    stato="DA CARICARE",
+                    note=note,
+                    created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    created_by=_current_username_for_audit()
                 )
-            else:
-                flash("Buono salvato correttamente.", "success")
+                db.add(buono)
+                db.commit()
+                flash("Buono di carico creato.", "success")
+                return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
 
-            safe_bn = (bn or "senza_numero").replace("/", "-").replace("\\", "-")
-            return send_file(
-                pdf_bio,
-                as_attachment=True,
-                download_name=f'Buono_{safe_bn}.pdf',
-                mimetype='application/pdf'
-            )
-
-        except BuonoValidationError as e:
-            db.rollback()
-            return str(e), 409, {'Content-Type': 'text/plain; charset=utf-8'}
+            buoni = db.query(BuonoCarico).order_by(BuonoCarico.id.desc()).limit(300).all()
+            stats = {b.id: _stats_buono_carico(db, b) for b in buoni}
+            return render_template_string(BUONI_CARICO_HTML, buoni=buoni, stats=stats, clienti=get_clienti_utenti(), oggi=date.today().strftime("%Y-%m-%d"))
         except Exception as e:
             db.rollback()
             try:
-                scrivi_log_errore("Errore Buono di Prelievo", e)
+                scrivi_log_errore("Errore buoni_carico", e)
             except Exception:
                 pass
-            print(f"ERRORE BUONO: {e}")
-            return "Errore durante la creazione del Buono. Nessuna modifica è stata salvata.", 500, {
-                'Content-Type': 'text/plain; charset=utf-8'
+            flash(f"Errore buoni di carico: {e}", "danger")
+            return redirect(url_for("home"))
+        finally:
+            db.close()
+
+    @app.route("/buoni_carico/<int:buono_id>", methods=["GET"])
+    @login_required
+    @require_admin_or_magazzino
+    def dettaglio_buono_carico(buono_id):
+        db = SessionLocal()
+        try:
+            buono = db.query(BuonoCarico).filter(BuonoCarico.id == buono_id).first()
+            if not buono:
+                flash("Buono di carico non trovato.", "danger")
+                return redirect(url_for("buoni_carico"))
+            _aggiorna_stato_buono_carico(db, buono)
+            scansioni = db.query(BuonoCaricoScan).filter(BuonoCaricoScan.buono_id == buono.id).order_by(BuonoCaricoScan.id.desc()).all()
+            st = _stats_buono_carico(db, buono)
+            riepilogo_scan = _riepilogo_scansioni_buono_carico(db, buono)
+            return render_template_string(
+                BUONO_CARICO_DETTAGLIO_HTML,
+                buono=buono,
+                righe=_righe_buono_carico(db, buono),
+                scansioni=scansioni,
+                caricati_ok=st["ok"],
+                mancanti=st["mancanti"],
+                riepilogo_scan=riepilogo_scan
+            )
+        finally:
+            db.close()
+
+    @app.route("/buoni_carico/<int:buono_id>/scansiona", methods=["POST"])
+    @login_required
+    @require_admin_or_magazzino
+    def scansiona_buono_carico(buono_id):
+        db = SessionLocal()
+        try:
+            buono = db.query(BuonoCarico).filter(BuonoCarico.id == buono_id).first()
+            if not buono:
+                flash("Buono di carico non trovato.", "danger")
+                return redirect(url_for("buoni_carico"))
+
+            raw = (request.form.get("codice_scansionato") or "").strip()
+            if not raw:
+                flash("Scansiona o inserisci un codice QR.", "warning")
+                return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
+
+            codice = unquote(raw)
+            m = re.search(r"/entrata/([^/?#]+)", codice, flags=re.I)
+            if m:
+                codice = unquote(m.group(1)).strip()
+
+            expected_by_key, ok_by_key, canonical_by_key = _conteggi_qr_buono_carico(db, buono)
+            key_qr, codice_salvato = _match_key_qr_buono(db, buono, codice)
+
+            if not key_qr:
+                esito = "SBAGLIATO"
+                msg = "Arrivo sbagliato: questo QR non è collegato a questo buono di carico oppure non è da caricare."
+            else:
+                previsti_qr = int(expected_by_key.get(key_qr, 0))
+                gia_ok_qr = int(ok_by_key.get(key_qr, 0))
+
+                if gia_ok_qr >= previsti_qr and previsti_qr > 0:
+                    esito = "DUPLICATO"
+                    msg = "Questo arrivo/QR ha già raggiunto tutti i colli previsti su questo buono."
+                else:
+                    st = _stats_buono_carico(db, buono)
+                    if st["ok"] >= st["previsti"]:
+                        esito = "ERRORE"
+                        msg = "Colli in più: hai già raggiunto il numero previsto per questo buono."
+                    else:
+                        esito = "OK"
+                        msg = f"Arrivo/collo caricato correttamente ({gia_ok_qr + 1}/{previsti_qr})."
+
+            scan = BuonoCaricoScan(
+                buono_id=buono.id,
+                codice_scansionato=codice_salvato,
+                esito=esito,
+                messaggio=msg,
+                scanned_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                scanned_by=_current_username_for_audit()
+            )
+            db.add(scan)
+            db.commit()
+            _aggiorna_stato_buono_carico(db, buono)
+
+            flash(msg, "success" if esito == "OK" else ("warning" if esito == "DUPLICATO" else "danger"))
+            return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
+        except Exception as e:
+            db.rollback()
+            try:
+                scrivi_log_errore("Errore scansione buono carico multi", e)
+            except Exception:
+                pass
+            flash(f"Errore scansione: {e}", "danger")
+            return redirect(url_for("dettaglio_buono_carico", buono_id=buono_id))
+        finally:
+            db.close()
+
+
+
+
+    # ========================================================
+    #  SCANNER QR OPERATIVO - USB / BLUETOOTH / WIFI
+    # ========================================================
+    SCAN_QR_OPERATIVO_HTML = """
+    {% extends 'base.html' %}
+    {% block content %}
+    <div class="container-fluid py-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <h3 class="mb-0">🔫 Scan QR Operativo</h3>
+          <div class="text-muted small">Compatibile con scanner USB, Bluetooth e Wi-Fi in modalità tastiera/API.</div>
+        </div>
+        <a href="{{ url_for('buoni_carico') }}" class="btn btn-outline-secondary btn-sm">Buoni QR</a>
+      </div>
+
+      <div class="card shadow-sm mb-3">
+        <div class="card-body">
+          <div class="alert alert-info">
+            Clicca nel campo sotto e spara il QR con lo scanner. Se lo scanner invia anche INVIO, la scansione viene registrata automaticamente.
+          </div>
+          <form id="scanQrForm" method="POST" action="{{ url_for('scan_qr_operativo_submit') }}" class="row g-2 align-items-end">
+            <div class="col-md-3">
+              <label class="form-label">Buono specifico</label>
+              <select name="buono_id" class="form-select">
+                <option value="">Auto: trova il buono corretto</option>
+                {% for b in buoni %}
+                <option value="{{ b.id }}">{{ b.codice_buono }} - {{ b.cliente }} - {{ b.n_arrivo }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-7">
+              <label class="form-label">QR / Codice entrata</label>
+              <input id="scanQrInput" name="codice_scansionato" class="form-control form-control-lg" placeholder="Scansiona QR..." autofocus autocomplete="off" required>
+            </div>
+            <div class="col-md-2">
+              <button class="btn btn-success btn-lg w-100">Registra</button>
+            </div>
+          </form>
+
+          <div class="mt-3 small text-muted">
+            Per scanner Wi-Fi/API puoi inviare POST a <code>/api/scan_qr_operativo</code> con JSON:
+            <code>{"codice":"ENT-...", "buono_id":"facoltativo"}</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm">
+        <div class="card-header fw-bold">Ultime scansioni</div>
+        <div class="table-responsive">
+          <table class="table table-sm table-striped mb-0">
+            <thead><tr><th>Ora</th><th>Buono</th><th>Codice</th><th>Esito</th><th>Messaggio</th></tr></thead>
+            <tbody>
+              {% for s, b in ultime %}
+              <tr>
+                <td>{{ s.scanned_at }}</td>
+                <td>{{ b.codice_buono if b else '-' }}</td>
+                <td><code>{{ s.codice_scansionato }}</code></td>
+                <td><span class="badge {% if s.esito == 'OK' %}bg-success{% elif s.esito == 'DUPLICATO' %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ s.esito }}</span></td>
+                <td>{{ s.messaggio }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="text-muted text-center py-3">Nessuna scansione registrata.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function(){
+        const input = document.getElementById('scanQrInput');
+        const form = document.getElementById('scanQrForm');
+        if(input){ input.focus(); }
+        if(input && form){
+          input.addEventListener('keydown', function(e){
+            if(e.key === 'Enter'){
+              e.preventDefault();
+              if((input.value || '').trim()){ form.submit(); }
             }
+          });
+        }
+        // alcuni scanner inseriscono TAB o suffisso, rimettiamo sempre il focus
+        window.addEventListener('click', function(){ setTimeout(function(){ if(input) input.focus(); }, 100); });
+      })();
+    </script>
+    {% endblock %}
+    """
+
+    def _pulizia_codice_qr_operativo(raw):
+        codice = unquote((raw or '').strip())
+        m = re.search(r"/entrata/([^/?#]+)", codice, flags=re.I)
+        if m:
+            codice = unquote(m.group(1)).strip()
+        return codice
+
+    def _registra_scansione_qr_operativa(db, codice_raw, buono_id=None):
+        """Registra una scansione da scanner fisico o Wi-Fi.
+        Se buono_id non è indicato, cerca automaticamente il buono QR collegato.
+        """
+        codice = _pulizia_codice_qr_operativo(codice_raw)
+        if not codice:
+            return {"ok": False, "esito": "ERRORE", "messaggio": "Codice QR vuoto.", "buono_id": None}
+
+        buoni_da_controllare = []
+        if buono_id:
+            b = db.query(BuonoCarico).filter(BuonoCarico.id == int(buono_id)).first()
+            if b:
+                buoni_da_controllare = [b]
+        else:
+            buoni_da_controllare = (
+                db.query(BuonoCarico)
+                .filter(func.upper(func.coalesce(BuonoCarico.stato, '')).notin_(['ELIMINATO', 'COMPLETATO', 'CARICATO', 'CHIUSO']))
+                .order_by(BuonoCarico.id.desc())
+                .limit(300)
+                .all()
+            )
+            if not buoni_da_controllare:
+                buoni_da_controllare = db.query(BuonoCarico).order_by(BuonoCarico.id.desc()).limit(300).all()
+
+        buono_trovato = None
+        key_trovata = None
+        codice_salvato = codice
+        for b in buoni_da_controllare:
+            key_qr, cod_ok = _match_key_qr_buono(db, b, codice)
+            if key_qr:
+                buono_trovato = b
+                key_trovata = key_qr
+                codice_salvato = cod_ok
+                break
+
+        if not buono_trovato:
+            # se era stato scelto un buono specifico, registriamo comunque la scansione sbagliata su quel buono
+            if buoni_da_controllare:
+                buono_trovato = buoni_da_controllare[0]
+                scan = BuonoCaricoScan(
+                    buono_id=buono_trovato.id,
+                    codice_scansionato=codice,
+                    esito="SBAGLIATO",
+                    messaggio="QR non collegato a questo buono.",
+                    scanned_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    scanned_by=_current_username_for_audit()
+                )
+                db.add(scan); db.commit()
+                return {"ok": False, "esito": "SBAGLIATO", "messaggio": scan.messaggio, "buono_id": buono_trovato.id}
+            return {"ok": False, "esito": "NON_TROVATO", "messaggio": "Nessun buono QR collegato a questo codice.", "buono_id": None}
+
+        expected_by_key, ok_by_key, canonical_by_key = _conteggi_qr_buono_carico(db, buono_trovato)
+        previsti_qr = int(expected_by_key.get(key_trovata, 0))
+        gia_ok_qr = int(ok_by_key.get(key_trovata, 0))
+        if gia_ok_qr >= previsti_qr and previsti_qr > 0:
+            esito = "DUPLICATO"
+            msg = "Questo arrivo/QR ha già raggiunto tutti i colli previsti su questo buono."
+        else:
+            st = _stats_buono_carico(db, buono_trovato)
+            if st["ok"] >= st["previsti"]:
+                esito = "ERRORE"
+                msg = "Colli in più: hai già raggiunto il numero previsto per questo buono."
+            else:
+                esito = "OK"
+                msg = f"Arrivo/collo caricato correttamente ({gia_ok_qr + 1}/{previsti_qr})."
+
+        scan = BuonoCaricoScan(
+            buono_id=buono_trovato.id,
+            codice_scansionato=codice_salvato,
+            esito=esito,
+            messaggio=msg,
+            scanned_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            scanned_by=_current_username_for_audit()
+        )
+        db.add(scan); db.commit()
+        _aggiorna_stato_buono_carico(db, buono_trovato)
+        return {"ok": esito == "OK", "esito": esito, "messaggio": msg, "buono_id": buono_trovato.id, "buono": buono_trovato.codice_buono}
+
+    @app.route('/scan_qr_operativo', methods=['GET'])
+    @login_required
+    @require_admin_or_magazzino
+    def scan_qr_operativo():
+        db = SessionLocal()
+        try:
+            buoni = (
+                db.query(BuonoCarico)
+                .filter(func.upper(func.coalesce(BuonoCarico.stato, '')).notin_(['ELIMINATO', 'COMPLETATO', 'CARICATO', 'CHIUSO']))
+                .order_by(BuonoCarico.id.desc())
+                .limit(200)
+                .all()
+            )
+            ultime = (
+                db.query(BuonoCaricoScan, BuonoCarico)
+                .join(BuonoCarico, BuonoCarico.id == BuonoCaricoScan.buono_id)
+                .order_by(BuonoCaricoScan.id.desc())
+                .limit(30)
+                .all()
+            )
+            return render_template_string(SCAN_QR_OPERATIVO_HTML, buoni=buoni, ultime=ultime)
+        finally:
+            db.close()
+
+    @app.route('/scan_qr_operativo', methods=['POST'])
+    @login_required
+    @require_admin_or_magazzino
+    def scan_qr_operativo_submit():
+        db = SessionLocal()
+        try:
+            codice = request.form.get('codice_scansionato') or ''
+            buono_id = request.form.get('buono_id') or None
+            res = _registra_scansione_qr_operativa(db, codice, buono_id)
+            flash(res.get('messaggio') or 'Scansione registrata.', 'success' if res.get('ok') else 'warning')
+            bid = res.get('buono_id')
+            if bid:
+                return redirect(url_for('dettaglio_buono_carico', buono_id=bid))
+            return redirect(url_for('scan_qr_operativo'))
+        except Exception as e:
+            db.rollback()
+            try: scrivi_log_errore('Errore scan QR operativo', e)
+            except Exception: pass
+            flash(f'Errore scansione QR: {e}', 'danger')
+            return redirect(url_for('scan_qr_operativo'))
+        finally:
+            db.close()
+
+    @app.route('/api/scan_qr_operativo', methods=['GET', 'POST'])
+    @login_required
+    @require_admin_or_magazzino
+    def api_scan_qr_operativo():
+        payload = request.get_json(silent=True) or {}
+        codice = (payload.get('codice') or payload.get('codice_scansionato') or request.values.get('codice') or request.values.get('codice_scansionato') or '').strip()
+        buono_id = payload.get('buono_id') or request.values.get('buono_id') or None
+        db = SessionLocal()
+        try:
+            res = _registra_scansione_qr_operativa(db, codice, buono_id)
+            return jsonify(res), (200 if res.get('ok') else 400)
+        except Exception as e:
+            db.rollback()
+            try: scrivi_log_errore('Errore API scan QR operativo', e)
+            except Exception: pass
+            return jsonify({"ok": False, "esito": "ERRORE", "messaggio": str(e)}), 500
+        finally:
+            db.close()
+
+
+    @app.route("/buoni_carico/<int:buono_id>/segna_righe", methods=["POST"])
+    @login_required
+    @require_admin_or_magazzino
+    def segna_righe_buono_carico(buono_id):
+        """Permette di spuntare manualmente gli arrivi collegati al buono.
+
+        La spunta registra scansioni OK come se il QR fosse stato letto.
+        Se una riga ha più colli previsti, vengono aggiunte solo le scansioni mancanti
+        fino al totale previsto per quel codice entrata, senza duplicare colli già caricati.
+        """
+        db = SessionLocal()
+        try:
+            buono = db.query(BuonoCarico).filter(BuonoCarico.id == buono_id).first()
+            if not buono:
+                flash("Buono di carico non trovato.", "danger")
+                return redirect(url_for("buoni_carico"))
+
+            ids = request.form.getlist("riga_ids")
+            ids = [int(x) for x in ids if str(x).strip().isdigit()]
+
+            if not ids:
+                flash("Seleziona almeno un arrivo da segnare come caricato.", "warning")
+                return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
+
+            righe = (
+                db.query(BuonoCaricoRiga)
+                .filter(BuonoCaricoRiga.buono_id == buono.id, BuonoCaricoRiga.id.in_(ids))
+                .order_by(BuonoCaricoRiga.id.asc())
+                .all()
+            )
+
+            if not righe:
+                flash("Nessuna riga valida selezionata.", "warning")
+                return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
+
+            expected_by_key, ok_by_key, canonical_by_key = _conteggi_qr_buono_carico(db, buono)
+
+            aggiunte = 0
+            saltate = 0
+
+            for r in righe:
+                codice = (r.codice_entrata or "").strip()
+                if not codice:
+                    saltate += 1
+                    continue
+
+                k = _key_codice_entrata_buono(codice)
+                previsti_totali = int(expected_by_key.get(k, 0))
+                gia_ok = int(ok_by_key.get(k, 0))
+                colli_riga = int(r.colli_previsti or 0)
+                if colli_riga <= 0:
+                    colli_riga = 1
+
+                mancanti_qr = max(0, previsti_totali - gia_ok)
+                da_aggiungere = min(colli_riga, mancanti_qr)
+
+                if da_aggiungere <= 0:
+                    saltate += 1
+                    continue
+
+                codice_salvato = canonical_by_key.get(k) or codice
+
+                for i in range(da_aggiungere):
+                    scan = BuonoCaricoScan(
+                        buono_id=buono.id,
+                        codice_scansionato=codice_salvato,
+                        esito="OK",
+                        messaggio=(
+                            f"Arrivo segnato manualmente come caricato "
+                            f"({gia_ok + i + 1}/{previsti_totali})."
+                        ),
+                        scanned_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        scanned_by=_current_username_for_audit()
+                    )
+                    db.add(scan)
+                    aggiunte += 1
+
+                ok_by_key[k] = gia_ok + da_aggiungere
+
+            db.commit()
+            _aggiorna_stato_buono_carico(db, buono)
+
+            if aggiunte:
+                msg = f"Spunta registrata: {aggiunte} collo/i segnati come caricati."
+                if saltate:
+                    msg += f" {saltate} riga/e erano già complete o senza QR."
+                flash(msg, "success")
+            else:
+                flash("Nessuna scansione aggiunta: gli arrivi selezionati risultano già caricati o senza QR.", "warning")
+
+            return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
+
+        except Exception as e:
+            db.rollback()
+            try:
+                scrivi_log_errore("Errore spunta manuale buono carico", e)
+            except Exception:
+                pass
+            flash(f"Errore spunta manuale: {e}", "danger")
+            return redirect(url_for("dettaglio_buono_carico", buono_id=buono_id))
+        finally:
+            db.close()
+
+
+
+
+
+
+    @app.route("/buoni_carico/aggiungi_righe", methods=["POST"])
+    @login_required
+    @require_admin_or_magazzino
+    def aggiungi_righe_a_buono_carico():
+        """Aggiunge una o più righe selezionate dal Magazzino a un buono di carico esistente."""
+        buono_input = (
+            request.form.get("buono_carico_id_manual")
+            or request.form.get("buono_carico_id")
+            or request.form.get("aggiungi_buono_carico")
+            or request.args.get("aggiungi_buono_carico")
+            or session.get("aggiungi_buono_carico")
+            or ""
+        )
+        buono_input = str(buono_input).strip()
+
+        ids = request.form.getlist("ids") or request.form.getlist("selected_ids") or request.form.getlist("selected") or []
+        ids = [str(x).strip() for x in ids if str(x).strip().isdigit()]
+
+        if not buono_input:
+            flash("Indica l'ID del buono oppure il codice buono, esempio BC-2026-0001.", "warning")
+            return redirect(url_for("giacenze"))
+
+        if not ids:
+            flash("Seleziona almeno una riga da aggiungere al buono di carico.", "warning")
+            return redirect(url_for("giacenze", aggiungi_buono_carico=buono_input))
+
+        db = SessionLocal()
+        try:
+            Base.metadata.create_all(engine)
+
+            buono = _trova_buono_carico_da_input(db, buono_input)
+            if not buono:
+                session.pop("aggiungi_buono_carico", None)
+                flash("Buono di carico non trovato o eliminato. Seleziona nuovamente il buono dall'elenco.", "danger")
+                return redirect(url_for("giacenze"))
+
+            session["aggiungi_buono_carico"] = str(buono.id)
+
+            articoli = (
+                db.query(Articolo)
+                .filter(Articolo.id_articolo.in_([int(x) for x in ids]))
+                .order_by(Articolo.id_articolo.asc())
+                .all()
+            )
+
+            if not articoli:
+                flash("Nessuna riga selezionata trovata.", "danger")
+                return redirect(url_for("giacenze", aggiungi_buono_carico=buono.id))
+
+            try:
+                esistenti = {
+                    int(r.id_articolo) for r in db.query(BuonoCaricoRiga)
+                    .filter(BuonoCaricoRiga.buono_id == buono.id)
+                    .all()
+                    if r.id_articolo
+                }
+            except Exception:
+                esistenti = set()
+
+            aggiunte = 0
+            totale_colli_add = 0
+            totale_peso_add = 0.0
+
+            def _add_summary(current, value, sep="; ", limit=1500):
+                value = (str(value or "")).strip()
+                current = (str(current or "")).strip()
+                if not value:
+                    return current
+                parts = [p.strip() for p in current.split(sep) if p.strip()] if current else []
+                if value not in parts:
+                    parts.append(value)
+                return sep.join(parts)[:limit]
+
+            for art in articoli:
+                if art.id_articolo in esistenti:
+                    continue
+
+                cliente_art = validate_cliente_or_raise(art.cliente)
+                if normalize_text_key(cliente_art) != normalize_text_key(buono.cliente):
+                    flash("Puoi aggiungere solo righe dello stesso cliente del buono.", "warning")
+                    return redirect(url_for("giacenze", aggiungi_buono_carico=buono.id))
+
+                if art.data_uscita or art.n_ddt_uscita:
+                    flash(f"La riga ID {art.id_articolo} risulta già uscita e non può essere aggiunta.", "warning")
+                    return redirect(url_for("giacenze", aggiungi_buono_carico=buono.id))
+
+                n_arrivo_base = strip_arrivo_progressivo(art.n_arrivo)
+                codice_entrata = ensure_codice_entrata(
+                    getattr(art, "codice_entrata", None),
+                    n_arrivo=n_arrivo_base or art.n_arrivo,
+                    n_ddt=art.n_ddt_ingresso,
+                    data_ingresso=art.data_ingresso,
+                    cliente=buono.cliente
+                )
+
+                if not (getattr(art, "codice_entrata", "") or "").strip():
+                    art.codice_entrata = codice_entrata
+
+                try:
+                    colli = int(art.n_colli or 0)
+                except Exception:
+                    colli = 0
+                if colli <= 0:
+                    colli = 1
+
+                try:
+                    peso = float(art.peso or 0)
+                except Exception:
+                    peso = 0.0
+
+                db.add(BuonoCaricoRiga(
+                    buono_id=buono.id,
+                    id_articolo=art.id_articolo,
+                    cliente=buono.cliente,
+                    fornitore=art.fornitore or "",
+                    codice_articolo=art.codice_articolo or "",
+                    descrizione=art.descrizione or "",
+                    n_arrivo=n_arrivo_base or (art.n_arrivo or ""),
+                    n_ddt_ingresso=art.n_ddt_ingresso or "",
+                    data_ingresso=art.data_ingresso or "",
+                    codice_entrata=codice_entrata,
+                    colli_previsti=colli,
+                    peso_previsto=peso
+                ))
+
+                buono.fornitore = _add_summary(buono.fornitore, art.fornitore, sep=" / ", limit=500)
+                buono.codice_articolo = _add_summary(getattr(buono, "codice_articolo", ""), art.codice_articolo, sep="; ", limit=500)
+                buono.descrizione = _add_summary(getattr(buono, "descrizione", ""), art.descrizione, sep="; ", limit=800)
+                buono.n_arrivo = _add_summary(buono.n_arrivo, n_arrivo_base or art.n_arrivo, sep="; ", limit=500)
+                buono.n_ddt_ingresso = _add_summary(buono.n_ddt_ingresso, art.n_ddt_ingresso, sep="; ", limit=500)
+                buono.codice_entrata = _add_summary(buono.codice_entrata, codice_entrata, sep="; ", limit=1500)
+
+                totale_colli_add += colli
+                totale_peso_add += peso
+                aggiunte += 1
+
+            buono.pallet_previsti = int(buono.pallet_previsti or 0) + totale_colli_add
+            buono.peso_previsto = float(buono.peso_previsto or 0) + totale_peso_add
+
+            _aggiorna_stato_buono_carico(db, buono)
+            db.commit()
+
+            if aggiunte:
+                flash(f"Aggiunte {aggiunte} righe/arrivi al buono di carico {buono.codice_buono}.", "success")
+            else:
+                flash("Le righe selezionate erano già presenti nel buono.", "info")
+
+            session["aggiungi_buono_carico"] = str(buono.id)
+            return redirect(url_for("dettaglio_buono_carico", buono_id=buono.id))
+
+        except Exception as e:
+            db.rollback()
+            try:
+                scrivi_log_errore("Errore aggiunta righe a buono carico", e)
+            except Exception:
+                pass
+            flash(f"Errore aggiunta righe al buono: {e}", "danger")
+            return redirect(url_for("giacenze", aggiungi_buono_carico=buono_input))
+        finally:
+            db.close()
+
+
+    @app.route("/buoni_carico/<int:buono_id>/elimina", methods=["POST"])
+    @login_required
+    @require_admin_or_magazzino
+    def elimina_buono_carico(buono_id):
+        """Elimina un buono di carico e le relative righe/scansioni."""
+        db = SessionLocal()
+        try:
+            buono = db.query(BuonoCarico).filter(BuonoCarico.id == buono_id).first()
+            if not buono:
+                flash("Buono di carico non trovato.", "danger")
+                return redirect(url_for("buoni_carico"))
+
+            codice = buono.codice_buono or str(buono.id)
+
+            try:
+                db.query(BuonoCaricoScan).filter(BuonoCaricoScan.buono_id == buono.id).delete(synchronize_session=False)
+            except Exception:
+                pass
+
+            try:
+                db.query(BuonoCaricoRiga).filter(BuonoCaricoRiga.buono_id == buono.id).delete(synchronize_session=False)
+            except Exception:
+                pass
+
+            db.delete(buono)
+            db.commit()
+            flash(f"Buono di carico {codice} eliminato.", "success")
+            return redirect(url_for("buoni_carico"))
+        except Exception as e:
+            db.rollback()
+            try:
+                scrivi_log_errore("Errore elimina buono carico", e)
+            except Exception:
+                pass
+            flash(f"Errore eliminazione buono di carico: {e}", "danger")
+            return redirect(url_for("dettaglio_buono_carico", buono_id=buono_id))
+        finally:
+            db.close()
+
+
+    @app.route("/buoni_carico/<int:buono_id>/stampa.pdf")
+    @login_required
+    @require_admin_or_magazzino
+    def stampa_buono_carico_pdf(buono_id):
+        """Genera la stampa PDF operativa del buono di carico."""
+        db = SessionLocal()
+        try:
+            buono = db.query(BuonoCarico).filter(BuonoCarico.id == buono_id).first()
+            if not buono:
+                flash("Buono di carico non trovato.", "danger")
+                return redirect(url_for("buoni_carico"))
+
+            righe = _righe_buono_carico(db, buono)
+            stats = _stats_buono_carico(db, buono)
+
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(
+                buffer,
+                pagesize=A4,
+                rightMargin=12*mm,
+                leftMargin=12*mm,
+                topMargin=12*mm,
+                bottomMargin=12*mm
+            )
+
+            styles = getSampleStyleSheet()
+            title_style = ParagraphStyle(
+                "TitoloBuonoCarico",
+                parent=styles["Title"],
+                fontSize=16,
+                alignment=TA_CENTER,
+                spaceAfter=8
+            )
+            normal = styles["Normal"]
+            small = ParagraphStyle("small", parent=styles["Normal"], fontSize=8, leading=10)
+            from xml.sax.saxutils import escape as _xml_escape
+
+            def _pdf_text_cell(value, style=small):
+                """Cella PDF con ritorno a capo automatico; separa anche liste con / o ;."""
+                s = str(value or "").strip()
+                s = _xml_escape(s)
+                s = s.replace(" / ", "<br/>").replace("; ", "<br/>")
+                return Paragraph(s or "-", style)
+
+
+            story = []
+
+            # Logo opzionale
+            try:
+                if LOGO_PATH and Path(LOGO_PATH).exists():
+                    story.append(RLImage(LOGO_PATH, width=38*mm, height=14*mm))
+                    story.append(Spacer(1, 4))
+            except Exception:
+                pass
+
+            story.append(Paragraph(f"BUONO DI CARICO {buono.codice_buono or ''}", title_style))
+            story.append(Spacer(1, 6))
+
+            dati = [
+                ["Cliente", _pdf_text_cell(buono.cliente), "Stato", _pdf_text_cell(buono.stato or "DA CARICARE")],
+                ["Fornitore", _pdf_text_cell(buono.fornitore), "Data", _pdf_text_cell(buono.data_ingresso)],
+                ["Colli previsti", str(stats.get("previsti", 0)), "Colli caricati", str(stats.get("ok", 0))],
+                ["Colli mancanti", str(stats.get("mancanti", 0)), "Peso previsto", it_num(buono.peso_previsto or 0, 2) + " kg"],
+            ]
+            t = Table(dati, colWidths=[32*mm, 62*mm, 32*mm, 50*mm])
+            t.setStyle(TableStyle([
+                ("GRID", (0,0), (-1,-1), 0.3, colors.grey),
+                ("BACKGROUND", (0,0), (0,-1), colors.whitesmoke),
+                ("BACKGROUND", (2,0), (2,-1), colors.whitesmoke),
+                ("FONTNAME", (0,0), (-1,-1), "Helvetica"),
+                ("FONTSIZE", (0,0), (-1,-1), 8),
+                ("VALIGN", (0,0), (-1,-1), "TOP"),
+                ("LEFTPADDING", (0,0), (-1,-1), 4),
+                ("RIGHTPADDING", (0,0), (-1,-1), 4),
+            ]))
+            story.append(t)
+            story.append(Spacer(1, 10))
+
+            story.append(Paragraph("Arrivi collegati", styles["Heading3"]))
+
+            data = [[
+                "ID", "Fornitore", "Codice", "Descrizione", "N. Arrivo", "DDT Ing", "Colli", "Peso", "QR/Codice entrata"
+            ]]
+
+            if righe:
+                for r in righe:
+                    data.append([
+                        str(r.id_articolo or ""),
+                        _pdf_text_cell(r.fornitore),
+                        _pdf_text_cell(r.codice_articolo),
+                        _pdf_text_cell(r.descrizione),
+                        _pdf_text_cell(r.n_arrivo),
+                        _pdf_text_cell(r.n_ddt_ingresso),
+                        str(r.colli_previsti or 0),
+                        it_num(r.peso_previsto or 0, 2),
+                        _pdf_text_cell(r.codice_entrata),
+                    ])
+            else:
+                data.append([
+                    str(getattr(buono, "id_articolo_origine", "") or ""),
+                    _pdf_text_cell(buono.fornitore),
+                    _pdf_text_cell(getattr(buono, "codice_articolo", "")),
+                    _pdf_text_cell(getattr(buono, "descrizione", "")),
+                    _pdf_text_cell(buono.n_arrivo),
+                    _pdf_text_cell(buono.n_ddt_ingresso),
+                    str(buono.pallet_previsti or 0),
+                    it_num(buono.peso_previsto or 0, 2),
+                    _pdf_text_cell(buono.codice_entrata),
+                ])
+
+            tab = Table(data, repeatRows=1, colWidths=[10*mm, 22*mm, 25*mm, 38*mm, 20*mm, 18*mm, 10*mm, 15*mm, 42*mm])
+            tab.setStyle(TableStyle([
+                ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
+                ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+                ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+                ("FONTSIZE", (0,0), (-1,-1), 7),
+                ("VALIGN", (0,0), (-1,-1), "TOP"),
+                ("LEFTPADDING", (0,0), (-1,-1), 3),
+                ("RIGHTPADDING", (0,0), (-1,-1), 3),
+            ]))
+            story.append(tab)
+            story.append(Spacer(1, 14))
+
+            story.append(Paragraph("Controllo magazzino", styles["Heading3"]))
+            controllo = [
+                ["Firma magazzino", ""],
+                ["Note controllo", ""],
+                ["Data completamento", ""],
+            ]
+            t2 = Table(controllo, colWidths=[40*mm, 140*mm], rowHeights=[14*mm, 18*mm, 14*mm])
+            t2.setStyle(TableStyle([
+                ("GRID", (0,0), (-1,-1), 0.4, colors.grey),
+                ("BACKGROUND", (0,0), (0,-1), colors.whitesmoke),
+                ("VALIGN", (0,0), (-1,-1), "TOP"),
+                ("FONTSIZE", (0,0), (-1,-1), 9),
+            ]))
+            story.append(t2)
+
+            story.append(Spacer(1, 10))
+            story.append(Paragraph(
+                "Il buono deve essere verificato tramite scansione QR: se il QR non appartiene agli arrivi collegati, il gestionale segnala arrivo sbagliato / non da caricare.",
+                small
+            ))
+
+            doc.build(story)
+            buffer.seek(0)
+
+            filename = f"buono_carico_{(buono.codice_buono or buono.id)}.pdf".replace("/", "_")
+            return send_file(buffer, as_attachment=False, download_name=filename, mimetype="application/pdf")
+
+        except Exception as e:
+            try:
+                scrivi_log_errore("Errore stampa buono carico PDF", e)
+            except Exception:
+                pass
+            flash(f"Errore stampa buono di carico: {e}", "danger")
+            return redirect(url_for("dettaglio_buono_carico", buono_id=buono_id))
+        finally:
+            db.close()
+
+
+    @app.route("/buoni_carico/<int:buono_id>/qr.png")
+    @login_required
+    @require_admin_or_magazzino
+    def qr_buono_carico(buono_id):
+        db = SessionLocal()
+        try:
+            buono = db.query(BuonoCarico).filter(BuonoCarico.id == buono_id).first()
+            if not buono:
+                abort(404)
+            payload = (_codici_validi_buono_carico(db, buono)[0] if _codici_validi_buono_carico(db, buono) else (buono.codice_entrata or buono.codice_buono))
+            try:
+                import qrcode
+                img = qrcode.make(payload)
+                bio = io.BytesIO()
+                img.save(bio, format="PNG")
+                bio.seek(0)
+                return send_file(bio, mimetype="image/png")
+            except Exception:
+                from PIL import Image, ImageDraw
+                img = Image.new("RGB", (420, 180), "white")
+                d = ImageDraw.Draw(img)
+                d.text((15, 30), "QR non disponibile", fill="black")
+                d.text((15, 70), payload[:45], fill="black")
+                bio = io.BytesIO()
+                img.save(bio, format="PNG")
+                bio.seek(0)
+                return send_file(bio, mimetype="image/png")
         finally:
             db.close()
