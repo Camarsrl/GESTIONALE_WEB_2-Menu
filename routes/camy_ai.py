@@ -2055,7 +2055,7 @@ def register_camy_ai_routes(app_obj, deps):
         raise RuntimeError(f"Nessuna cartella PDF scrivibile disponibile: {last_error}")
 
     def _generate_buono_pdf(db, buono):
-        """Genera il PDF del Buono di Prelievo CAMY usando lo stesso layout standard del gestionale."""
+        """Genera un PDF stabile del Buono CAMY e lo salva nella cartella PDF."""
         buono = str(buono or "").strip()
         if not buono:
             return "", None
@@ -2069,144 +2069,169 @@ def register_camy_ai_routes(app_obj, deps):
         if not rows:
             return "", None
 
-        base_dir = _camy_pdf_dir()
+        from pathlib import Path as _Path
 
+        try:
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.units import mm
+            from reportlab.lib.utils import ImageReader
+        except Exception as exc:
+            raise RuntimeError(f"ReportLab non disponibile: {exc}")
+
+        base_dir = _camy_pdf_dir()
         filename = f"Buono_{_safe_pdf_filename(buono)}.pdf"
         pdf_path = base_dir / filename
 
-        try:
-            from pathlib import Path as _Path
-            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
-            from reportlab.lib.pagesizes import A4
-            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-            from reportlab.lib import colors
-            from reportlab.lib.units import mm
-            from reportlab.lib.enums import TA_CENTER
-        except Exception:
-            return "", None
+        def _clean(v):
+            return str(v or "").strip()
 
-        def _h(value):
-            return html.escape(str(value or ""))
-
-        def _qta(row):
-            val = getattr(row, "pezzo", None)
-            if val is None or str(val).strip() == "":
-                val = getattr(row, "n_colli", "")
-            s = str(val or "").strip()
+        def _qta(v):
+            s = _clean(v).replace(",", ".")
             if not s:
                 return ""
             try:
-                f = float(s.replace(".", "").replace(",", ".") if "," in s else s)
-                if abs(f - int(f)) < 0.000001:
-                    return str(int(f))
-                return str(round(f, 3)).replace(".", ",")
+                n = float(s)
+                if abs(n - round(n)) < 0.000001:
+                    return str(int(round(n)))
+                return str(round(n, 3)).rstrip("0").rstrip(".").replace(".", ",")
             except Exception:
-                return s
+                return _clean(v)
 
-        def _first_attr(attr):
-            for r in rows:
-                v = getattr(r, attr, "")
-                if v is not None and str(v).strip():
-                    return str(v).strip()
+        def _first(attr):
+            for row in rows:
+                value = _clean(getattr(row, attr, ""))
+                if value:
+                    return value
             return ""
 
-        styles = getSampleStyleSheet()
-        s_norm = ParagraphStyle("camy_buono_norm", parent=styles["Normal"], fontSize=9, leading=11, textColor=colors.black)
-        s_bold = ParagraphStyle("camy_buono_bold", parent=s_norm, fontName="Helvetica-Bold")
-        s_title = ParagraphStyle("camy_buono_title", parent=styles["Heading1"], alignment=TA_CENTER, fontSize=16, leading=18, spaceAfter=10, textColor=colors.black)
-        s_note = ParagraphStyle("camy_buono_note", parent=s_norm, fontSize=9, textColor=colors.darkblue)
+        def _wrap(c, text_value, max_width, font_name, font_size):
+            text_value = _clean(text_value)
+            if not text_value:
+                return [""]
+            words = text_value.replace("\n", " ").split()
+            lines, current = [], ""
+            for word in words:
+                test = word if not current else current + " " + word
+                if c.stringWidth(test, font_name, font_size) <= max_width:
+                    current = test
+                else:
+                    if current:
+                        lines.append(current)
+                    current = word
+            if current:
+                lines.append(current)
+            return lines or [""]
 
-        doc = SimpleDocTemplate(
-            str(pdf_path),
-            pagesize=A4,
-            leftMargin=10 * mm,
-            rightMargin=10 * mm,
-            topMargin=10 * mm,
-            bottomMargin=10 * mm,
-        )
-        story = []
+        c = canvas.Canvas(str(pdf_path), pagesize=A4)
+        width, height = A4
+        left = 15 * mm
+        right = width - 15 * mm
+        y = height - 15 * mm
 
-        # Logo uguale al gestionale standard.
-        try:
-            if "LOGO_PATH" in globals() and LOGO_PATH and _Path(LOGO_PATH).exists():
-                story.append(Image(str(LOGO_PATH), width=50 * mm, height=16 * mm, hAlign="CENTER"))
-            else:
-                story.append(Paragraph("<b>Ca.mar. srl</b>", s_title))
-        except Exception:
-            story.append(Paragraph("<b>Ca.mar. srl</b>", s_title))
+        def new_page():
+            nonlocal y
+            c.showPage()
+            y = height - 15 * mm
+            draw_header()
 
-        story.append(Spacer(1, 5 * mm))
-        story.append(Paragraph("BUONO DI PRELIEVO", s_title))
-        story.append(Spacer(1, 5 * mm))
+        def draw_header():
+            nonlocal y
+            logo_drawn = False
+            try:
+                logo_path = globals().get("LOGO_PATH")
+                if logo_path and _Path(str(logo_path)).exists():
+                    c.drawImage(
+                        ImageReader(str(logo_path)),
+                        width / 2 - 30 * mm,
+                        y - 14 * mm,
+                        width=60 * mm,
+                        height=14 * mm,
+                        preserveAspectRatio=True,
+                        mask="auto",
+                    )
+                    logo_drawn = True
+            except Exception:
+                logo_drawn = False
 
-        cliente = _first_attr("cliente")
-        fornitore = _first_attr("fornitore")
-        commessa = _first_attr("commessa")
-        ordine = _first_attr("ordine")
-        protocolli = []
-        seen_prot = set()
-        for r in rows:
-            p = str(getattr(r, "protocollo", "") or "").strip()
-            if p and p not in seen_prot:
-                seen_prot.add(p)
-                protocolli.append(p)
-        protocollo = ", ".join(protocolli)
+            if logo_drawn:
+                y -= 20 * mm
 
-        meta_data = [
-            [Paragraph("<b>Data Emissione:</b>", s_bold), Paragraph(datetime.today().strftime("%d/%m/%Y"), s_norm)],
-            [Paragraph("<b>Cliente:</b>", s_bold), Paragraph(_h(cliente), s_norm)],
-            [Paragraph("<b>Fornitore:</b>", s_bold), Paragraph(_h(fornitore), s_norm)],
-            [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(_h(commessa), s_norm)],
-            [Paragraph("<b>Ordine:</b>", s_bold), Paragraph(_h(ordine), s_norm)],
-            [Paragraph("<b>Protocollo:</b>", s_bold), Paragraph(_h(protocollo), s_norm)],
-            [Paragraph("<b>N. Buono:</b>", s_bold), Paragraph(_h(buono), s_norm)],
-        ]
+            c.setFont("Helvetica-Bold", 16)
+            c.drawCentredString(width / 2, y, "BUONO DI PRELIEVO")
+            y -= 10 * mm
 
-        t_meta = Table(meta_data, colWidths=[40 * mm, 140 * mm])
-        t_meta.setStyle(TableStyle([
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("BACKGROUND", (0, 0), (0, -1), colors.whitesmoke),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("PADDING", (0, 0), (-1, -1), 5),
-        ]))
-        story.append(t_meta)
-        story.append(Spacer(1, 8 * mm))
+            c.setFont("Helvetica", 9)
+            c.drawString(left, y, f"N. Buono: {buono}")
+            c.drawRightString(right, y, f"Data: {datetime.today().strftime('%d/%m/%Y')}")
+            y -= 5 * mm
+            c.drawString(left, y, f"Cliente: {_first('cliente') or '-'}")
+            y -= 5 * mm
+            c.drawString(left, y, f"Fornitore: {_first('fornitore') or '-'}")
+            y -= 5 * mm
+            c.drawString(left, y, f"Commessa: {_first('commessa') or '-'}")
+            c.drawString(left + 80 * mm, y, f"Ordine: {_first('ordine') or '-'}")
+            y -= 8 * mm
 
-        table_data = [[
-            Paragraph("<b>Codice</b>", s_bold),
-            Paragraph("<b>Descrizione</b>", s_bold),
-            Paragraph("<b>Q.tà</b>", s_bold),
-            Paragraph("<b>N.Arr</b>", s_bold),
-        ]]
+            c.setFont("Helvetica-Bold", 8)
+            c.rect(left, y - 7 * mm, right - left, 7 * mm, stroke=1, fill=0)
+            c.drawString(left + 2 * mm, y - 5 * mm, "CODICE")
+            c.drawString(left + 62 * mm, y - 5 * mm, "DESCRIZIONE")
+            c.drawString(left + 142 * mm, y - 5 * mm, "PZ")
+            c.drawString(left + 157 * mm, y - 5 * mm, "N. ARRIVO")
+            y -= 9 * mm
 
-        for r in rows:
-            table_data.append([
-                Paragraph(_h(getattr(r, "codice_articolo", "")), s_norm),
-                Paragraph(_h(getattr(r, "descrizione", "")), s_norm),
-                Paragraph(_h(_qta(r)), s_norm),
-                Paragraph(_h(getattr(r, "n_arrivo", "")), s_norm),
-            ])
-            note_user = str(getattr(r, "note", "") or "").strip()
-            if note_user:
-                table_data.append(["", Paragraph(f"<i>Note: {_h(note_user)}</i>", s_note), "", ""])
+        draw_header()
 
-        t = Table(table_data, colWidths=[40 * mm, 100 * mm, 15 * mm, 25 * mm], repeatRows=1)
-        t.setStyle(TableStyle([
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("PADDING", (0, 0), (-1, -1), 4),
-        ]))
-        story.append(t)
+        for row in rows:
+            code = _clean(getattr(row, "codice_articolo", ""))
+            desc = _clean(getattr(row, "descrizione", ""))
+            qty = _qta(getattr(row, "pezzo", ""))
+            arrivo = _clean(getattr(row, "n_arrivo", ""))
+            note = _clean(getattr(row, "note", ""))
 
-        story.append(Spacer(1, 20 * mm))
-        sig_data = [[
-            Paragraph("Firma Magazzino:<br/><br/>__________________", s_norm),
-            Paragraph("Firma Cliente:<br/><br/>__________________", s_norm),
-        ]]
-        story.append(Table(sig_data, colWidths=[90 * mm, 90 * mm]))
+            code_lines = _wrap(c, code, 58 * mm, "Helvetica", 8)
+            desc_lines = _wrap(c, desc, 76 * mm, "Helvetica", 8)
+            note_lines = _wrap(c, f"Note: {note}" if note else "", 170 * mm, "Helvetica-Oblique", 7)
+            line_count = max(len(code_lines), len(desc_lines), 1)
+            row_height = max(9 * mm, (line_count * 4 * mm) + (4 * mm if note else 0))
 
-        doc.build(story)
+            if y - row_height < 25 * mm:
+                new_page()
+
+            c.rect(left, y - row_height, right - left, row_height, stroke=1, fill=0)
+            c.line(left + 60 * mm, y, left + 60 * mm, y - row_height)
+            c.line(left + 140 * mm, y, left + 140 * mm, y - row_height)
+            c.line(left + 155 * mm, y, left + 155 * mm, y - row_height)
+
+            text_y = y - 4 * mm
+            c.setFont("Helvetica", 8)
+            for idx, line in enumerate(code_lines):
+                c.drawString(left + 2 * mm, text_y - idx * 4 * mm, line)
+            for idx, line in enumerate(desc_lines):
+                c.drawString(left + 62 * mm, text_y - idx * 4 * mm, line)
+            c.drawCentredString(left + 147.5 * mm, text_y, qty)
+            c.drawString(left + 157 * mm, text_y, arrivo)
+
+            if note:
+                c.setFont("Helvetica-Oblique", 7)
+                note_y = y - row_height + 2.5 * mm
+                c.drawString(left + 2 * mm, note_y, note_lines[0][:220])
+
+            y -= row_height
+
+        if y < 45 * mm:
+            new_page()
+
+        y -= 12 * mm
+        c.setFont("Helvetica", 9)
+        c.drawString(left, y, "Firma Magazzino: ______________________________")
+        c.drawString(left + 95 * mm, y, "Firma Cliente: ______________________________")
+        c.save()
+
+        if not pdf_path.exists() or pdf_path.stat().st_size <= 0:
+            raise RuntimeError("Il PDF è stato creato ma risulta vuoto.")
+
         return filename, pdf_path
 
     @app.route("/camy-ai/buono-pdf/<path:filename>", methods=["GET"])
@@ -2573,7 +2598,12 @@ def register_camy_ai_routes(app_obj, deps):
                         scrivi_log_errore("Errore generazione PDF Buono CAMY AI", pdf_err)
                     except Exception:
                         pass
-                    pdf_link_html = "<br><span class='text-warning'>Buono aggiornato, ma PDF non generato. Controlla i log admin.</span>"
+                    pdf_link_html = (
+                        "<br><span class='text-warning'>"
+                        "Buono aggiornato, ma PDF non generato: "
+                        + _esc(str(pdf_err))
+                        + "</span>"
+                    )
 
                 extra = ""
                 if rows_uscite:
