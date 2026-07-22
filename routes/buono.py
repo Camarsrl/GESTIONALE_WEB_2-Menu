@@ -16,7 +16,7 @@ la riga originale resta in giacenza con il residuo, senza note del buono e senza
 def register_buono_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] BUONO DEFINITIVO - CONTROLLO PEZZI DISATTIVATO PER TUTTI I CLIENTI - VERSIONE G")
+    print("[OK] BUONO DEFINITIVO - CONTROLLO PEZZI SOLO FINCANTIERI E FINCANTIERI ARMATORE - VERSIONE H")
 
     def _split_multi_value(value):
         """Divide una cella multi-valore senza rompere gli slash/asterischi interni.
@@ -129,8 +129,13 @@ def register_buono_routes(app_obj, deps):
 
 
     def _cliente_richiede_controllo_pezzi(cliente):
-        """Controllo disponibilità pezzi disattivato per tutti i clienti."""
-        return False
+        """True solo per FINCANTIERI e FINCANTIERI ARMATORE."""
+        nome = re.sub(r"[^A-Z0-9]+", " ", str(cliente or "").upper()).strip()
+        nome = re.sub(r"\s+", " ", nome)
+        return nome in {
+            "FINCANTIERI",
+            "FINCANTIERI ARMATORE",
+        }
 
 
     def _solo_riferimento_logistico(value):
@@ -1022,7 +1027,7 @@ def register_buono_routes(app_obj, deps):
     @app.route('/buono/finalize_and_get_pdf', methods=['POST'])
     @login_required
     def buono_finalize_and_get_pdf():
-        """Valida, genera e salva il Buono senza consentire giacenze negative o codici non presenti."""
+        """Valida e salva il Buono; il controllo pezzi vale solo per i due clienti Fincantieri."""
         db = SessionLocal()
 
         class BuonoValidationError(Exception):
@@ -1097,25 +1102,57 @@ def register_buono_routes(app_obj, deps):
                     )
 
                 # ============================================================
-                # CONTROLLO DISPONIBILITÀ PEZZI DISATTIVATO PER TUTTI I CLIENTI
+                # CONTROLLO PEZZI SOLO PER FINCANTIERI / FINCANTIERI ARMATORE
                 # ============================================================
                 cliente_riga = getattr(r, "cliente", "")
                 pezzi_originali = _num_float(getattr(r, "pezzo", None))
+                controlla_pezzi = _cliente_richiede_controllo_pezzi(cliente_riga)
 
-                # CONTROLLO PEZZI DISATTIVATO PER TUTTI I CLIENTI.
-                # La quantità indicata nel Buono viene usata senza confrontarla
-                # con la disponibilità registrata nella riga di magazzino.
-                pezzi_scelti = _num_float(q_raw) if q_raw else pezzi_originali
+                if controlla_pezzi:
+                    if abs(old_pezzi_form - pezzi_originali) > 0.000001:
+                        raise BuonoValidationError(
+                            f"La disponibilità della riga ID {rid} è cambiata da "
+                            f"{_fmt_num_clean(old_pezzi_form)} a {_fmt_num_clean(pezzi_originali)} pezzi. "
+                            "Aggiorna le Giacenze e ripeti il Buono."
+                        )
 
-                # Se la quantità non è inserita o non è valida, mantiene quella originale.
-                if pezzi_scelti <= 0:
-                    pezzi_scelti = pezzi_originali
+                    if pezzi_originali <= 0:
+                        raise BuonoValidationError(
+                            "CAMY AI - PRELIEVO BLOCCATO\n\n"
+                            f"Marca pezzo: {codice_scelto or old_cod or 'non indicato'}\n"
+                            "Disponibilità: 0 pezzi.\n\n"
+                            "Il materiale risulta esaurito o già prelevato. Il Buono non è stato creato."
+                        )
+
+                    if not q_raw:
+                        raise BuonoValidationError(
+                            f"Inserisci la quantità da prelevare per il marca pezzo {codice_scelto or old_cod}."
+                        )
+
+                    pezzi_scelti = _num_float(q_raw)
+                    if pezzi_scelti <= 0:
+                        raise BuonoValidationError(
+                            f"La quantità del marca pezzo {codice_scelto or old_cod} deve essere maggiore di zero."
+                        )
+
+                    if pezzi_scelti > pezzi_originali:
+                        raise BuonoValidationError(
+                            "CAMY AI - GIACENZA INSUFFICIENTE\n\n"
+                            f"Marca pezzo: {codice_scelto or old_cod}\n"
+                            f"Richiesti: {_fmt_num_clean(pezzi_scelti)} pezzi\n"
+                            f"Disponibili: {_fmt_num_clean(pezzi_originali)} pezzi\n\n"
+                            "Riduci la quantità e riprova. Il Buono non è stato creato."
+                        )
+                else:
+                    # Tutti gli altri clienti: nessun blocco sulla disponibilità.
+                    pezzi_scelti = _num_float(q_raw) if q_raw else pezzi_originali
+                    if pezzi_scelti < 0:
+                        pezzi_scelti = pezzi_originali
 
                 print(
-                    f"[BUONO SENZA CONTROLLO PEZZI] ID={rid} "
-                    f"cliente={cliente_riga!r} "
-                    f"pezzi_originali={pezzi_originali} "
-                    f"pezzi_scelti={pezzi_scelti}"
+                    f"[BUONO PEZZI] ID={rid} cliente={cliente_riga!r} "
+                    f"controllo={controlla_pezzi} disponibili={pezzi_originali} "
+                    f"scelti={pezzi_scelti}"
                 )
 
                 if not codice_scelto:
@@ -1194,7 +1231,7 @@ def register_buono_routes(app_obj, deps):
 
                 cod_parziale = bool(_norm_for_match(codice_scelto) != _norm_for_match(old_cod))
                 desc_parziale = bool(descr_scelta and _norm_for_match(descr_scelta) != _norm_for_match(old_desc))
-                qta_parziale = item.get('controlla_pezzi', False) and pezzi_scelti < pezzi_originali
+                qta_parziale = pezzi_originali > 0 and pezzi_scelti < pezzi_originali
 
                 if cod_parziale or desc_parziale or qta_parziale:
                     scarico_parziale_eseguito = True
