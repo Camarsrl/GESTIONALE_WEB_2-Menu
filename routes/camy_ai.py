@@ -1717,12 +1717,24 @@ def register_camy_ai_routes(app_obj, deps):
         return None
 
     def _validate_pezzi_richiesti(rows, requested_pezzi, requested_code=""):
-        """Controlla che i pezzi richiesti non superino quelli disponibili."""
+        """Controlla i pezzi solo per FINCANTIERI e FINCANTIERI ARMATORE.
+
+        MARINE INTERIORS e tutti gli altri clienti non devono essere bloccati
+        dal controllo disponibilità pezzi di CAMY AI.
+        """
         req = _safe_float_or_none(requested_pezzi)
         if req is None:
             return []
+
+        def cliente_controllato(value):
+            nome = re.sub(r"[^A-Z0-9]+", " ", str(value or "").upper()).strip()
+            nome = re.sub(r"\s+", " ", nome)
+            return nome in {"FINCANTIERI", "FINCANTIERI ARMATORE"}
+
         problemi = []
         for r in rows or []:
+            if not cliente_controllato(getattr(r, "cliente", "")):
+                continue
             disp = _available_pezzi_for_request(r, requested_code=requested_code)
             if disp is not None and req > disp:
                 problemi.append((r, disp, req))
