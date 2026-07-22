@@ -28,7 +28,7 @@
     </div>
 
     <div id="camy-saving" class="alert alert-primary py-2 d-none" role="alert">
-        <b>⏳ CAMY AI</b> — Controllo disponibilità e salvataggio in corso. Non chiudere la pagina.
+        <b>⏳ CAMY AI</b> — Verifica e salvataggio in corso. Non chiudere la pagina.
     </div>
 
     <form id="buono-form" method="POST" action="{{ url_for('buono_finalize_and_get_pdf') }}">
@@ -230,7 +230,9 @@
                             <!-- ✅ Q.tà prende PEZZI -->
                             <input name="q_{{ r.id_articolo }}" type="number"
                                    step="0.001"
+                                   data-disponibili="{{ r.pezzo or 0 }}"
                                    data-codice="{{ r.codice_articolo or '' }}"
+                                   data-cliente="{{ r.cliente or '' }}"
                                    class="form-control form-control-sm text-center fw-bold"
                                    value="{{ r.pezzo or 0 }}">
                             <div class="small text-muted">Disponibili: {{ r.pezzo or 0 }} pezzi</div>
@@ -283,10 +285,55 @@ function setSalvataggioInCorso(attivo) {
     if (box) box.classList.toggle('d-none', !attivo);
 }
 
+function normalizzaCliente(value) {
+    return String(value || '')
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function clienteRichiedeControlloPezzi(cliente) {
+    const nome = normalizzaCliente(cliente);
+    return nome === 'FINCANTIERI' || nome === 'FINCANTIERI ARMATORE';
+}
+
 function validaQuantitaBuono() {
-    // Controllo quantità disattivato per tutti i clienti.
-    // La quantità inserita viene inviata al modulo Buono senza confronto
-    // con la disponibilità presente nella riga di magazzino.
+    const inputs = document.querySelectorAll('input[name^="q_"]');
+
+    for (const input of inputs) {
+        const cliente = input.dataset.cliente || '';
+
+        if (!clienteRichiedeControlloPezzi(cliente)) {
+            continue;
+        }
+
+        const disponibili = Number(String(input.dataset.disponibili || '0').replace(',', '.'));
+        const richiesti = Number(String(input.value || '').replace(',', '.'));
+        const codice = input.dataset.codice || 'non indicato';
+
+        if (!Number.isFinite(disponibili) || disponibili <= 0) {
+            alert('🧠 CAMY AI - PRELIEVO BLOCCATO\n\nMarca pezzo: ' + codice +
+                  '\nDisponibilità: 0 pezzi.\n\nIl Buono non verrà creato.');
+            input.focus();
+            return false;
+        }
+
+        if (!Number.isFinite(richiesti) || richiesti <= 0) {
+            alert('🧠 CAMY AI\n\nInserisci una quantità maggiore di zero per: ' + codice);
+            input.focus();
+            return false;
+        }
+
+        if (richiesti > disponibili) {
+            alert('🧠 CAMY AI - GIACENZA INSUFFICIENTE\n\nMarca pezzo: ' + codice +
+                  '\nRichiesti: ' + richiesti + '\nDisponibili: ' + disponibili +
+                  '\n\nRiduci la quantità prima di salvare.');
+            input.focus();
+            return false;
+        }
+    }
+
     return true;
 }
 
