@@ -229,8 +229,7 @@
                         <td>
                             <!-- ✅ Q.tà prende PEZZI -->
                             <input name="q_{{ r.id_articolo }}" type="number"
-                                   min="0.001" max="{{ r.pezzo or 0 }}" step="0.001" required
-                                   data-disponibili="{{ r.pezzo or 0 }}"
+                                   step="0.001"
                                    data-codice="{{ r.codice_articolo or '' }}"
                                    class="form-control form-control-sm text-center fw-bold"
                                    value="{{ r.pezzo or 0 }}">
@@ -285,31 +284,9 @@ function setSalvataggioInCorso(attivo) {
 }
 
 function validaQuantitaBuono() {
-    const inputs = document.querySelectorAll('input[name^="q_"]');
-    for (const input of inputs) {
-        const disponibili = Number(String(input.dataset.disponibili || '0').replace(',', '.'));
-        const richiesti = Number(String(input.value || '').replace(',', '.'));
-        const codice = input.dataset.codice || 'non indicato';
-
-        if (!Number.isFinite(disponibili) || disponibili <= 0) {
-            alert('🧠 CAMY AI - PRELIEVO BLOCCATO\n\nMarca pezzo: ' + codice +
-                  '\nDisponibilità: 0 pezzi.\n\nIl Buono non verrà creato.');
-            input.focus();
-            return false;
-        }
-        if (!Number.isFinite(richiesti) || richiesti <= 0) {
-            alert('🧠 CAMY AI\n\nInserisci una quantità maggiore di zero per: ' + codice);
-            input.focus();
-            return false;
-        }
-        if (richiesti > disponibili) {
-            alert('🧠 CAMY AI - GIACENZA INSUFFICIENTE\n\nMarca pezzo: ' + codice +
-                  '\nRichiesti: ' + richiesti + '\nDisponibili: ' + disponibili +
-                  '\n\nRiduci la quantità prima di salvare.');
-            input.focus();
-            return false;
-        }
-    }
+    // Controllo quantità disattivato per tutti i clienti.
+    // La quantità inserita viene inviata al modulo Buono senza confronto
+    // con la disponibilità presente nella riga di magazzino.
     return true;
 }
 
