@@ -127,6 +127,16 @@ def register_buono_routes(app_obj, deps):
             return str(value or '')
 
 
+    def _cliente_richiede_controllo_pezzi(cliente):
+        """Il controllo quantità è obbligatorio solo per FINCANTIERI e FINCANTIERI ARMATORE.
+
+        Tutti gli altri clienti, compreso MARINE INTERIORS, possono creare il Buono
+        anche quando il campo ``pezzo`` è vuoto oppure pari a zero.
+        """
+        nome = re.sub(r"[^A-Z0-9]+", " ", str(cliente or "").upper()).strip()
+        return nome in {"FINCANTIERI", "FINCANTIERI ARMATORE"}
+
+
     def _piece_value_for_db(value):
         """Salva i pezzi senza .0 quando il valore è intero.
 
@@ -1059,7 +1069,9 @@ def register_buono_routes(app_obj, deps):
                 descr_scelta = (req_data.get(f"descrizione_buono_{rid}") or old_desc).strip()
                 q_raw = (req_data.get(f"q_{rid}") or '').strip()
 
-                # Controllo concorrenza: la riga deve essere ancora uguale a quella mostrata nell'anteprima.
+                # Controllo concorrenza: il codice deve essere ancora uguale a quello
+                # mostrato nell'anteprima. Il controllo dei pezzi è invece obbligatorio
+                # soltanto per FINCANTIERI e FINCANTIERI ARMATORE.
                 old_cod_form = (req_data.get(f"original_codice_{rid}") or old_cod).strip()
                 old_pezzi_form = _num_float(req_data.get(f"original_pezzi_{rid}"))
                 if _norm_for_match(old_cod_form) != _norm_for_match(old_cod):
@@ -1068,40 +1080,52 @@ def register_buono_routes(app_obj, deps):
                         "Aggiorna le Giacenze e ripeti il Buono."
                     )
 
+                controlla_pezzi = _cliente_richiede_controllo_pezzi(
+                    getattr(r, 'cliente', '')
+                )
                 pezzi_originali = _num_float(getattr(r, 'pezzo', None))
-                if abs(old_pezzi_form - pezzi_originali) > 0.000001:
-                    raise BuonoValidationError(
-                        f"La disponibilità della riga ID {rid} è cambiata da "
-                        f"{_fmt_num_clean(old_pezzi_form)} a {_fmt_num_clean(pezzi_originali)} pezzi. "
-                        "Aggiorna le Giacenze e ripeti il Buono."
-                    )
 
-                if pezzi_originali <= 0:
-                    raise BuonoValidationError(
-                        "CAMY AI - PRELIEVO BLOCCATO\n\n"
-                        f"Marca pezzo: {codice_scelto or old_cod or 'non indicato'}\n"
-                        "Disponibilità: 0 pezzi.\n\n"
-                        "Il materiale risulta esaurito o già prelevato. Il Buono non è stato creato."
-                    )
+                if controlla_pezzi:
+                    if abs(old_pezzi_form - pezzi_originali) > 0.000001:
+                        raise BuonoValidationError(
+                            f"La disponibilità della riga ID {rid} è cambiata da "
+                            f"{_fmt_num_clean(old_pezzi_form)} a {_fmt_num_clean(pezzi_originali)} pezzi. "
+                            "Aggiorna le Giacenze e ripeti il Buono."
+                        )
 
-                if not q_raw:
-                    raise BuonoValidationError(
-                        f"Inserisci la quantità da prelevare per il marca pezzo {codice_scelto or old_cod}."
-                    )
+                    if pezzi_originali <= 0:
+                        raise BuonoValidationError(
+                            "CAMY AI - PRELIEVO BLOCCATO\n\n"
+                            f"Marca pezzo: {codice_scelto or old_cod or 'non indicato'}\n"
+                            "Disponibilità: 0 pezzi.\n\n"
+                            "Il materiale risulta esaurito o già prelevato. Il Buono non è stato creato."
+                        )
 
-                pezzi_scelti = _num_float(q_raw)
-                if pezzi_scelti <= 0:
-                    raise BuonoValidationError(
-                        f"La quantità del marca pezzo {codice_scelto or old_cod} deve essere maggiore di zero."
-                    )
-                if pezzi_scelti > pezzi_originali:
-                    raise BuonoValidationError(
-                        "CAMY AI - GIACENZA INSUFFICIENTE\n\n"
-                        f"Marca pezzo: {codice_scelto or old_cod}\n"
-                        f"Richiesti: {_fmt_num_clean(pezzi_scelti)} pezzi\n"
-                        f"Disponibili: {_fmt_num_clean(pezzi_originali)} pezzi\n\n"
-                        "Riduci la quantità e riprova. Il Buono non è stato creato."
-                    )
+                    if not q_raw:
+                        raise BuonoValidationError(
+                            f"Inserisci la quantità da prelevare per il marca pezzo {codice_scelto or old_cod}."
+                        )
+
+                    pezzi_scelti = _num_float(q_raw)
+                    if pezzi_scelti <= 0:
+                        raise BuonoValidationError(
+                            f"La quantità del marca pezzo {codice_scelto or old_cod} deve essere maggiore di zero."
+                        )
+                    if pezzi_scelti > pezzi_originali:
+                        raise BuonoValidationError(
+                            "CAMY AI - GIACENZA INSUFFICIENTE\n\n"
+                            f"Marca pezzo: {codice_scelto or old_cod}\n"
+                            f"Richiesti: {_fmt_num_clean(pezzi_scelti)} pezzi\n"
+                            f"Disponibili: {_fmt_num_clean(pezzi_originali)} pezzi\n\n"
+                            "Riduci la quantità e riprova. Il Buono non è stato creato."
+                        )
+                else:
+                    # Per MARINE INTERIORS e per tutti gli altri clienti il campo pezzi
+                    # può essere vuoto. Se è valorizzato lo conserviamo; altrimenti il
+                    # Buono prende l'intera riga senza eseguire controlli quantitativi.
+                    pezzi_scelti = _num_float(q_raw) if q_raw else pezzi_originali
+                    if pezzi_scelti < 0:
+                        pezzi_scelti = 0
 
                 if not codice_scelto:
                     raise BuonoValidationError(f"Il codice/marca pezzo della riga ID {rid} è vuoto.")
@@ -1155,7 +1179,8 @@ def register_buono_routes(app_obj, deps):
                     'note_originale': r.note,
                     'pezzi_originali': pezzi_originali,
                     'pezzi_scelti': pezzi_scelti,
-                    'pezzi_residui': pezzi_originali - pezzi_scelti,
+                    'pezzi_residui': max(0.0, pezzi_originali - pezzi_scelti),
+                    'controlla_pezzi': controlla_pezzi,
                 })
 
             scarico_parziale_eseguito = False
@@ -1177,7 +1202,7 @@ def register_buono_routes(app_obj, deps):
 
                 cod_parziale = bool(_norm_for_match(codice_scelto) != _norm_for_match(old_cod))
                 desc_parziale = bool(descr_scelta and _norm_for_match(descr_scelta) != _norm_for_match(old_desc))
-                qta_parziale = pezzi_scelti < pezzi_originali
+                qta_parziale = item.get('controlla_pezzi', False) and pezzi_scelti < pezzi_originali
 
                 if cod_parziale or desc_parziale or qta_parziale:
                     scarico_parziale_eseguito = True
