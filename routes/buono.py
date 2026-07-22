@@ -129,9 +129,26 @@ def register_buono_routes(app_obj, deps):
 
 
     def _cliente_richiede_controllo_pezzi(cliente):
-        """Controlla i pezzi solo per i due clienti Fincantieri previsti."""
+        """Attiva il controllo quantità ESCLUSIVAMENTE per due clienti.
+
+        Valori ammessi:
+        - FINCANTIERI
+        - FINCANTIERI ARMATORE
+
+        Qualsiasi altro cliente, compreso MARINE INTERIORS, non deve essere
+        bloccato se il campo pezzi è vuoto o pari a zero.
+        """
         nome = re.sub(r"[^A-Z0-9]+", " ", str(cliente or "").upper()).strip()
         nome = re.sub(r"\s+", " ", nome)
+
+        # Esclusioni esplicite per evitare che descrizioni o denominazioni
+        # contenenti riferimenti Fincantieri attivino per errore il controllo.
+        if any(x in nome for x in (
+            "MARINE INTERIORS", "DE WAVE", "DEWAVE", "WINGECO",
+            "RF DE WAVE", "DUFERCO", "GALVANO"
+        )):
+            return False
+
         return nome in {"FINCANTIERI", "FINCANTIERI ARMATORE"}
 
 
@@ -1075,32 +1092,16 @@ def register_buono_routes(app_obj, deps):
             # -----------------------------------------------------------------
             # VALIDAZIONE COMPLETA PRIMA DI MODIFICARE QUALSIASI RIGA
             # -----------------------------------------------------------------
-            # Il controllo dei pezzi si attiva soltanto quando TUTTE le righe
-            # selezionate appartengono a FINCANTIERI o FINCANTIERI ARMATORE.
-            # In questo modo una selezione Marine Interiors, anche con pezzi vuoti/zero,
-            # non può essere bloccata da controlli quantitativi.
-            clienti_con_controllo_pezzi = {
-                "FINCANTIERI",
-                "FINCANTIERIARMATORE",
-            }
-
-            def _cliente_key_buono(value):
-                return re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
-
-            clienti_selezionati_keys = {
-                _cliente_key_buono(getattr(x, "cliente", ""))
+            # Il controllo quantità viene deciso riga per riga tramite
+            # _cliente_richiede_controllo_pezzi(). Non dipende dal cliente del
+            # Picking, dal fornitore o da altre righe selezionate.
+            clienti_selezionati = [
+                str(getattr(x, "cliente", "") or "").strip()
                 for x in rows
-                if _cliente_key_buono(getattr(x, "cliente", ""))
-            }
-
-            buono_controlla_pezzi = bool(clienti_selezionati_keys) and clienti_selezionati_keys.issubset(
-                clienti_con_controllo_pezzi
-            )
-
+            ]
             print(
                 "[BUONO CLIENTI] "
-                f"clienti={sorted(clienti_selezionati_keys)} "
-                f"controllo_pezzi={buono_controlla_pezzi}"
+                f"clienti={clienti_selezionati!r}"
             )
 
             prepared = []
@@ -1124,13 +1125,11 @@ def register_buono_routes(app_obj, deps):
                         "Aggiorna le Giacenze e ripeti il Buono."
                     )
 
-                # Controllo quantità soltanto per un Buono composto interamente
-                # da righe FINCANTIERI / FINCANTIERI ARMATORE.
-                cliente_key = _cliente_key_buono(getattr(r, "cliente", ""))
-                controlla_pezzi = (
-                    buono_controlla_pezzi
-                    and cliente_key in clienti_con_controllo_pezzi
-                )
+                # Controllo quantità ESCLUSIVAMENTE per la riga il cui cliente
+                # è esattamente FINCANTIERI oppure FINCANTIERI ARMATORE.
+                cliente_raw = str(getattr(r, "cliente", "") or "").strip()
+                controlla_pezzi = _cliente_richiede_controllo_pezzi(cliente_raw)
+                cliente_key = re.sub(r"[^A-Z0-9]+", "", cliente_raw.upper())
 
                 pezzi_originali = _num_float(getattr(r, "pezzo", None))
 
