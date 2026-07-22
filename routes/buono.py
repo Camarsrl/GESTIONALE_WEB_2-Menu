@@ -128,29 +128,28 @@ def register_buono_routes(app_obj, deps):
 
 
     def _cliente_richiede_controllo_pezzi(cliente):
-        """Controlla i pezzi soltanto per i due clienti FINCANTIERI previsti.
+        """Controlla i pezzi solo per i due clienti Fincantieri previsti."""
+        nome = re.sub(r"[^A-Z0-9]+", " ", str(cliente or "").upper()).strip()
+        nome = re.sub(r"\s+", " ", nome)
+        return nome in {"FINCANTIERI", "FINCANTIERI ARMATORE"}
 
-        MARINE INTERIORS e qualunque altro cliente non devono essere bloccati se il
-        campo ``pezzo`` è vuoto oppure pari a zero.
+
+    def _solo_riferimento_logistico(value):
+        """True per BANCALE/PALLET/PACKAGE/CASSA senza un vero marca-pezzo.
+
+        Questi valori identificano il contenitore e non hanno una disponibilità
+        in pezzi da verificare. Non devono quindi attivare il blocco quantità.
         """
-        nome = re.sub(r"[^A-Z0-9]+", "", str(cliente or "").upper())
-        return nome in {"FINCANTIERI", "FINCANTIERIARMATORE"}
-
-    def _is_logistic_placeholder(value):
-        """Riconosce riferimenti logistici che non sono veri marca-pezzi.
-
-        BANCALE, PALLET, PACKAGE, PKG, CASSA e CASE non devono mai attivare il
-        controllo disponibilità pezzi né essere trattati come marca-pezzo.
-        """
-        txt = re.sub(r"\s+", " ", str(value or "").strip())
+        txt = re.sub(r"\s+", " ", str(value or "").strip().upper())
         if not txt:
             return False
-        return bool(re.fullmatch(
-            r"(?:BANCALE|PALLET|PACKAGE|PKG|CASSA|CASE)"
-            r"\s*(?:(?:NO|N)\.?)?\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9._/\-]*",
-            txt,
-            flags=re.I,
-        ))
+        patterns = (
+            r"BANCALE(?:\s+(?:N\.?|NO\.?|NUM\.?)?)?\s*[:#.-]?\s*[A-Z0-9._/-]+",
+            r"PALLET(?:\s+(?:N\.?|NO\.?|NUM\.?)?)?\s*[:#.-]?\s*[A-Z0-9._/-]+",
+            r"(?:PACKAGE|PKG)(?:\s+(?:N\.?|NO\.?|NUM\.?)?)?\s*[:#.-]?\s*[A-Z0-9._/-]+",
+            r"(?:CASSA|CASE)(?:\s+(?:N\.?|NO\.?|NUM\.?)?)?\s*[:#.-]?\s*[A-Z0-9._/-]+",
+        )
+        return any(re.fullmatch(p, txt, flags=re.I) for p in patterns)
 
 
     def _piece_value_for_db(value):
@@ -202,7 +201,7 @@ def register_buono_routes(app_obj, deps):
             return False
         patterns = (
             r"(?:PACKAGE|PKG)\s*(?:(?:NO|N)\.?)?\s*[:#.]?\s*[A-Z0-9]+",
-            r"(?:BANCALE|PALLET)\s*(?:(?:NO|N)\.?)?\s*[:#.]?\s*[A-Z0-9][A-Z0-9._/\-]*",
+            r"PALLET\s*[:#.]?\s*[A-Z0-9][A-Z0-9._/\-]*",
             r"(?:CASSA|CASE)\s*[:#.]?\s*[A-Z0-9][A-Z0-9._/\-]*",
         )
         return any(re.fullmatch(pat, txt, flags=re.I) for pat in patterns)
@@ -1096,12 +1095,14 @@ def register_buono_routes(app_obj, deps):
                         "Aggiorna le Giacenze e ripeti il Buono."
                     )
 
-                # Il controllo quantitativo vale solo per FINCANTIERI/FINCANTIERI ARMATORE
-                # e mai quando il campo codice contiene soltanto un riferimento logistico
-                # come BANCALE N.2, PALLET, PACKAGE o CASSA.
+                # Il controllo quantitativo vale soltanto per FINCANTIERI/ARMATORE
+                # e solo quando la riga contiene un vero marca-pezzo. BANCALE N.2,
+                # PALLET, PACKAGE, CASSA ecc. sono riferimenti logistici e non devono
+                # mai essere bloccati perché il campo pezzi è vuoto o pari a zero.
                 controlla_pezzi = (
                     _cliente_richiede_controllo_pezzi(getattr(r, 'cliente', ''))
-                    and not _is_logistic_placeholder(codice_scelto or old_cod)
+                    and not _solo_riferimento_logistico(codice_scelto)
+                    and not _solo_riferimento_logistico(old_cod)
                 )
                 pezzi_originali = _num_float(getattr(r, 'pezzo', None))
 
