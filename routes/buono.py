@@ -16,7 +16,7 @@ la riga originale resta in giacenza con il residuo, senza note del buono e senza
 def register_buono_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] BUONO VERSIONE MARINE-INTERIORS-NO-PEZZI 2026-07-22")
+    print("[OK] BUONO CONTROLLO PEZZI SOLO FINCANTIERI - VERSIONE 2026-07-22-B")
 
     def _split_multi_value(value):
         """Divide una cella multi-valore senza rompere gli slash/asterischi interni.
@@ -1096,37 +1096,34 @@ def register_buono_routes(app_obj, deps):
                         "Aggiorna le Giacenze e ripeti il Buono."
                     )
 
-                # Il controllo quantitativo vale soltanto per FINCANTIERI/ARMATORE
-                # e solo quando la riga contiene un vero marca-pezzo. BANCALE N.2,
-                # PALLET, PACKAGE, CASSA ecc. sono riferimenti logistici e non devono
-                # mai essere bloccati perché il campo pezzi è vuoto o pari a zero.
-                # REGOLA DEFINITIVA:
-                # - controllo quantità esclusivamente per FINCANTIERI e FINCANTIERI ARMATORE;
-                # - mai per MARINE INTERIORS o altri clienti;
-                # - mai per riferimenti logistici BANCALE/PALLET/PACKAGE/CASSA.
-                cliente_norm = re.sub(
+                # REGOLA AZIENDALE DEFINITIVA:
+                # Il campo pezzi viene controllato ESCLUSIVAMENTE per:
+                # - FINCANTIERI
+                # - FINCANTIERI ARMATORE
+                #
+                # Per MARINE INTERIORS e qualsiasi altro cliente:
+                # - pezzi vuoti o zero sono ammessi;
+                # - la quantità inserita nel form non viene confrontata con la giacenza;
+                # - il Buono usa la riga selezionata senza blocchi quantitativi.
+                cliente_key = re.sub(
                     r"[^A-Z0-9]+",
-                    " ",
-                    str(getattr(r, 'cliente', '') or '').upper()
-                ).strip()
-                cliente_norm = re.sub(r"\s+", " ", cliente_norm)
-
-                riferimento_logistico = (
-                    _solo_riferimento_logistico(codice_scelto)
-                    or _solo_riferimento_logistico(old_cod)
-                    or bool(re.match(
-                        r"^(?:BANCALE|PALLET|PACKAGE|PKG|CASSA|CASE)\b",
-                        str(codice_scelto or old_cod or '').strip(),
-                        flags=re.I
-                    ))
+                    "",
+                    str(getattr(r, "cliente", "") or "").upper()
                 )
+                clienti_con_controllo_pezzi = {
+                    "FINCANTIERI",
+                    "FINCANTIERIARMATORE",
+                }
+                controlla_pezzi = cliente_key in clienti_con_controllo_pezzi
 
-                controlla_pezzi = (
-                    cliente_norm in {"FINCANTIERI", "FINCANTIERI ARMATORE"}
-                    and cliente_norm != "MARINE INTERIORS"
-                    and not riferimento_logistico
+                pezzi_originali = _num_float(getattr(r, "pezzo", None))
+
+                # Riga di verifica visibile nei log Render.
+                print(
+                    f"[BUONO PEZZI] ID={rid} cliente={getattr(r, 'cliente', '')!r} "
+                    f"cliente_key={cliente_key!r} controllo={controlla_pezzi} "
+                    f"disponibili={pezzi_originali}"
                 )
-                pezzi_originali = _num_float(getattr(r, 'pezzo', None))
 
                 if controlla_pezzi:
                     if abs(old_pezzi_form - pezzi_originali) > 0.000001:
@@ -1163,13 +1160,9 @@ def register_buono_routes(app_obj, deps):
                             "Riduci la quantità e riprova. Il Buono non è stato creato."
                         )
                 else:
-                    # Per MARINE INTERIORS e per tutti gli altri clienti il campo pezzi
-                    # può essere vuoto. Se è valorizzato lo conserviamo; altrimenti il
-                    # Buono prende l'intera riga senza eseguire controlli quantitativi.
-                    pezzi_scelti = _num_float(q_raw) if q_raw else pezzi_originali
-                    if pezzi_scelti < 0:
-                        pezzi_scelti = 0
-
+                    # Non controllare e non richiedere i pezzi per Marine Interiors
+                    # e per tutti i clienti diversi dai due Fincantieri.
+                    pezzi_scelti = pezzi_originali
                 if not codice_scelto:
                     raise BuonoValidationError(f"Il codice/marca pezzo della riga ID {rid} è vuoto.")
 
