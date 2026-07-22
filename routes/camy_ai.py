@@ -312,7 +312,9 @@ def register_camy_ai_routes(app_obj, deps):
           var noteBuono = '';
           var msg = 'Confermi l’operazione proposta da CAMY AI?';
 
-          if(mode === 'existing'){
+          if(mode === 'open_preview'){
+            msg = 'Apro la pagina del Buono senza salvare modifiche.';
+          } else if(mode === 'existing'){
             msg = "Confermi l'aggiunta delle righe al Buono esistente?";
           } else if(mode === 'manual'){
             manualBuono = prompt('Inserisci il N. Buono manuale, esempio 45/26:');
@@ -327,7 +329,7 @@ def register_camy_ai_routes(app_obj, deps):
             msg = 'Confermi l’assegnazione automatica del prossimo N. Buono?';
           }
 
-          if(askPartial){
+          if(askPartial && mode !== 'open_preview'){
             requestedCode = prompt('La riga contiene più codici. Inserisci il CODICE che deve uscire nel Buono:');
             if(requestedCode === null) return;
             requestedCode = (requestedCode || '').trim();
@@ -351,14 +353,15 @@ def register_camy_ai_routes(app_obj, deps):
             msg += String.fromCharCode(10,10) + 'Scarico parziale:' + String.fromCharCode(10) + 'Codice: ' + requestedCode + String.fromCharCode(10) + 'Descrizione: ' + (requestedDescr || '-') + String.fromCharCode(10) + 'Pezzi: ' + requestedPezzi;
           }
 
-          noteBuono = prompt('Vuoi inserire una nota da salvare solo sulla riga del Buono? Lascia vuoto se non serve:', '');
-          if(noteBuono === null) noteBuono = '';
-          noteBuono = (noteBuono || '').trim();
-          if(noteBuono){
-            msg += String.fromCharCode(10,10) + 'Note del Buono: ' + noteBuono;
+          if(mode !== 'open_preview'){
+            noteBuono = prompt('Vuoi inserire una nota da salvare solo sulla riga del Buono? Lascia vuoto se non serve:', '');
+            if(noteBuono === null) noteBuono = '';
+            noteBuono = (noteBuono || '').trim();
+            if(noteBuono){
+              msg += String.fromCharCode(10,10) + 'Note del Buono: ' + noteBuono;
+            }
+            if(!confirm(msg)) return;
           }
-
-          if(!confirm(msg)) return;
           var loading = window.camyAiAdd('Confermo l’operazione...', 'bot', false);
           try{
             var res = await fetch('/camy-ai/confirm', {
@@ -918,16 +921,21 @@ def register_camy_ai_routes(app_obj, deps):
         session.modified = True
 
     def _apply_buono_choice_buttons(token, ask_partial=False):
-        partial_flag = "true" if ask_partial else "false"
+        """Apre la pagina standard del Buono senza modificare il database."""
         safe_token = _esc(token)
         return (
             "<div class='mt-2 d-flex flex-wrap gap-2'>"
             f"<button type='button' class='btn btn-sm btn-success' "
-            f"data-camy-confirm='1' data-camy-token='{safe_token}' data-camy-mode='auto' data-camy-partial='{partial_flag}'>Automatico</button>"
-            f"<button type='button' class='btn btn-sm btn-outline-primary' "
-            f"data-camy-confirm='1' data-camy-token='{safe_token}' data-camy-mode='manual' data-camy-partial='{partial_flag}'>Manuale</button>"
+            f"data-camy-confirm='1' data-camy-token='{safe_token}' "
+            "data-camy-mode='open_preview' data-camy-partial='false'>"
+            "Apri pagina Buono</button>"
+            "</div>"
+            "<div class='small text-muted mt-1'>"
+            "Il Buono non viene ancora salvato: nella pagina successiva puoi controllare le righe, "
+            "inserire il Picking, generare il cartello e confermare definitivamente."
             "</div>"
         )
+
 
 
     def _apply_add_existing_buono_button(token, ask_partial=False):
@@ -1658,7 +1666,7 @@ def register_camy_ai_routes(app_obj, deps):
             riepilogo.append("<br><b>Righe già uscite e quindi escluse:</b><br>" + "<br>".join(_uscito_info(r) for r in rows_uscite[:8]) + "<br>")
         if requested_code or requested_descr or requested_pezzi:
             riepilogo.append(
-                "<br><b>Dati scarico parziale letti:</b> "
+                "<br><b>Materiale richiesto:</b> "
                 f"Codice: <b>{_esc(requested_code or '-')}</b> | "
                 f"Descrizione: <b>{_esc(requested_descr or '-')}</b> | "
                 f"Pezzi: <b>{_esc(requested_pezzi or '-')}</b><br>"
@@ -1668,7 +1676,7 @@ def register_camy_ai_routes(app_obj, deps):
                 "<br><b>Scarico parziale rilevato:</b> alla conferma CAMY ti chiederà codice, descrizione e pezzi da aggiungere al Buono.<br>"
             )
         if note_buono:
-            riepilogo.append(f"<br><b>Nota da salvare in giacenze:</b> {_esc(note_buono)}<br>")
+            riepilogo.append(f"<br><b>Nota proposta per il Buono:</b> {_esc(note_buono)}<br>")
 
         for r in rows[:8]:
             riepilogo.append(
@@ -1895,8 +1903,12 @@ def register_camy_ai_routes(app_obj, deps):
         prossimo_auto = _peek_next_buono_number(db)
         manual_buono = _extract_manual_buono_number(msg)
         requested_code = (filters.get("codice_articolo") or "").strip()
+        if not requested_code and len(line_items) == 1:
+            requested_code = str(line_items[0].get("codice") or "").strip()
         requested_descr = _extract_requested_descrizione(msg)
         requested_pezzi = _extract_requested_pezzi(msg)
+        if not requested_pezzi and len(line_items) == 1:
+            requested_pezzi = str(line_items[0].get("pezzi") or "").strip()
 
         problemi_pezzi = _validate_pezzi_richiesti(rows, requested_pezzi, requested_code=requested_code)
         if problemi_pezzi:
@@ -2005,9 +2017,9 @@ def register_camy_ai_routes(app_obj, deps):
         riepilogo = [
             f"<b>Proposta Buono di Prelievo</b><br>",
             f"Righe selezionate: <b>{len(ids)}</b><br>",
-            f"Vuoi inserire il N. Buono <b>automaticamente</b> o <b>manualmente</b>?<br>",
-            f"Prossimo numero automatico previsto: <b>{_esc(prossimo_auto)}</b>{scelta_manual}{dettagli_multi}{dettagli_parziale}{dettagli_note}{dettagli_usciti}{dettagli_buoni_esistenti}<br>",
-            "CAMY applicherà la modifica solo dopo conferma. Nessuno scarico definitivo verrà eseguito automaticamente.<br>"
+            "CAMY ha preparato la selezione, ma non ha ancora modificato la giacenza.<br>",
+            f"Prossimo numero automatico previsto nella pagina Buono: <b>{_esc(prossimo_auto)}</b>{scelta_manual}{dettagli_multi}{dettagli_parziale}{dettagli_note}{dettagli_usciti}{dettagli_buoni_esistenti}<br>",
+            "Premi <b>Apri pagina Buono</b>. La conferma definitiva, il Picking e il cartello saranno gestiti nella pagina standard del Buono.<br>"
         ]
         riepilogo.append(dettagli_multi)
         for r in rows[:8]:
@@ -2448,6 +2460,26 @@ def register_camy_ai_routes(app_obj, deps):
             if op.get("type") == "set_buono":
                 ids = [int(x) for x in op.get("ids") or [] if str(x).isdigit()]
                 mode = (data.get("mode") or "auto").strip().lower()
+
+                # Modalità CAMY sicura: apre la pagina standard del Buono e non
+                # assegna il numero, non crea righe, non scala pezzi e non crea Picking.
+                if mode == "open_preview":
+                    if not ids:
+                        return jsonify({"answer": "Nessuna riga selezionata.", "html": False}), 400
+                    pending.pop(token, None)
+                    session["camy_ai_pending_ops"] = pending
+                    session.modified = True
+                    return jsonify({
+                        "answer": (
+                            "<b>Selezione pronta.</b><br>"
+                            "Apro la pagina standard del Buono. Da lì puoi controllare il materiale, "
+                            "inserire il Picking, generare il cartello e infine confermare il Buono."
+                        ),
+                        "html": True,
+                        "redirect_url": url_for("buono_preview"),
+                        "redirect_ids": ",".join(str(x) for x in ids),
+                    })
+
                 manual_from_request = (data.get("manual_buono") or "").strip()
                 manual_from_message = (op.get("manual_buono") or "").strip()
 
