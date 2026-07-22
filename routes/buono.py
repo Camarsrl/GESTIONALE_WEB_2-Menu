@@ -16,7 +16,7 @@ la riga originale resta in giacenza con il residuo, senza note del buono e senza
 def register_buono_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] BUONO CONTROLLO PEZZI SOLO FINCANTIERI - VERSIONE 2026-07-22-B")
+    print("[OK] BUONO DEFINITIVO - CONTROLLO PEZZI SOLO BUONO FINCANTIERI - 2026-07-22-C")
 
     def _split_multi_value(value):
         """Divide una cella multi-valore senza rompere gli slash/asterischi interni.
@@ -1075,6 +1075,34 @@ def register_buono_routes(app_obj, deps):
             # -----------------------------------------------------------------
             # VALIDAZIONE COMPLETA PRIMA DI MODIFICARE QUALSIASI RIGA
             # -----------------------------------------------------------------
+            # Il controllo dei pezzi si attiva soltanto quando TUTTE le righe
+            # selezionate appartengono a FINCANTIERI o FINCANTIERI ARMATORE.
+            # In questo modo una selezione Marine Interiors, anche con pezzi vuoti/zero,
+            # non può essere bloccata da controlli quantitativi.
+            clienti_con_controllo_pezzi = {
+                "FINCANTIERI",
+                "FINCANTIERIARMATORE",
+            }
+
+            def _cliente_key_buono(value):
+                return re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
+
+            clienti_selezionati_keys = {
+                _cliente_key_buono(getattr(x, "cliente", ""))
+                for x in rows
+                if _cliente_key_buono(getattr(x, "cliente", ""))
+            }
+
+            buono_controlla_pezzi = bool(clienti_selezionati_keys) and clienti_selezionati_keys.issubset(
+                clienti_con_controllo_pezzi
+            )
+
+            print(
+                "[BUONO CLIENTI] "
+                f"clienti={sorted(clienti_selezionati_keys)} "
+                f"controllo_pezzi={buono_controlla_pezzi}"
+            )
+
             prepared = []
 
             for r in rows:
@@ -1096,25 +1124,13 @@ def register_buono_routes(app_obj, deps):
                         "Aggiorna le Giacenze e ripeti il Buono."
                     )
 
-                # REGOLA AZIENDALE DEFINITIVA:
-                # Il campo pezzi viene controllato ESCLUSIVAMENTE per:
-                # - FINCANTIERI
-                # - FINCANTIERI ARMATORE
-                #
-                # Per MARINE INTERIORS e qualsiasi altro cliente:
-                # - pezzi vuoti o zero sono ammessi;
-                # - la quantità inserita nel form non viene confrontata con la giacenza;
-                # - il Buono usa la riga selezionata senza blocchi quantitativi.
-                cliente_key = re.sub(
-                    r"[^A-Z0-9]+",
-                    "",
-                    str(getattr(r, "cliente", "") or "").upper()
+                # Controllo quantità soltanto per un Buono composto interamente
+                # da righe FINCANTIERI / FINCANTIERI ARMATORE.
+                cliente_key = _cliente_key_buono(getattr(r, "cliente", ""))
+                controlla_pezzi = (
+                    buono_controlla_pezzi
+                    and cliente_key in clienti_con_controllo_pezzi
                 )
-                clienti_con_controllo_pezzi = {
-                    "FINCANTIERI",
-                    "FINCANTIERIARMATORE",
-                }
-                controlla_pezzi = cliente_key in clienti_con_controllo_pezzi
 
                 pezzi_originali = _num_float(getattr(r, "pezzo", None))
 
