@@ -16,7 +16,7 @@ la riga originale resta in giacenza con il residuo, senza note del buono e senza
 def register_buono_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] BUONO VISIBILE - CONTROLLO PEZZI SOLO FINCANTIERI - VERSIONE E")
+    print("[OK] BUONO COMPLETO - CONTROLLO PEZZI SOLO FINCANTIERI E FINCANTIERI ARMATORE - VERSIONE F")
 
     def _split_multi_value(value):
         """Divide una cella multi-valore senza rompere gli slash/asterischi interni.
@@ -129,10 +129,13 @@ def register_buono_routes(app_obj, deps):
 
 
     def _cliente_richiede_controllo_pezzi(cliente):
-        """Controlla i pezzi solo per i due clienti Fincantieri previsti."""
+        """True solo per FINCANTIERI e FINCANTIERI ARMATORE."""
         nome = re.sub(r"[^A-Z0-9]+", " ", str(cliente or "").upper()).strip()
         nome = re.sub(r"\s+", " ", nome)
-        return nome in {"FINCANTIERI", "FINCANTIERI ARMATORE"}
+        return nome in {
+            "FINCANTIERI",
+            "FINCANTIERI ARMATORE",
+        }
 
 
     def _solo_riferimento_logistico(value):
@@ -1075,17 +1078,9 @@ def register_buono_routes(app_obj, deps):
             # -----------------------------------------------------------------
             # VALIDAZIONE COMPLETA PRIMA DI MODIFICARE QUALSIASI RIGA
             # -----------------------------------------------------------------
-            # REGOLA DEFINITIVA SEMPLICE:
-            # controllo pezzi SOLO sulla singola riga quando il cliente è esattamente
-            # FINCANTIERI oppure FINCANTIERI ARMATORE.
-            clienti_con_controllo_pezzi = {
-                "FINCANTIERI",
-                "FINCANTIERIARMATORE",
-            }
-
-            def _cliente_key_buono(value):
-                return re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
-
+            # REGOLA DEFINITIVA:
+            # il controllo quantità viene deciso soltanto dalla funzione
+            # _cliente_richiede_controllo_pezzi(), senza regole duplicate.
             prepared = []
 
             for r in rows:
@@ -1110,22 +1105,20 @@ def register_buono_routes(app_obj, deps):
                 # ============================================================
                 # CONTROLLO PEZZI: SOLO FINCANTIERI / FINCANTIERI ARMATORE
                 # ============================================================
-                cliente_key = _cliente_key_buono(getattr(r, "cliente", ""))
+                cliente_riga = getattr(r, "cliente", "")
                 pezzi_originali = _num_float(getattr(r, "pezzo", None))
+                controlla_pezzi = _cliente_richiede_controllo_pezzi(cliente_riga)
 
-                if cliente_key not in {"FINCANTIERI", "FINCANTIERIARMATORE"}:
+                if not controlla_pezzi:
                     # MARINE INTERIORS E TUTTI GLI ALTRI CLIENTI:
-                    # nessun controllo sui pezzi, nessun blocco se 0 o vuoto.
-                    controlla_pezzi = False
+                    # bypass totale del controllo quantità e disponibilità.
                     pezzi_scelti = pezzi_originali
                     print(
                         f"[BUONO SENZA CONTROLLO PEZZI] ID={rid} "
-                        f"cliente={getattr(r, 'cliente', '')!r} "
-                        f"cliente_key={cliente_key!r}"
+                        f"cliente={cliente_riga!r}"
                     )
                 else:
                     # SOLO FINCANTIERI / FINCANTIERI ARMATORE
-                    controlla_pezzi = True
                     print(
                         f"[BUONO CONTROLLO PEZZI FINCANTIERI] ID={rid} "
                         f"cliente={getattr(r, 'cliente', '')!r} "
