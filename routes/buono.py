@@ -128,13 +128,29 @@ def register_buono_routes(app_obj, deps):
 
 
     def _cliente_richiede_controllo_pezzi(cliente):
-        """Il controllo quantità è obbligatorio solo per FINCANTIERI e FINCANTIERI ARMATORE.
+        """Controlla i pezzi soltanto per i due clienti FINCANTIERI previsti.
 
-        Tutti gli altri clienti, compreso MARINE INTERIORS, possono creare il Buono
-        anche quando il campo ``pezzo`` è vuoto oppure pari a zero.
+        MARINE INTERIORS e qualunque altro cliente non devono essere bloccati se il
+        campo ``pezzo`` è vuoto oppure pari a zero.
         """
-        nome = re.sub(r"[^A-Z0-9]+", " ", str(cliente or "").upper()).strip()
-        return nome in {"FINCANTIERI", "FINCANTIERI ARMATORE"}
+        nome = re.sub(r"[^A-Z0-9]+", "", str(cliente or "").upper())
+        return nome in {"FINCANTIERI", "FINCANTIERIARMATORE"}
+
+    def _is_logistic_placeholder(value):
+        """Riconosce riferimenti logistici che non sono veri marca-pezzi.
+
+        BANCALE, PALLET, PACKAGE, PKG, CASSA e CASE non devono mai attivare il
+        controllo disponibilità pezzi né essere trattati come marca-pezzo.
+        """
+        txt = re.sub(r"\s+", " ", str(value or "").strip())
+        if not txt:
+            return False
+        return bool(re.fullmatch(
+            r"(?:BANCALE|PALLET|PACKAGE|PKG|CASSA|CASE)"
+            r"\s*(?:(?:NO|N)\.?)?\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9._/\-]*",
+            txt,
+            flags=re.I,
+        ))
 
 
     def _piece_value_for_db(value):
@@ -186,7 +202,7 @@ def register_buono_routes(app_obj, deps):
             return False
         patterns = (
             r"(?:PACKAGE|PKG)\s*(?:(?:NO|N)\.?)?\s*[:#.]?\s*[A-Z0-9]+",
-            r"PALLET\s*[:#.]?\s*[A-Z0-9][A-Z0-9._/\-]*",
+            r"(?:BANCALE|PALLET)\s*(?:(?:NO|N)\.?)?\s*[:#.]?\s*[A-Z0-9][A-Z0-9._/\-]*",
             r"(?:CASSA|CASE)\s*[:#.]?\s*[A-Z0-9][A-Z0-9._/\-]*",
         )
         return any(re.fullmatch(pat, txt, flags=re.I) for pat in patterns)
@@ -1080,8 +1096,12 @@ def register_buono_routes(app_obj, deps):
                         "Aggiorna le Giacenze e ripeti il Buono."
                     )
 
-                controlla_pezzi = _cliente_richiede_controllo_pezzi(
-                    getattr(r, 'cliente', '')
+                # Il controllo quantitativo vale solo per FINCANTIERI/FINCANTIERI ARMATORE
+                # e mai quando il campo codice contiene soltanto un riferimento logistico
+                # come BANCALE N.2, PALLET, PACKAGE o CASSA.
+                controlla_pezzi = (
+                    _cliente_richiede_controllo_pezzi(getattr(r, 'cliente', ''))
+                    and not _is_logistic_placeholder(codice_scelto or old_cod)
                 )
                 pezzi_originali = _num_float(getattr(r, 'pezzo', None))
 
