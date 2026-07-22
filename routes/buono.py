@@ -16,7 +16,7 @@ la riga originale resta in giacenza con il residuo, senza note del buono e senza
 def register_buono_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] BUONO DEFINITIVO - CONTROLLO PEZZI SOLO FINCANTIERI E FINCANTIERI ARMATORE - VERSIONE F")
+    print("[OK] BUONO DEFINITIVO - CONTROLLO PEZZI DISATTIVATO PER TUTTI I CLIENTI - VERSIONE G")
 
     def _split_multi_value(value):
         """Divide una cella multi-valore senza rompere gli slash/asterischi interni.
@@ -129,13 +129,8 @@ def register_buono_routes(app_obj, deps):
 
 
     def _cliente_richiede_controllo_pezzi(cliente):
-        """True solo per FINCANTIERI e FINCANTIERI ARMATORE."""
-        nome = re.sub(r"[^A-Z0-9]+", " ", str(cliente or "").upper()).strip()
-        nome = re.sub(r"\s+", " ", nome)
-        return nome in {
-            "FINCANTIERI",
-            "FINCANTIERI ARMATORE",
-        }
+        """Controllo disponibilità pezzi disattivato per tutti i clienti."""
+        return False
 
 
     def _solo_riferimento_logistico(value):
@@ -1092,8 +1087,7 @@ def register_buono_routes(app_obj, deps):
                 q_raw = (req_data.get(f"q_{rid}") or '').strip()
 
                 # Controllo concorrenza: il codice deve essere ancora uguale a quello
-                # mostrato nell'anteprima. Il controllo dei pezzi è invece obbligatorio
-                # soltanto per FINCANTIERI e FINCANTIERI ARMATORE.
+                # mostrato nell'anteprima. Il controllo disponibilità pezzi è disattivato.
                 old_cod_form = (req_data.get(f"original_codice_{rid}") or old_cod).strip()
                 old_pezzi_form = _num_float(req_data.get(f"original_pezzi_{rid}"))
                 if _norm_for_match(old_cod_form) != _norm_for_match(old_cod):
@@ -1103,16 +1097,19 @@ def register_buono_routes(app_obj, deps):
                     )
 
                 # ============================================================
-                # CONTROLLO PEZZI: SOLO FINCANTIERI / FINCANTIERI ARMATORE
+                # CONTROLLO DISPONIBILITÀ PEZZI DISATTIVATO PER TUTTI I CLIENTI
                 # ============================================================
                 cliente_riga = getattr(r, "cliente", "")
                 pezzi_originali = _num_float(getattr(r, "pezzo", None))
                 controlla_pezzi = _cliente_richiede_controllo_pezzi(cliente_riga)
 
                 if not controlla_pezzi:
-                    # MARINE INTERIORS E TUTTI GLI ALTRI CLIENTI:
-                    # nessun controllo quantità e nessun blocco per pezzi vuoti o zero.
-                    pezzi_scelti = pezzi_originali
+                    # TUTTI I CLIENTI: nessun controllo o blocco sulla disponibilità.
+                    # Se l'utente indica una quantità, viene comunque usata per lo
+                    # scarico parziale; se manca o non è valida, usa la quantità della riga.
+                    pezzi_scelti = _num_float(q_raw) if q_raw else pezzi_originali
+                    if pezzi_scelti <= 0:
+                        pezzi_scelti = pezzi_originali
                     print(
                         f"[BUONO SENZA CONTROLLO PEZZI] ID={rid} "
                         f"cliente={cliente_riga!r}"
