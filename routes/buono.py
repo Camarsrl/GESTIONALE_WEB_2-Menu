@@ -1101,7 +1101,7 @@ def register_buono_routes(app_obj, deps):
                 # ============================================================
                 cliente_riga = getattr(r, "cliente", "")
                 pezzi_originali = _num_float(getattr(r, "pezzo", None))
-                controlla_pezzi = _cliente_richiede_controllo_pezzi(cliente_riga)
+                controlla_pezzi = False
 
                 if not controlla_pezzi:
                     # TUTTI I CLIENTI: nessun controllo o blocco sulla disponibilità.
