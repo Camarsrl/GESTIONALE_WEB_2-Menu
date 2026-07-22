@@ -16,7 +16,7 @@ la riga originale resta in giacenza con il residuo, senza note del buono e senza
 def register_buono_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] BUONO DEFINITIVO - CONTROLLO PEZZI SOLO BUONO FINCANTIERI - 2026-07-22-C")
+    print("[OK] BUONO VISIBILE - CONTROLLO PEZZI SOLO FINCANTIERI - VERSIONE E")
 
     def _split_multi_value(value):
         """Divide una cella multi-valore senza rompere gli slash/asterischi interni.
@@ -129,26 +129,9 @@ def register_buono_routes(app_obj, deps):
 
 
     def _cliente_richiede_controllo_pezzi(cliente):
-        """Attiva il controllo quantità ESCLUSIVAMENTE per due clienti.
-
-        Valori ammessi:
-        - FINCANTIERI
-        - FINCANTIERI ARMATORE
-
-        Qualsiasi altro cliente, compreso MARINE INTERIORS, non deve essere
-        bloccato se il campo pezzi è vuoto o pari a zero.
-        """
+        """Controlla i pezzi solo per i due clienti Fincantieri previsti."""
         nome = re.sub(r"[^A-Z0-9]+", " ", str(cliente or "").upper()).strip()
         nome = re.sub(r"\s+", " ", nome)
-
-        # Esclusioni esplicite per evitare che descrizioni o denominazioni
-        # contenenti riferimenti Fincantieri attivino per errore il controllo.
-        if any(x in nome for x in (
-            "MARINE INTERIORS", "DE WAVE", "DEWAVE", "WINGECO",
-            "RF DE WAVE", "DUFERCO", "GALVANO"
-        )):
-            return False
-
         return nome in {"FINCANTIERI", "FINCANTIERI ARMATORE"}
 
 
@@ -1092,17 +1075,16 @@ def register_buono_routes(app_obj, deps):
             # -----------------------------------------------------------------
             # VALIDAZIONE COMPLETA PRIMA DI MODIFICARE QUALSIASI RIGA
             # -----------------------------------------------------------------
-            # Il controllo quantità viene deciso riga per riga tramite
-            # _cliente_richiede_controllo_pezzi(). Non dipende dal cliente del
-            # Picking, dal fornitore o da altre righe selezionate.
-            clienti_selezionati = [
-                str(getattr(x, "cliente", "") or "").strip()
-                for x in rows
-            ]
-            print(
-                "[BUONO CLIENTI] "
-                f"clienti={clienti_selezionati!r}"
-            )
+            # REGOLA DEFINITIVA SEMPLICE:
+            # controllo pezzi SOLO sulla singola riga quando il cliente è esattamente
+            # FINCANTIERI oppure FINCANTIERI ARMATORE.
+            clienti_con_controllo_pezzi = {
+                "FINCANTIERI",
+                "FINCANTIERIARMATORE",
+            }
+
+            def _cliente_key_buono(value):
+                return re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
 
             prepared = []
 
@@ -1125,22 +1107,31 @@ def register_buono_routes(app_obj, deps):
                         "Aggiorna le Giacenze e ripeti il Buono."
                     )
 
-                # Controllo quantità ESCLUSIVAMENTE per la riga il cui cliente
-                # è esattamente FINCANTIERI oppure FINCANTIERI ARMATORE.
-                cliente_raw = str(getattr(r, "cliente", "") or "").strip()
-                controlla_pezzi = _cliente_richiede_controllo_pezzi(cliente_raw)
-                cliente_key = re.sub(r"[^A-Z0-9]+", "", cliente_raw.upper())
-
+                # ============================================================
+                # CONTROLLO PEZZI: SOLO FINCANTIERI / FINCANTIERI ARMATORE
+                # ============================================================
+                cliente_key = _cliente_key_buono(getattr(r, "cliente", ""))
                 pezzi_originali = _num_float(getattr(r, "pezzo", None))
 
-                # Riga di verifica visibile nei log Render.
-                print(
-                    f"[BUONO PEZZI] ID={rid} cliente={getattr(r, 'cliente', '')!r} "
-                    f"cliente_key={cliente_key!r} controllo={controlla_pezzi} "
-                    f"disponibili={pezzi_originali}"
-                )
+                if cliente_key not in {"FINCANTIERI", "FINCANTIERIARMATORE"}:
+                    # MARINE INTERIORS E TUTTI GLI ALTRI CLIENTI:
+                    # nessun controllo sui pezzi, nessun blocco se 0 o vuoto.
+                    controlla_pezzi = False
+                    pezzi_scelti = pezzi_originali
+                    print(
+                        f"[BUONO SENZA CONTROLLO PEZZI] ID={rid} "
+                        f"cliente={getattr(r, 'cliente', '')!r} "
+                        f"cliente_key={cliente_key!r}"
+                    )
+                else:
+                    # SOLO FINCANTIERI / FINCANTIERI ARMATORE
+                    controlla_pezzi = True
+                    print(
+                        f"[BUONO CONTROLLO PEZZI FINCANTIERI] ID={rid} "
+                        f"cliente={getattr(r, 'cliente', '')!r} "
+                        f"disponibili={pezzi_originali}"
+                    )
 
-                if controlla_pezzi:
                     if abs(old_pezzi_form - pezzi_originali) > 0.000001:
                         raise BuonoValidationError(
                             f"La disponibilità della riga ID {rid} è cambiata da "
@@ -1166,6 +1157,7 @@ def register_buono_routes(app_obj, deps):
                         raise BuonoValidationError(
                             f"La quantità del marca pezzo {codice_scelto or old_cod} deve essere maggiore di zero."
                         )
+
                     if pezzi_scelti > pezzi_originali:
                         raise BuonoValidationError(
                             "CAMY AI - GIACENZA INSUFFICIENTE\n\n"
@@ -1174,10 +1166,7 @@ def register_buono_routes(app_obj, deps):
                             f"Disponibili: {_fmt_num_clean(pezzi_originali)} pezzi\n\n"
                             "Riduci la quantità e riprova. Il Buono non è stato creato."
                         )
-                else:
-                    # Non controllare e non richiedere i pezzi per Marine Interiors
-                    # e per tutti i clienti diversi dai due Fincantieri.
-                    pezzi_scelti = pezzi_originali
+
                 if not codice_scelto:
                     raise BuonoValidationError(f"Il codice/marca pezzo della riga ID {rid} è vuoto.")
 
