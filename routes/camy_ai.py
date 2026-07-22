@@ -377,6 +377,30 @@ def register_camy_ai_routes(app_obj, deps):
             var data = await res.json();
             if(loading) loading.remove();
             window.camyAiAdd(data.answer || 'Operazione completata.', 'bot', !!data.html);
+
+            // Dopo la creazione del Buono apre automaticamente la pagina standard
+            // del Buono, dove sono disponibili stampa PDF e cartelli pallet/picking.
+            if(data.redirect_url && data.redirect_ids){
+              window.setTimeout(function(){
+                try{
+                  var form = document.createElement('form');
+                  form.method = 'POST';
+                  form.action = data.redirect_url;
+                  form.style.display = 'none';
+
+                  var inp = document.createElement('input');
+                  inp.type = 'hidden';
+                  inp.name = 'ids_all';
+                  inp.value = data.redirect_ids;
+                  form.appendChild(inp);
+
+                  document.body.appendChild(form);
+                  form.submit();
+                }catch(e){
+                  window.camyAiAdd('Buono creato, ma non sono riuscita ad aprire automaticamente la pagina del Buono.', 'bot', false);
+                }
+              }, 700);
+            }
           }catch(e){
             if(loading) loading.remove();
             window.camyAiAdd('CAMY AI non è riuscita a confermare. Controlla i log admin.', 'bot', false);
@@ -2558,6 +2582,18 @@ def register_camy_ai_routes(app_obj, deps):
 
                 db.commit()
 
+                # Recupera le righe effettivamente assegnate al Buono appena creato.
+                # Per gli scarichi parziali sono le nuove righe, non la riga residua.
+                buono_preview_ids = [
+                    int(rid) for (rid,) in (
+                        db.query(Articolo.id_articolo)
+                        .filter(Articolo.buono_n == buono)
+                        .order_by(Articolo.id_articolo.asc())
+                        .all()
+                    )
+                    if rid is not None
+                ]
+
                 picking_msg = ""
                 try:
                     pick = _crea_picking_da_buono(db, buono)
@@ -2571,39 +2607,31 @@ def register_camy_ai_routes(app_obj, deps):
                         picking_msg = f"<br><b>Picking:</b> {_esc(pick.get('message') or 'già presente')}<br>"
                 except Exception as pick_err:
                     try:
+                        db.rollback()
+                    except Exception:
+                        pass
+                    try:
                         scrivi_log_errore("CAMY AI - creazione picking da buono", pick_err)
                     except Exception:
                         pass
+                    picking_msg = (
+                        "<br><span class='text-warning'>"
+                        "Il Buono è stato salvato, ma il Picking automatico non è stato creato."
+                        "</span><br>"
+                    )
 
                 pending.pop(token, None)
                 session["camy_ai_pending_ops"] = pending
                 session.modified = True
 
-                pdf_link_html = ""
-                try:
-                    pdf_filename, pdf_path = _generate_buono_pdf(db, buono)
-                    if pdf_filename and pdf_path:
-                        pdf_url = url_for("camy_ai_buono_pdf", filename=pdf_filename)
-                        pdf_download_url = pdf_url + "?download=1"
-                        pdf_link_html = (
-                            "<br><div class='mt-2 d-flex flex-wrap gap-2'>"
-                            f"<a class='btn btn-sm btn-success' href='{_esc(pdf_url)}' target='_blank' rel='noopener'>"
-                            "Apri / Stampa PDF Buono</a>"
-                            f"<a class='btn btn-sm btn-outline-danger' href='{_esc(pdf_download_url)}'>"
-                            "Scarica PDF</a>"
-                            "</div>"
-                        )
-                except Exception as pdf_err:
-                    try:
-                        scrivi_log_errore("Errore generazione PDF Buono CAMY AI", pdf_err)
-                    except Exception:
-                        pass
-                    pdf_link_html = (
-                        "<br><span class='text-warning'>"
-                        "Buono aggiornato, ma PDF non generato: "
-                        + _esc(str(pdf_err))
-                        + "</span>"
-                    )
+                preview_url = url_for("buono_preview")
+                preview_ids_value = ",".join(str(x) for x in buono_preview_ids)
+                pdf_link_html = (
+                    "<br><div class='mt-2'>"
+                    "<b>Apro la pagina completa del Buono...</b><br>"
+                    "Da quella pagina puoi stampare il Buono e generare i cartelli pallet/picking."
+                    "</div>"
+                )
 
                 extra = ""
                 if rows_uscite:
@@ -2639,10 +2667,11 @@ def register_camy_ai_routes(app_obj, deps):
                         f"Righe elaborate: {updated}<br>"
                         f"{picking_msg}"
                         f"{extra}"
-                        f"{pdf_link_html}<br>"
-                        "Usa il pulsante Apri / Stampa PDF per visualizzarlo e stamparlo, oppure Scarica PDF per salvarlo."
+                        f"{pdf_link_html}"
                     ),
-                    "html": True
+                    "html": True,
+                    "redirect_url": preview_url,
+                    "redirect_ids": preview_ids_value,
                 })
 
             return jsonify({"answer": "Tipo operazione non gestito.", "html": False}), 400
