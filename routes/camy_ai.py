@@ -486,7 +486,7 @@ def register_camy_ai_routes(app_obj, deps):
 
     def _camy_controlla_pezzi_cliente(cliente):
         """Controlla quantità e disponibilità solo per FINCANTIERI e FINCANTIERI ARMATORE."""
-        return _norm(cliente) in {"FINCANTIERI", "FINCANTIERIARMATORE"}
+        return _norm(cliente) in {"FINCANTIERI", "FINCANTIERI ARMATORE"}
 
     def _sql_norm_col(col):
         expr = func.upper(func.coalesce(col, ""))
