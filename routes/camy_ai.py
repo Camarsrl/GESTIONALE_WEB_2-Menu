@@ -37,7 +37,7 @@ Non cancella righe e non esegue scarichi definitivi automatici.
 def register_camy_ai_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] CAMY DEFINITIVO - CONTROLLO PEZZI DISATTIVATO PER TUTTI I CLIENTI - VERSIONE L")
+    print("[OK] CAMY DEFINITIVO - CONTROLLO PEZZI SOLO FINCANTIERI E FINCANTIERI ARMATORE - VERSIONE M")
 
     import os
     import re
@@ -485,8 +485,12 @@ def register_camy_ai_routes(app_obj, deps):
         return re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
 
     def _camy_controlla_pezzi_cliente(cliente):
-        """Controllo disponibilità pezzi disattivato per tutti i clienti."""
-        return False
+        """True solo per FINCANTIERI e FINCANTIERI ARMATORE."""
+        cliente_normalizzato = _norm(cliente)
+        return cliente_normalizzato in {
+            _norm("FINCANTIERI"),
+            _norm("FINCANTIERI ARMATORE"),
+        }
 
     def _sql_norm_col(col):
         expr = func.upper(func.coalesce(col, ""))
