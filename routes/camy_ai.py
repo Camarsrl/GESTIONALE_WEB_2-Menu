@@ -37,6 +37,7 @@ Non cancella righe e non esegue scarichi definitivi automatici.
 def register_camy_ai_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
+    print("[OK] CAMY CONTROLLO PEZZI SOLO FINCANTIERI - VERSIONE 2026-07-22-F")
 
     import os
     import re
@@ -482,6 +483,10 @@ def register_camy_ai_routes(app_obj, deps):
 
     def _norm(value):
         return re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
+
+    def _camy_controlla_pezzi_cliente(cliente):
+        """Controlla quantità e disponibilità solo per FINCANTIERI e FINCANTIERI ARMATORE."""
+        return _norm(cliente) in {"FINCANTIERI", "FINCANTIERIARMATORE"}
 
     def _sql_norm_col(col):
         expr = func.upper(func.coalesce(col, ""))
@@ -1717,23 +1722,13 @@ def register_camy_ai_routes(app_obj, deps):
         return None
 
     def _validate_pezzi_richiesti(rows, requested_pezzi, requested_code=""):
-        """Controlla i pezzi solo per FINCANTIERI e FINCANTIERI ARMATORE.
-
-        MARINE INTERIORS e tutti gli altri clienti non devono essere bloccati
-        dal controllo disponibilità pezzi di CAMY AI.
-        """
+        """Controlla che i pezzi richiesti non superino quelli disponibili."""
         req = _safe_float_or_none(requested_pezzi)
         if req is None:
             return []
-
-        def cliente_controllato(value):
-            nome = re.sub(r"[^A-Z0-9]+", " ", str(value or "").upper()).strip()
-            nome = re.sub(r"\s+", " ", nome)
-            return nome in {"FINCANTIERI", "FINCANTIERI ARMATORE"}
-
         problemi = []
         for r in rows or []:
-            if not cliente_controllato(getattr(r, "cliente", "")):
+            if not _camy_controlla_pezzi_cliente(getattr(r, "cliente", "")):
                 continue
             disp = _available_pezzi_for_request(r, requested_code=requested_code)
             if disp is not None and req > disp:
@@ -1944,10 +1939,15 @@ def register_camy_ai_routes(app_obj, deps):
             rid_key = str(getattr(r, "id_articolo", "") or "")
             req_for_row = row_requests.get(int(r.id_articolo), {}) if row_requests else {}
             req_codes = "-".join(req_for_row.get("codes") or [])
-            available_now = _available_pezzi_for_request(r, requested_code=req_codes or requested_code)
+            controlla_pezzi_riga = _camy_controlla_pezzi_cliente(getattr(r, "cliente", ""))
+            available_now = (
+                _available_pezzi_for_request(r, requested_code=req_codes or requested_code)
+                if controlla_pezzi_riga else None
+            )
             row_snapshots[rid_key] = {
                 "original_pezzi": available_now,
                 "original_code": str(getattr(r, "codice_articolo", "") or ""),
+                "controlla_pezzi": controlla_pezzi_riga,
             }
 
         _save_pending_op(token, {
@@ -2551,13 +2551,20 @@ def register_camy_ai_routes(app_obj, deps):
                     row_requested_code = "-".join(per_row.get("codes") or []) or requested_code
                     row_requested_pezzi = _clean_piece_value(per_row.get("qty") or requested_pezzi)
 
-                    original_qty_snapshot = _safe_float_or_none(snapshot.get("original_pezzi"))
-                    current_qty = _safe_float_or_none(getattr(r, "pezzo", ""))
+                    controlla_pezzi_riga = _camy_controlla_pezzi_cliente(getattr(r, "cliente", ""))
+                    original_qty_snapshot = (
+                        _safe_float_or_none(snapshot.get("original_pezzi"))
+                        if controlla_pezzi_riga else None
+                    )
+                    current_qty = (
+                        _safe_float_or_none(getattr(r, "pezzo", ""))
+                        if controlla_pezzi_riga else None
+                    )
 
-                    # Se la disponibilità è cambiata tra proposta e conferma, blocca:
-                    # evita di calcolare un residuo su dati non più aggiornati.
+                    # Controllo variazione disponibilità solo per i due Fincantieri.
                     if (
-                        original_qty_snapshot is not None
+                        controlla_pezzi_riga
+                        and original_qty_snapshot is not None
                         and current_qty is not None
                         and abs(original_qty_snapshot - current_qty) > 0.000001
                     ):
@@ -2603,7 +2610,7 @@ def register_camy_ai_routes(app_obj, deps):
 
                         # Caso normale: una riga singola viene assegnata direttamente al Buono.
                         # Se CAMY ha letto una quantità specifica, non deve ignorarla.
-                        if row_requested_pezzi:
+                        if row_requested_pezzi and _camy_controlla_pezzi_cliente(getattr(r, "cliente", "")):
                             try:
                                 req_num = float(str(row_requested_pezzi).replace(',', '.'))
                                 disp_num = float(str(getattr(r, 'pezzo', 0) or 0).replace(',', '.'))
