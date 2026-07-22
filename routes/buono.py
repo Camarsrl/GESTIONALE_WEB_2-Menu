@@ -16,7 +16,7 @@ la riga originale resta in giacenza con il residuo, senza note del buono e senza
 def register_buono_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] BUONO COMPLETO - CONTROLLO PEZZI SOLO FINCANTIERI E FINCANTIERI ARMATORE - VERSIONE F")
+    print("[OK] BUONO DEFINITIVO - CONTROLLO PEZZI SOLO FINCANTIERI E FINCANTIERI ARMATORE - VERSIONE F")
 
     def _split_multi_value(value):
         """Divide una cella multi-valore senza rompere gli slash/asterischi interni.
@@ -1079,8 +1079,8 @@ def register_buono_routes(app_obj, deps):
             # VALIDAZIONE COMPLETA PRIMA DI MODIFICARE QUALSIASI RIGA
             # -----------------------------------------------------------------
             # REGOLA DEFINITIVA:
-            # il controllo quantità viene deciso soltanto dalla funzione
-            # _cliente_richiede_controllo_pezzi(), senza regole duplicate.
+            # il controllo quantità viene deciso da una sola funzione,
+            # così non esistono regole duplicate o incoerenti.
             prepared = []
 
             for r in rows:
@@ -1111,7 +1111,7 @@ def register_buono_routes(app_obj, deps):
 
                 if not controlla_pezzi:
                     # MARINE INTERIORS E TUTTI GLI ALTRI CLIENTI:
-                    # bypass totale del controllo quantità e disponibilità.
+                    # nessun controllo quantità e nessun blocco per pezzi vuoti o zero.
                     pezzi_scelti = pezzi_originali
                     print(
                         f"[BUONO SENZA CONTROLLO PEZZI] ID={rid} "
