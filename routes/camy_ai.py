@@ -37,7 +37,7 @@ Non cancella righe e non esegue scarichi definitivi automatici.
 def register_camy_ai_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] CAMY DEFINITIVO - CONTROLLO PEZZI SOLO FINCANTIERI E FINCANTIERI ARMATORE - VERSIONE I")
+    print("[OK] CAMY DEFINITIVO - CONTROLLO PEZZI DISATTIVATO PER TUTTI I CLIENTI - VERSIONE L")
 
     import os
     import re
@@ -485,18 +485,8 @@ def register_camy_ai_routes(app_obj, deps):
         return re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
 
     def _camy_controlla_pezzi_cliente(cliente):
-        """True solo per FINCANTIERI e FINCANTIERI ARMATORE.
-
-        Nel database il nome resta scritto con lo spazio:
-        ``FINCANTIERI ARMATORE``. La normalizzazione viene usata
-        soltanto per rendere affidabile il confronto.
-        """
-        cliente_normalizzato = _norm(cliente)
-        clienti_con_controllo = {
-            _norm("FINCANTIERI"),
-            _norm("FINCANTIERI ARMATORE"),
-        }
-        return cliente_normalizzato in clienti_con_controllo
+        """Controllo disponibilità pezzi disattivato per tutti i clienti."""
+        return False
 
     def _sql_norm_col(col):
         expr = func.upper(func.coalesce(col, ""))
@@ -747,7 +737,7 @@ def register_camy_ai_routes(app_obj, deps):
             "• Fammi vedere la foto dell'arrivo 778/26 collo 1.<br>"
             "• Dove si trova il codice ABC123?<br>"
             "• Totale colli, peso, M2 e M3 di De Wave.<br>"
-            "• Prepara buono arrivo 542/26: controllo uscito e Buono già presente; controllo pezzi solo per Fincantieri e Fincantieri Armatore.<br>"
+            "• Prepara buono arrivo 542/26: controllo uscito e Buono già presente; nessun blocco sulla disponibilità dei pezzi.<br>"
             "• Scarico parziale ID 12345.<br>"
             "• Crea DDT dal buono 025/26.<br>"
             "• Genera registro giornaliero di oggi.<br>"
@@ -1446,9 +1436,6 @@ def register_camy_ai_routes(app_obj, deps):
 
         if original_qty is None or selected_qty is None or selected_qty <= 0:
             return None, {"reason": "invalid_quantity", "is_multi": len(original_codes) > 1}
-
-        if selected_qty > original_qty:
-            return None, {"reason": "quantity_exceeds", "is_multi": len(original_codes) > 1}
 
         original_norm_map = {_norm_part(c): c for c in original_codes if _norm_part(c)}
         selected_exact = []
