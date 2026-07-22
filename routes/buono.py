@@ -16,6 +16,7 @@ la riga originale resta in giacenza con il residuo, senza note del buono e senza
 def register_buono_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
+    print("[OK] BUONO VERSIONE MARINE-INTERIORS-NO-PEZZI 2026-07-22")
 
     def _split_multi_value(value):
         """Divide una cella multi-valore senza rompere gli slash/asterischi interni.
@@ -1099,10 +1100,31 @@ def register_buono_routes(app_obj, deps):
                 # e solo quando la riga contiene un vero marca-pezzo. BANCALE N.2,
                 # PALLET, PACKAGE, CASSA ecc. sono riferimenti logistici e non devono
                 # mai essere bloccati perché il campo pezzi è vuoto o pari a zero.
+                # REGOLA DEFINITIVA:
+                # - controllo quantità esclusivamente per FINCANTIERI e FINCANTIERI ARMATORE;
+                # - mai per MARINE INTERIORS o altri clienti;
+                # - mai per riferimenti logistici BANCALE/PALLET/PACKAGE/CASSA.
+                cliente_norm = re.sub(
+                    r"[^A-Z0-9]+",
+                    " ",
+                    str(getattr(r, 'cliente', '') or '').upper()
+                ).strip()
+                cliente_norm = re.sub(r"\s+", " ", cliente_norm)
+
+                riferimento_logistico = (
+                    _solo_riferimento_logistico(codice_scelto)
+                    or _solo_riferimento_logistico(old_cod)
+                    or bool(re.match(
+                        r"^(?:BANCALE|PALLET|PACKAGE|PKG|CASSA|CASE)\b",
+                        str(codice_scelto or old_cod or '').strip(),
+                        flags=re.I
+                    ))
+                )
+
                 controlla_pezzi = (
-                    _cliente_richiede_controllo_pezzi(getattr(r, 'cliente', ''))
-                    and not _solo_riferimento_logistico(codice_scelto)
-                    and not _solo_riferimento_logistico(old_cod)
+                    cliente_norm in {"FINCANTIERI", "FINCANTIERI ARMATORE"}
+                    and cliente_norm != "MARINE INTERIORS"
+                    and not riferimento_logistico
                 )
                 pezzi_originali = _num_float(getattr(r, 'pezzo', None))
 
