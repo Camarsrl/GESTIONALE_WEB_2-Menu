@@ -37,7 +37,7 @@ Non cancella righe e non esegue scarichi definitivi automatici.
 def register_camy_ai_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] CAMY CONTROLLO PEZZI SOLO FINCANTIERI - VERSIONE 2026-07-22-F")
+    print("[OK] CAMY DEFINITIVO - CONTROLLO PEZZI SOLO FINCANTIERI E FINCANTIERI ARMATORE - VERSIONE I")
 
     import os
     import re
@@ -485,8 +485,18 @@ def register_camy_ai_routes(app_obj, deps):
         return re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
 
     def _camy_controlla_pezzi_cliente(cliente):
-        """Controlla quantità e disponibilità solo per FINCANTIERI e FINCANTIERI ARMATORE."""
-        return _norm(cliente) in {"FINCANTIERI", "FINCANTIERI ARMATORE"}
+        """True solo per FINCANTIERI e FINCANTIERI ARMATORE.
+
+        Nel database il nome resta scritto con lo spazio:
+        ``FINCANTIERI ARMATORE``. La normalizzazione viene usata
+        soltanto per rendere affidabile il confronto.
+        """
+        cliente_normalizzato = _norm(cliente)
+        clienti_con_controllo = {
+            _norm("FINCANTIERI"),
+            _norm("FINCANTIERI ARMATORE"),
+        }
+        return cliente_normalizzato in clienti_con_controllo
 
     def _sql_norm_col(col):
         expr = func.upper(func.coalesce(col, ""))
@@ -737,7 +747,7 @@ def register_camy_ai_routes(app_obj, deps):
             "• Fammi vedere la foto dell'arrivo 778/26 collo 1.<br>"
             "• Dove si trova il codice ABC123?<br>"
             "• Totale colli, peso, M2 e M3 di De Wave.<br>"
-            "• Prepara buono arrivo 542/26: controllo uscito, Buono già presente e pezzi disponibili.<br>"
+            "• Prepara buono arrivo 542/26: controllo uscito e Buono già presente; controllo pezzi solo per Fincantieri e Fincantieri Armatore.<br>"
             "• Scarico parziale ID 12345.<br>"
             "• Crea DDT dal buono 025/26.<br>"
             "• Genera registro giornaliero di oggi.<br>"
@@ -1722,17 +1732,25 @@ def register_camy_ai_routes(app_obj, deps):
         return None
 
     def _validate_pezzi_richiesti(rows, requested_pezzi, requested_code=""):
-        """Controlla che i pezzi richiesti non superino quelli disponibili."""
+        """Controlla la disponibilità esclusivamente per i due clienti Fincantieri."""
         req = _safe_float_or_none(requested_pezzi)
-        if req is None:
+        if req is None or req <= 0:
             return []
+
         problemi = []
         for r in rows or []:
-            if not _camy_controlla_pezzi_cliente(getattr(r, "cliente", "")):
+            cliente = getattr(r, "cliente", "")
+            if not _camy_controlla_pezzi_cliente(cliente):
+                # Marine Interiors e tutti gli altri clienti sono esclusi.
                 continue
-            disp = _available_pezzi_for_request(r, requested_code=requested_code)
+
+            disp = _available_pezzi_for_request(
+                r,
+                requested_code=requested_code
+            )
             if disp is not None and req > disp:
                 problemi.append((r, disp, req))
+
         return problemi
 
 
@@ -1898,8 +1916,16 @@ def register_camy_ai_routes(app_obj, deps):
 
             rows = [r for r in rows if int(r.id_articolo) in row_requests]
             for r in rows:
+                # Controllo quantità SOLO per FINCANTIERI e FINCANTIERI ARMATORE.
+                # Marine Interiors e tutti gli altri clienti devono passare senza blocco.
+                if not _camy_controlla_pezzi_cliente(getattr(r, "cliente", "")):
+                    continue
+
                 req = row_requests[int(r.id_articolo)]
-                disponibili = _available_pezzi_for_request(r, requested_code=" - ".join(req["codes"]))
+                disponibili = _available_pezzi_for_request(
+                    r,
+                    requested_code=" - ".join(req["codes"])
+                )
                 if disponibili is not None and req["qty"] > float(disponibili):
                     return (
                         "<b>Operazione bloccata.</b><br>"
@@ -1917,7 +1943,19 @@ def register_camy_ai_routes(app_obj, deps):
         if not requested_pezzi and len(line_items) == 1:
             requested_pezzi = str(line_items[0].get("pezzi") or "").strip()
 
-        problemi_pezzi = _validate_pezzi_richiesti(rows, requested_pezzi, requested_code=requested_code)
+        righe_con_controllo_pezzi = [
+            r for r in rows
+            if _camy_controlla_pezzi_cliente(getattr(r, "cliente", ""))
+        ]
+
+        problemi_pezzi = []
+        if righe_con_controllo_pezzi:
+            problemi_pezzi = _validate_pezzi_richiesti(
+                righe_con_controllo_pezzi,
+                requested_pezzi,
+                requested_code=requested_code
+            )
+
         if problemi_pezzi:
             dettagli = "<br>".join(
                 f"ID {_esc(r.id_articolo)} | Codice: {_esc(r.codice_articolo or '-')} | Disponibili: <b>{_esc(disp)}</b> | Richiesti: <b>{_esc(req)}</b>"
