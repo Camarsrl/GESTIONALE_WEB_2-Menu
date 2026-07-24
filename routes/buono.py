@@ -16,7 +16,7 @@ la riga originale resta in giacenza con il residuo, senza note del buono e senza
 def register_buono_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] BUONO DEFINITIVO - CONTROLLO PEZZI SOLO FINCANTIERI E FINCANTIERI ARMATORE - VERSIONE H")
+    print("[OK] BUONO DEFINITIVO - VERSIONE J - NUMERO BUONO UNICO TRA VIDEO PDF E GIACENZA")
 
     def _split_multi_value(value):
         """Divide una cella multi-valore senza rompere gli slash/asterischi interni.
@@ -1050,8 +1050,13 @@ def register_buono_routes(app_obj, deps):
 
             action = (req_data.get('action') or 'preview').strip().lower()
             buono_mode = (req_data.get('buono_mode') or 'auto').strip().lower()
+            # Il numero mostrato nell'anteprima viene inviato dal form e deve essere
+            # usato identico nel PDF, nel Picking e nella giacenza.
+            # Prima, in modalità automatica, veniva calcolato una seconda volta qui:
+            # il PDF leggeva il numero del form (es. 407/26), mentre il database
+            # riceveva il nuovo numero ricalcolato (es. 408/26).
             bn = (req_data.get('buono_n') or '').strip()
-            if buono_mode == 'auto' or not bn:
+            if not bn:
                 bn = _next_buono_number(db)
 
             if action == 'cartello':
