@@ -16,7 +16,7 @@ la riga originale resta in giacenza con il residuo, senza note del buono e senza
 def register_buono_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] BUONO DEFINITIVO - CONTROLLO PEZZI SOLO FINCANTIERI E FINCANTIERI ARMATORE - VERSIONE I - FIX PACKAGE CON DUE PUNTI")
+    print("[OK] BUONO DEFINITIVO - CONTROLLO PEZZI SOLO FINCANTIERI E FINCANTIERI ARMATORE - VERSIONE H")
 
     def _split_multi_value(value):
         """Divide una cella multi-valore senza rompere gli slash/asterischi interni.
@@ -34,17 +34,6 @@ def register_buono_routes(app_obj, deps):
 
         s = re.sub(r"[\r\n]+", " - ", s)
         s = re.sub(r"(?i)\bPackage\s+No\.?\s*", "Package No.", s)
-
-        # Gestisce i riferimenti logistici seguiti dai due punti.
-        # Esempio reale: PACKAGE 17: CO/SS07301SP-CO/AP06301SP
-        # diventa:      PACKAGE 17 - CO/SS07301SP-CO/AP06301SP
-        # In questo modo PACKAGE 17 resta il contenitore e i marca-pezzi
-        # vengono controllati separatamente.
-        s = re.sub(
-            r"(?i)\b((?:PACKAGE|PKG)\s*(?:(?:NO|N)\.?)?\s*[#.]?\s*[A-Z0-9]+)\s*:\s*(?=[A-Z0-9])",
-            r"\1 - ",
-            s,
-        )
 
         # Se il Package è scritto attaccato al primo marca-pezzo, lo separo.
         # Esempi:
