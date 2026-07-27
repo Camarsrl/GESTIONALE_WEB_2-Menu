@@ -14,7 +14,7 @@ Il file principale resta più leggero e le route mantengono gli stessi endpoint.
 def register_import_pdf_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] IMPORT PDF - CONTROLLO GALVANO CODICE + LOTTO - VERSIONE 1")
+    print("[OK] IMPORT PDF GALVANO - DESCRIZIONE, COLLI=PEZZI E LOTTI OCR - VERSIONE 2")
 
     # --- HELPER ESTRAZIONE PDF (Necessario per Import PDF) ---
 
@@ -299,12 +299,57 @@ def register_import_pdf_routes(app_obj, deps):
                 re.I
             )
 
+            def _clean_atotech_description(text):
+                """Mantiene solo la descrizione commerciale Atotech.
+
+                Elimina dalla coda imballo, colli, pesi, quantità e lotto che
+                l'OCR può accodare alla descrizione.
+                """
+                rest = _clean_spaces(text)
+                rest = re.sub(r"\bLOTTO\b\s*[:\-]?\s*[A-Z0-9\-./ ]+.*$", "", rest, flags=re.I)
+
+                # Esempio completo: SAC 10 250,00 261,50 KG 250,00
+                rest = re.sub(
+                    r"\s+\b(?:SAC|CAN|PAL|BOX|CRT|CASSA|FUSTO|FUSTI|TANICA|TANICHE)\b\s+"
+                    r"\d{1,5}\s+\d+(?:[.,]\d+)?\s+\d+(?:[.,]\d+)?"
+                    r"(?:\s+KG)?\s+\d+(?:[.,]\d+)?\s*$",
+                    "", rest, flags=re.I
+                )
+
+                # Fallback OCR: tre valori numerici finali senza sigla imballo.
+                rest = re.sub(
+                    r"(?:\s+\d+(?:[.,]\d+)?){3}\s*$",
+                    "", rest
+                )
+
+                # Fallback: imballo + colli eventualmente rimasti in coda.
+                rest = re.sub(
+                    r"\s+\b(?:SAC|CAN|PAL|BOX|CRT|CASSA|FUSTO|FUSTI|TANICA|TANICHE)\b\s+\d{1,5}\s*$",
+                    "", rest, flags=re.I
+                )
+                return _clean_spaces(rest)
+
             def _descr_from_first_line(line, codice):
                 rest = _clean_spaces(line.replace(codice, " ", 1))
-                # taglia via eventuale coda numerica/imballo già presente sulla stessa riga
-                rest = re.split(r"\b(?:SAC|CAN|PAL|BOX|CRT|UN|KG)\b\s+\d+\b", rest, maxsplit=1, flags=re.I)[0]
-                rest = re.sub(r"\bLotto\b.*$", "", rest, flags=re.I)
-                return _clean_spaces(rest)
+                return _clean_atotech_description(rest)
+
+            def _normalizza_lotto_atotech_ocr(value):
+                """Correzioni prudenti per il formato lotto Atotech/Galvano.
+
+                Interviene soltanto quando il lotto assomiglia al formato
+                BO26B01552, evitando sostituzioni generiche su tutti i numeri.
+                """
+                lot = re.sub(r"\s+", "", (value or "").upper())
+                lot = re.sub(r"[^A-Z0-9./-]", "", lot)
+
+                # Formato tipico: B O + anno a 2 cifre + lettera + progressivo.
+                m = re.fullmatch(r"([B8])([O0])(\d{2})(13|B|8|[A-Z])(\d{3,})", lot)
+                if m:
+                    prima = "B" if m.group(1) in {"B", "8"} else m.group(1)
+                    seconda = "O" if m.group(2) in {"O", "0"} else m.group(2)
+                    quarta = "B" if m.group(4) in {"13", "B", "8"} else m.group(4)
+                    return f"{prima}{seconda}{m.group(3)}{quarta}{m.group(5)}"
+                return lot
 
             def _finish_current():
                 if not current:
@@ -312,9 +357,9 @@ def register_import_pdf_routes(app_obj, deps):
                 block = _clean_spaces(" ".join(current.pop("_block", [])))
 
                 # Lotto
-                mlot = re.search(r"\bLOTTO\b\s*([A-Z0-9\-./]+)", block, re.I)
+                mlot = re.search(r"\bLOTTO\b\s*[:\-]?\s*([A-Z0-9\-./]+)", block, re.I)
                 if mlot:
-                    current["lotto"] = mlot.group(1).strip()
+                    current["lotto"] = _normalizza_lotto_atotech_ocr(mlot.group(1))
 
                 # Imballo + colli + pesi + UM + quantità.
                 # Esempi:
@@ -328,25 +373,54 @@ def register_import_pdf_routes(app_obj, deps):
                     re.I
                 )
                 if m:
-                    current["colli"] = _to_int(m.group(2)) or current.get("colli") or 0
+                    colli = _to_int(m.group(2)) or 0
+                    current["colli"] = colli
                     current["um"] = (m.group(5) or "").upper()
                     current["pezzi"] = _to_float_it(m.group(6)) or current.get("pezzi") or 0
+                    # Per Galvano i colli rappresentano i pezzi fisici.
+                    current["pezzi_articolo"] = str(colli) if colli else ""
                 else:
-                    # fallback: cerca almeno "SAC 1 25,00 25,50 KG 25,00"
+                    # Fallback con sigla imballo: SAC/CAN/PAL... + colli + peso.
                     m2 = re.search(
-                        r"\b(SAC|CAN|PAL|BOX|CRT)\b\s+(\d{1,5}).{0,60}?\b(KG|PZ|NR|UN|N)\b\s+(-?\d+(?:[.,]\d+)?)",
+                        r"\b(SAC|CAN|PAL|BOX|CRT|CASSA|FUSTO|FUSTI|TANICA|TANICHE)\b\s+"
+                        r"(\d{1,5}).{0,80}?\b(KG|PZ|NR|UN|N)\b\s+(-?\d+(?:[.,]\d+)?)",
                         block,
                         re.I
                     )
                     if m2:
-                        current["colli"] = _to_int(m2.group(2)) or current.get("colli") or 0
+                        colli = _to_int(m2.group(2)) or 0
+                        current["colli"] = colli
                         current["um"] = (m2.group(3) or "").upper()
                         current["pezzi"] = _to_float_it(m2.group(4)) or current.get("pezzi") or 0
+                        current["pezzi_articolo"] = str(colli) if colli else ""
+                    else:
+                        # Ultimo fallback: colli immediatamente prima di tre valori decimali.
+                        m3 = re.search(
+                            r"(?:^|\s)(\d{1,5})\s+"
+                            r"(\d+(?:[.,]\d+)?)\s+"
+                            r"(\d+(?:[.,]\d+)?)\s+"
+                            r"(?:KG\s+)?(\d+(?:[.,]\d+)?)\s*$",
+                            block,
+                            re.I
+                        )
+                        if m3:
+                            colli = _to_int(m3.group(1)) or 0
+                            current["colli"] = colli
+                            current["um"] = "KG"
+                            current["pezzi"] = _to_float_it(m3.group(4)) or 0
+                            current["pezzi_articolo"] = str(colli) if colli else ""
 
-                # Pezzi articolo da codice: 1681575-0025-1-000 -> 1
-                mc = re.match(r"^(\d{6,8})-(\d{4})-(\d+)-", current.get("codice") or "")
-                if mc:
-                    current["pezzi_articolo"] = mc.group(3).lstrip("0") or mc.group(3)
+                # Se il PDF non rende leggibile il numero colli, usa 1 come unità minima.
+                if not current.get("colli"):
+                    current["colli"] = 1
+                if not current.get("pezzi_articolo"):
+                    current["pezzi_articolo"] = str(current["colli"])
+
+                # Ripulisce la descrizione usando l'intero blocco, più affidabile della sola prima riga.
+                descr_block = block.replace(current.get("codice") or "", " ", 1)
+                descr_block = _clean_atotech_description(descr_block)
+                if descr_block:
+                    current["descrizione"] = descr_block
 
                 # Evita righe prive di vero codice articolo Atotech
                 if re.fullmatch(r"\d{6,8}-\d{4}-\d+-\d+", current.get("codice") or ""):
@@ -399,6 +473,9 @@ def register_import_pdf_routes(app_obj, deps):
                         merged[key]["pezzi"] = float(merged[key].get("pezzi") or 0) + float(r.get("pezzi") or 0)
                     except Exception:
                         pass
+                    merged[key]["pezzi_articolo"] = str(
+                        to_int_eu(merged[key].get("pezzi_articolo")) + to_int_eu(r.get("pezzi_articolo"))
+                    )
             return list(merged.values())
 
         def _parse_comefri(lines):
@@ -963,6 +1040,16 @@ def register_import_pdf_routes(app_obj, deps):
                 # ---------------------------------------------------------
                 lt = lotto_list[i] if i < len(lotto_list) else ""
                 lotto = (lt or "").strip()
+                if is_galvano:
+                    # Normalizza solo il formato lotto tipico Atotech.
+                    lot_up = re.sub(r"\s+", "", lotto.upper())
+                    mlot_fmt = re.fullmatch(r"([B8])([O0])(\d{2})(13|B|8|[A-Z])(\d{3,})", lot_up)
+                    if mlot_fmt:
+                        lotto = (
+                            "B" + "O" + mlot_fmt.group(3)
+                            + ("B" if mlot_fmt.group(4) in {"13", "B", "8"} else mlot_fmt.group(4))
+                            + mlot_fmt.group(5)
+                        )
 
                 if is_galvano:
                     if not codice:
@@ -1020,7 +1107,8 @@ def register_import_pdf_routes(app_obj, deps):
                 # riga
                 art.codice_articolo = codice
                 art.descrizione = descr
-                art.n_colli = max(0, to_int_eu(colli_list[i] if i < len(colli_list) else 0))
+                colli_val = max(0, to_int_eu(colli_list[i] if i < len(colli_list) else 0))
+                art.n_colli = colli_val
                 # Lotto (se presente nel PDF o inserito a mano)
                 art.lotto = lotto
                 sr = serial_list[i] if i < len(serial_list) else ""
@@ -1037,8 +1125,8 @@ def register_import_pdf_routes(app_obj, deps):
                 if um == "KG":
                     # qta = peso in Kg
                     art.peso = to_float_eu(qta)
-                    # salva anche i pezzi se presenti
-                    art.pezzo = pz_art
+                    # Per Galvano i colli sono anche i pezzi.
+                    art.pezzo = str(colli_val) if is_galvano else pz_art
                 else:
                     # qta = pezzi/quantità (non Kg)
                     art.pezzo = str(pz_art or qta).strip()
