@@ -14,7 +14,7 @@ Il file principale resta più leggero e le route mantengono gli stessi endpoint.
 def register_import_pdf_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] IMPORT PDF GALVANO - PEZZI DOCUMENTO, LOTTI OCR E RIGHE DUPLICATE - VERSIONE 3")
+    print("[OK] IMPORT PDF GALVANO - PARSER DDT ATOTECH RIGHE DISTINTE - VERSIONE 4")
 
     # --- HELPER ESTRAZIONE PDF (Necessario per Import PDF) ---
 
@@ -282,207 +282,118 @@ def register_import_pdf_routes(app_obj, deps):
             }
 
         def _parse_atotech(lines):
-            """Parser Atotech/Galvano più controllato.
+            """Parser dedicato ai DDT Atotech/Galvano.
 
-            Problema corretto:
-            - il parser generico prendeva anche numeri di intestazione
-              (P.IVA, telefono, ordine interno, ecc.) come codici articolo.
-            - Atotech va letto solo dalla tabella articoli, cioè dalle righe
-              con codice nel formato 1681575-0025-1-000.
+            Regole:
+            - ogni riga articolo del PDF resta una riga distinta;
+            - anche codice e lotto uguali NON vengono uniti;
+            - Colli = Pezzi per Galvano;
+            - Peso/Q.tà contiene la quantità in KG riportata nel documento;
+            - i lotti Atotech nel formato B0xx... vengono normalizzati in BOxx....
             """
             rows = []
             current = None
 
             codice_re = re.compile(r"\b(\d{6,8}-\d{4}-\d+-\d+)\b")
-            stop_re = re.compile(
-                r"\b(TOTALE\s+COLLI|TOTALI\s+PESI|CAUSALE\s+DEL\s+TRASPORTO|FIRMA|PESO\s+NETTO|PESO\s+LORDO)\b",
-                re.I
-            )
-
-            def _clean_atotech_description(text):
-                """Mantiene solo la descrizione commerciale Atotech.
-
-                Elimina dalla coda imballo, colli, pesi, quantità e lotto che
-                l'OCR può accodare alla descrizione.
-                """
-                rest = _clean_spaces(text)
-                rest = re.sub(r"\bLOTTO\b\s*[:\-]?\s*[A-Z0-9\-./ ]+.*$", "", rest, flags=re.I)
-
-                # Esempio completo: SAC 10 250,00 261,50 KG 250,00
-                rest = re.sub(
-                    r"\s+\b(?:SAC|CAN|PAL|BOX|CRT|CASSA|FUSTO|FUSTI|TANICA|TANICHE)\b\s+"
-                    r"\d{1,5}\s+\d+(?:[.,]\d+)?\s+\d+(?:[.,]\d+)?"
-                    r"(?:\s+KG)?\s+\d+(?:[.,]\d+)?\s*$",
-                    "", rest, flags=re.I
-                )
-
-                # Fallback OCR: tre valori numerici finali senza sigla imballo.
-                rest = re.sub(
-                    r"(?:\s+\d+(?:[.,]\d+)?){3}\s*$",
-                    "", rest
-                )
-
-                # Fallback: imballo + colli eventualmente rimasti in coda.
-                rest = re.sub(
-                    r"\s+\b(?:SAC|CAN|PAL|BOX|CRT|CASSA|FUSTO|FUSTI|TANICA|TANICHE)\b\s+\d{1,5}\s*$",
-                    "", rest, flags=re.I
-                )
-                return _clean_spaces(rest)
-
-            def _descr_from_first_line(line, codice):
-                rest = _clean_spaces(line.replace(codice, " ", 1))
-                return _clean_atotech_description(rest)
+            imballi = r"SAC|CAN|PAL|BOX|CRT|CASSA|FUSTO|FUSTI|TANICA|TANICHE|DRP|UN"
 
             def _normalizza_lotto_atotech_ocr(value):
-                """Correzioni prudenti per il formato lotto Atotech/Galvano.
-
-                Interviene soltanto quando il lotto assomiglia al formato
-                BO26B01552, evitando sostituzioni generiche su tutti i numeri.
-                """
                 lot = re.sub(r"\s+", "", (value or "").upper())
                 lot = re.sub(r"[^A-Z0-9./-]", "", lot)
 
-                # Formato tipico: B O + anno a 2 cifre + lettera + progressivo.
+                # Formato Atotech tipico: BO26G00697.
+                # L'OCR legge spesso la seconda lettera O come zero.
                 m = re.fullmatch(r"([B8])([O0])(\d{2})(13|B|8|[A-Z])(\d{3,})", lot)
                 if m:
-                    prima = "B" if m.group(1) in {"B", "8"} else m.group(1)
-                    seconda = "O" if m.group(2) in {"O", "0"} else m.group(2)
-                    quarta = "B" if m.group(4) in {"13", "B", "8"} else m.group(4)
-                    return f"{prima}{seconda}{m.group(3)}{quarta}{m.group(5)}"
+                    prima = "B"
+                    seconda = "O"
+                    lettera = "B" if m.group(4) in {"13", "8"} else m.group(4)
+                    return f"{prima}{seconda}{m.group(3)}{lettera}{m.group(5)}"
                 return lot
 
             def _finish_current():
+                nonlocal current
                 if not current:
                     return
-                block = _clean_spaces(" ".join(current.pop("_block", [])))
-
-                # Lotto
-                mlot = re.search(r"\bLOTTO\b\s*[:\-]?\s*([A-Z0-9\-./]+)", block, re.I)
-                if mlot:
-                    current["lotto"] = _normalizza_lotto_atotech_ocr(mlot.group(1))
-
-                # Imballo + colli + pesi + UM + quantità.
-                # Esempi:
-                # SAC 6 150,00 153,00 KG 150,00
-                # CAN 3 75,00 78,45 KG 75,00
-                m = re.search(
-                    r"\b(SAC|CAN|PAL|BOX|CRT|CASSA|FUSTO|FUSTI|TANICA|TANICHE|SECCHIO|SECCHI|IBC|DRUM|BAG)\b\s+(\d{1,5})\s+"
-                    r"(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)\s+"
-                    r"(KG|PZ|NR|UN|N)\b\s+(-?\d+(?:[.,]\d+)?)",
-                    block,
-                    re.I
-                )
-                if m:
-                    colli = _to_int(m.group(2)) or 0
-                    current["colli"] = colli
-                    current["um"] = (m.group(5) or "").upper()
-                    current["pezzi"] = _to_float_it(m.group(6)) or current.get("pezzi") or 0
-                    # Per Galvano i colli rappresentano i pezzi fisici.
-                    current["pezzi_articolo"] = str(colli) if colli else ""
-                else:
-                    # Fallback con sigla imballo: SAC/CAN/PAL... + colli + peso.
-                    m2 = re.search(
-                        r"\b(SAC|CAN|PAL|BOX|CRT|CASSA|FUSTO|FUSTI|TANICA|TANICHE)\b\s+"
-                        r"(\d{1,5}).{0,80}?\b(KG|PZ|NR|UN|N)\b\s+(-?\d+(?:[.,]\d+)?)",
-                        block,
-                        re.I
-                    )
-                    if m2:
-                        colli = _to_int(m2.group(2)) or 0
-                        current["colli"] = colli
-                        current["um"] = (m2.group(3) or "").upper()
-                        current["pezzi"] = _to_float_it(m2.group(4)) or current.get("pezzi") or 0
-                        current["pezzi_articolo"] = str(colli) if colli else ""
-                    else:
-                        # Fallback robusto Atotech: il numero dei pezzi/colli è il primo
-                        # intero subito dopo il tipo di imballo, anche se l'OCR sporca
-                        # o spezza le colonne successive.
-                        m_pack = re.search(
-                            r"\b(SAC|CAN|PAL|BOX|CRT|CASSA|FUSTO|FUSTI|TANICA|TANICHE|SECCHIO|SECCHI|IBC|DRUM|BAG)\b"
-                            r"[^0-9]{0,8}(\d{1,5})\b",
-                            block,
-                            re.I
-                        )
-                        if m_pack:
-                            colli = _to_int(m_pack.group(2)) or 0
-                            current["colli"] = colli
-                            current["pezzi_articolo"] = str(colli) if colli else ""
-
-                            # Il peso è normalmente l'ultimo valore dopo KG.
-                            m_kg = re.search(r"\bKG\b\s+(-?\d+(?:[.,]\d+)?)", block, re.I)
-                            if m_kg:
-                                current["um"] = "KG"
-                                current["pezzi"] = _to_float_it(m_kg.group(1)) or 0
-
-                        # Ultimo fallback: colli immediatamente prima di tre valori decimali.
-                        m3 = re.search(
-                            r"(?:^|\s)(\d{1,5})\s+"
-                            r"(\d+(?:[.,]\d+)?)\s+"
-                            r"(\d+(?:[.,]\d+)?)\s+"
-                            r"(?:KG\s+)?(\d+(?:[.,]\d+)?)\s*$",
-                            block,
-                            re.I
-                        )
-                        if m3 and not current.get("colli"):
-                            colli = _to_int(m3.group(1)) or 0
-                            current["colli"] = colli
-                            current["um"] = "KG"
-                            current["pezzi"] = _to_float_it(m3.group(4)) or 0
-                            current["pezzi_articolo"] = str(colli) if colli else ""
-
-                # Se il PDF non rende leggibile il numero colli, usa 1 come unità minima.
-                if not current.get("colli"):
-                    current["colli"] = 1
-                if not current.get("pezzi_articolo"):
-                    current["pezzi_articolo"] = str(current["colli"])
-
-                # Ripulisce la descrizione usando l'intero blocco, più affidabile della sola prima riga.
-                descr_block = block.replace(current.get("codice") or "", " ", 1)
-                descr_block = _clean_atotech_description(descr_block)
-                if descr_block:
-                    current["descrizione"] = descr_block
-
-                # Evita righe prive di vero codice articolo Atotech
                 if re.fullmatch(r"\d{6,8}-\d{4}-\d+-\d+", current.get("codice") or ""):
+                    if not current.get("colli"):
+                        current["colli"] = 1
+                    if not current.get("pezzi_articolo"):
+                        current["pezzi_articolo"] = str(current["colli"])
                     rows.append(current)
+                current = None
 
             for ln in lines:
                 line = _clean_spaces(ln)
                 if not line:
                     continue
 
-                # dopo i totali non ci sono più articoli: evita timbri, note e dati trasporto
-                if stop_re.search(line):
-                    _finish_current()
-                    current = None
-                    break
-
                 m_code = codice_re.search(line)
                 if m_code:
                     _finish_current()
                     codice = m_code.group(1).strip()
-                    descr = _descr_from_first_line(line, codice)
+                    rest = _clean_spaces(line.replace(codice, " ", 1))
+
+                    # Riga standard Atotech:
+                    # DESCRIZIONE CAN 6 150,00 156,90 KG 150,00
+                    m_row = re.match(
+                        rf"^(.*?)\s+\b({imballi})\b\s+(\d{{1,5}})\s+"
+                        r"(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)\s+"
+                        r"(KG|PZ|NR|UN|N)\b\s+(-?\d+(?:[.,]\d+)?)\s*$",
+                        rest,
+                        re.I
+                    )
+
+                    if m_row:
+                        descr = _clean_spaces(m_row.group(1))
+                        colli = _to_int(m_row.group(3)) or 0
+                        um = (m_row.group(6) or "").upper()
+                        qta = _to_float_it(m_row.group(7)) or 0
+                    else:
+                        descr = rest
+                        colli = 0
+                        um = ""
+                        qta = 0
+
                     current = _base_row(
                         codice=codice,
                         descrizione=descr,
-                        colli=0,
-                        pezzi=0,
-                        um="",
-                        pezzi_articolo="",
+                        colli=colli,
+                        pezzi=qta,
+                        um=um,
+                        pezzi_articolo=str(colli) if colli else "",
                         lotto="",
                         serial_number=""
                     )
-                    current["_block"] = [line]
                     continue
 
                 if current is not None:
-                    current["_block"].append(line)
+                    mlot = re.search(
+                        r"\bLOTTO\b\s*[:\-]?\s*([A-Z0-9\-./]+)",
+                        line,
+                        re.I
+                    )
+                    if mlot:
+                        current["lotto"] = _normalizza_lotto_atotech_ocr(mlot.group(1))
+                        continue
+
+                    # Fallback se l'OCR spezza la riga articolo e mette
+                    # imballo/colli/pesi nella riga successiva.
+                    m_pack = re.search(
+                        rf"\b({imballi})\b\s+(\d{{1,5}})\s+"
+                        r"(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)\s+"
+                        r"(KG|PZ|NR|UN|N)\b\s+(-?\d+(?:[.,]\d+)?)",
+                        line,
+                        re.I
+                    )
+                    if m_pack and not current.get("colli"):
+                        colli = _to_int(m_pack.group(2)) or 0
+                        current["colli"] = colli
+                        current["um"] = (m_pack.group(5) or "").upper()
+                        current["pezzi"] = _to_float_it(m_pack.group(6)) or 0
+                        current["pezzi_articolo"] = str(colli) if colli else ""
 
             _finish_current()
-
-            # Per Galvano ogni riga del documento deve restare distinta.
-            # Non accorpare mai righe con lo stesso codice e lo stesso lotto:
-            # possono rappresentare confezioni/pesi differenti riportati separatamente nel DDT.
             return rows
 
         def _parse_comefri(lines):
@@ -917,6 +828,15 @@ def register_import_pdf_routes(app_obj, deps):
         lines = [_clean_spaces(l) for l in full_text.splitlines() if _clean_spaces(l)]
         meta = _profile_fix_meta(_extract_meta(lines, full_text), lines, full_text)
 
+        # I DDT Atotech/Galvano vengono gestiti esclusivamente dal parser dedicato.
+        # Non passano dal parser generico, dal dedup o da _merge_rows:
+        # due righe con lo stesso codice e lo stesso lotto devono restare distinte.
+        is_atotech_doc = bool(re.search(r"ATOTECH|MKS", full_text, re.I))
+        if is_atotech_doc:
+            atotech_rows = _parse_atotech(lines)
+            if atotech_rows:
+                return meta, atotech_rows
+
         # ------------------------------------------------------------
         # ESTRAZIONE RIGHE - FIX CODICI ARTICOLO + DUPLICATI OCR
         # ------------------------------------------------------------
@@ -934,12 +854,7 @@ def register_import_pdf_routes(app_obj, deps):
         specific_rows.extend(_parse_fertubi_dewave(lines))
         specific_rows.extend(_parse_fincantieri_generic(lines))
 
-        # Nei documenti Atotech/Galvano il parser generico causava due problemi:
-        # 1) poteva reinserire il lotto OCR grezzo (0 al posto di O);
-        # 2) poteva creare/deduplicare righe in modo diverso dal parser dedicato.
-        # Per Atotech usiamo quindi esclusivamente il parser dedicato.
-        is_atotech_profile = bool(re.search(r"ATOTECH|MKS", full_text, re.I))
-        generic_rows = [] if is_atotech_profile else _parse_generic(lines)
+        generic_rows = _parse_generic(lines)
 
         rows = specific_rows + generic_rows
 
@@ -969,14 +884,11 @@ def register_import_pdf_routes(app_obj, deps):
             if descr.upper() in {'CLIENTE', 'FORNITORE', 'DESTINATARIO', 'MITTENTE'}:
                 continue
 
-            # Per Atotech/Galvano conserviamo tutte le righe del documento,
-            # anche quando codice e lotto sono identici. Per gli altri formati
-            # rimane la deduplicazione OCR precedente.
-            if not is_atotech_profile:
-                sig = _row_signature_for_dedup(r)
-                if sig in seen:
-                    continue
-                seen.add(sig)
+            # evita righe duplicate generate dall'OCR o dal doppio parser
+            sig = _row_signature_for_dedup(r)
+            if sig in seen:
+                continue
+            seen.add(sig)
 
             r['descrizione'] = descr
             cleaned.append(r)
@@ -985,9 +897,6 @@ def register_import_pdf_routes(app_obj, deps):
             # Fallback controllato: permette comunque la conferma manuale anche con PDF scansiti difficili.
             cleaned.append(_base_row('', 'MERCE VARIA', 1, 0, '', '', '', ''))
 
-        # Galvano: non unire le righe uguali; ogni riga del DDT deve essere importata.
-        if is_atotech_profile:
-            return meta, cleaned
         return meta, _merge_rows(cleaned)
 
     # --- ROUTE IMPORT PDF (PROTETTA ADMIN) ---
