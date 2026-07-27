@@ -9023,7 +9023,7 @@ def fix_db_schema():
 
 
 # ========================================================
-#  SCARICO PARZIALE PEZZI
+#  SCARICO PARZIALE PEZZI E PESO - GALVANO COLLI=PEZZI - VERSIONE 2
 # ========================================================
 SCARICO_PARZIALE_HTML = """
 {% extends 'base.html' %}
@@ -9042,7 +9042,8 @@ SCARICO_PARZIALE_HTML = """
                 <div class="col-md-2"><strong>ID:</strong><br>{{ art.id_articolo }}</div>
                 <div class="col-md-3"><strong>Cliente:</strong><br>{{ art.cliente or '' }}</div>
                 <div class="col-md-3"><strong>Codice:</strong><br>{{ art.codice_articolo or '' }}</div>
-                <div class="col-md-4"><strong>Descrizione:</strong><br>{{ art.descrizione or '' }}</div>
+                <div class="col-md-3"><strong>Descrizione:</strong><br>{{ art.descrizione or '' }}</div>
+                <div class="col-md-1"><strong>Lotto:</strong><br>{{ art.lotto or '' }}</div>
             </div>
 
             <div class="alert alert-info">
@@ -9133,6 +9134,8 @@ def scarico_parziale(id_articolo):
         # quando creo la nuova riga di scarico e quando aggiorno la riga residua.
         codice_originale = (art.codice_articolo or '').strip()
         descrizione_originale = (art.descrizione or '').strip()
+        cliente_norm = normalize_text_key(art.cliente or '')
+        is_galvano = cliente_norm == normalize_text_key('GALVANO TECNICA')
 
         def _num_float(v):
             try:
@@ -9249,16 +9252,22 @@ def scarico_parziale(id_articolo):
                 flash("Data uscita e numero DDT sono obbligatori.", "danger")
                 return redirect(url_for('scarico_parziale', id_articolo=id_articolo))
 
-            # La decisione tra scarico TOTALE e PARZIALE deve dipendere dai PEZZI,
-            # non dal peso. Prima confrontava anche il peso: se per errore veniva
-            # inserito il peso totale, il gestionale trattava lo scarico come totale
-            # e NON creava la nuova riga di uscita.
-            scarico_totale = abs(pezzi_scarico - pezzi_disponibili) < 0.000001
+            # Pezzi e peso vengono scaricati entrambi con i valori inseriti manualmente.
+            # Non viene eseguito alcun ricalcolo proporzionale automatico.
+            pezzi_totali = abs(pezzi_scarico - pezzi_disponibili) < 0.000001
+            peso_totale = abs(peso_scarico - peso_disponibile) < 0.000001
 
-            # Se lo scarico è parziale ma il peso inserito è uguale/superiore al peso totale,
-            # calcolo automaticamente il peso proporzionale per evitare residuo a zero.
-            if not scarico_totale and peso_scarico >= peso_disponibile:
-                peso_scarico = peso_disponibile * (pezzi_scarico / pezzi_disponibili)
+            # Evita residui incoerenti: non possono restare 0 pezzi con del peso,
+            # oppure 0 kg con dei pezzi ancora in giacenza.
+            if pezzi_totali != peso_totale:
+                flash(
+                    "Per uno scarico totale devi inserire sia tutti i pezzi sia tutto il peso disponibile. "
+                    "Per uno scarico parziale, pezzi e peso devono essere entrambi inferiori ai valori disponibili.",
+                    "danger"
+                )
+                return redirect(url_for('scarico_parziale', id_articolo=id_articolo))
+
+            scarico_totale = pezzi_totali and peso_totale
 
             # Scarico totale: aggiorno direttamente la riga originale
             if scarico_totale:
@@ -9267,6 +9276,9 @@ def scarico_parziale(id_articolo):
                 art.buono_n = buono_val or art.buono_n
                 art.codice_articolo = codice_scarico_val or art.codice_articolo
                 art.descrizione = descrizione_scarico_val or art.descrizione
+                art.pezzo = _fmt_num(pezzi_scarico)
+                if is_galvano:
+                    art.n_colli = max(0, int(round(pezzi_scarico)))
                 art.peso = _fmt_peso(peso_scarico)
                 art.note = (
                     (art.note or '').strip()
@@ -9291,6 +9303,8 @@ def scarico_parziale(id_articolo):
             scarico.codice_articolo = codice_scarico_val or codice_originale or scarico.codice_articolo
             scarico.descrizione = descrizione_scarico_val or descrizione_originale or scarico.descrizione
             scarico.pezzo = _fmt_num(pezzi_scarico)
+            if is_galvano:
+                scarico.n_colli = max(0, int(round(pezzi_scarico)))
             scarico.peso = _fmt_peso(peso_scarico)
             scarico.data_uscita = data_uscita_val
             scarico.n_ddt_uscita = n_ddt_uscita_val
@@ -9309,6 +9323,8 @@ def scarico_parziale(id_articolo):
             art.codice_articolo = (residuo_codice or codice_originale or art.codice_articolo or '').strip()
             art.descrizione = (residuo_descrizione or descrizione_originale or art.descrizione or '').strip()
             art.pezzo = _fmt_num(pezzi_residui)
+            if is_galvano:
+                art.n_colli = max(0, int(round(pezzi_residui)))
             art.peso = _fmt_peso(peso_residuo)
             art.data_uscita = ''
             art.n_ddt_uscita = ''
