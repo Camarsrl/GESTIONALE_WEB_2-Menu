@@ -14,7 +14,7 @@ Il file principale resta più leggero e le route mantengono gli stessi endpoint.
 def register_import_pdf_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] IMPORT PDF GALVANO - DESCRIZIONE, COLLI=PEZZI E LOTTI OCR - VERSIONE 2")
+    print("[OK] IMPORT PDF GALVANO - PEZZI DOCUMENTO, LOTTI OCR E RIGHE DUPLICATE - VERSIONE 3")
 
     # --- HELPER ESTRAZIONE PDF (Necessario per Import PDF) ---
 
@@ -366,7 +366,7 @@ def register_import_pdf_routes(app_obj, deps):
                 # SAC 6 150,00 153,00 KG 150,00
                 # CAN 3 75,00 78,45 KG 75,00
                 m = re.search(
-                    r"\b(SAC|CAN|PAL|BOX|CRT|UN|KG)\b\s+(\d{1,5})\s+"
+                    r"\b(SAC|CAN|PAL|BOX|CRT|CASSA|FUSTO|FUSTI|TANICA|TANICHE|SECCHIO|SECCHI|IBC|DRUM|BAG)\b\s+(\d{1,5})\s+"
                     r"(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)\s+"
                     r"(KG|PZ|NR|UN|N)\b\s+(-?\d+(?:[.,]\d+)?)",
                     block,
@@ -394,6 +394,26 @@ def register_import_pdf_routes(app_obj, deps):
                         current["pezzi"] = _to_float_it(m2.group(4)) or current.get("pezzi") or 0
                         current["pezzi_articolo"] = str(colli) if colli else ""
                     else:
+                        # Fallback robusto Atotech: il numero dei pezzi/colli è il primo
+                        # intero subito dopo il tipo di imballo, anche se l'OCR sporca
+                        # o spezza le colonne successive.
+                        m_pack = re.search(
+                            r"\b(SAC|CAN|PAL|BOX|CRT|CASSA|FUSTO|FUSTI|TANICA|TANICHE|SECCHIO|SECCHI|IBC|DRUM|BAG)\b"
+                            r"[^0-9]{0,8}(\d{1,5})\b",
+                            block,
+                            re.I
+                        )
+                        if m_pack:
+                            colli = _to_int(m_pack.group(2)) or 0
+                            current["colli"] = colli
+                            current["pezzi_articolo"] = str(colli) if colli else ""
+
+                            # Il peso è normalmente l'ultimo valore dopo KG.
+                            m_kg = re.search(r"\bKG\b\s+(-?\d+(?:[.,]\d+)?)", block, re.I)
+                            if m_kg:
+                                current["um"] = "KG"
+                                current["pezzi"] = _to_float_it(m_kg.group(1)) or 0
+
                         # Ultimo fallback: colli immediatamente prima di tre valori decimali.
                         m3 = re.search(
                             r"(?:^|\s)(\d{1,5})\s+"
@@ -403,7 +423,7 @@ def register_import_pdf_routes(app_obj, deps):
                             block,
                             re.I
                         )
-                        if m3:
+                        if m3 and not current.get("colli"):
                             colli = _to_int(m3.group(1)) or 0
                             current["colli"] = colli
                             current["um"] = "KG"
@@ -460,23 +480,10 @@ def register_import_pdf_routes(app_obj, deps):
 
             _finish_current()
 
-            # dedup conservando righe con stesso codice ma lotto diverso.
-            # Se stesso codice e stesso lotto appaiono due volte nel PDF, le quantità/colli vengono sommate.
-            merged = {}
-            for r in rows:
-                key = ((r.get("codice") or "").upper(), (r.get("lotto") or "").upper())
-                if key not in merged:
-                    merged[key] = dict(r)
-                else:
-                    merged[key]["colli"] = to_int_eu(merged[key].get("colli")) + to_int_eu(r.get("colli"))
-                    try:
-                        merged[key]["pezzi"] = float(merged[key].get("pezzi") or 0) + float(r.get("pezzi") or 0)
-                    except Exception:
-                        pass
-                    merged[key]["pezzi_articolo"] = str(
-                        to_int_eu(merged[key].get("pezzi_articolo")) + to_int_eu(r.get("pezzi_articolo"))
-                    )
-            return list(merged.values())
+            # Per Galvano ogni riga del documento deve restare distinta.
+            # Non accorpare mai righe con lo stesso codice e lo stesso lotto:
+            # possono rappresentare confezioni/pesi differenti riportati separatamente nel DDT.
+            return rows
 
         def _parse_comefri(lines):
             rows = []
@@ -927,7 +934,12 @@ def register_import_pdf_routes(app_obj, deps):
         specific_rows.extend(_parse_fertubi_dewave(lines))
         specific_rows.extend(_parse_fincantieri_generic(lines))
 
-        generic_rows = _parse_generic(lines)
+        # Nei documenti Atotech/Galvano il parser generico causava due problemi:
+        # 1) poteva reinserire il lotto OCR grezzo (0 al posto di O);
+        # 2) poteva creare/deduplicare righe in modo diverso dal parser dedicato.
+        # Per Atotech usiamo quindi esclusivamente il parser dedicato.
+        is_atotech_profile = bool(re.search(r"ATOTECH|MKS", full_text, re.I))
+        generic_rows = [] if is_atotech_profile else _parse_generic(lines)
 
         rows = specific_rows + generic_rows
 
@@ -957,11 +969,14 @@ def register_import_pdf_routes(app_obj, deps):
             if descr.upper() in {'CLIENTE', 'FORNITORE', 'DESTINATARIO', 'MITTENTE'}:
                 continue
 
-            # evita righe duplicate generate dall'OCR o dal doppio parser
-            sig = _row_signature_for_dedup(r)
-            if sig in seen:
-                continue
-            seen.add(sig)
+            # Per Atotech/Galvano conserviamo tutte le righe del documento,
+            # anche quando codice e lotto sono identici. Per gli altri formati
+            # rimane la deduplicazione OCR precedente.
+            if not is_atotech_profile:
+                sig = _row_signature_for_dedup(r)
+                if sig in seen:
+                    continue
+                seen.add(sig)
 
             r['descrizione'] = descr
             cleaned.append(r)
@@ -970,6 +985,9 @@ def register_import_pdf_routes(app_obj, deps):
             # Fallback controllato: permette comunque la conferma manuale anche con PDF scansiti difficili.
             cleaned.append(_base_row('', 'MERCE VARIA', 1, 0, '', '', '', ''))
 
+        # Galvano: non unire le righe uguali; ogni riga del DDT deve essere importata.
+        if is_atotech_profile:
+            return meta, cleaned
         return meta, _merge_rows(cleaned)
 
     # --- ROUTE IMPORT PDF (PROTETTA ADMIN) ---
