@@ -14,6 +14,7 @@ Il file principale resta più leggero e le route mantengono gli stessi endpoint.
 def register_import_pdf_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
+    print("[OK] IMPORT PDF - CONTROLLO GALVANO CODICE + LOTTO - VERSIONE 1")
 
     # --- HELPER ESTRAZIONE PDF (Necessario per Import PDF) ---
 
@@ -931,6 +932,9 @@ def register_import_pdf_routes(app_obj, deps):
         db = SessionLocal()
         try:
             cliente_pdf_import = cliente_from_form_or_current(request.form, request.form.get('cliente'))
+            cliente_pdf_norm = re.sub(r"[^A-Z0-9]+", " ", str(cliente_pdf_import or "").upper()).strip()
+            is_galvano = cliente_pdf_norm == "GALVANO TECNICA"
+
             codice_entrata_shared = ensure_codice_entrata(
                 request.form.get('codice_entrata'),
                 n_arrivo=strip_arrivo_progressivo(request.form.get('n_arrivo')),
@@ -954,6 +958,52 @@ def register_import_pdf_routes(app_obj, deps):
                 if not codice and not descr:
                     continue
 
+                # ---------------------------------------------------------
+                # CONTROLLI GALVANO TECNICA: codice + lotto
+                # ---------------------------------------------------------
+                lt = lotto_list[i] if i < len(lotto_list) else ""
+                lotto = (lt or "").strip()
+
+                if is_galvano:
+                    if not codice:
+                        raise ValueError(
+                            f"GALVANO TECNICA - Riga {i + 1}: codice articolo obbligatorio."
+                        )
+                    if not lotto:
+                        raise ValueError(
+                            f"GALVANO TECNICA - Riga {i + 1}: lotto obbligatorio per il codice {codice}."
+                        )
+
+                    # Lo stesso lotto può ricomparire solo con lo stesso codice articolo.
+                    # Il confronto è senza distinzione tra maiuscole e minuscole.
+                    righe_stesso_lotto = (
+                        db.query(Articolo)
+                        .filter(Articolo.lotto.ilike(lotto))
+                        .all()
+                    )
+                    codici_diversi = []
+                    for esistente in righe_stesso_lotto:
+                        codice_esistente = (getattr(esistente, 'codice_articolo', '') or '').strip()
+                        if codice_esistente and codice_esistente.upper() != codice.upper():
+                            codici_diversi.append(codice_esistente)
+
+                    if codici_diversi:
+                        codici_unici = sorted(set(codici_diversi), key=str.upper)
+                        esistente = righe_stesso_lotto[0] if righe_stesso_lotto else None
+                        dettagli = []
+                        if esistente is not None:
+                            if getattr(esistente, 'id_articolo', None):
+                                dettagli.append(f"ID articolo: {esistente.id_articolo}")
+                            if getattr(esistente, 'n_arrivo', None):
+                                dettagli.append(f"N. arrivo: {esistente.n_arrivo}")
+
+                        extra = (" - " + "; ".join(dettagli)) if dettagli else ""
+                        raise ValueError(
+                            "GALVANO TECNICA - IMPORT BLOCCATO. "
+                            f"Il lotto {lotto} è già associato al codice "
+                            f"{', '.join(codici_unici)} e non può essere salvato con il codice {codice}{extra}."
+                        )
+
                 art = Articolo()
 
                 # testata
@@ -972,8 +1022,7 @@ def register_import_pdf_routes(app_obj, deps):
                 art.descrizione = descr
                 art.n_colli = max(0, to_int_eu(colli_list[i] if i < len(colli_list) else 0))
                 # Lotto (se presente nel PDF o inserito a mano)
-                lt = lotto_list[i] if i < len(lotto_list) else ""
-                art.lotto = (lt or "").strip()
+                art.lotto = lotto
                 sr = serial_list[i] if i < len(serial_list) else ""
                 art.serial_number = (sr or "").strip()
 
