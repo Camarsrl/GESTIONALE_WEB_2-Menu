@@ -8217,6 +8217,7 @@ def _copyright_para():
 
 def _generate_buono_pdf(form_data, rows):
     import io
+    import re
     from pathlib import Path
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
     from reportlab.lib.pagesizes import A4
@@ -8225,53 +8226,60 @@ def _generate_buono_pdf(form_data, rows):
     from reportlab.lib.units import mm
     from reportlab.lib.enums import TA_CENTER
 
-    def _to_int_safe(v, default=0):
+    def _to_float_safe(v, default=0.0):
         try:
-            if v is None:
+            if v is None or str(v).strip() == "":
                 return default
-            s = str(v).strip()
-            if s == "":
-                return default
-            s = s.replace(",", ".")
-            return int(float(s))
+            return float(str(v).strip().replace(',', '.'))
         except Exception:
             return default
 
+    def _fmt(v):
+        f = _to_float_safe(v, 0.0)
+        if abs(f - int(f)) < 0.000001:
+            return str(int(f))
+        return (f"{f:.3f}").rstrip('0').rstrip('.').replace('.', ',')
+
+    def _is_galvano(cliente):
+        nome = re.sub(r'[^A-Z0-9]+', ' ', str(cliente or '').upper()).strip()
+        nome = re.sub(r'\s+', ' ', nome)
+        return nome in {'GALVANO', 'GALVANO TECNICA'}
+
+    is_galvano = bool(rows) and all(_is_galvano(getattr(r, 'cliente', '')) for r in rows)
+
     bio = io.BytesIO()
     doc = SimpleDocTemplate(
-        bio,
-        pagesize=A4,
+        bio, pagesize=A4,
         leftMargin=10*mm, rightMargin=10*mm,
         topMargin=10*mm, bottomMargin=10*mm
     )
     story = []
-
     styles = getSampleStyleSheet()
-    s_norm  = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=9, leading=11, textColor=colors.black)
-    s_bold  = ParagraphStyle('Bold', parent=s_norm, fontName='Helvetica-Bold')
+    s_norm = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=8.5, leading=10.5, textColor=colors.black)
+    s_bold = ParagraphStyle('Bold', parent=s_norm, fontName='Helvetica-Bold')
     s_title = ParagraphStyle('Title', parent=styles['Heading1'], alignment=TA_CENTER, fontSize=16, spaceAfter=10, textColor=colors.black)
-    s_note  = ParagraphStyle('Note', parent=s_norm, fontSize=9, textColor=colors.darkblue)
+    s_note = ParagraphStyle('Note', parent=s_norm, fontSize=8.5, textColor=colors.darkblue)
 
-    # 1) Logo
     if 'LOGO_PATH' in globals() and LOGO_PATH and Path(LOGO_PATH).exists():
         story.append(Image(str(LOGO_PATH), width=50*mm, height=16*mm, hAlign='CENTER'))
     else:
-        story.append(Paragraph("<b>Ca.mar. srl</b>", s_title))
+        story.append(Paragraph('<b>Ca.mar. srl</b>', s_title))
 
     story.append(Spacer(1, 5*mm))
-    story.append(Paragraph("BUONO DI PRELIEVO", s_title))
+    story.append(Paragraph('BUONO DI PRELIEVO GALVANO TECNICA' if is_galvano else 'BUONO DI PRELIEVO', s_title))
     story.append(Spacer(1, 5*mm))
 
-    # 2) Dati Testata
     meta_data = [
-        [Paragraph("<b>Data Emissione:</b>", s_bold), Paragraph(str(form_data.get('data_em','')), s_norm)],
-        [Paragraph("<b>Cliente:</b>", s_bold), Paragraph(str(rows[0].cliente if rows else ''), s_norm)],
-        [Paragraph("<b>Fornitore:</b>", s_bold), Paragraph(str(form_data.get('fornitore','')), s_norm)],
-        [Paragraph("<b>Commessa:</b>", s_bold), Paragraph(str(form_data.get('commessa','')), s_norm)],
-        [Paragraph("<b>Ordine:</b>", s_bold), Paragraph(str(form_data.get('ordine','')), s_norm)],
-        [Paragraph("<b>Protocollo:</b>", s_bold), Paragraph(str(form_data.get('protocollo','')), s_norm)],
-        [Paragraph("<b>N. Buono:</b>", s_bold), Paragraph(str(form_data.get('buono_n','')), s_norm)],
+        [Paragraph('<b>Data Emissione:</b>', s_bold), Paragraph(str(form_data.get('data_em', '')), s_norm)],
+        [Paragraph('<b>Cliente:</b>', s_bold), Paragraph(str(rows[0].cliente if rows else ''), s_norm)],
+        [Paragraph('<b>Fornitore:</b>', s_bold), Paragraph(str(form_data.get('fornitore', '')), s_norm)],
+        [Paragraph('<b>Commessa:</b>', s_bold), Paragraph(str(form_data.get('commessa', '')), s_norm)],
+        [Paragraph('<b>Ordine:</b>', s_bold), Paragraph(str(form_data.get('ordine', '')), s_norm)],
     ]
+    # Per Galvano non servono né protocollo né posizione.
+    if not is_galvano:
+        meta_data.append([Paragraph('<b>Protocollo:</b>', s_bold), Paragraph(str(form_data.get('protocollo', '')), s_norm)])
+    meta_data.append([Paragraph('<b>N. Buono:</b>', s_bold), Paragraph(str(form_data.get('buono_n', '')), s_norm)])
 
     t_meta = Table(meta_data, colWidths=[40*mm, 140*mm])
     t_meta.setStyle(TableStyle([
@@ -8283,59 +8291,78 @@ def _generate_buono_pdf(form_data, rows):
     story.append(t_meta)
     story.append(Spacer(1, 8*mm))
 
-    # 3) Articoli
-    header = [
-        Paragraph('<b>Codice</b>', s_bold),
-        Paragraph('<b>Descrizione</b>', s_bold),
-        Paragraph('<b>Q.tà</b>', s_bold),
-        Paragraph('<b>N.Arr</b>', s_bold)
-    ]
-    table_data = [header]
-
-    for r in rows:
-        # ✅ Q.tà: prende il valore inserito nel form (q_ID), altrimenti usa PEZZI (r.pezzo)
-        q_form = form_data.get(f"q_{r.id_articolo}")
-        if q_form is not None and str(q_form).strip() != "":
-            q = _to_int_safe(q_form, default=0)
-        else:
-            q = _to_int_safe(getattr(r, "pezzo", None), default=0)
-
-        codice_pdf = (form_data.get(f"codice_buono_{r.id_articolo}") or str(r.codice_articolo or '')).strip()
-        desc = (form_data.get(f"descrizione_buono_{r.id_articolo}") or str(r.descrizione or '')).strip()
-        note_user = form_data.get(f"note_{r.id_articolo}")
-        if note_user is None:
-            note_user = r.note
-
-        table_data.append([
-            Paragraph(codice_pdf, s_norm),
-            Paragraph(desc, s_norm),
-            str(q),
-            Paragraph(str(r.n_arrivo or ''), s_norm)
-        ])
-
-        if note_user:
+    if is_galvano:
+        table_data = [[
+            Paragraph('<b>Codice articolo</b>', s_bold),
+            Paragraph('<b>Descrizione</b>', s_bold),
+            Paragraph('<b>Lotto</b>', s_bold),
+            Paragraph('<b>Pezzi</b>', s_bold),
+            Paragraph('<b>Peso kg</b>', s_bold),
+            Paragraph('<b>Verifica</b>', s_bold),
+        ]]
+        for r in rows:
+            rid = r.id_articolo
+            q = form_data.get(f'q_{rid}')
+            if q is None or str(q).strip() == '':
+                q = getattr(r, 'pezzo', 0)
+            peso = form_data.get(f'peso_buono_{rid}')
+            if peso is None or str(peso).strip() == '':
+                peso = getattr(r, 'peso', 0)
+            codice = str(form_data.get(f'codice_buono_{rid}') or getattr(r, 'codice_articolo', '') or '').strip()
+            desc = str(form_data.get(f'descrizione_buono_{rid}') or getattr(r, 'descrizione', '') or '').strip()
+            lotto = str(getattr(r, 'lotto', '') or '').strip()
             table_data.append([
-                '',
-                Paragraph(f"<i>Note: {note_user}</i>", s_note),
-                '', ''
+                Paragraph(codice, s_norm), Paragraph(desc, s_norm), Paragraph(lotto, s_bold),
+                Paragraph(_fmt(q), s_norm), Paragraph(_fmt(peso), s_norm), Paragraph('LOTTO CONTROLLATO □', s_norm)
             ])
+            note = form_data.get(f'note_{rid}')
+            if note is None:
+                note = getattr(r, 'note', '')
+            if note:
+                table_data.append(['', Paragraph(f'<i>Note: {note}</i>', s_note), '', '', '', ''])
+        t = Table(table_data, colWidths=[35*mm, 62*mm, 30*mm, 16*mm, 20*mm, 27*mm], repeatRows=1)
+    else:
+        table_data = [[
+            Paragraph('<b>Codice</b>', s_bold), Paragraph('<b>Descrizione</b>', s_bold),
+            Paragraph('<b>Q.tà</b>', s_bold), Paragraph('<b>N.Arr</b>', s_bold)
+        ]]
+        for r in rows:
+            rid = r.id_articolo
+            q = form_data.get(f'q_{rid}')
+            if q is None or str(q).strip() == '':
+                q = getattr(r, 'pezzo', 0)
+            codice = str(form_data.get(f'codice_buono_{rid}') or getattr(r, 'codice_articolo', '') or '').strip()
+            desc = str(form_data.get(f'descrizione_buono_{rid}') or getattr(r, 'descrizione', '') or '').strip()
+            note = form_data.get(f'note_{rid}')
+            if note is None:
+                note = getattr(r, 'note', '')
+            table_data.append([Paragraph(codice, s_norm), Paragraph(desc, s_norm), _fmt(q), Paragraph(str(getattr(r, 'n_arrivo', '') or ''), s_norm)])
+            if note:
+                table_data.append(['', Paragraph(f'<i>Note: {note}</i>', s_note), '', ''])
+        t = Table(table_data, colWidths=[40*mm, 100*mm, 15*mm, 25*mm], repeatRows=1)
 
-    t = Table(table_data, colWidths=[40*mm, 100*mm, 15*mm, 25*mm], repeatRows=1)
     t.setStyle(TableStyle([
         ('GRID', (0,0), (-1,-1), 0.5, colors.black),
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('PADDING', (0,0), (-1,-1), 4)
+        ('PADDING', (0,0), (-1,-1), 4),
     ]))
     story.append(t)
+    story.append(Spacer(1, 14*mm))
 
-    story.append(Spacer(1, 20*mm))
-    sig_data = [[
-        Paragraph("Firma Magazzino:<br/><br/>__________________", s_norm),
-        Paragraph("Firma Cliente:<br/><br/>__________________", s_norm)
-    ]]
-    t_sig = Table(sig_data, colWidths=[90*mm, 90*mm])
-    story.append(t_sig)
+    if is_galvano:
+        story.append(Paragraph('<b>Controllo obbligatorio:</b> verificare che codice articolo, descrizione e lotto stampato sui fustini coincidano con il presente buono.', s_norm))
+        story.append(Spacer(1, 8*mm))
+        sig_data = [[
+            Paragraph('Preparato da:<br/><br/>__________________', s_norm),
+            Paragraph('Lotti verificati da:<br/><br/>__________________', s_norm)
+        ]]
+    else:
+        sig_data = [[
+            Paragraph('Firma Magazzino:<br/><br/>__________________', s_norm),
+            Paragraph('Firma Cliente:<br/><br/>__________________', s_norm)
+        ]]
+    story.append(Table(sig_data, colWidths=[90*mm, 90*mm]))
 
     doc.build(story)
     bio.seek(0)
