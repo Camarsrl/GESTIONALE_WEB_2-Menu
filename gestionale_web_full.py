@@ -714,6 +714,17 @@ class Articolo(Base):
     attachments = relationship("Attachment", back_populates="articolo", cascade="all, delete-orphan", passive_deletes=True)
     lotto = Column(Text) # <--- AGGIUNGI QUESTA
 
+class StoricoArticolo(Base):
+    """Cronologia persistente delle modifiche apportate agli articoli."""
+    __tablename__ = "storico_articoli"
+    id = Column(Integer, Identity(start=1), primary_key=True)
+    articolo_id = Column(Integer, nullable=False, index=True)
+    evento = Column(String(64), nullable=False, default="MODIFICA")
+    dettagli = Column(Text)
+    operatore = Column(String(64))
+    creato_il = Column(String(32), nullable=False)
+
+
 class Attachment(Base):
     __tablename__ = "attachments"
     id = Column(Integer, Identity(start=1), primary_key=True)
@@ -862,21 +873,46 @@ from sqlalchemy import event
 
 @event.listens_for(SessionLocal.session_factory, 'before_flush')
 def _audit_articoli_before_flush(session_db, flush_context, instances):
-    """Compila automaticamente creato/modificato da per Articolo."""
-    user = _current_username_for_audit()
-    if not user:
-        return
+    """Compila l'audit e registra nello storico le modifiche future degli articoli."""
+    user = _current_username_for_audit() or 'SISTEMA'
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
     for obj in list(session_db.new):
         if isinstance(obj, Articolo):
             if not getattr(obj, 'created_by', None):
                 obj.created_by = user
             obj.updated_by = user
             obj.updated_at = now
+
+    campi_esclusi = {'updated_by', 'updated_at', 'created_by', 'attachments'}
     for obj in list(session_db.dirty):
-        if isinstance(obj, Articolo) and session_db.is_modified(obj, include_collections=False):
-            obj.updated_by = user
-            obj.updated_at = now
+        if not isinstance(obj, Articolo) or not session_db.is_modified(obj, include_collections=False):
+            continue
+
+        modifiche = {}
+        stato = inspect(obj)
+        for attr in stato.attrs:
+            nome = attr.key
+            if nome in campi_esclusi:
+                continue
+            hist = attr.history
+            if not hist.has_changes():
+                continue
+            precedente = hist.deleted[0] if hist.deleted else None
+            nuovo = hist.added[0] if hist.added else getattr(obj, nome, None)
+            modifiche[nome] = {'prima': precedente, 'dopo': nuovo}
+
+        if modifiche and getattr(obj, 'id_articolo', None):
+            session_db.add(StoricoArticolo(
+                articolo_id=obj.id_articolo,
+                evento='MODIFICA',
+                dettagli=json.dumps(modifiche, ensure_ascii=False, default=str),
+                operatore=user,
+                creato_il=now,
+            ))
+
+        obj.updated_by = user
+        obj.updated_at = now
 
 
 # ========================================================
@@ -3173,6 +3209,7 @@ GIACENZE_HTML = """
                     </td>
                     <td class="text-center">
                         {% if session.get('role') == 'admin' %}
+                        <a href="{{ url_for('storico_articolo', id_articolo=r.id_articolo, return_url=request.full_path) }}" class="btn btn-outline-info btn-sm py-0 px-1" title="Storico articolo">📋</a>
                         <a href="{{ url_for('edit_articolo', id=r.id_articolo, return_url=request.full_path) }}" class="btn btn-outline-primary btn-sm py-0 px-1" title="Modifica">✏️</a>
                         <a href="{{ url_for('allegati_articolo', id_articolo=r.id_articolo, return_url=request.full_path) }}" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Documenti e Foto">📎</a>
                         {% if not r.data_uscita and not r.n_ddt_uscita %}
@@ -7369,6 +7406,75 @@ def duplica_articolo(id_articolo):
 #  1. MODIFICA ARTICOLO (Solo per TABELLA GIACENZE)
 # ==============================================================================
 # --- MODIFICA ARTICOLO SINGOLO (UNICA FUNZIONE CORRETTA) ---
+@app.route('/storico-articolo/<int:id_articolo>')
+@login_required
+def storico_articolo(id_articolo):
+    db = SessionLocal()
+    try:
+        articolo = (db.query(Articolo)
+                    .options(selectinload(Articolo.attachments))
+                    .filter(Articolo.id_articolo == id_articolo)
+                    .first())
+        if not articolo:
+            abort(404)
+
+        # I clienti possono consultare esclusivamente il proprio materiale.
+        if session.get('role') != 'admin':
+            utente = (session.get('user') or getattr(current_user, 'id', '') or '').strip().upper()
+            cliente = (articolo.cliente or '').strip().upper()
+            if not utente or cliente != utente:
+                abort(403)
+
+        registrazioni = (db.query(StoricoArticolo)
+                         .filter(StoricoArticolo.articolo_id == id_articolo)
+                         .order_by(StoricoArticolo.id.desc())
+                         .all())
+
+        storico = []
+        for reg in registrazioni:
+            try:
+                modifiche = json.loads(reg.dettagli or '{}')
+            except Exception:
+                modifiche = {}
+            storico.append({
+                'data': reg.creato_il,
+                'evento': reg.evento or 'MODIFICA',
+                'operatore': reg.operatore or '',
+                'modifiche': modifiche,
+            })
+
+        # Eventi ricostruibili dai dati già presenti prima dell'attivazione dello storico.
+        eventi_base = []
+        if articolo.data_ingresso or articolo.n_arrivo or articolo.n_ddt_ingresso:
+            eventi_base.append({
+                'tipo': 'INGRESSO', 'data': articolo.data_ingresso or '',
+                'testo': f"Arrivo {articolo.n_arrivo or '-'} · DDT ingresso {articolo.n_ddt_ingresso or '-'}"
+            })
+        if articolo.buono_n:
+            eventi_base.append({
+                'tipo': 'BUONO', 'data': articolo.data_uscita or articolo.updated_at or '',
+                'testo': f"Buono n. {articolo.buono_n}"
+            })
+        if articolo.data_uscita or articolo.n_ddt_uscita:
+            eventi_base.append({
+                'tipo': 'USCITA', 'data': articolo.data_uscita or '',
+                'testo': f"DDT uscita {articolo.n_ddt_uscita or '-'} · Mezzo {articolo.mezzi_in_uscita or '-'}"
+            })
+        if articolo.updated_at:
+            eventi_base.append({
+                'tipo': 'ULTIMA MODIFICA', 'data': articolo.updated_at,
+                'testo': f"Ultimo aggiornamento eseguito da {articolo.updated_by or '-'}"
+            })
+
+        return render_template(
+            'storico_articolo.html',
+            articolo=articolo, storico=storico, eventi_base=eventi_base,
+            return_url=request.args.get('return_url') or url_for('giacenze')
+        )
+    finally:
+        db.close()
+
+
 @app.route('/edit_articolo/<int:id>', methods=['GET', 'POST'])
 @login_required
 @require_admin
