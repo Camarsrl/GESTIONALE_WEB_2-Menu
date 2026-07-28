@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h3 class="mb-0">📋 Storico articolo #{{ articolo.id_articolo }}</h3>
+    <small class="text-muted">Tracciabilità del materiale e delle modifiche registrate</small>
+  </div>
+  <a href="{{ return_url }}" class="btn btn-outline-secondary">← Torna al magazzino</a>
+</div>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-header fw-bold">Situazione attuale</div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-3"><small class="text-muted">Codice</small><div class="fw-bold">{{ articolo.codice_articolo or '-' }}</div></div>
+      <div class="col-md-6"><small class="text-muted">Descrizione</small><div class="fw-bold">{{ articolo.descrizione or '-' }}</div></div>
+      <div class="col-md-3"><small class="text-muted">Cliente</small><div class="fw-bold">{{ articolo.cliente or '-' }}</div></div>
+      <div class="col-md-3"><small class="text-muted">Lotto</small><div>{{ articolo.lotto or 'NON PRESENTE' }}</div></div>
+      <div class="col-md-3"><small class="text-muted">Seriale</small><div>{{ articolo.serial_number or '-' }}</div></div>
+      <div class="col-md-2"><small class="text-muted">Pezzi</small><div class="fs-5 fw-bold">{{ articolo.pezzo or '0' }}</div></div>
+      <div class="col-md-2"><small class="text-muted">Colli</small><div class="fs-5 fw-bold">{{ articolo.n_colli if articolo.n_colli is not none else '0' }}</div></div>
+      <div class="col-md-2"><small class="text-muted">Peso</small><div class="fs-5 fw-bold">{{ articolo.peso|it_num(2) if articolo.peso is not none else '0,00' }} kg</div></div>
+      <div class="col-md-3"><small class="text-muted">Stato</small><div>{{ articolo.stato or '-' }}</div></div>
+      <div class="col-md-3"><small class="text-muted">Posizione</small><div>{{ articolo.posizione or '-' }}</div></div>
+      <div class="col-md-3"><small class="text-muted">Arrivo</small><div>{{ articolo.n_arrivo or '-' }}</div></div>
+      <div class="col-md-3"><small class="text-muted">Buono</small><div>{{ articolo.buono_n or '-' }}</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card shadow-sm h-100">
+      <div class="card-header fw-bold">Cronologia registrata</div>
+      <div class="card-body">
+        {% if storico %}
+          {% for evento in storico %}
+          <div class="border-start border-3 ps-3 pb-3 mb-3">
+            <div class="d-flex justify-content-between"><strong>{{ evento.evento }}</strong><span class="text-muted small">{{ evento.data }}</span></div>
+            <div class="small mb-2">Operatore: <b>{{ evento.operatore or '-' }}</b></div>
+            {% for campo, valori in evento.modifiche.items() %}
+              <div class="small"><b>{{ campo|replace('_',' ')|title }}:</b> {{ valori.prima if valori.prima is not none else 'vuoto' }} → <b>{{ valori.dopo if valori.dopo is not none else 'vuoto' }}</b></div>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="alert alert-info mb-0">Lo storico dettagliato parte dall'installazione di questa funzione. Sotto sono comunque mostrati gli eventi ricostruibili dai dati attuali.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header fw-bold">Eventi già ricostruibili</div>
+      <div class="card-body">
+        {% for evento in eventi_base %}
+          <div class="mb-3"><span class="badge bg-secondary">{{ evento.tipo }}</span> <span class="small text-muted">{{ evento.data }}</span><div>{{ evento.testo }}</div></div>
+        {% else %}<span class="text-muted">Nessun evento disponibile.</span>{% endfor %}
+      </div>
+    </div>
+    <div class="card shadow-sm">
+      <div class="card-header fw-bold">Allegati</div>
+      <div class="card-body">
+        {% for a in articolo.attachments %}
+          <a href="{{ url_for('serve_uploaded_file', filename=a.filename) }}" target="_blank" class="btn btn-outline-secondary btn-sm mb-2 me-1">{% if a.kind == 'photo' %}📷 Foto{% else %}📄 Documento{% endif %}</a>
+        {% else %}<span class="text-muted">Nessun allegato.</span>{% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
