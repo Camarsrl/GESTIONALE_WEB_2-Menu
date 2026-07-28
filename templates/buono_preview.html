@@ -176,7 +176,7 @@
 
         {% if is_galvano %}
         <div class="alert alert-warning py-2 small">
-            <b>Galvano Tecnica:</b> inserisci manualmente pezzi e peso da prelevare. Il peso non viene calcolato in proporzione.
+            <b>Galvano Tecnica:</b> inserisci manualmente pezzi, colli e peso da prelevare. Il numero dei colli è proposto a <b>1</b>, ma può essere modificato. Il peso non viene calcolato in proporzione.
             Il codice e la descrizione non sono modificabili. Il lotto può essere indicato come <b>NON PRESENTE</b>. Spunta la verifica solo dopo il controllo fisico dei fustini.
         </div>
         {% else %}
@@ -194,7 +194,8 @@
                         <th>Codice articolo</th>
                         <th>Descrizione</th>
                         <th>Lotto</th>
-                        <th style="width:11%">Pezzi</th>
+                        <th style="width:10%">Pezzi</th>
+                        <th style="width:9%">Colli</th>
                         <th style="width:13%">Peso kg</th>
                         <th style="width:12%">Materiale verificato</th>
                         {% else %}
@@ -231,6 +232,11 @@
                                    data-cliente="{{ r.cliente or '' }}"
                                    class="form-control form-control-sm text-center fw-bold" value="{{ r.pezzo or 0 }}">
                             <div class="small text-muted">Disponibili: {{ r.pezzo or 0 }}</div>
+                        </td>
+                        <td>
+                            <input name="colli_buono_{{ r.id_articolo }}" type="number" step="1" min="1"
+                                   class="form-control form-control-sm text-center fw-bold" value="1">
+                            <div class="small text-muted">Modificabile</div>
                         </td>
                         <td>
                             <input name="peso_buono_{{ r.id_articolo }}" type="number" step="0.001" min="0.001"
