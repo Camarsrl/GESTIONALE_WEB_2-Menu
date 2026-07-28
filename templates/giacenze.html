@@ -229,6 +229,7 @@
                     </td>
                     <td class="text-center">
                         {% if session.get('role') == 'admin' %}
+                        <a href="{{ url_for('storico_articolo', id_articolo=r.id_articolo, return_url=request.full_path) }}" class="btn btn-outline-info btn-sm py-0 px-1" title="Storico articolo">📋</a>
                         <a href="{{ url_for('edit_articolo', id=r.id_articolo, return_url=request.full_path) }}" class="btn btn-outline-primary btn-sm py-0 px-1" title="Modifica">✏️</a>
                         {% if not r.data_uscita and not r.n_ddt_uscita %}
                         <a href="{{ url_for('scarico_parziale', id_articolo=r.id_articolo, return_url=request.full_path) }}" class="btn btn-warning btn-sm py-0 px-1 fw-bold text-nowrap" title="Scarico parziale pezzi">📤 Scarico</a>
