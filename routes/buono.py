@@ -137,6 +137,16 @@ def register_buono_routes(app_obj, deps):
             "FINCANTIERI ARMATORE",
         }
 
+    def _cliente_galvano(cliente):
+        """Riconosce GALVANO TECNICA in modo tollerante a spazi e punteggiatura."""
+        nome = re.sub(r"[^A-Z0-9]+", " ", str(cliente or "").upper()).strip()
+        nome = re.sub(r"\s+", " ", nome)
+        return nome in {"GALVANO", "GALVANO TECNICA"}
+
+    def _tutte_righe_galvano(rows):
+        rows = list(rows or [])
+        return bool(rows) and all(_cliente_galvano(getattr(r, "cliente", "")) for r in rows)
+
 
     def _solo_riferimento_logistico(value):
         """True per BANCALE/PALLET/PACKAGE/CASSA senza un vero marca-pezzo.
@@ -995,6 +1005,7 @@ def register_buono_routes(app_obj, deps):
             buono_n_auto = buono_n_esistente or _next_buono_number(db)
             ordine_auto = next((r.ordine for r in rows if r.ordine), "")
 
+            is_galvano = _tutte_righe_galvano(rows)
             picking_cliente_auto = _join_unique([getattr(r, 'cliente', '') for r in rows], 120)
             picking_n_arrivo_auto = _join_unique([getattr(r, 'n_arrivo', '') for r in rows], 500)
             picking_colli_auto = _sum_int_attr(rows, 'n_colli') or len(rows)
@@ -1020,7 +1031,7 @@ def register_buono_routes(app_obj, deps):
                 "cartello_marca_pezzi": "",
             }
 
-            return render_template('buono_preview.html', rows=rows, meta=meta, ids=",".join(map(str, ids)))
+            return render_template('buono_preview.html', rows=rows, meta=meta, ids=",".join(map(str, ids)), is_galvano=is_galvano)
         finally:
             db.close()
 
@@ -1112,8 +1123,53 @@ def register_buono_routes(app_obj, deps):
                 cliente_riga = getattr(r, "cliente", "")
                 pezzi_originali = _num_float(getattr(r, "pezzo", None))
                 controlla_pezzi = _cliente_richiede_controllo_pezzi(cliente_riga)
+                is_galvano_riga = _cliente_galvano(cliente_riga)
+                peso_originale = _num_float(getattr(r, "peso", None))
+                peso_scelto = peso_originale
 
-                if controlla_pezzi:
+                if is_galvano_riga:
+                    lotto = str(getattr(r, "lotto", "") or "").strip()
+                    if not old_cod:
+                        raise BuonoValidationError(f"GALVANO TECNICA - Codice articolo mancante sulla riga ID {rid}.")
+                    if not old_desc:
+                        raise BuonoValidationError(f"GALVANO TECNICA - Descrizione mancante sulla riga ID {rid}.")
+                    if not lotto:
+                        raise BuonoValidationError(f"GALVANO TECNICA - Lotto mancante sulla riga ID {rid}.")
+                    if not q_raw:
+                        raise BuonoValidationError(f"Inserisci i pezzi da prelevare per il lotto {lotto}.")
+                    pezzi_scelti = _num_float(q_raw)
+                    if pezzi_scelti <= 0:
+                        raise BuonoValidationError(f"I pezzi da prelevare per il lotto {lotto} devono essere maggiori di zero.")
+                    if pezzi_scelti > pezzi_originali + 0.000001:
+                        raise BuonoValidationError(
+                            f"GALVANO TECNICA - Pezzi insufficienti per il lotto {lotto}: "
+                            f"richiesti {_fmt_num_clean(pezzi_scelti)}, disponibili {_fmt_num_clean(pezzi_originali)}."
+                        )
+                    peso_raw = (req_data.get(f"peso_buono_{rid}") or "").strip()
+                    if not peso_raw:
+                        raise BuonoValidationError(f"Inserisci il peso da prelevare per il lotto {lotto}.")
+                    peso_scelto = _num_float(peso_raw)
+                    if peso_scelto <= 0:
+                        raise BuonoValidationError(f"Il peso da prelevare per il lotto {lotto} deve essere maggiore di zero.")
+                    if peso_scelto > peso_originale + 0.000001:
+                        raise BuonoValidationError(
+                            f"GALVANO TECNICA - Peso insufficiente per il lotto {lotto}: "
+                            f"richiesti {_fmt_num_clean(peso_scelto)} kg, disponibili {_fmt_num_clean(peso_originale)} kg."
+                        )
+                    pezzi_totali = abs(pezzi_scelti - pezzi_originali) <= 0.000001
+                    peso_totale = abs(peso_scelto - peso_originale) <= 0.000001
+                    if pezzi_totali != peso_totale:
+                        raise BuonoValidationError(
+                            f"GALVANO TECNICA - Dati incoerenti per il lotto {lotto}. "
+                            "Lo scarico totale deve comprendere sia tutti i pezzi sia tutto il peso; "
+                            "lo scarico parziale deve lasciare un residuo sia di pezzi sia di peso."
+                        )
+                    if req_data.get(f"lotto_verificato_{rid}") != "1":
+                        raise BuonoValidationError(
+                            f"GALVANO TECNICA - Devi confermare il controllo fisico del lotto {lotto}."
+                        )
+
+                elif controlla_pezzi:
                     if abs(old_pezzi_form - pezzi_originali) > 0.000001:
                         raise BuonoValidationError(
                             f"La disponibilità della riga ID {rid} è cambiata da "
@@ -1215,6 +1271,10 @@ def register_buono_routes(app_obj, deps):
                     'pezzi_scelti': pezzi_scelti,
                     'pezzi_residui': max(0.0, pezzi_originali - pezzi_scelti),
                     'controlla_pezzi': controlla_pezzi,
+                    'is_galvano': is_galvano_riga,
+                    'peso_originale': peso_originale,
+                    'peso_scelto': peso_scelto,
+                    'peso_residuo': max(0.0, peso_originale - peso_scelto),
                 })
 
             scarico_parziale_eseguito = False
@@ -1233,12 +1293,17 @@ def register_buono_routes(app_obj, deps):
                 pezzi_originali = item['pezzi_originali']
                 pezzi_scelti = item['pezzi_scelti']
                 pezzi_residui = item['pezzi_residui']
+                is_galvano_riga = item.get('is_galvano', False)
+                peso_originale = item.get('peso_originale', _num_float(getattr(r, 'peso', None)))
+                peso_scelto = item.get('peso_scelto', peso_originale)
+                peso_residuo = item.get('peso_residuo', max(0.0, peso_originale - peso_scelto))
 
                 cod_parziale = bool(_norm_for_match(codice_scelto) != _norm_for_match(old_cod))
                 desc_parziale = bool(descr_scelta and _norm_for_match(descr_scelta) != _norm_for_match(old_desc))
                 qta_parziale = pezzi_originali > 0 and pezzi_scelti < pezzi_originali
+                peso_parziale = is_galvano_riga and peso_originale > 0 and peso_scelto < peso_originale
 
-                if cod_parziale or desc_parziale or qta_parziale:
+                if cod_parziale or desc_parziale or qta_parziale or peso_parziale:
                     scarico_parziale_eseguito = True
                     r.buono_n = ""
 
@@ -1253,16 +1318,29 @@ def register_buono_routes(app_obj, deps):
                     riga_buono.pezzo = _piece_value_for_db(pezzi_scelti)
                     r.pezzo = _piece_value_for_db(pezzi_residui)
 
-                    for campo in ('peso', 'm2', 'm3'):
-                        residuo_val, scelto_val = _split_quantita(
-                            pezzi_originali, pezzi_scelti, getattr(r, campo, None)
-                        )
-                        setattr(riga_buono, campo, _round_db_number(scelto_val))
-                        setattr(r, campo, _round_db_number(residuo_val))
-
-                    # Regola aziendale: una riga rappresenta sempre un collo.
-                    riga_buono.n_colli = 1
-                    r.n_colli = 1
+                    if is_galvano_riga:
+                        # Per Galvano il peso è quello digitato dall'operatore: nessun calcolo proporzionale.
+                        riga_buono.peso = _round_db_number(peso_scelto)
+                        r.peso = _round_db_number(peso_residuo)
+                        for campo in ('m2', 'm3'):
+                            residuo_val, scelto_val = _split_quantita(
+                                pezzi_originali, pezzi_scelti, getattr(r, campo, None)
+                            )
+                            setattr(riga_buono, campo, _round_db_number(scelto_val))
+                            setattr(r, campo, _round_db_number(residuo_val))
+                        # Regola Galvano: ogni fustino/pezzo corrisponde a un collo.
+                        riga_buono.n_colli = int(round(pezzi_scelti))
+                        r.n_colli = int(round(pezzi_residui))
+                    else:
+                        for campo in ('peso', 'm2', 'm3'):
+                            residuo_val, scelto_val = _split_quantita(
+                                pezzi_originali, pezzi_scelti, getattr(r, campo, None)
+                            )
+                            setattr(riga_buono, campo, _round_db_number(scelto_val))
+                            setattr(r, campo, _round_db_number(residuo_val))
+                        # Regola aziendale standard: una riga rappresenta un collo.
+                        riga_buono.n_colli = 1
+                        r.n_colli = 1
                     riga_buono.note = (note_inserite or '').strip()
                     db.add(riga_buono)
 
@@ -1290,7 +1368,11 @@ def register_buono_routes(app_obj, deps):
                     if note_inserite is not None:
                         r.note = note_inserite
                     r.pezzo = _piece_value_for_db(pezzi_scelti)
-                    r.n_colli = 1
+                    if is_galvano_riga:
+                        r.peso = _round_db_number(peso_scelto)
+                        r.n_colli = int(round(pezzi_scelti))
+                    else:
+                        r.n_colli = 1
 
             # Genera il PDF prima del commit: se il PDF fallisce, il DB resta invariato.
             db.flush()
