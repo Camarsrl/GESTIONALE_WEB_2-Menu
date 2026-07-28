@@ -143,6 +143,24 @@ def register_buono_routes(app_obj, deps):
         nome = re.sub(r"\s+", " ", nome)
         return nome in {"GALVANO", "GALVANO TECNICA"}
 
+    def _lotto_assente(value):
+        """Riconosce i valori che indicano legittimamente l'assenza del lotto.
+
+        Questi valori non devono essere confrontati come veri numeri di lotto
+        e non devono bloccare la creazione del Buono Galvano.
+        """
+        txt = re.sub(r"[^A-Z0-9]+", " ", str(value or "").upper()).strip()
+        txt = re.sub(r"\s+", " ", txt)
+        return txt in {
+            "", "NON PRESENTE", "NON DISPONIBILE", "ASSENTE",
+            "SENZA LOTTO", "NO LOTTO", "N P", "NP", "N A", "NA"
+        }
+
+    def _lotto_etichetta(value):
+        """Testo uniforme usato nei messaggi del Buono Galvano."""
+        lotto = str(value or "").strip()
+        return "NON PRESENTE" if _lotto_assente(lotto) else lotto
+
     def _tutte_righe_galvano(rows):
         rows = list(rows or [])
         return bool(rows) and all(_cliente_galvano(getattr(r, "cliente", "")) for r in rows)
@@ -1128,13 +1146,15 @@ def register_buono_routes(app_obj, deps):
                 peso_scelto = peso_originale
 
                 if is_galvano_riga:
-                    lotto = str(getattr(r, "lotto", "") or "").strip()
+                    lotto_originale = str(getattr(r, "lotto", "") or "").strip()
+                    lotto = _lotto_etichetta(lotto_originale)
+                    lotto_non_presente = _lotto_assente(lotto_originale)
                     if not old_cod:
                         raise BuonoValidationError(f"GALVANO TECNICA - Codice articolo mancante sulla riga ID {rid}.")
                     if not old_desc:
                         raise BuonoValidationError(f"GALVANO TECNICA - Descrizione mancante sulla riga ID {rid}.")
-                    if not lotto:
-                        raise BuonoValidationError(f"GALVANO TECNICA - Lotto mancante sulla riga ID {rid}.")
+                    # Il lotto può essere realmente assente. Valori come NON PRESENTE,
+                    # N.P., ASSENTE o SENZA LOTTO sono ammessi e non bloccano il Buono.
                     if not q_raw:
                         raise BuonoValidationError(f"Inserisci i pezzi da prelevare per il lotto {lotto}.")
                     pezzi_scelti = _num_float(q_raw)
@@ -1165,9 +1185,16 @@ def register_buono_routes(app_obj, deps):
                             "lo scarico parziale deve lasciare un residuo sia di pezzi sia di peso."
                         )
                     if req_data.get(f"lotto_verificato_{rid}") != "1":
-                        raise BuonoValidationError(
-                            f"GALVANO TECNICA - Devi confermare il controllo fisico del lotto {lotto}."
-                        )
+                        if lotto_non_presente:
+                            msg_verifica = (
+                                "GALVANO TECNICA - Devi confermare che il materiale è stato "
+                                "controllato e che il lotto non è presente."
+                            )
+                        else:
+                            msg_verifica = (
+                                f"GALVANO TECNICA - Devi confermare il controllo fisico del lotto {lotto}."
+                            )
+                        raise BuonoValidationError(msg_verifica)
 
                 elif controlla_pezzi:
                     if abs(old_pezzi_form - pezzi_originali) > 0.000001:
