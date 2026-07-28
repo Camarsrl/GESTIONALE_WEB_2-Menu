@@ -4,7 +4,7 @@
 <div class="card p-3 shadow-sm">
     <div class="d-flex align-items-center gap-3 mb-3">
         {% if logo_url %}<img src="{{ logo_url }}" style="height:40px">{% endif %}
-        <h5 class="flex-grow-1 text-center m-0 text-uppercase fw-bold">Buono di Prelievo</h5>
+        <h5 class="flex-grow-1 text-center m-0 text-uppercase fw-bold">{% if is_galvano %}Buono di Prelievo Galvano Tecnica{% else %}Buono di Prelievo{% endif %}</h5>
         
         <div class="btn-group">
             <button type="button" class="btn btn-outline-primary" onclick="submitBuono('preview')">
@@ -23,8 +23,13 @@
     
     <div class="alert alert-info py-2">
         <b>🧠 Controllo Buono CAMY</b><br>
+        {% if is_galvano %}
+        Verifica per ogni riga <b>codice articolo, descrizione, lotto, pezzi e peso</b>.
+        Prima del salvataggio è obbligatorio confermare il controllo fisico del lotto.
+        {% else %}
         Stai preparando un Buono con <b>{{ rows|length }}</b> righe. Prima di generare il PDF verifica codice articolo, descrizione, quantità, note e cartelli bancali.
         Se provieni da una selezione multipagina, controlla che il numero righe sia corretto.
+        {% endif %}
     </div>
 
     <div id="camy-saving" class="alert alert-primary py-2 d-none" role="alert">
@@ -35,6 +40,7 @@
         <input type="hidden" name="ids" value="{{ ids }}">
         <input type="hidden" name="selected_ids_all" value="{{ ids }}">
         <input type="hidden" name="action" id="action_field" value="preview">
+        <input type="hidden" name="is_galvano" value="{{ 1 if is_galvano else 0 }}">
 
         <div class="row g-3 bg-light p-3 rounded border mb-3">
             <div class="col-md-3">
@@ -66,10 +72,12 @@
                 <label class="form-label small fw-bold">Fornitore</label>
                 <input name="fornitore" class="form-control" value="{{ meta.fornitore }}">
             </div>
+            {% if not is_galvano %}
             <div class="col-md-2">
                 <label class="form-label small fw-bold">Protocollo</label>
                 <input name="protocollo" class="form-control" value="{{ meta.protocollo }}">
             </div>
+            {% endif %}
         </div>
 
 
@@ -138,6 +146,7 @@
             </div>
         </div>
 
+        {% if not is_galvano %}
         <div class="card border-warning mb-3">
             <div class="card-header bg-warning bg-opacity-25 d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
@@ -163,16 +172,32 @@
                 </div>
             </div>
         </div>
+        {% endif %}
 
+        {% if is_galvano %}
+        <div class="alert alert-warning py-2 small">
+            <b>Galvano Tecnica:</b> inserisci manualmente pezzi e peso da prelevare. Il peso non viene calcolato in proporzione.
+            Il codice, la descrizione e il lotto non sono modificabili. Spunta <b>Lotto verificato</b> solo dopo il controllo fisico dei fustini.
+        </div>
+        {% else %}
         <div class="alert alert-warning py-2 small">
             <b>Scarico parziale:</b> se nella cella ci sono più codici/descrizioni, lascia nei campi sotto solo il codice e la descrizione che vuoi mettere nel buono.
-            Quando premi <b>Genera e Salva</b>, quel codice/descrizione verrà tolto dalla riga originale e resterÃ  in giacenza solo il residuo.
+            Quando premi <b>Genera e Salva</b>, quel codice/descrizione verrà tolto dalla riga originale e resterà in giacenza solo il residuo.
         </div>
+        {% endif %}
 
         <div class="table-responsive">
             <table class="table table-sm table-bordered align-middle table-hover">
                 <thead class="table-dark text-black" style="color:black !important;">
                     <tr>
+                        {% if is_galvano %}
+                        <th>Codice articolo</th>
+                        <th>Descrizione</th>
+                        <th>Lotto</th>
+                        <th style="width:11%">Pezzi</th>
+                        <th style="width:13%">Peso kg</th>
+                        <th style="width:12%">Lotto verificato</th>
+                        {% else %}
                         <th style="width:6%">Cartello?</th>
                         <th style="width:7%">N.Pallet</th>
                         <th style="width:8%">Posizione</th>
@@ -182,11 +207,44 @@
                         <th style="width:28%">Descrizione da mettere nel buono</th>
                         <th style="width:6%">Q.tà</th>
                         <th style="width:7%">N.Arr</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody>
                     {% for r in rows %}
                     <tr class="table-light">
+                        {% if is_galvano %}
+                        <td>
+                            <input type="hidden" name="original_codice_{{ r.id_articolo }}" value="{{ r.codice_articolo or '' }}">
+                            <input type="hidden" name="original_pezzi_{{ r.id_articolo }}" value="{{ r.pezzo or 0 }}">
+                            <input type="hidden" name="codice_buono_{{ r.id_articolo }}" value="{{ r.codice_articolo or '' }}">
+                            <b>{{ r.codice_articolo or '' }}</b>
+                        </td>
+                        <td>
+                            <input type="hidden" name="descrizione_buono_{{ r.id_articolo }}" value="{{ r.descrizione or '' }}">
+                            {{ r.descrizione or '' }}
+                        </td>
+                        <td class="fw-bold">{{ r.lotto or '' }}</td>
+                        <td>
+                            <input name="q_{{ r.id_articolo }}" type="number" step="1" min="1"
+                                   data-disponibili="{{ r.pezzo or 0 }}" data-codice="{{ r.codice_articolo or '' }}"
+                                   data-cliente="{{ r.cliente or '' }}"
+                                   class="form-control form-control-sm text-center fw-bold" value="{{ r.pezzo or 0 }}">
+                            <div class="small text-muted">Disponibili: {{ r.pezzo or 0 }}</div>
+                        </td>
+                        <td>
+                            <input name="peso_buono_{{ r.id_articolo }}" type="number" step="0.001" min="0.001"
+                                   data-peso-disponibile="{{ r.peso or 0 }}"
+                                   class="form-control form-control-sm text-center fw-bold" value="{{ r.peso or 0 }}">
+                            <div class="small text-muted">Disponibili: {{ r.peso or 0 }} kg</div>
+                        </td>
+                        <td class="text-center">
+                            <label class="form-check-label fw-bold">
+                                <input class="form-check-input lotto-check" type="checkbox" name="lotto_verificato_{{ r.id_articolo }}" value="1">
+                                Verificato
+                            </label>
+                        </td>
+                        {% else %}
                         <td class="text-center">
                             <input class="form-check-input" type="checkbox"
                                    name="cartello_id" value="{{ r.id_articolo }}" checked
@@ -238,10 +296,16 @@
                             <div class="small text-muted">Disponibili: {{ r.pezzo or 0 }} pezzi</div>
                         </td>
                         <td class="small text-center">{{ r.n_arrivo or '' }}</td>
+                        {% endif %}
                     </tr>
                     <tr>
+                        {% if is_galvano %}
+                        <td colspan="2" class="text-end small text-muted align-middle" style="border-top:none;">Note:</td>
+                        <td colspan="4" style="border-top:none;">
+                        {% else %}
                         <td colspan="5" class="text-end small text-muted align-middle" style="border-top:none;">Note:</td>
                         <td colspan="4" style="border-top:none;">
+                        {% endif %}
                             <textarea class="form-control form-control-sm border-0 bg-white text-primary"
                                       name="note_{{ r.id_articolo }}" rows="1"
                                       placeholder="Inserisci note aggiuntive...">{{ r.note or '' }}</textarea>
@@ -295,7 +359,7 @@ function normalizzaCliente(value) {
 
 function clienteRichiedeControlloPezzi(cliente) {
     const nome = normalizzaCliente(cliente);
-    return nome === 'FINCANTIERI' || nome === 'FINCANTIERI ARMATORE';
+    return nome === 'FINCANTIERI' || nome === 'FINCANTIERI ARMATORE' || nome === 'GALVANO' || nome === 'GALVANO TECNICA';
 }
 
 function validaQuantitaBuono() {
@@ -334,6 +398,25 @@ function validaQuantitaBuono() {
         }
     }
 
+    {% if is_galvano %}
+    const pesi = document.querySelectorAll('input[name^="peso_buono_"]');
+    for (const input of pesi) {
+        const disponibile = Number(String(input.dataset.pesoDisponibile || '0').replace(',', '.'));
+        const richiesto = Number(String(input.value || '').replace(',', '.'));
+        if (!Number.isFinite(richiesto) || richiesto <= 0) {
+            alert('Inserisci un peso maggiore di zero.'); input.focus(); return false;
+        }
+        if (richiesto > disponibile) {
+            alert('Peso richiesto superiore al peso disponibile: ' + disponibile + ' kg.'); input.focus(); return false;
+        }
+    }
+    const checks = document.querySelectorAll('.lotto-check');
+    for (const check of checks) {
+        if (!check.checked) {
+            alert('Devi confermare il controllo fisico di tutti i lotti Galvano.'); check.focus(); return false;
+        }
+    }
+    {% endif %}
     return true;
 }
 
