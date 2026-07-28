@@ -24,8 +24,8 @@
     <div class="alert alert-info py-2">
         <b>🧠 Controllo Buono CAMY</b><br>
         {% if is_galvano %}
-        Verifica per ogni riga <b>codice articolo, descrizione, lotto, pezzi e peso</b>.
-        Prima del salvataggio è obbligatorio confermare il controllo fisico del lotto.
+        Verifica per ogni riga <b>codice articolo, descrizione, lotto (quando presente), pezzi e peso</b>.
+        Se il materiale non ha lotto, è ammessa la dicitura <b>NON PRESENTE</b>. Prima del salvataggio è obbligatorio confermare il controllo fisico del materiale.
         {% else %}
         Stai preparando un Buono con <b>{{ rows|length }}</b> righe. Prima di generare il PDF verifica codice articolo, descrizione, quantità, note e cartelli bancali.
         Se provieni da una selezione multipagina, controlla che il numero righe sia corretto.
@@ -177,7 +177,7 @@
         {% if is_galvano %}
         <div class="alert alert-warning py-2 small">
             <b>Galvano Tecnica:</b> inserisci manualmente pezzi e peso da prelevare. Il peso non viene calcolato in proporzione.
-            Il codice, la descrizione e il lotto non sono modificabili. Spunta <b>Lotto verificato</b> solo dopo il controllo fisico dei fustini.
+            Il codice e la descrizione non sono modificabili. Il lotto può essere indicato come <b>NON PRESENTE</b>. Spunta la verifica solo dopo il controllo fisico dei fustini.
         </div>
         {% else %}
         <div class="alert alert-warning py-2 small">
@@ -196,7 +196,7 @@
                         <th>Lotto</th>
                         <th style="width:11%">Pezzi</th>
                         <th style="width:13%">Peso kg</th>
-                        <th style="width:12%">Lotto verificato</th>
+                        <th style="width:12%">Materiale verificato</th>
                         {% else %}
                         <th style="width:6%">Cartello?</th>
                         <th style="width:7%">N.Pallet</th>
@@ -224,7 +224,7 @@
                             <input type="hidden" name="descrizione_buono_{{ r.id_articolo }}" value="{{ r.descrizione or '' }}">
                             {{ r.descrizione or '' }}
                         </td>
-                        <td class="fw-bold">{{ r.lotto or '' }}</td>
+                        <td class="fw-bold">{{ r.lotto or 'NON PRESENTE' }}</td>
                         <td>
                             <input name="q_{{ r.id_articolo }}" type="number" step="1" min="1"
                                    data-disponibili="{{ r.pezzo or 0 }}" data-codice="{{ r.codice_articolo or '' }}"
