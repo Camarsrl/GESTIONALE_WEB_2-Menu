@@ -142,6 +142,12 @@ def decide_camy_intent(message):
     if _has_any(low, ["registro giornaliero", "registro di oggi", "quaderno", "riepilogo giornata", "riepilogo di oggi", "lavoro di oggi", "lavori di oggi"]):
         return {"action": "registro_giornaliero", "target": target, "confidence": 0.98, "raw": raw}
 
+    # Agenda e statistiche
+    if _has_any(low, ["agenda", "attivita di oggi", "attività di oggi", "impegni di oggi", "promemoria magazzino"]):
+        return {"action": "agenda_magazzino", "target": target, "confidence": 0.98, "raw": raw}
+    if _has_any(low, ["statistiche", "grafici", "andamento mensile", "riepilogo annuale", "movimenti per cliente"]):
+        return {"action": "statistiche_magazzino", "target": target, "confidence": 0.98, "raw": raw}
+
     # Cosa manca / alert operativi
     if _has_any(low, [
         "cosa manca", "manca da fare", "attivita aperte", "attività aperte",
