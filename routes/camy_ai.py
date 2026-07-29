@@ -136,6 +136,8 @@ def register_camy_ai_routes(app_obj, deps):
             <a class="btn btn-sm btn-outline-success" href="/accettazione_entrata">📄 Entrata da documento</a>
             <a class="btn btn-sm btn-outline-success" href="/camy-email-buono">📧 Buono da email</a>
             <a class="btn btn-sm btn-outline-success" href="/camy-ai?prefill=Genera%20registro%20giornaliero%20di%20oggi">📒 Registro oggi</a>
+            <a class="btn btn-sm btn-outline-success" href="/agenda-magazzino">📅 Agenda</a>
+            <a class="btn btn-sm btn-outline-primary" href="/statistiche-magazzino">📊 Statistiche</a>
             <a class="btn btn-sm btn-outline-info" href="/camy-ai?prefill=Come%20siamo%20messi%20oggi%3F">📋 Situazione operativa</a>
             <a class="btn btn-sm btn-outline-info" href="/camy-ai?prefill=Cosa%20manca%20da%20fare%20oggi%3F">✅ Cosa manca?</a>
             <a class="btn btn-sm btn-outline-dark" href="/camy-ai?prefill=Apri%20accettazione%20entrata">🎤 Apri entrata</a>
@@ -3994,6 +3996,12 @@ def register_camy_ai_routes(app_obj, deps):
 
         if brain_action == "registro_giornaliero":
             return _answer_registro_giornaliero(db, msg), True, brain
+
+        if brain_action == "agenda_magazzino":
+            return '<b>Agenda Magazzino</b><br><a class="btn btn-sm btn-success mt-2" href="/agenda-magazzino">Apri Agenda</a>', True, brain
+
+        if brain_action == "statistiche_magazzino":
+            return '<b>Statistiche Magazzino</b><br><a class="btn btn-sm btn-primary mt-2" href="/statistiche-magazzino">Apri Statistiche</a>', True, brain
 
         if brain_action == "cosa_manca":
             return camy_daily_briefing(db, globals(), msg), True, brain
