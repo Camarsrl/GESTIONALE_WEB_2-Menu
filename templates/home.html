@@ -24,6 +24,12 @@
     <div class="home-kpi"><div class="home-kpi-label">Buoni aperti</div><div class="home-kpi-value">{{ dashboard.buoni_aperti }}</div></div>
     <div class="home-kpi"><div class="home-kpi-label">Buoni creati</div><div class="home-kpi-value">{{ dashboard.buoni_creati }}</div></div>
     <div class="home-kpi"><div class="home-kpi-label">Buoni usciti</div><div class="home-kpi-value">{{ dashboard.buoni_usciti }}</div></div>
+    {% if dashboard.trasporti_oggi is defined %}
+    <div class="home-kpi"><div class="home-kpi-label">Trasporti oggi</div><div class="home-kpi-value">{{ dashboard.trasporti_oggi }}</div></div>
+    <div class="home-kpi"><div class="home-kpi-label">Picking oggi</div><div class="home-kpi-value">{{ dashboard.picking_oggi }}</div></div>
+    <div class="home-kpi"><div class="home-kpi-label">DDT oggi</div><div class="home-kpi-value">{{ dashboard.ddt_oggi }}</div></div>
+    <div class="home-kpi"><div class="home-kpi-label">Agenda da fare</div><div class="home-kpi-value">{{ dashboard.agenda_da_fare }}</div></div>
+    {% endif %}
 </div>
 {% endif %}
 
@@ -68,6 +74,24 @@
         </div>
     </div>
 </div>
+
+{% if operativa_oggi %}
+<div class="card p-3 mt-3 border-primary">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="mb-0"><i class="bi bi-clipboard-data text-primary"></i> Operatività di oggi</h5>
+        <div class="d-flex gap-2">
+            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('registro_giornaliero') }}">Registro</a>
+            <a class="btn btn-sm btn-outline-success" href="{{ url_for('agenda_magazzino') }}">Agenda</a>
+            <a class="btn btn-sm btn-outline-dark" href="{{ url_for('statistiche_magazzino') }}">Statistiche</a>
+        </div>
+    </div>
+    {% if operativa_oggi.agenda_urgenti %}<div class="alert alert-danger py-2"><b>{{ operativa_oggi.agenda_urgenti }}</b> attività urgenti ancora da completare.</div>{% endif %}
+    <div class="row g-2">
+        <div class="col-md-6"><h6>🚚 Trasporti</h6>{% for r in operativa_oggi.trasporti_rows[:5] %}<div class="small border-bottom py-1"><b>{{ r.cliente or '' }}</b> — {{ r.tipo_mezzo or '' }} {% if r.ddt_uscita %}— DDT {{ r.ddt_uscita }}{% endif %}</div>{% else %}<div class="text-muted small">Nessun trasporto oggi.</div>{% endfor %}</div>
+        <div class="col-md-6"><h6>📌 Agenda</h6>{% for r in operativa_oggi.agenda_rows[:5] %}<div class="small border-bottom py-1"><span class="badge {% if r.urgenza=='URGENTE' %}bg-danger{% else %}bg-secondary{% endif %}">{{ r.urgenza }}</span> {{ r.attivita }}</div>{% else %}<div class="text-muted small">Nessuna attività programmata.</div>{% endfor %}</div>
+    </div>
+</div>
+{% endif %}
 
 {% if dashboard_clienti is defined %}
 <div class="card p-3 mt-3">
