@@ -1166,7 +1166,8 @@ def register_buono_routes(app_obj, deps):
                             f"GALVANO TECNICA - Pezzi insufficienti per il lotto {lotto}: "
                             f"richiesti {_fmt_num_clean(pezzi_scelti)}, disponibili {_fmt_num_clean(pezzi_originali)}."
                         )
-                    colli_raw = (req_data.get(f"colli_buono_{rid}") or "1").strip()
+                    default_colli = "1" if rid == rows[0].id_articolo else str(getattr(r, "n_colli", "") or "").strip()
+                    colli_raw = (req_data.get(f"colli_buono_{rid}") or default_colli).strip()
                     try:
                         colli_scelti = int(colli_raw)
                     except (TypeError, ValueError):
