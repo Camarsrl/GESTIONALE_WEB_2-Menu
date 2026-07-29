@@ -6335,12 +6335,32 @@ def home():
         except Exception:
             dashboard_clienti = []
 
+        # Dati operativi aggiuntivi: agenda, trasporti, picking, DDT e registro del giorno.
+        operativa_oggi = {}
+        try:
+            helper = globals().get('build_daily_operativa')
+            if callable(helper):
+                operativa_oggi = helper(db, today_obj, cliente_corrente)
+                dashboard.update({
+                    'trasporti_oggi': operativa_oggi.get('trasporti', 0),
+                    'picking_oggi': operativa_oggi.get('picking', 0),
+                    'ddt_oggi': operativa_oggi.get('ddt', 0),
+                    'buoni_oggi': operativa_oggi.get('buoni', 0),
+                    'agenda_da_fare': operativa_oggi.get('agenda_da_fare', 0),
+                    'agenda_urgenti': operativa_oggi.get('agenda_urgenti', 0),
+                    'colli_entrati_oggi': operativa_oggi.get('colli_entrati', 0),
+                    'peso_entrato_oggi': operativa_oggi.get('peso_entrato', 0),
+                })
+        except Exception as e:
+            print(f"[WARN] riepilogo operativo Home non disponibile: {e}")
+
         return render_template(
             'home.html',
             dashboard=dashboard,
             dashboard_clienti=dashboard_clienti,
             dashboard_alerts=dashboard_alerts,
             ultimi_movimenti=ultimi_movimenti,
+            operativa_oggi=operativa_oggi,
             today=today_obj,
             tot_articoli=dashboard['tot_giacenza'],
             tot_m2=dashboard['tot_m2']
@@ -9691,6 +9711,20 @@ def pwa_offline():
     return "Gestionale Camar: connessione assente. Riapri quando torna internet.", 200
 
 
+
+# ========================================================
+#  REGISTRAZIONE OPERATIVITÀ: AGENDA, REGISTRO E STATISTICHE
+# ========================================================
+try:
+    from routes.operativita import register_operativita_routes
+    register_operativita_routes(app, globals())
+    print("[OK] modulo operatività registrato")
+except Exception as e:
+    try:
+        scrivi_log_errore("Modulo operatività non registrato", e)
+    except Exception:
+        pass
+    print(f"[WARN] modulo operatività non registrato: {e}")
 
 # ========================================================
 #  REGISTRAZIONE MODULO DASHBOARD HOME
