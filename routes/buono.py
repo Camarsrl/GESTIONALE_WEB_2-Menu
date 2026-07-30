@@ -143,6 +143,13 @@ def register_buono_routes(app_obj, deps):
         nome = re.sub(r"\s+", " ", nome)
         return nome in {"GALVANO", "GALVANO TECNICA"}
 
+
+    def _cliente_marine_interiors(cliente):
+        """Riconosce MARINE INTERIORS senza trasformare i pezzi vuoti in zero."""
+        nome = re.sub(r"[^A-Z0-9]+", " ", str(cliente or "").upper()).strip()
+        nome = re.sub(r"\s+", " ", nome)
+        return nome == "MARINE INTERIORS"
+
     def _lotto_assente(value):
         """Riconosce i valori che indicano legittimamente l'assenza del lotto.
 
@@ -1139,9 +1146,15 @@ def register_buono_routes(app_obj, deps):
                 # CONTROLLO PEZZI SOLO PER FINCANTIERI / FINCANTIERI ARMATORE
                 # ============================================================
                 cliente_riga = getattr(r, "cliente", "")
-                pezzi_originali = _num_float(getattr(r, "pezzo", None))
+                pezzo_originale_db = getattr(r, "pezzo", None)
+                pezzo_originale_vuoto = (
+                    pezzo_originale_db is None
+                    or str(pezzo_originale_db).strip() == ""
+                )
+                pezzi_originali = _num_float(pezzo_originale_db)
                 controlla_pezzi = _cliente_richiede_controllo_pezzi(cliente_riga)
                 is_galvano_riga = _cliente_galvano(cliente_riga)
+                is_marine_interiors_riga = _cliente_marine_interiors(cliente_riga)
                 peso_originale = _num_float(getattr(r, "peso", None))
                 peso_scelto = peso_originale
                 colli_scelti = 1
@@ -1166,7 +1179,10 @@ def register_buono_routes(app_obj, deps):
                             f"GALVANO TECNICA - Pezzi insufficienti per il lotto {lotto}: "
                             f"richiesti {_fmt_num_clean(pezzi_scelti)}, disponibili {_fmt_num_clean(pezzi_originali)}."
                         )
-                    default_colli = "1" if rid == rows[0].id_articolo else str(getattr(r, "n_colli", "") or "").strip()
+                    # Galvano Tecnica: ogni riga deve avere almeno 1 collo.
+                    # Se il campo viene lasciato vuoto, usa automaticamente 1
+                    # invece di bloccare il salvataggio del Buono.
+                    default_colli = "1"
                     colli_raw = (req_data.get(f"colli_buono_{rid}") or default_colli).strip()
                     try:
                         colli_scelti = int(colli_raw)
@@ -1309,6 +1325,9 @@ def register_buono_routes(app_obj, deps):
                     'pezzi_residui': max(0.0, pezzi_originali - pezzi_scelti),
                     'controlla_pezzi': controlla_pezzi,
                     'is_galvano': is_galvano_riga,
+                    'is_marine_interiors': is_marine_interiors_riga,
+                    'pezzo_originale_db': pezzo_originale_db,
+                    'pezzo_originale_vuoto': pezzo_originale_vuoto,
                     'peso_originale': peso_originale,
                     'peso_scelto': peso_scelto,
                     'peso_residuo': max(0.0, peso_originale - peso_scelto),
@@ -1332,6 +1351,9 @@ def register_buono_routes(app_obj, deps):
                 pezzi_scelti = item['pezzi_scelti']
                 pezzi_residui = item['pezzi_residui']
                 is_galvano_riga = item.get('is_galvano', False)
+                is_marine_interiors_riga = item.get('is_marine_interiors', False)
+                pezzo_originale_db = item.get('pezzo_originale_db', getattr(r, 'pezzo', None))
+                pezzo_originale_vuoto = item.get('pezzo_originale_vuoto', False)
                 peso_originale = item.get('peso_originale', _num_float(getattr(r, 'peso', None)))
                 peso_scelto = item.get('peso_scelto', peso_originale)
                 peso_residuo = item.get('peso_residuo', max(0.0, peso_originale - peso_scelto))
@@ -1354,8 +1376,12 @@ def register_buono_routes(app_obj, deps):
                     riga_buono.codice_articolo = _normalizza_codice_articolo(codice_scelto)
                     riga_buono.descrizione = descr_scelta or old_desc
                     riga_buono.buono_n = bn
-                    riga_buono.pezzo = _piece_value_for_db(pezzi_scelti)
-                    r.pezzo = _piece_value_for_db(pezzi_residui)
+                    if is_marine_interiors_riga and pezzo_originale_vuoto:
+                        riga_buono.pezzo = None
+                        r.pezzo = None
+                    else:
+                        riga_buono.pezzo = _piece_value_for_db(pezzi_scelti)
+                        r.pezzo = _piece_value_for_db(pezzi_residui)
 
                     if is_galvano_riga:
                         # Per Galvano il peso è quello digitato dall'operatore: nessun calcolo proporzionale.
@@ -1408,7 +1434,12 @@ def register_buono_routes(app_obj, deps):
                     r.buono_n = bn
                     if note_inserite is not None:
                         r.note = note_inserite
-                    r.pezzo = _piece_value_for_db(pezzi_scelti)
+                    if is_marine_interiors_riga and pezzo_originale_vuoto:
+                        r.pezzo = None
+                    elif is_marine_interiors_riga:
+                        r.pezzo = pezzo_originale_db
+                    else:
+                        r.pezzo = _piece_value_for_db(pezzi_scelti)
                     if is_galvano_riga:
                         r.peso = _round_db_number(peso_scelto)
                         r.n_colli = colli_scelti
