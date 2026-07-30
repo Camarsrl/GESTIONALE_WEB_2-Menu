@@ -234,8 +234,9 @@
                             <div class="small text-muted">Disponibili: {{ r.pezzo or 0 }}</div>
                         </td>
                         <td>
-                            <input name="colli_buono_{{ r.id_articolo }}" type="number" step="1" min="1"
-                                   class="form-control form-control-sm text-center fw-bold" value="1">
+                            <input name="colli_buono_{{ r.id_articolo }}" type="number" step="1" min="1" required
+                                   class="form-control form-control-sm text-center fw-bold" value="1"
+                                   onblur="if(!this.value || Number(this.value) < 1){this.value=1;}">
                             <div class="small text-muted">Modificabile</div>
                         </td>
                         <td>
@@ -263,7 +264,8 @@
                             <input type="hidden" name="cartello_cliente_{{ r.id_articolo }}" value="{{ r.cliente or '' }}">
                             <input type="hidden" name="cartello_ditta_{{ r.id_articolo }}" value="{{ r.fornitore or '' }}">
                             <input type="hidden" name="original_codice_{{ r.id_articolo }}" value="{{ r.codice_articolo or '' }}">
-                            <input type="hidden" name="original_pezzi_{{ r.id_articolo }}" value="{{ r.pezzo or 0 }}">
+                            <input type="hidden" name="original_pezzi_{{ r.id_articolo }}"
+                                   value="{% if (r.cliente or '')|upper == 'MARINE INTERIORS' and r.pezzo in (none, '', 0, 0.0) %}{% else %}{{ r.pezzo or 0 }}{% endif %}">
                         </td>
                         <td>
                             <input name="cartello_posizione_{{ r.id_articolo }}" class="form-control form-control-sm"
@@ -294,12 +296,16 @@
                             <!-- ✅ Q.tà prende PEZZI -->
                             <input name="q_{{ r.id_articolo }}" type="number"
                                    step="0.001"
-                                   data-disponibili="{{ r.pezzo or 0 }}"
+                                   data-disponibili="{% if (r.cliente or '')|upper == 'MARINE INTERIORS' and r.pezzo in (none, '', 0, 0.0) %}{% else %}{{ r.pezzo or 0 }}{% endif %}"
                                    data-codice="{{ r.codice_articolo or '' }}"
                                    data-cliente="{{ r.cliente or '' }}"
                                    class="form-control form-control-sm text-center fw-bold"
-                                   value="{{ r.pezzo or 0 }}">
+                                   value="{% if (r.cliente or '')|upper == 'MARINE INTERIORS' and r.pezzo in (none, '', 0, 0.0) %}{% else %}{{ r.pezzo or 0 }}{% endif %}">
+                            {% if (r.cliente or '')|upper == 'MARINE INTERIORS' and r.pezzo in (none, '', 0, 0.0) %}
+                            <div class="small text-muted">Pezzi non utilizzati per Marine Interiors</div>
+                            {% else %}
                             <div class="small text-muted">Disponibili: {{ r.pezzo or 0 }} pezzi</div>
+                            {% endif %}
                         </td>
                         <td class="small text-center">{{ r.n_arrivo or '' }}</td>
                         {% endif %}
