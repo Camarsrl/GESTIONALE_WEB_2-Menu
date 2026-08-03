@@ -17,9 +17,9 @@
       <div class="col-md-3"><small class="text-muted">Cliente</small><div class="fw-bold">{{ articolo.cliente or '-' }}</div></div>
       <div class="col-md-3"><small class="text-muted">Lotto</small><div>{{ articolo.lotto or 'NON PRESENTE' }}</div></div>
       <div class="col-md-3"><small class="text-muted">Seriale</small><div>{{ articolo.serial_number or '-' }}</div></div>
-      <div class="col-md-2"><small class="text-muted">Pezzi</small><div class="fs-5 fw-bold">{{ articolo.pezzo or '0' }}</div></div>
-      <div class="col-md-2"><small class="text-muted">Colli</small><div class="fs-5 fw-bold">{{ articolo.n_colli if articolo.n_colli is not none else '0' }}</div></div>
-      <div class="col-md-2"><small class="text-muted">Peso</small><div class="fs-5 fw-bold">{{ articolo.peso|it_num(2) if articolo.peso is not none else '0,00' }} kg</div></div>
+      <div class="col-md-2"><small class="text-muted">Pezzi</small><div class="fs-5 fw-bold">{{ articolo.pezzo if articolo.pezzo not in (none, '') else '-' }}</div></div>
+      <div class="col-md-2"><small class="text-muted">Colli</small><div class="fs-5 fw-bold">{{ articolo.n_colli if articolo.n_colli is not none else '-' }}</div></div>
+      <div class="col-md-2"><small class="text-muted">Peso</small><div class="fs-5 fw-bold">{{ articolo.peso|it_num(2) if articolo.peso is not none else '-' }}{% if articolo.peso is not none %} kg{% endif %}</div></div>
       <div class="col-md-3"><small class="text-muted">Stato</small><div>{{ articolo.stato or '-' }}</div></div>
       <div class="col-md-3"><small class="text-muted">Posizione</small><div>{{ articolo.posizione or '-' }}</div></div>
       <div class="col-md-3"><small class="text-muted">Arrivo</small><div>{{ articolo.n_arrivo or '-' }}</div></div>
@@ -29,35 +29,42 @@
 </div>
 
 <div class="row g-3">
-  <div class="col-lg-7">
+  <div class="col-lg-8">
     <div class="card shadow-sm h-100">
-      <div class="card-header fw-bold">Cronologia registrata</div>
+      <div class="card-header fw-bold d-flex justify-content-between align-items-center">
+        <span>Cronologia completa</span>
+        <span class="badge bg-primary">{{ storico|length }} eventi</span>
+      </div>
       <div class="card-body">
         {% if storico %}
           {% for evento in storico %}
-          <div class="border-start border-3 ps-3 pb-3 mb-3">
-            <div class="d-flex justify-content-between"><strong>{{ evento.evento }}</strong><span class="text-muted small">{{ evento.data }}</span></div>
-            <div class="small mb-2">Operatore: <b>{{ evento.operatore or '-' }}</b></div>
+          <div class="border-start border-3 {% if evento.fonte == 'registrato' %}border-primary{% elif evento.fonte == 'legacy' %}border-success{% else %}border-secondary{% endif %} ps-3 pb-3 mb-3">
+            <div class="d-flex justify-content-between gap-3 flex-wrap">
+              <div>
+                <strong>{{ evento.evento }}</strong>
+                {% if evento.fonte == 'ricostruito' %}<span class="badge bg-light text-dark border ms-1">ricostruito</span>{% endif %}
+              </div>
+              <span class="text-muted small">{{ evento.data or '-' }}</span>
+            </div>
+            {% if evento.operatore %}<div class="small mb-1">Operatore: <b>{{ evento.operatore }}</b></div>{% endif %}
+            {% if evento.testo %}<div>{{ evento.testo }}</div>{% endif %}
             {% for campo, valori in evento.modifiche.items() %}
-              <div class="small"><b>{{ campo|replace('_',' ')|title }}:</b> {{ valori.prima if valori.prima is not none else 'vuoto' }} → <b>{{ valori.dopo if valori.dopo is not none else 'vuoto' }}</b></div>
+              <div class="small mt-1">
+                <b>{{ campo|replace('_',' ')|title }}:</b>
+                <span class="text-muted">{{ valori.prima if valori.prima not in (none, '') else 'vuoto' }}</span>
+                → <b>{{ valori.dopo if valori.dopo not in (none, '') else 'vuoto' }}</b>
+              </div>
             {% endfor %}
           </div>
           {% endfor %}
         {% else %}
-          <div class="alert alert-info mb-0">Lo storico dettagliato parte dall'installazione di questa funzione. Sotto sono comunque mostrati gli eventi ricostruibili dai dati attuali.</div>
+          <div class="alert alert-info mb-0">Nessun evento disponibile per questo articolo.</div>
         {% endif %}
       </div>
     </div>
   </div>
-  <div class="col-lg-5">
-    <div class="card shadow-sm mb-3">
-      <div class="card-header fw-bold">Eventi già ricostruibili</div>
-      <div class="card-body">
-        {% for evento in eventi_base %}
-          <div class="mb-3"><span class="badge bg-secondary">{{ evento.tipo }}</span> <span class="small text-muted">{{ evento.data }}</span><div>{{ evento.testo }}</div></div>
-        {% else %}<span class="text-muted">Nessun evento disponibile.</span>{% endfor %}
-      </div>
-    </div>
+
+  <div class="col-lg-4">
     <div class="card shadow-sm">
       <div class="card-header fw-bold">Allegati</div>
       <div class="card-body">
