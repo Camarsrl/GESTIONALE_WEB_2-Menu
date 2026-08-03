@@ -1,0 +1,437 @@
+
+{% extends 'base.html' %}
+{% block content %}
+<style>
+.home-kpi-card{
+    border:0;
+    border-radius:16px;
+    box-shadow:0 4px 14px rgba(0,0,0,.07);
+    height:100%;
+}
+.home-kpi-icon{
+    width:42px;
+    height:42px;
+    border-radius:12px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:#eef5ff;
+    color:#0d6efd;
+    font-size:20px;
+}
+.home-kpi-value{
+    font-size:26px;
+    font-weight:700;
+    line-height:1.1;
+}
+.home-section-card{
+    border:0;
+    border-radius:16px;
+    box-shadow:0 4px 14px rgba(0,0,0,.07);
+}
+.home-movement-table td,
+.home-movement-table th{
+    vertical-align:middle;
+    font-size:13px;
+}
+
+.home-alert-card{
+    border:0;
+    border-radius:16px;
+    box-shadow:0 4px 14px rgba(0,0,0,.07);
+}
+.home-alert-item{
+    border-left:5px solid #ffc107;
+    background:#fff8e1;
+    border-radius:10px;
+    padding:10px 12px;
+    margin-bottom:8px;
+}
+.home-alert-item.danger{
+    border-left-color:#dc3545;
+    background:#fff1f1;
+}
+.home-alert-item.warning{
+    border-left-color:#ffc107;
+    background:#fff8e1;
+}
+.home-alert-item.info{
+    border-left-color:#0d6efd;
+    background:#eef5ff;
+}
+.home-client-table th,
+.home-client-table td{
+    font-size:13px;
+    vertical-align:middle;
+}
+.home-client-table tfoot td{
+    font-weight:700;
+    background:#f8f9fa;
+}
+
+.home-tools-card{
+    border:0;
+    border-radius:16px;
+    box-shadow:0 4px 14px rgba(0,0,0,.07);
+    height:100%;
+}
+.home-camy-box{
+    background:linear-gradient(135deg,#eef8ff,#f7fbff);
+    border:1px solid #cfe8ff;
+    border-radius:14px;
+    padding:14px;
+}
+.home-backup-ok{color:#198754;font-weight:700}
+.home-backup-warn{color:#dc3545;font-weight:700}
+.home-global-search{
+    border:1px solid #d8e7f7;
+    border-radius:16px;
+    background:#fff;
+    box-shadow:0 4px 14px rgba(0,0,0,.06);
+    padding:14px;
+}
+.home-alert-link{
+    color:inherit;
+    text-decoration:none;
+    display:block;
+    height:100%;
+}
+.home-alert-link:hover .home-alert-item{
+    transform:translateY(-1px);
+    box-shadow:0 5px 14px rgba(0,0,0,.08);
+}
+.home-alert-item{transition:.15s ease}
+</style>
+
+<div class="container-fluid py-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div class="d-flex align-items-center gap-3">
+            {% if logo_url %}<img src="{{ logo_url }}" style="height:50px;width:auto;">{% endif %}
+            <div>
+                <h3 class="m-0">Dashboard Gestionale <span class="badge bg-primary align-middle" style="font-size:.55rem">OPERATIVA</span></h3>
+                <div class="text-muted small">Riepilogo operativo aggiornato al {{ today.strftime('%d/%m/%Y') if today else '' }}</div>
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a class="btn btn-primary btn-sm" href="{{ url_for('giacenze') }}"><i class="bi bi-grid-3x3-gap-fill"></i> Giacenze</a>
+            {% if session.get('role') == 'admin' %}
+            <a class="btn btn-success btn-sm" href="{{ url_for('nuovo_articolo') }}"><i class="bi bi-plus-circle"></i> Nuovo articolo</a>
+            {% endif %}
+            {% if can_use_buoni_qr() %}
+            <a class="btn btn-outline-primary btn-sm" href="{{ url_for('scan_entrata') }}"><i class="bi bi-upc-scan"></i> Scan entrata</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="home-global-search mb-3">
+        <form method="get" action="{{ url_for('dashboard_ricerca_globale') }}" class="row g-2 align-items-center">
+            <div class="col-lg-9">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input name="q" class="form-control" placeholder="Cerca codice, lotto, N. arrivo, protocollo, seriale, cliente o DDT..." autocomplete="off">
+                </div>
+            </div>
+            <div class="col-lg-3 d-grid">
+                <button class="btn btn-primary"><i class="bi bi-search"></i> Ricerca globale</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-8">
+            <div class="card home-tools-card p-3">
+                <div class="home-camy-box">
+                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                        <div>
+                            <h5 class="mb-1"><i class="bi bi-robot text-primary"></i> CAMY operativa</h5>
+                            <div class="small text-muted mb-2">Controlli rapidi senza modificare il database.</div>
+                            {% if dashboard.buoni_aperti %}
+                            <div>⚠️ Buoni aperti: <b>{{ dashboard.buoni_aperti }}</b></div>
+                            {% else %}
+                            <div>✅ Nessun Buono aperto.</div>
+                            {% endif %}
+                            {% if dashboard_alerts %}
+                            <div>⚠️ Segnalazioni operative: <b>{{ dashboard_alerts|length }}</b></div>
+                            {% else %}
+                            <div>✅ Nessuna anomalia operativa rilevata.</div>
+                            {% endif %}
+                        </div>
+                        <div class="d-grid gap-2">
+                            <a class="btn btn-primary btn-sm" href="/camy-ai?prefill=Trova%20anomalie%20nel%20magazzino">
+                                <i class="bi bi-shield-check"></i> Controlla magazzino
+                            </a>
+                            <a class="btn btn-outline-primary btn-sm" href="/camy-ai">
+                                Apri CAMY
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card home-tools-card p-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h5 class="mb-1"><i class="bi bi-database-check text-primary"></i> Ultimo backup</h5>
+                        {% if backup_status.exists %}
+                            <div class="{% if backup_status.today %}home-backup-ok{% else %}home-backup-warn{% endif %}">
+                                {% if backup_status.today %}● OK{% else %}● DA CONTROLLARE{% endif %}
+                            </div>
+                            <div class="mt-1">{{ backup_status.date }}</div>
+                            <div class="small text-muted">{{ backup_status.time }} · {{ backup_status.size_mb }} MB</div>
+                        {% else %}
+                            <div class="home-backup-warn">● NESSUN BACKUP TROVATO</div>
+                        {% endif %}
+                    </div>
+                    <a class="btn btn-outline-primary btn-sm" href="/admin/backups">Apri backup</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-6 col-xl-3">
+            <div class="card home-kpi-card p-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="text-muted small">Articoli in giacenza</div>
+                        <div class="home-kpi-value">{{ dashboard.tot_giacenza }}</div>
+                    </div>
+                    <div class="home-kpi-icon"><i class="bi bi-box-seam"></i></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card home-kpi-card p-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="text-muted small">M² occupati</div>
+                        <div class="home-kpi-value">{{ dashboard.tot_m2|it_num(2) }}</div>
+                    </div>
+                    <div class="home-kpi-icon"><i class="bi bi-rulers"></i></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card home-kpi-card p-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="text-muted small">Entrate oggi</div>
+                        <div class="home-kpi-value">{{ dashboard.entrate_oggi }}</div>
+                    </div>
+                    <div class="home-kpi-icon"><i class="bi bi-arrow-down-circle"></i></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card home-kpi-card p-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="text-muted small">Uscite oggi</div>
+                        <div class="home-kpi-value">{{ dashboard.uscite_oggi }}</div>
+                    </div>
+                    <div class="home-kpi-icon"><i class="bi bi-arrow-up-circle"></i></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-6 col-xl-2">
+            <div class="card home-kpi-card p-3">
+                <div class="text-muted small">Articoli doganali</div>
+                <div class="home-kpi-value">{{ dashboard.doganali }}</div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-2">
+            <div class="card home-kpi-card p-3">
+                <div class="text-muted small">Buoni aperti</div>
+                <div class="home-kpi-value">{{ dashboard.buoni_aperti }}</div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-2">
+            <div class="card home-kpi-card p-3">
+                <div class="text-muted small">Buoni creati</div>
+                <div class="home-kpi-value">{{ dashboard.buoni_creati }}</div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-2">
+            <div class="card home-kpi-card p-3">
+                <div class="text-muted small">Buoni usciti</div>
+                <div class="home-kpi-value">{{ dashboard.buoni_usciti }}</div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-2">
+            <div class="card home-kpi-card p-3">
+                <div class="text-muted small">Peso in giacenza</div>
+                <div class="home-kpi-value">{{ dashboard.tot_peso|it_num(2) }}</div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-2">
+            <div class="card home-kpi-card p-3">
+                <div class="text-muted small">Colli in giacenza</div>
+                <div class="home-kpi-value">{{ dashboard.tot_colli }}</div>
+            </div>
+        </div>
+    </div>
+
+    {% if dashboard_alerts %}
+    <div class="card home-alert-card p-3 mb-3">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <h5 class="m-0"><i class="bi bi-bell-fill text-warning"></i> Alert automatici</h5>
+            <span class="badge bg-warning text-dark">{{ dashboard_alerts|length }} segnalazioni</span>
+        </div>
+        <div class="row g-2">
+            {% for alert in dashboard_alerts %}
+            <div class="col-lg-6 col-xxl-4">
+                <a class="home-alert-link" href="{{ alert.url or url_for('giacenze') }}">
+                    <div class="home-alert-item {{ alert.level }}">
+                        <div class="d-flex justify-content-between gap-2">
+                            <strong>{{ alert.title }}</strong>
+                            <span class="badge {% if alert.level == 'danger' %}bg-danger{% elif alert.level == 'warning' %}bg-warning text-dark{% else %}bg-primary{% endif %}">{{ alert.count }}</span>
+                        </div>
+                        <div class="small text-muted mt-1">{{ alert.message }}</div>
+                        {% if alert.examples %}
+                        <div class="small mt-1"><strong>Esempi:</strong> {{ alert.examples|join(', ') }}</div>
+                        {% endif %}
+                        <div class="small text-primary mt-1"><i class="bi bi-box-arrow-up-right"></i> Apri elenco</div>
+                    </div>
+                </a>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card home-section-card p-3 mb-3">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <h5 class="m-0"><i class="bi bi-people-fill text-primary"></i> Giacenza per cliente</h5>
+            <span class="badge bg-primary">{{ dashboard_clienti|length }} clienti</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-striped home-client-table mb-0">
+                <thead>
+                    <tr>
+                        <th>Cliente</th>
+                        <th class="text-end">Righe</th>
+                        <th class="text-end">Colli</th>
+                        <th class="text-end">M²</th>
+                        <th class="text-end">Peso kg</th>
+                        <th class="text-end">Buoni aperti</th>
+                        <th class="text-end">Buoni creati</th>
+                        <th class="text-end">Buoni usciti</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in dashboard_clienti %}
+                    <tr>
+                        <td>{{ r.cliente }}</td>
+                        <td class="text-end">{{ r.righe }}</td>
+                        <td class="text-end">{{ r.colli }}</td>
+                        <td class="text-end">{{ r.m2|it_num(2) }}</td>
+                        <td class="text-end">{{ r.peso|it_num(2) }}</td>
+                        <td class="text-end">{{ r.buoni_aperti }}</td>
+                        <td class="text-end">{{ r.buoni_creati }}</td>
+                        <td class="text-end">{{ r.buoni_usciti }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="9" class="text-muted text-center py-3">Nessuna giacenza attiva.</td></tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td>Totale</td>
+                        <td class="text-end">{{ dashboard.tot_giacenza }}</td>
+                        <td class="text-end">{{ dashboard.tot_colli }}</td>
+                        <td class="text-end">{{ dashboard.tot_m2|it_num(2) }}</td>
+                        <td class="text-end">{{ dashboard.tot_peso|it_num(2) }}</td>
+                        <td class="text-end">{{ dashboard.buoni_aperti }}</td>
+                        <td class="text-end">{{ dashboard.buoni_creati }}</td>
+                        <td class="text-end">{{ dashboard.buoni_usciti }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        <div class="text-muted small mt-2">
+            I colli sono calcolati come nella tabella Giacenze: somma del campo Colli sulle righe ancora in giacenza. Per GALVANO TECNICA non viene contato 1 collo per ogni riga articolo.
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-xl-3">
+            <div class="card home-section-card p-3 mb-3">
+                <h6 class="mb-3">Menu rapido</h6>
+                <div class="d-grid gap-2">
+                    <a class="btn btn-primary" href="{{ url_for('giacenze') }}"><i class="bi bi-grid-3x3-gap-fill"></i> Visualizza Giacenze</a>
+                    {% if session.get('role') == 'admin' %}
+                    <a class="btn btn-success" href="{{ url_for('nuovo_articolo') }}"><i class="bi bi-plus-circle"></i> Nuovo Articolo</a>
+                    <a class="btn btn-outline-secondary" href="{{ url_for('labels_form') }}"><i class="bi bi-tag"></i> Stampa Etichette</a>
+                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('import_excel') }}"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</a>
+                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_excel') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel Totale</a>
+                    {% endif %}
+                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('export_client') }}"><i class="bi bi-people"></i> Export per Cliente</a>
+                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('calcola_costi') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>
+                    {% if can_use_buoni_qr() %}
+                    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('scan_entrata') }}"><i class="bi bi-upc-scan"></i> Scan / Ricerca Entrata</a>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card home-section-card p-3">
+                <h6 class="mb-2"><i class="bi bi-upc-scan"></i> Ricerca veloce entrata</h6>
+                <form action="{{ url_for('go_scan_entrata') }}" method="post" class="d-flex gap-2">
+                    <input name="codice_entrata" class="form-control" placeholder="Scansiona o incolla codice..." autocomplete="off">
+                    <button class="btn btn-primary">Apri</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="col-xl-9">
+            <div class="card home-section-card p-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="m-0">Ultimi movimenti</h5>
+                    <a href="{{ url_for('giacenze') }}" class="btn btn-outline-secondary btn-sm">Apri giacenze</a>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped home-movement-table">
+                        <thead>
+                            <tr>
+                                <th>Data</th>
+                                <th>Tipo</th>
+                                <th>Cliente</th>
+                                <th>Codice</th>
+                                <th>Descrizione</th>
+                                <th>N. Arrivo</th>
+                                <th>DDT</th>
+                                <th>Operatore</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for m in ultimi_movimenti %}
+                            <tr>
+                                <td>{{ m.data }}</td>
+                                <td>
+                                    {% if m.tipo == 'Entrata' %}
+                                    <span class="badge bg-success">Entrata</span>
+                                    {% else %}
+                                    <span class="badge bg-danger">Uscita</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ m.cliente }}</td>
+                                <td>{{ m.codice }}</td>
+                                <td>{{ m.descrizione }}</td>
+                                <td>{{ m.n_arrivo }}</td>
+                                <td>{{ m.ddt }}</td>
+                                <td>{{ m.operatore or '-' }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="8" class="text-muted text-center py-3">Nessun movimento recente.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
