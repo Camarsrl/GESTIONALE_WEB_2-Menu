@@ -93,6 +93,10 @@ def register_camy_ai_routes(app_obj, deps):
       .camy-voice-btn.listening { animation: camyPulse 1s infinite; }
       @keyframes camyPulse { 0%{opacity:1;} 50%{opacity:.45;} 100%{opacity:1;} }
       .camy-speak-wrap { font-size:13px; color:#666; margin-top:6px; }
+      .camy-check-ok { border-left:5px solid #198754; background:#f1fff7; padding:10px; border-radius:8px; }
+      .camy-check-warn { border-left:5px solid #ffc107; background:#fffbed; padding:10px; border-radius:8px; }
+      .camy-check-error { border-left:5px solid #dc3545; background:#fff3f4; padding:10px; border-radius:8px; }
+      .camy-check-row { padding:3px 0; }
       @media (max-width:768px){
         .camy-ai-card { margin:0; border-radius:0; }
         .camy-ai-box { height:calc(100vh - 280px); min-height:360px; }
@@ -127,6 +131,10 @@ def register_camy_ai_routes(app_obj, deps):
             <a class="btn btn-sm btn-outline-primary" href="/camy-ai?prefill=Mostrami%20articoli%20DOGANALI%20cliente%20">Dogana</a>
             <a class="btn btn-sm btn-outline-primary" href="/camy-ai?prefill=Cerca%20DDT%20">Cerca DDT</a>
             {% if can_operate %}
+            <button type="button" class="btn btn-sm btn-outline-danger" data-camy-fill="Controlla buono ">✅ Controlla Buono</button>
+            <button type="button" class="btn btn-sm btn-outline-danger" data-camy-fill="Controlla entrata ">📥 Controlla Entrata</button>
+            <button type="button" class="btn btn-sm btn-outline-danger" data-camy-fill="Controlla spedizione buono ">🚚 Controlla Spedizione</button>
+            <button type="button" class="btn btn-sm btn-outline-danger" data-camy-fill="Trova anomalie nel magazzino">⚠️ Trova anomalie</button>
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Prepara%20buono%20del%20marca%20pezzo%20">Prepara Buono</a>
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Scarico%20parziale%20ID%20">Scarico parziale</a>
             <a class="btn btn-sm btn-outline-warning" href="/camy-ai?prefill=Aggiungi%20al%20buono%20">Aggiungi a Buono</a>
@@ -155,7 +163,7 @@ def register_camy_ai_routes(app_obj, deps):
               <div class="camy-ai-msg user"><div class="camy-ai-bubble">{{ initial_user_msg }}</div></div>
               <div class="camy-ai-msg bot"><div class="camy-ai-bubble">{{ initial_bot_answer|safe }}</div></div>
             {% else %}
-              <div class="camy-ai-msg bot"><div class="camy-ai-bubble">Ciao, sono CAMY AI. Puoi scrivermi ad esempio:<br>• mostrami le giacenze Fincantieri in dogana<br>• cerca N. arrivo 542/26<br>• totale colli e peso di De Wave<br>• dove si trova il codice ABC123<br>• articoli entrati a maggio<br><br>Posso preparare Buoni di Prelievo con conferma e aiutarti ad aprire lo Scarico Parziale.</div></div>
+              <div class="camy-ai-msg bot"><div class="camy-ai-bubble">{{ initial_welcome|safe }}</div></div>
             {% endif %}
           </div>
 
@@ -747,6 +755,10 @@ def register_camy_ai_routes(app_obj, deps):
             "• Scarico parziale ID 12345.<br>"
             "• Crea DDT dal buono 025/26.<br>"
             "• Genera registro giornaliero di oggi.<br>"
+            "• Controlla buono 407/26.<br>"
+            "• Controlla entrata 200/26.<br>"
+            "• Controlla spedizione buono 407/26.<br>"
+            "• Trova anomalie nel magazzino.<br>"
             "• Cosa manca da fare oggi?<br>• Cosa devo spedire oggi?<br>• RF-DE WAVE senza foto<br>• Fincantieri / Armatore / Scoperto senza protocollo<br>• Fincantieri / Armatore / Scoperto senza mezzo<br>• Crea buono da email/PDF/foto<br>"
             "• Crea report Excel giacenze Fincantieri.<br>"
             "• Confronta inventario Galvano Tecnica.<br>"
@@ -3919,6 +3931,312 @@ def register_camy_ai_routes(app_obj, deps):
             return ""
         return f"<div class='small text-muted mt-2'>🧠 Ho usato il riferimento precedente: <b>{_esc(used_context)}</b>.</div>"
 
+    def _camy_extract_buono(msg):
+        s = msg or ""
+        patterns = [
+            r"\bbuono(?:\s+di\s+prelievo)?\s*(?:n\.?|numero)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9./_\-]{1,40})",
+            r"\bspedizione\s+(?:del\s+)?buono\s+([A-Z0-9][A-Z0-9./_\-]{1,40})",
+        ]
+        stop = {"CORRETTO", "PRONTO", "DI", "DEL", "N", "NUMERO"}
+        for pat in patterns:
+            m = re.search(pat, s, re.I)
+            if m:
+                value = (m.group(1) or "").strip().strip(".,;:")
+                if value and value.upper() not in stop:
+                    return value
+        return ""
+
+    def _camy_extract_arrivo(msg):
+        s = msg or ""
+        m = re.search(r"\b(?:entrata|arrivo)\s*(?:n\.?|numero)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9./_\-]{1,40})", s, re.I)
+        if m:
+            value = (m.group(1) or "").strip().strip(".,;:")
+            if value.upper() not in {"CORRETTA", "CORRETTO", "PRONTA", "PRONTO"}:
+                return value
+        return ""
+
+    def _camy_active_rows_for_buono(db, buono):
+        return (db.query(Articolo)
+                .filter(Articolo.buono_n != None)
+                .filter(Articolo.buono_n != "")
+                .filter(Articolo.buono_n.ilike(f"%{buono}%"))
+                .order_by(Articolo.id_articolo.asc())
+                .all())
+
+    def _camy_num(value):
+        try:
+            return float(str(value or "0").replace(",", "."))
+        except Exception:
+            return 0.0
+
+    def _camy_result_box(title, errors=None, warnings=None, oks=None, extra=""):
+        errors = errors or []
+        warnings = warnings or []
+        oks = oks or []
+        if errors:
+            cls, icon, verdict = "camy-check-error", "❌", "CONTROLLO NON SUPERATO"
+        elif warnings:
+            cls, icon, verdict = "camy-check-warn", "⚠️", "CONTROLLO CON AVVISI"
+        else:
+            cls, icon, verdict = "camy-check-ok", "✅", "CONTROLLO SUPERATO"
+        out = [f"<div class='{cls}'><b>{icon} {_esc(title)}</b><br><b>{verdict}</b>"]
+        for text_value in errors:
+            out.append(f"<div class='camy-check-row text-danger'>❌ {_esc(text_value)}</div>")
+        for text_value in warnings:
+            out.append(f"<div class='camy-check-row'>⚠️ {_esc(text_value)}</div>")
+        for text_value in oks:
+            out.append(f"<div class='camy-check-row text-success'>✅ {_esc(text_value)}</div>")
+        if extra:
+            out.append(extra)
+        out.append("</div>")
+        return "".join(out)
+
+    def _answer_controlla_buono(db, msg):
+        buono = _camy_extract_buono(msg)
+        if not buono:
+            return "Inserisci il numero del Buono da controllare, per esempio: <b>Controlla buono 407/26</b>."
+        rows = _camy_active_rows_for_buono(db, buono)
+        if not rows:
+            return _camy_result_box(f"Buono {buono}", errors=["Nessuna riga trovata con questo numero Buono."])
+
+        errors, warnings, oks = [], [], []
+        clients = sorted({str(getattr(r, 'cliente', '') or '').strip() for r in rows if str(getattr(r, 'cliente', '') or '').strip()})
+        if len(clients) > 1:
+            warnings.append("Il Buono contiene più clienti: " + ", ".join(clients))
+        else:
+            oks.append("Cliente coerente: " + (clients[0] if clients else "non indicato"))
+
+        already_out = [r for r in rows if str(getattr(r, 'data_uscita', '') or '').strip() or str(getattr(r, 'n_ddt_uscita', '') or '').strip()]
+        if already_out:
+            warnings.append(f"{len(already_out)} riga/e risultano già uscite o con DDT di uscita.")
+        else:
+            oks.append("Nessuna riga risulta già uscita.")
+
+        missing_code = [r for r in rows if not str(getattr(r, 'codice_articolo', '') or '').strip()]
+        if missing_code:
+            errors.append(f"{len(missing_code)} riga/e senza codice articolo.")
+        else:
+            oks.append("Codici articolo presenti su tutte le righe.")
+
+        missing_descr = [r for r in rows if not str(getattr(r, 'descrizione', '') or '').strip()]
+        if missing_descr:
+            warnings.append(f"{len(missing_descr)} riga/e senza descrizione.")
+        else:
+            oks.append("Descrizioni presenti su tutte le righe.")
+
+        finc_rows = [r for r in rows if _camy_controlla_pezzi_cliente(getattr(r, 'cliente', ''))]
+        finc_missing = [r for r in finc_rows if _camy_num(getattr(r, 'pezzo', None)) <= 0]
+        if finc_missing:
+            errors.append(f"{len(finc_missing)} riga/e Fincantieri senza pezzi validi.")
+        elif finc_rows:
+            oks.append("Controllo pezzi Fincantieri superato.")
+
+        galvano_rows = [r for r in rows if _norm(getattr(r, 'cliente', '')) in {_norm('GALVANO'), _norm('GALVANO TECNICA')}]
+        galvano_missing_pieces = [r for r in galvano_rows if _camy_num(getattr(r, 'pezzo', None)) <= 0]
+        if galvano_missing_pieces:
+            errors.append(f"{len(galvano_missing_pieces)} riga/e Galvano senza pezzi validi.")
+        if galvano_rows:
+            invalid_lot = [r for r in galvano_rows if not str(getattr(r, 'lotto', '') or '').strip()]
+            if invalid_lot:
+                warnings.append(f"{len(invalid_lot)} riga/e Galvano con lotto vuoto: indicare il lotto oppure NON PRESENTE.")
+            else:
+                oks.append("Lotto compilato sulle righe Galvano.")
+
+        marine_rows = [r for r in rows if _norm(getattr(r, 'cliente', '')) == _norm('MARINE INTERIORS')]
+        if marine_rows:
+            oks.append("Marine Interiors: il campo pezzi può restare vuoto.")
+
+        total_peso = sum(_camy_num(getattr(r, 'peso', None)) for r in rows)
+        oks.append(f"Righe controllate: {len(rows)} · Peso totale: {_fmt_num(total_peso)} kg")
+        link = f"<br><a class='btn btn-sm btn-outline-primary mt-2' href='/giacenze?buono_n={_esc(buono)}'>Apri righe del Buono</a>"
+        return _camy_result_box(f"Buono {buono}", errors, warnings, oks, link)
+
+    def _answer_controlla_entrata(db, msg):
+        arrivo = _camy_extract_arrivo(msg)
+        if not arrivo:
+            return "Inserisci il numero dell'entrata, per esempio: <b>Controlla entrata 200/26</b>."
+        rows = (db.query(Articolo)
+                .filter(Articolo.n_arrivo != None)
+                .filter(Articolo.n_arrivo.ilike(f"%{arrivo}%"))
+                .order_by(Articolo.id_articolo.asc()).all())
+        if not rows:
+            return _camy_result_box(f"Entrata {arrivo}", errors=["Nessuna riga trovata con questo numero di arrivo."])
+
+        errors, warnings, oks = [], [], []
+        clients = {str(getattr(r, 'cliente', '') or '').strip() for r in rows if str(getattr(r, 'cliente', '') or '').strip()}
+        suppliers = {str(getattr(r, 'fornitore', '') or '').strip() for r in rows if str(getattr(r, 'fornitore', '') or '').strip()}
+        ddt_values = {str(getattr(r, 'n_ddt_ingresso', '') or '').strip() for r in rows if str(getattr(r, 'n_ddt_ingresso', '') or '').strip()}
+        if len(clients) > 1:
+            errors.append("Nella stessa entrata risultano clienti diversi: " + ", ".join(sorted(clients)))
+        elif clients:
+            oks.append("Cliente coerente: " + next(iter(clients)))
+        else:
+            errors.append("Cliente non compilato.")
+        if len(suppliers) > 1:
+            warnings.append("Nella stessa entrata risultano fornitori diversi.")
+        if not ddt_values:
+            warnings.append("DDT di ingresso non compilato.")
+        else:
+            oks.append("DDT di ingresso presente.")
+
+        missing_code = [r for r in rows if not str(getattr(r, 'codice_articolo', '') or '').strip()]
+        missing_descr = [r for r in rows if not str(getattr(r, 'descrizione', '') or '').strip()]
+        if missing_code:
+            errors.append(f"{len(missing_code)} riga/e senza codice articolo.")
+        if missing_descr:
+            warnings.append(f"{len(missing_descr)} riga/e senza descrizione.")
+
+        galvano_rows = [r for r in rows if _norm(getattr(r, 'cliente', '')) in {_norm('GALVANO'), _norm('GALVANO TECNICA')}]
+        if galvano_rows:
+            no_pieces = [r for r in galvano_rows if _camy_num(getattr(r, 'pezzo', None)) <= 0]
+            no_lot = [r for r in galvano_rows if not str(getattr(r, 'lotto', '') or '').strip()]
+            if no_pieces:
+                errors.append(f"{len(no_pieces)} riga/e Galvano senza pezzi validi.")
+            if no_lot:
+                warnings.append(f"{len(no_lot)} riga/e Galvano senza lotto: scrivere NON PRESENTE quando il lotto non esiste.")
+            if not no_pieces and not no_lot:
+                oks.append("Controlli Galvano su pezzi e lotto superati.")
+
+        oks.append(f"Righe controllate: {len(rows)}")
+        link = f"<br><a class='btn btn-sm btn-outline-primary mt-2' href='/giacenze?n_arrivo={_esc(arrivo)}'>Apri entrata in Giacenze</a>"
+        return _camy_result_box(f"Entrata {arrivo}", errors, warnings, oks, link)
+
+    def _answer_controlla_spedizione(db, msg):
+        buono = _camy_extract_buono(msg)
+        if not buono:
+            return "Inserisci il Buono della spedizione, per esempio: <b>Controlla spedizione buono 407/26</b>."
+        rows = _camy_active_rows_for_buono(db, buono)
+        if not rows:
+            return _camy_result_box(f"Spedizione Buono {buono}", errors=["Buono non trovato."])
+
+        errors, warnings, oks = [], [], []
+        # Ripete i controlli essenziali senza modificare dati.
+        no_code = [r for r in rows if not str(getattr(r, 'codice_articolo', '') or '').strip()]
+        if no_code:
+            errors.append(f"{len(no_code)} riga/e senza codice.")
+        else:
+            oks.append("Codici presenti.")
+        clients = {str(getattr(r, 'cliente', '') or '').strip() for r in rows if str(getattr(r, 'cliente', '') or '').strip()}
+        if len(clients) > 1:
+            errors.append("Il Buono contiene più clienti.")
+        elif clients:
+            oks.append("Cliente: " + next(iter(clients)))
+
+        ddt_out = {str(getattr(r, 'n_ddt_uscita', '') or '').strip() for r in rows if str(getattr(r, 'n_ddt_uscita', '') or '').strip()}
+        if ddt_out:
+            oks.append("DDT di uscita presente: " + ", ".join(sorted(ddt_out)))
+        else:
+            warnings.append("DDT di uscita non ancora registrato.")
+
+        # Cerca un trasporto collegato al DDT quando il modello è disponibile.
+        transport_found = False
+        try:
+            if ddt_out and 'Trasporto' in globals():
+                for ddt in ddt_out:
+                    if db.query(Trasporto).filter(Trasporto.ddt_uscita.ilike(f"%{ddt}%")).first():
+                        transport_found = True
+                        break
+                if transport_found:
+                    oks.append("Trasporto collegato al DDT trovato.")
+                else:
+                    warnings.append("Non risulta un trasporto collegato al DDT.")
+        except Exception:
+            warnings.append("Non è stato possibile verificare automaticamente il trasporto.")
+
+        finc = [r for r in rows if _camy_controlla_pezzi_cliente(getattr(r, 'cliente', '')) and _camy_num(getattr(r, 'pezzo', None)) <= 0]
+        if finc:
+            errors.append(f"{len(finc)} riga/e Fincantieri senza pezzi validi.")
+
+        galvano = [r for r in rows if _norm(getattr(r, 'cliente', '')) in {_norm('GALVANO'), _norm('GALVANO TECNICA')}]
+        galvano_bad = [r for r in galvano if _camy_num(getattr(r, 'pezzo', None)) <= 0 or not str(getattr(r, 'lotto', '') or '').strip()]
+        if galvano_bad:
+            errors.append(f"{len(galvano_bad)} riga/e Galvano con pezzi o lotto da verificare.")
+
+        oks.append(f"Righe spedizione controllate: {len(rows)}")
+        return _camy_result_box(f"Spedizione Buono {buono}", errors, warnings, oks)
+
+    def _answer_trova_anomalie(db, msg):
+        errors, warnings, oks = [], [], []
+        active = _active_filter(_base_query(db))
+        try:
+            negative_colli = active.filter(Articolo.n_colli < 0).count()
+        except Exception:
+            negative_colli = 0
+        if negative_colli:
+            errors.append(f"{negative_colli} riga/e con colli negativi.")
+        else:
+            oks.append("Nessun collo negativo.")
+
+        exited_no_date = (db.query(Articolo)
+                          .filter(Articolo.n_ddt_uscita != None)
+                          .filter(Articolo.n_ddt_uscita != "")
+                          .filter(or_(Articolo.data_uscita == None, Articolo.data_uscita == ""))
+                          .count())
+        if exited_no_date:
+            errors.append(f"{exited_no_date} riga/e con DDT uscita ma senza data uscita.")
+        else:
+            oks.append("Nessuna uscita con data mancante.")
+
+        active_with_ddt = (active.filter(Articolo.n_ddt_uscita != None)
+                           .filter(Articolo.n_ddt_uscita != "").count())
+        if active_with_ddt:
+            warnings.append(f"{active_with_ddt} riga/e risultano ancora attive ma hanno un DDT di uscita.")
+        else:
+            oks.append("Nessuna riga attiva con DDT di uscita.")
+
+        galvano = active.filter(_sql_norm_col(Articolo.cliente).in_([_norm('GALVANO'), _norm('GALVANO TECNICA')]))
+        galvano_no_code = galvano.filter(or_(Articolo.codice_articolo == None, Articolo.codice_articolo == "")).count()
+        galvano_no_pieces = galvano.filter(or_(Articolo.pezzo == None, Articolo.pezzo == "", Articolo.pezzo == "0", Articolo.pezzo == "0.0")).count()
+        galvano_no_lot = galvano.filter(or_(Articolo.lotto == None, Articolo.lotto == "")).count()
+        if galvano_no_code:
+            errors.append(f"{galvano_no_code} riga/e Galvano senza codice.")
+        if galvano_no_pieces:
+            warnings.append(f"{galvano_no_pieces} riga/e Galvano senza pezzi valorizzati.")
+        if galvano_no_lot:
+            warnings.append(f"{galvano_no_lot} riga/e Galvano senza lotto o NON PRESENTE.")
+        if not (galvano_no_code or galvano_no_pieces or galvano_no_lot):
+            oks.append("Nessuna anomalia essenziale Galvano rilevata.")
+
+        missing_attachments = 0
+        try:
+            if 'Attachment' in globals():
+                for att in db.query(Attachment).all():
+                    filename = str(getattr(att, 'filename', '') or '').strip()
+                    if not filename:
+                        missing_attachments += 1
+                        continue
+                    candidates = [Path(DOCS_DIR) / filename, Path(PHOTOS_DIR) / filename, Path(MEDIA_DIR) / filename]
+                    if not any(p.exists() for p in candidates):
+                        missing_attachments += 1
+        except Exception:
+            missing_attachments = 0
+        if missing_attachments:
+            warnings.append(f"{missing_attachments} allegato/i registrati ma non trovati sul disco.")
+        else:
+            oks.append("Nessun allegato mancante rilevato.")
+
+        return _camy_result_box("Controllo integrità magazzino", errors, warnings, oks)
+
+    def _answer_camy_welcome(db):
+        today = date.today().strftime('%Y-%m-%d')
+        try:
+            ingressi = _base_query(db).filter(Articolo.data_ingresso == today).count()
+            uscite = _base_query(db).filter(Articolo.data_uscita == today).count()
+            attive = _active_filter(_base_query(db)).count()
+        except Exception:
+            ingressi = uscite = attive = 0
+        return (
+            "<b>Buongiorno Alessia, CAMY è operativa.</b><br>"
+            f"📥 Entrate di oggi: <b>{ingressi}</b><br>"
+            f"📤 Uscite di oggi: <b>{uscite}</b><br>"
+            f"📦 Righe attive in giacenza: <b>{attive}</b><br><br>"
+            "Puoi usare i nuovi controlli:<br>"
+            "• <b>Controlla buono 407/26</b><br>"
+            "• <b>Controlla entrata 200/26</b><br>"
+            "• <b>Controlla spedizione buono 407/26</b><br>"
+            "• <b>Trova anomalie nel magazzino</b>"
+        )
+
     def _process_camy_message(db, msg):
         original_msg = msg or ""
 
@@ -4003,6 +4321,18 @@ def register_camy_ai_routes(app_obj, deps):
         if brain_action == "statistiche_magazzino":
             return '<b>Statistiche Magazzino</b><br><a class="btn btn-sm btn-primary mt-2" href="/statistiche-magazzino">Apri Statistiche</a>', True, brain
 
+        if brain_action == "controlla_buono":
+            return _answer_controlla_buono(db, msg), True, brain
+
+        if brain_action == "controlla_entrata":
+            return _answer_controlla_entrata(db, msg), True, brain
+
+        if brain_action == "controlla_spedizione":
+            return _answer_controlla_spedizione(db, msg), True, brain
+
+        if brain_action == "trova_anomalie":
+            return _answer_trova_anomalie(db, msg), True, brain
+
         if brain_action == "cosa_manca":
             return camy_daily_briefing(db, globals(), msg), True, brain
 
@@ -4062,6 +4392,15 @@ def register_camy_ai_routes(app_obj, deps):
         if any(x in low for x in ["registro giornaliero", "registro di oggi", "quaderno", "aggiorna quaderno", "genera registro", "riepilogo giornata", "riepilogo di oggi"]):
             return _answer_registro_giornaliero(db, msg), True, {"action":"registro_giornaliero"}
 
+        if any(x in low for x in ["controlla buono", "verifica buono", "controllo buono"]):
+            return _answer_controlla_buono(db, msg), True, {"action":"controlla_buono"}
+        if any(x in low for x in ["controlla entrata", "verifica entrata", "controllo entrata", "verifica arrivo"]):
+            return _answer_controlla_entrata(db, msg), True, {"action":"controlla_entrata"}
+        if any(x in low for x in ["controlla spedizione", "verifica spedizione", "posso spedire"]):
+            return _answer_controlla_spedizione(db, msg), True, {"action":"controlla_spedizione"}
+        if any(x in low for x in ["trova anomalie", "controllo integrita", "controllo integrità", "controlla magazzino"]):
+            return _answer_trova_anomalie(db, msg), True, {"action":"trova_anomalie"}
+
         if any(x in low for x in ["cosa manca", "manca da fare", "attivita aperte", "attività aperte", "controlla aperti", "controlla anomalie", "cosa devo spedire", "spedire oggi", "senza foto", "foto mancanti", "senza mezzo", "mezzo mancante", "senza protocollo", "protocollo mancante", "oltre 180 giorni", "buoni aperti"]):
             return camy_daily_briefing(db, globals(), msg), True, {"action":"cosa_manca_oggi"}
 
@@ -4120,12 +4459,22 @@ def register_camy_ai_routes(app_obj, deps):
                 initial_answer = "CAMY AI ha avuto un errore. Ho registrato il dettaglio nei log admin."
             finally:
                 db.close()
+        welcome = ""
+        if not q:
+            db_welcome = SessionLocal()
+            try:
+                welcome = _answer_camy_welcome(db_welcome)
+            except Exception:
+                welcome = "<b>CAMY è operativa.</b><br>Puoi cercare giacenze, controllare Buoni, Entrate e Spedizioni."
+            finally:
+                db_welcome.close()
         return render_template_string(
             CAMY_AI_HTML,
             endpoints=endpoints,
             initial_user_msg=q,
             initial_bot_answer=initial_answer,
             initial_input_value=("" if q else prefill),
+            initial_welcome=welcome,
             can_operate=_can_operate()
         )
 
