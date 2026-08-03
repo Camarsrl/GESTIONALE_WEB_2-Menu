@@ -725,6 +725,18 @@ class StoricoArticolo(Base):
     creato_il = Column(String(32), nullable=False)
 
 
+class StoricoModificaLegacy(Base):
+    """Compatibilità con il primo sistema storico basato su una riga per campo."""
+    __tablename__ = "storico_modifiche"
+    id = Column(Integer, Identity(start=1), primary_key=True)
+    articolo_id = Column(Integer, nullable=False, index=True)
+    utente = Column(Text)
+    campo = Column(Text)
+    valore_vecchio = Column(Text)
+    valore_nuovo = Column(Text)
+    data_modifica = Column(Text)
+
+
 class Attachment(Base):
     __tablename__ = "attachments"
     id = Column(Integer, Identity(start=1), primary_key=True)
@@ -877,12 +889,20 @@ def _audit_articoli_before_flush(session_db, flush_context, instances):
     user = _current_username_for_audit() or 'SISTEMA'
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+    nuovi_articoli = []
     for obj in list(session_db.new):
         if isinstance(obj, Articolo):
             if not getattr(obj, 'created_by', None):
                 obj.created_by = user
             obj.updated_by = user
             obj.updated_at = now
+            nuovi_articoli.append(obj)
+
+    if nuovi_articoli:
+        pending = session_db.info.setdefault('_storico_nuovi_articoli', [])
+        for obj in nuovi_articoli:
+            if obj not in pending:
+                pending.append(obj)
 
     campi_esclusi = {'updated_by', 'updated_at', 'created_by', 'attachments'}
     for obj in list(session_db.dirty):
@@ -913,6 +933,42 @@ def _audit_articoli_before_flush(session_db, flush_context, instances):
 
         obj.updated_by = user
         obj.updated_at = now
+
+
+@event.listens_for(SessionLocal.session_factory, 'after_flush_postexec')
+def _audit_articoli_after_flush(session_db, flush_context):
+    """Registra la creazione dopo che PostgreSQL ha assegnato l'ID articolo."""
+    pending = session_db.info.pop('_storico_nuovi_articoli', [])
+    if not pending:
+        return
+
+    user = _current_username_for_audit() or 'SISTEMA'
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    for obj in pending:
+        articolo_id = getattr(obj, 'id_articolo', None)
+        if not articolo_id:
+            continue
+        gia_presente = any(
+            isinstance(x, StoricoArticolo)
+            and x.articolo_id == articolo_id
+            and (x.evento or '').upper() == 'CREAZIONE'
+            for x in session_db.new
+        )
+        if gia_presente:
+            continue
+        dettagli = {
+            'codice_articolo': {'prima': None, 'dopo': getattr(obj, 'codice_articolo', None)},
+            'descrizione': {'prima': None, 'dopo': getattr(obj, 'descrizione', None)},
+            'cliente': {'prima': None, 'dopo': getattr(obj, 'cliente', None)},
+            'n_arrivo': {'prima': None, 'dopo': getattr(obj, 'n_arrivo', None)},
+        }
+        session_db.add(StoricoArticolo(
+            articolo_id=articolo_id,
+            evento='CREAZIONE',
+            dettagli=json.dumps(dettagli, ensure_ascii=False, default=str),
+            operatore=user,
+            creato_il=now,
+        ))
 
 
 # ========================================================
@@ -7445,50 +7501,122 @@ def storico_articolo(id_articolo):
             if not utente or cliente != utente:
                 abort(403)
 
+        timeline = []
+
+        # Nuovo storico: un record può contenere più campi modificati in JSON.
         registrazioni = (db.query(StoricoArticolo)
                          .filter(StoricoArticolo.articolo_id == id_articolo)
-                         .order_by(StoricoArticolo.id.desc())
+                         .order_by(StoricoArticolo.creato_il.desc(), StoricoArticolo.id.desc())
                          .all())
-
-        storico = []
         for reg in registrazioni:
             try:
                 modifiche = json.loads(reg.dettagli or '{}')
+                if not isinstance(modifiche, dict):
+                    modifiche = {}
             except Exception:
                 modifiche = {}
-            storico.append({
-                'data': reg.creato_il,
+            timeline.append({
+                'data': reg.creato_il or '',
                 'evento': reg.evento or 'MODIFICA',
                 'operatore': reg.operatore or '',
                 'modifiche': modifiche,
+                'testo': '',
+                'fonte': 'registrato',
             })
 
-        # Eventi ricostruibili dai dati già presenti prima dell'attivazione dello storico.
+        # Vecchio storico: raggruppa le righe per data e operatore.
+        try:
+            legacy_rows = (db.query(StoricoModificaLegacy)
+                           .filter(StoricoModificaLegacy.articolo_id == id_articolo)
+                           .order_by(StoricoModificaLegacy.data_modifica.desc(), StoricoModificaLegacy.id.desc())
+                           .all())
+            gruppi_legacy = {}
+            for rec in legacy_rows:
+                key = (rec.data_modifica or '', rec.utente or '')
+                gruppo = gruppi_legacy.setdefault(key, {})
+                gruppo[rec.campo or 'campo'] = {
+                    'prima': rec.valore_vecchio,
+                    'dopo': rec.valore_nuovo,
+                }
+            for (data_modifica, utente_legacy), modifiche in gruppi_legacy.items():
+                timeline.append({
+                    'data': data_modifica,
+                    'evento': 'MODIFICA',
+                    'operatore': utente_legacy,
+                    'modifiche': modifiche,
+                    'testo': '',
+                    'fonte': 'legacy',
+                })
+        except Exception as exc:
+            # La tabella legacy può non esistere nelle installazioni più recenti.
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            print(f'[WARN] lettura storico_modifiche non disponibile: {exc}')
+
+        # Eventi ricostruibili dai campi attuali: vengono inseriti nella stessa cronologia,
+        # così la colonna non resta mai vuota anche per gli articoli precedenti alla funzione.
         eventi_base = []
         if articolo.data_ingresso or articolo.n_arrivo or articolo.n_ddt_ingresso:
             eventi_base.append({
-                'tipo': 'INGRESSO', 'data': articolo.data_ingresso or '',
+                'tipo': 'INGRESSO',
+                'data': articolo.data_ingresso or '',
                 'testo': f"Arrivo {articolo.n_arrivo or '-'} · DDT ingresso {articolo.n_ddt_ingresso or '-'}"
             })
         if articolo.buono_n:
             eventi_base.append({
-                'tipo': 'BUONO', 'data': articolo.data_uscita or articolo.updated_at or '',
+                'tipo': 'BUONO',
+                'data': articolo.updated_at or articolo.data_uscita or '',
                 'testo': f"Buono n. {articolo.buono_n}"
             })
         if articolo.data_uscita or articolo.n_ddt_uscita:
             eventi_base.append({
-                'tipo': 'USCITA', 'data': articolo.data_uscita or '',
+                'tipo': 'USCITA',
+                'data': articolo.data_uscita or '',
                 'testo': f"DDT uscita {articolo.n_ddt_uscita or '-'} · Mezzo {articolo.mezzi_in_uscita or '-'}"
             })
         if articolo.updated_at:
             eventi_base.append({
-                'tipo': 'ULTIMA MODIFICA', 'data': articolo.updated_at,
+                'tipo': 'ULTIMA MODIFICA',
+                'data': articolo.updated_at,
                 'testo': f"Ultimo aggiornamento eseguito da {articolo.updated_by or '-'}"
             })
 
+        # Evita duplicati semplici tra eventi registrati e ricostruiti.
+        firme = {
+            ((e.get('evento') or '').upper(), e.get('data') or '', e.get('testo') or '')
+            for e in timeline
+        }
+        for evento in eventi_base:
+            firma = ((evento['tipo'] or '').upper(), evento['data'] or '', evento['testo'] or '')
+            if firma in firme:
+                continue
+            timeline.append({
+                'data': evento['data'],
+                'evento': evento['tipo'],
+                'operatore': '',
+                'modifiche': {},
+                'testo': evento['testo'],
+                'fonte': 'ricostruito',
+            })
+
+        def _sort_key(ev):
+            raw = str(ev.get('data') or '').strip()
+            for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%d/%m/%Y %H:%M:%S', '%d/%m/%Y'):
+                try:
+                    return datetime.strptime(raw, fmt)
+                except Exception:
+                    pass
+            return datetime.min
+
+        timeline.sort(key=_sort_key, reverse=True)
+
         return render_template(
             'storico_articolo.html',
-            articolo=articolo, storico=storico, eventi_base=eventi_base,
+            articolo=articolo,
+            storico=timeline,
+            eventi_base=eventi_base,
             return_url=request.args.get('return_url') or url_for('giacenze')
         )
     finally:
