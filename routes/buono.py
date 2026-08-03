@@ -1,1510 +1,694 @@
 # -*- coding: utf-8 -*-
 """
-Modulo Buono di Prelievo.
+Modulo Dashboard/Home Gestionale Camar.
 
-Gestisce:
-- anteprima buono
-- generazione/salvataggio buono
-- scarico parziale da celle "codice articolo" e "descrizione"
-
-Uso operativo:
-se in una riga sono presenti più codici/descrizioni, nel preview del buono si lascia
-solo il codice/descrizione da prelevare. Con lo scarico parziale viene creata una nuova riga con N. buono, note e pezzi prelevati;
-la riga originale resta in giacenza con il residuo, senza note del buono e senza N. buono.
+Correzioni:
+- riepilogo colli/M2/peso per cliente
+- buoni QR creati/aperti/usciti
+- conteggio giacenze attive più robusto su data_uscita vuota/None/NaT
 """
 
-def register_buono_routes(app_obj, deps):
+HOME_HTML = ''  # Template spostato in templates/dashboard_home.html
+
+
+def register_dashboard_home_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] BUONO DEFINITIVO - VERSIONE J - NUMERO BUONO UNICO TRA VIDEO PDF E GIACENZA")
 
-    def _split_multi_value(value):
-        """Divide una cella multi-valore senza rompere gli slash/asterischi interni.
+    import re
+    from pathlib import Path
+    from datetime import date, timedelta, datetime
+    from flask import render_template, render_template_string, request, redirect, url_for
+    from flask_login import login_required
+    from sqlalchemy import func, or_, case
 
-        Esempi gestiti:
-        - Package No.305 -DR/018DF -DR/021DF
-        - Package No.311-AP/060VR -VA/002VR -AV*002VD
-        - NG/147VD / NG/146VD
+    def _is_active_expr():
+        return func.upper(func.trim(func.coalesce(Articolo.data_uscita, ''))).in_(['', 'NONE', 'NULL', 'NAT'])
 
-        Il Package resta separato; i codici vengono poi ricostruiti con " - ".
+    def _cliente_key_expr(col):
+        return func.upper(func.trim(func.coalesce(col, '')))
+
+    try:
+        app_obj.view_functions.pop('home', None)
+    except Exception:
+        pass
+
+
+    @app_obj.route('/dashboard/clienti-da-verificare', endpoint='dashboard_clienti_da_verificare')
+    @login_required
+    def dashboard_clienti_da_verificare():
+        """Mostra le righe che la dashboard non riesce ad associare a un cliente valido.
+        Serve per capire quali record generano la riga 'SENZA CLIENTE' / 'CLIENTE DA VERIFICARE'.
         """
-        s = str(value or "").strip()
-        if not s:
-            return []
-
-        s = re.sub(r"[\r\n]+", " - ", s)
-        s = re.sub(r"(?i)\bPackage\s+No\.?\s*", "Package No.", s)
-
-        # Se il Package è scritto attaccato al primo marca-pezzo, lo separo.
-        # Esempi:
-        #   PACKAGE 11-CB052CB-CB...  -> PACKAGE 11 - CB052CB-CB...
-        #   Package No.311-AP/060VR  -> Package No.311 - AP/060VR
-        # In questo modo il Package resta sempre sulla riga residua mentre viene
-        # eliminato soltanto il codice effettivamente prelevato.
-        s = re.sub(
-            r"(?i)\b((?:PACKAGE|PKG)\s*(?:(?:NO|N)\.?)?\s*[:#.]?\s*[A-Z0-9]+)\s*-\s*(?=[A-Z0-9])",
-            r"\1 - ",
-            s,
-        )
-
-        # Se il riferimento logistico e il primo marca-pezzo sono separati
-        # soltanto da uno spazio, li divide comunque.
-        # Esempi:
-        #   Package No.311 UR/014VD
-        #   Package No.311 VA/002VR
-        #   PACKAGE N.11 CB051CF
-        #   CASSA 12 AV*002VD
-        s = re.sub(
-            r"(?i)\b("
-            r"(?:PACKAGE|PKG)\s*(?:(?:NO|N)\.?)?\s*[:#.]?\s*[A-Z0-9]+"
-            r"|PALLET\s*[:#.]?\s*[A-Z0-9]+"
-            r"|(?:CASSA|CASE)\s*[:#.]?\s*[A-Z0-9]+"
-            r")\s+(?="
-            r"(?:[A-Z0-9]{1,25}(?:/|\*)[A-Z0-9]+)"
-            r"|(?:[A-Z]{1,12}\d[A-Z0-9]*)"
-            r")",
-            r"\1 - ",
-            s,
-        )
-
-        # Se dopo un trattino inizia un marca-pezzo con / oppure *, separo.
-        # Non rompe lo slash interno di SE/007VD e riconosce AV*002VD.
-        s = re.sub(r"\s*-\s*(?=[A-Z0-9]{1,25}(?:/|\*)[A-Z0-9])", " - ", s, flags=re.I)
-
-        # Se i marca-pezzi sono concatenati con trattini senza spazi, li separo.
-        # Esempio operativo:
-        #   PACKAGE N.11-CB051CF-CB052CF-CB053CF
-        # diventa:
-        #   PACKAGE N.11 - CB051CF - CB052CF - CB053CF
-        #
-        # Il controllo richiede che il token successivo inizi con lettere seguite
-        # da almeno una cifra: in questo modo evitiamo di spezzare indiscriminatamente
-        # normali descrizioni con trattino.
-        s = re.sub(
-            r"(?<=[A-Z0-9])\s*-\s*(?=[A-Z]{1,12}\d[A-Z0-9]*(?:\b|$))",
-            " - ",
-            s,
-            flags=re.I,
-        )
-
-        # Lo slash con spazi viene considerato separatore tra codici.
-        # Lo slash senza spazi resta dentro il codice.
-        parts = re.split(r"\s*(?:;|\||,|\s/\s|\s\+\s|\s-\s)\s*", s)
-
-        out = []
-        for part in parts:
-            part = (part or "").strip(" -/")
-            if not part:
-                continue
-            part = re.sub(r"(?i)\bPackage\s+No\.?\s*", "Package No.", part).strip()
-            out.append(part)
-        return out
-
-    def _norm_for_match(value):
-        return re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
-
-    def _num_float(value):
-        """Converte numeri italiani/inglesi in float."""
+        db = SessionLocal()
         try:
-            if value is None:
-                return 0.0
-            s = str(value).strip()
-            if not s:
-                return 0.0
-            if ',' in s:
-                s = s.replace('.', '').replace(',', '.')
-            return float(s)
-        except Exception:
-            return 0.0
+            def _norm_cliente_token(v):
+                return re.sub(r'[^A-Z0-9]+', '', (v or '').upper())
 
-    def _fmt_num_clean(value):
-        """Restituisce numero pulito da salvare nel campo pezzo."""
-        try:
-            f = float(value or 0)
-            if abs(f - int(f)) < 0.000001:
-                return str(int(f))
-            return str(round(f, 3))
-        except Exception:
-            return str(value or '')
-
-
-    def _cliente_richiede_controllo_pezzi(cliente):
-        """True solo per FINCANTIERI e FINCANTIERI ARMATORE."""
-        nome = re.sub(r"[^A-Z0-9]+", " ", str(cliente or "").upper()).strip()
-        nome = re.sub(r"\s+", " ", nome)
-        return nome in {
-            "FINCANTIERI",
-            "FINCANTIERI ARMATORE",
-        }
-
-    def _cliente_galvano(cliente):
-        """Riconosce GALVANO TECNICA in modo tollerante a spazi e punteggiatura."""
-        nome = re.sub(r"[^A-Z0-9]+", " ", str(cliente or "").upper()).strip()
-        nome = re.sub(r"\s+", " ", nome)
-        return nome in {"GALVANO", "GALVANO TECNICA"}
-
-
-    def _cliente_marine_interiors(cliente):
-        """Riconosce MARINE INTERIORS senza trasformare i pezzi vuoti in zero."""
-        nome = re.sub(r"[^A-Z0-9]+", " ", str(cliente or "").upper()).strip()
-        nome = re.sub(r"\s+", " ", nome)
-        return nome == "MARINE INTERIORS"
-
-    def _lotto_assente(value):
-        """Riconosce i valori che indicano legittimamente l'assenza del lotto.
-
-        Questi valori non devono essere confrontati come veri numeri di lotto
-        e non devono bloccare la creazione del Buono Galvano.
-        """
-        txt = re.sub(r"[^A-Z0-9]+", " ", str(value or "").upper()).strip()
-        txt = re.sub(r"\s+", " ", txt)
-        return txt in {
-            "", "NON PRESENTE", "NON DISPONIBILE", "ASSENTE",
-            "SENZA LOTTO", "NO LOTTO", "N P", "NP", "N A", "NA"
-        }
-
-    def _lotto_etichetta(value):
-        """Testo uniforme usato nei messaggi del Buono Galvano."""
-        lotto = str(value or "").strip()
-        return "NON PRESENTE" if _lotto_assente(lotto) else lotto
-
-    def _tutte_righe_galvano(rows):
-        rows = list(rows or [])
-        return bool(rows) and all(_cliente_galvano(getattr(r, "cliente", "")) for r in rows)
-
-
-    def _solo_riferimento_logistico(value):
-        """True per BANCALE/PALLET/PACKAGE/CASSA senza un vero marca-pezzo.
-
-        Questi valori identificano il contenitore e non hanno una disponibilità
-        in pezzi da verificare. Non devono quindi attivare il blocco quantità.
-        """
-        txt = re.sub(r"\s+", " ", str(value or "").strip().upper())
-        if not txt:
-            return False
-        patterns = (
-            r"BANCALE(?:\s+(?:N\.?|NO\.?|NUM\.?)?)?\s*[:#.-]?\s*[A-Z0-9._/-]+",
-            r"PALLET(?:\s+(?:N\.?|NO\.?|NUM\.?)?)?\s*[:#.-]?\s*[A-Z0-9._/-]+",
-            r"(?:PACKAGE|PKG)(?:\s+(?:N\.?|NO\.?|NUM\.?)?)?\s*[:#.-]?\s*[A-Z0-9._/-]+",
-            r"(?:CASSA|CASE)(?:\s+(?:N\.?|NO\.?|NUM\.?)?)?\s*[:#.-]?\s*[A-Z0-9._/-]+",
-        )
-        return any(re.fullmatch(p, txt, flags=re.I) for p in patterns)
-
-
-    def _piece_value_for_db(value):
-        """Salva i pezzi senza .0 quando il valore è intero.
-
-        Il campo pezzo del gestionale può essere testuale o numerico a seconda
-        dello schema esistente. Restituendo un intero per i valori interi si
-        evita che una nuova riga venga visualizzata come 4.0 invece di 4.
-        """
-        try:
-            f = float(value or 0)
-            if abs(f - round(f)) < 0.000001:
-                return int(round(f))
-            return _fmt_num_clean(f)
-        except Exception:
-            return _fmt_num_clean(value)
-
-    def _split_quantita(orig_pezzi, q_scelta, orig_valore):
-        """Ripartisce peso/m2/m3 proporzionalmente ai pezzi."""
-        op = _num_float(orig_pezzi)
-        q = _num_float(q_scelta)
-        val = _num_float(orig_valore)
-        if op <= 0 or q <= 0 or val <= 0:
-            return orig_valore, orig_valore
-        if q > op:
-            q = op
-        scelto = val * (q / op)
-        residuo = max(0.0, val - scelto)
-        return residuo, scelto
-
-
-    def _round_db_number(value, ndigits=6):
-        """Numero pulito per DB/campi numerici: usa float e punto decimale, non virgola."""
-        try:
-            f = float(value or 0)
-            return round(f, ndigits)
-        except Exception:
-            return value
-
-    def _is_package_token(value):
-        """True solo per un riferimento logistico puro, non per Package+codice.
-
-        Prima bastava che la parola PACKAGE fosse presente nella stringa: quindi
-        una cella come ``PACKAGE 11-CB052CB`` veniva considerata interamente un
-        package e il codice CB052CB non veniva mai rimosso dal residuo.
-        """
-        txt = re.sub(r"\s+", " ", str(value or "").strip())
-        if not txt:
-            return False
-        patterns = (
-            r"(?:PACKAGE|PKG)\s*(?:(?:NO|N)\.?)?\s*[:#.]?\s*[A-Z0-9]+",
-            r"PALLET\s*[:#.]?\s*[A-Z0-9][A-Z0-9._/\-]*",
-            r"(?:CASSA|CASE)\s*[:#.]?\s*[A-Z0-9][A-Z0-9._/\-]*",
-        )
-        return any(re.fullmatch(pat, txt, flags=re.I) for pat in patterns)
-
-
-    def _dedupe_code_parts(parts):
-        """Rimuove duplicati da package e marca-pezzi mantenendo l'ordine."""
-        out = []
-        seen = set()
-        for part in parts or []:
-            value = str(part or '').strip(' -/')
-            key = _norm_for_match(value)
-            if value and key and key not in seen:
-                seen.add(key)
-                out.append(value)
-        return out
-
-    def _normalizza_codice_articolo(value):
-        """Normalizza il campo Codice usando sempre il trattino come separatore.
-
-        Esempio:
-        PACKAGE N.11 / CB051CF / CB052CF
-        diventa:
-        PACKAGE N.11-CB051CF-CB052CF
-        """
-        parts = _split_multi_value(value) or [str(value or '').strip()]
-        package_parts = _dedupe_code_parts([p for p in parts if _is_package_token(p)])
-        code_parts = _dedupe_code_parts([p for p in parts if not _is_package_token(p)])
-        return '-'.join(package_parts + code_parts).strip('-')
-
-    def _ricostruisci_codice_residuo(original, selected):
-        """Ricostruisce da zero il codice della riga residua.
-
-        Non usa replace e non riaggiunge la stringa originale. Conserva una sola
-        volta PACKAGE/PALLET/CASSA, elimina esclusivamente i marca-pezzi scelti e
-        usa sempre '-' come separatore.
-        """
-        original_parts = _split_multi_value(original) or [str(original or '').strip()]
-        selected_parts = _split_multi_value(selected) or [str(selected or '').strip()]
-
-        package_parts = _dedupe_code_parts([p for p in original_parts if _is_package_token(p)])
-        original_codes = _dedupe_code_parts([p for p in original_parts if not _is_package_token(p)])
-        selected_norms = {
-            _norm_for_match(p)
-            for p in selected_parts
-            if p and not _is_package_token(p) and _norm_for_match(p)
-        }
-
-        residual_codes = [
-            code for code in original_codes
-            if _norm_for_match(code) not in selected_norms
-        ]
-        return '-'.join(package_parts + residual_codes).strip('-')
-
-    def _selected_matches_part(part, selected_norms):
-        """True se un elemento della riga originale corrisponde a uno dei codici scelti.
-
-        Non elimina mai il Package/Pallet/Cassa: quelli devono restare sulla riga residua.
-        """
-        if _is_package_token(part):
-            return False
-
-        pn = _norm_for_match(part)
-        if not pn or not selected_norms:
-            return False
-
-        for sn in selected_norms:
-            if not sn:
-                continue
-            # Dopo la separazione dei marca-pezzi concatenati il confronto deve
-            # essere esatto: così togliamo soltanto i codici realmente richiesti
-            # e non l'intero blocco residuo.
-            if pn == sn:
-                return True
-        return False
-
-    def _dedupe_keep_order(values):
-        """Rimuove duplicati mantenendo l'ordine."""
-        out = []
-        seen = set()
-        for v in values or []:
-            s = str(v or "").strip()
-            if not s:
-                continue
-            key = _norm_for_match(s)
-            if key and key not in seen:
-                seen.add(key)
-                out.append(s)
-        return out
-
-
-
-    def _format_residuo_parts(parts):
-        """Ricostruisce la cella residua con separatore richiesto: ' - '."""
-        clean = _dedupe_keep_order(parts)
-        return " - ".join(clean).strip(" -")
-
-    def _description_has_multiple_items(value):
-        """Indica se la descrizione sembra davvero composta da più descrizioni separate.
-
-        Se la descrizione è una frase unica, anche se l'utente nel buono la lascia uguale,
-        NON va cancellata dalla riga residua.
-        """
-        parts = _split_multi_value(value)
-        return len(parts) > 1
-
-    def _remove_selected_from_cell(original, selected):
-        """Rimuove dalla cella originale SOLO i codici/descrizioni scelti per il buono.
-
-        Regole definitive:
-        1) Package No. / PKG / Pallet / Cassa non si eliminano mai.
-        2) I marca-pezzo scelti nel buono vengono tolti dalla riga residua.
-        3) Il confronto ignora spazi, trattini, slash e maiuscole/minuscole.
-        4) Funziona anche quando il codice è attaccato al package:
-           "Package No.311-AP/060VR -VA/002VR".
-        """
-        original = str(original or "").strip()
-        selected = str(selected or "").strip()
-
-        if not original or not selected:
-            return original
-
-        original_parts = _split_multi_value(original) or [original]
-        selected_parts = _split_multi_value(selected) or [selected]
-
-        # I package presenti nel selezionato NON sono mai codici da togliere.
-        selected_norms = {
-            _norm_for_match(x)
-            for x in selected_parts
-            if _norm_for_match(x) and not _is_package_token(x)
-        }
-
-        if not selected_norms:
-            return original
-
-        kept = []
-        removed_any = False
-
-        for part in original_parts:
-            if not part:
-                continue
-
-            # Package/Pallet/Cassa sempre conservati.
-            if _is_package_token(part):
-                kept.append(part)
-                continue
-
-            if _selected_matches_part(part, selected_norms):
-                removed_any = True
-                continue
-
-            kept.append(part)
-
-        if removed_any:
-            return _format_residuo_parts(kept)
-
-        # Fallback per casi in cui non si riesce a separare bene la cella:
-        # rimuove testualmente solo i codici scelti, mai il package.
-        new_val = original
-        for item in selected_parts:
-            item = str(item or "").strip()
-            if not item or _is_package_token(item):
-                continue
-            new_val = re.sub(re.escape(item), "", new_val, flags=re.I)
-
-        new_val = re.sub(r"\s*(?:/|;|\||,|\+|-)\s*(?:/|;|\||,|\+|-)\s*", " - ", new_val)
-        new_val = re.sub(r"^\s*(?:/|;|\||,|\+|-)\s*", "", new_val)
-        new_val = re.sub(r"\s*(?:/|;|\||,|\+|-)\s*$", "", new_val)
-        new_val = re.sub(r"\s{2,}", " ", new_val).strip()
-        return new_val
-
-    def _clean_residual_cell(original, selected):
-        """Calcola il residuo eliminando tutti gli elementi messi nel Buono.
-
-        Mantiene sempre Package/Pallet/Cassa. Se la separazione standard non basta,
-        esegue anche una rimozione testuale controllata dei singoli elementi scelti.
-        """
-        original = str(original or '').strip()
-        selected = str(selected or '').strip()
-        if not original or not selected:
-            return original
-
-        residuo = _remove_selected_from_cell(original, selected)
-        selected_parts = _split_multi_value(selected) or [selected]
-
-        # Se un codice scelto è ancora presente nel residuo, lo rimuove testualmente.
-        # Il confronto non tocca mai i riferimenti logistici puri.
-        for item in selected_parts:
-            item = str(item or '').strip()
-            if not item or _is_package_token(item):
-                continue
-            if _norm_for_match(item) and _norm_for_match(item) in _norm_for_match(residuo):
-                residuo = re.sub(re.escape(item), '', residuo, flags=re.I)
-
-        # Ripulisce separatori rimasti doppi o alle estremità.
-        residuo = re.sub(r'\s*(?:;|\||,|\+)\s*(?:;|\||,|\+)\s*', ' - ', residuo)
-        residuo = re.sub(r'\s+-\s+-\s+', ' - ', residuo)
-        residuo = re.sub(r'^(?:\s*[-/;,|+]\s*)+', '', residuo)
-        residuo = re.sub(r'(?:\s*[-/;,|+]\s*)+$', '', residuo)
-        residuo = re.sub(r'\s{2,}', ' ', residuo).strip(' -/;,|+')
-        return residuo
-
-    def _extract_package_context(*values):
-        """Estrae riferimenti logistici da conservare sulla riga residua.
-
-        Riconosce anche formati tipo:
-        Package No.305, Package No. 305, PACKAGE 305, PKG 305.
-        """
-        found = []
-        seen = set()
-        patterns = [
-            r"\bPACKAGE\s*(?:NO\.?|N\.?|NUM\.?)?\s*[:#.]?\s*[A-Z0-9]+",
-            r"\bPKG\s*(?:NO\.?|N\.?)?\s*[:#.]?\s*[A-Z0-9]+",
-            r"\bPALLET\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
-            r"\bCASSA\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
-            r"\bCASE\s*[:#.\-]?\s*[A-Z0-9][A-Z0-9\-_/\.]*",
-        ]
-        for value in values:
-            txt = str(value or "")
-            for pat in patterns:
-                for m in re.finditer(pat, txt, flags=re.I):
-                    label = re.sub(r"\s+", " ", m.group(0).strip())
-                    label = re.sub(r"(?i)\bPackage\s+No\.?\s*", "Package No.", label)
-                    key = _norm_for_match(label)
-                    if key and key not in seen:
-                        seen.add(key)
-                        found.append(label)
-        return found
-
-    def _preserve_package_context(residuo, *sources):
-        """Garantisce che Package/Pallet/Cassa restino sulla riga residua.
-
-        Se il package era nella riga originale e la pulizia lo ha tolto per errore,
-        lo reinserisce in testa alla cella, non in fondo.
-        """
-        residuo = (residuo or "").strip()
-        labels = _extract_package_context(*sources)
-        if not labels:
-            return residuo
-
-        parts = _split_multi_value(residuo) if residuo else []
-        current_norms = {_norm_for_match(x) for x in parts}
-
-        # Package prima, poi tutti gli altri codici rimasti.
-        final_parts = []
-        for label in labels:
-            if _norm_for_match(label) not in current_norms:
-                final_parts.append(label)
-
-        final_parts.extend(parts)
-        final_parts = _dedupe_keep_order(final_parts)
-
-        return _format_residuo_parts(final_parts)
-
-
-
-
-    def _safe_int_picking(value):
-        """Converte interi lasciando None se il campo è vuoto."""
-        s = str(value or "").strip().replace(",", ".")
-        if not s:
-            return None
-        try:
-            return int(float(s))
-        except Exception:
-            return None
-
-    def _safe_float_picking(value):
-        """Converte numeri italiani/inglesi lasciando None se il campo è vuoto."""
-        s = str(value or "").strip().replace(",", ".")
-        if not s:
-            return None
-        try:
-            return float(s)
-        except Exception:
-            return None
-
-    def _date_from_buono_form(value):
-        """Accetta DD/MM/YYYY o YYYY-MM-DD e restituisce date."""
-        s = str(value or "").strip()
-        if not s:
-            return date.today()
-        for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
             try:
-                return datetime.strptime(s, fmt).date()
+                clienti_validi = list(get_clienti_utenti())
             except Exception:
-                pass
-        return date.today()
+                clienti_validi = []
 
-    def _join_unique(values, max_len=500):
-        out, seen = [], set()
-        for v in values or []:
-            s = str(v or "").strip()
-            if not s:
-                continue
-            key = s.upper()
-            if key not in seen:
-                seen.add(key)
-                out.append(s)
-        return "; ".join(out)[:max_len]
-
-    def _sum_int_attr(rows, attr):
-        tot = 0
-        for r in rows or []:
-            try:
-                tot += int(float(getattr(r, attr, 0) or 0))
-            except Exception:
-                pass
-        return tot
-
-    def _create_picking_from_buono_form(db, form, rows, buono_n):
-        """Crea o aggiorna la riga Picking/Lavorazioni collegata al Buono.
-
-        Scrive direttamente nella tabella lavorazioni.
-        Se trova stesso giorno + stesso buono/seriale aggiorna il record invece di bloccare.
-        """
-        try:
-            dt = _date_from_buono_form(form.get('picking_data') or form.get('data_em'))
-            cliente = (form.get('picking_cliente') or _join_unique([getattr(r, 'cliente', '') for r in rows], 120)).strip()
-            descrizione = (form.get('picking_descrizione') or 'PICKING+FILMATURA+PALLETIZZAZIONE').strip()
-            richiesta_di = (form.get('picking_richiesta_di') or '').strip()
-            seriali = (form.get('picking_seriali') or buono_n or '').strip()
-            if not seriali:
-                seriali = str(buono_n or '').strip()
-            n_arrivo = (form.get('picking_n_arrivo') or _join_unique([getattr(r, 'n_arrivo', '') for r in rows], 500)).strip()
-
-            colli = _safe_int_picking(form.get('picking_colli'))
-            if colli is None:
-                colli = _sum_int_attr(rows, 'n_colli') or len(rows or []) or 0
-
-            pallet_forniti = _safe_int_picking(form.get('picking_pallet_entrati'))
-            pallet_uscita = _safe_int_picking(form.get('picking_pallet_usciti'))
-            ore_blue = _safe_float_picking(form.get('picking_ore_blue'))
-            ore_white = _safe_float_picking(form.get('picking_ore_white'))
-
-            if not cliente:
-                cliente = _join_unique([getattr(r, 'cliente', '') for r in rows], 120)
-            if not descrizione:
-                descrizione = 'PICKING+FILMATURA+PALLETIZZAZIONE'
-            if not (cliente or seriali or n_arrivo):
-                return False, "Picking non creato: dati insufficienti."
-
-            params = {
-                "data": dt,
-                "cliente": cliente,
-                "descrizione": descrizione,
-                "richiesta_di": richiesta_di,
-                "seriali": seriali,
-                "n_arrivo": n_arrivo,
-                "colli": colli,
-                "pallet_forniti": pallet_forniti,
-                "pallet_uscita": pallet_uscita,
-                "ore_blue_collar": ore_blue,
-                "ore_white_collar": ore_white,
-            }
-
-            # Assicura colonna n_arrivo su PostgreSQL. Se non supportato, non blocca.
-            try:
-                db.execute(text("ALTER TABLE lavorazioni ADD COLUMN IF NOT EXISTS n_arrivo TEXT"))
-                db.commit()
-            except Exception:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
-
-            # Verifica colonne realmente disponibili.
-            has_n_arrivo = True
-            try:
-                cols = db.execute(text("""
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_name = 'lavorazioni'
-                """)).fetchall()
-                col_names = {str(c[0]) for c in cols}
-                has_n_arrivo = 'n_arrivo' in col_names
-            except Exception:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
-                has_n_arrivo = hasattr(Lavorazione, 'n_arrivo') if 'Lavorazione' in globals() else True
-
-            # Cerca record esistente: stesso giorno + stesso buono/seriale.
-            existing = None
-            try:
-                existing = db.execute(text("""
-                    SELECT id FROM lavorazioni
-                    WHERE data = :data
-                      AND UPPER(COALESCE(seriali, '')) = UPPER(:seriali)
-                    LIMIT 1
-                """), {"data": dt, "seriali": seriali}).fetchone()
-            except Exception:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
-                existing = None
-
-            if existing:
-                params["id"] = existing[0]
-                if has_n_arrivo:
-                    db.execute(text("""
-                        UPDATE lavorazioni
-                        SET cliente = :cliente,
-                            descrizione = :descrizione,
-                            richiesta_di = :richiesta_di,
-                            seriali = :seriali,
-                            n_arrivo = :n_arrivo,
-                            colli = :colli,
-                            pallet_forniti = :pallet_forniti,
-                            pallet_uscita = :pallet_uscita,
-                            ore_blue_collar = :ore_blue_collar,
-                            ore_white_collar = :ore_white_collar
-                        WHERE id = :id
-                    """), params)
-                else:
-                    db.execute(text("""
-                        UPDATE lavorazioni
-                        SET cliente = :cliente,
-                            descrizione = :descrizione,
-                            richiesta_di = :richiesta_di,
-                            seriali = :seriali,
-                            colli = :colli,
-                            pallet_forniti = :pallet_forniti,
-                            pallet_uscita = :pallet_uscita,
-                            ore_blue_collar = :ore_blue_collar,
-                            ore_white_collar = :ore_white_collar
-                        WHERE id = :id
-                    """), params)
-                db.commit()
-                return True, "Picking aggiornato correttamente."
-
-            if has_n_arrivo:
-                db.execute(text("""
-                    INSERT INTO lavorazioni
-                    (data, cliente, descrizione, richiesta_di, seriali, n_arrivo, colli,
-                     pallet_forniti, pallet_uscita, ore_blue_collar, ore_white_collar)
-                    VALUES
-                    (:data, :cliente, :descrizione, :richiesta_di, :seriali, :n_arrivo, :colli,
-                     :pallet_forniti, :pallet_uscita, :ore_blue_collar, :ore_white_collar)
-                """), params)
-            else:
-                db.execute(text("""
-                    INSERT INTO lavorazioni
-                    (data, cliente, descrizione, richiesta_di, seriali, colli,
-                     pallet_forniti, pallet_uscita, ore_blue_collar, ore_white_collar)
-                    VALUES
-                    (:data, :cliente, :descrizione, :richiesta_di, :seriali, :colli,
-                     :pallet_forniti, :pallet_uscita, :ore_blue_collar, :ore_white_collar)
-                """), params)
-            db.commit()
-            return True, "Picking creato correttamente."
-
-        except Exception as e:
-            try:
-                db.rollback()
-            except Exception:
-                pass
-            try:
-                scrivi_log_errore("Errore salvataggio picking da buono", e)
-            except Exception:
-                pass
-            return False, f"Picking non creato: {e}"
-
-    def _next_buono_number(db):
-        """Genera automaticamente il prossimo N. buono.
-
-        Formato usato: 001/26, 002/26, ...
-        Legge i buoni già presenti in Articolo.buono_n e incrementa il numero più alto
-        riferito all'anno corrente; se non trova riferimenti all'anno, incrementa comunque
-        il numero più alto disponibile.
-        """
-        yy = datetime.today().strftime("%y")
-        max_current_year = 0
-        max_any = 0
-        try:
-            values = db.query(Articolo.buono_n).filter(Articolo.buono_n != None).all()
-        except Exception:
-            values = []
-
-        for row in values:
-            raw = row[0] if isinstance(row, (tuple, list)) else row
-            txt = str(raw or "").strip()
-            if not txt:
-                continue
-            m = re.search(r"(\d{1,6})", txt)
-            if not m:
-                continue
-            try:
-                n = int(m.group(1))
-            except Exception:
-                continue
-            max_any = max(max_any, n)
-            if re.search(rf"(?:/|-|\b){re.escape(yy)}\b", txt):
-                max_current_year = max(max_current_year, n)
-
-        base = max_current_year or max_any
-        return f"{base + 1:03d}/{yy}"
-
-
-    def _safe_text(value):
-        return str(value or '').strip()
-
-    def _first_nonempty(rows, attr):
-        for r in rows or []:
-            v = _safe_text(getattr(r, attr, ''))
-            if v:
-                return v
-        return ''
-
-    def _sum_pezzi_rows(rows):
-        tot = 0.0
-        for r in rows or []:
-            try:
-                tot += _num_float(getattr(r, 'pezzo', 0))
-            except Exception:
-                pass
-        if abs(tot - int(tot)) < 0.000001:
-            return str(int(tot)) if tot else ''
-        return str(round(tot, 2)).replace('.', ',')
-
-    def _generate_cartello_fincantieri_pdf(form, rows, buono_n):
-        """Genera un PDF multipagina: 1 cartello per ogni riga spuntata."""
-        from reportlab.pdfgen import canvas
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.utils import ImageReader
-        import io as _io
-        import os as _os
-        import textwrap as _textwrap
-
-        bio = _io.BytesIO()
-        c = canvas.Canvas(bio, pagesize=A4)
-        width, height = A4
-
-        bn = _safe_text(buono_n) or _safe_text(form.get('buono_n'))
-
-        selected_ids = set()
-        try:
-            selected_ids = {str(x).strip() for x in form.getlist('cartello_id') if str(x).strip()}
-        except Exception:
-            selected_ids = set()
-
-        selected_rows = []
-        for r in rows or []:
-            rid = str(getattr(r, 'id_articolo', '') or '').strip()
-            if not selected_ids or rid in selected_ids:
-                selected_rows.append(r)
-
-        def draw_wrapped(value, x, y, max_width=None, size=30, bold=False, max_lines=3):
-            """Scrive il testo andando a capo in base allo spazio reale disponibile.
-
-            Per i marca-pezzi prova prima a spezzare dopo i trattini, così codici come
-            PACKAGE N.11-CB051CF-CB052CF-CB053CF non vengono tagliati fuori pagina.
-            """
-            value = _safe_text(value)
-            if not value:
-                return y
-
-            font = 'Helvetica-Bold' if bold else 'Helvetica'
-            c.setFont(font, size)
-            max_width = float(max_width or (width - x - 35))
-
-            # Mantiene il trattino sul codice precedente e permette il ritorno a capo
-            # subito dopo ogni marca-pezzo.
-            tokens = [t for t in re.split(r'(?<=-)|\s+', value) if t]
-            lines = []
-            current = ''
-
-            for token in tokens:
-                candidate = token if not current else current + token
-                if c.stringWidth(candidate, font, size) <= max_width:
-                    current = candidate
+            alias_cliente = {}
+            for c in clienti_validi:
+                cn = (c or '').strip().upper()
+                if not cn:
                     continue
+                alias_cliente[_norm_cliente_token(cn)] = cn
+                if _norm_cliente_token(cn) == 'RFDEWAVE':
+                    alias_cliente['DEWAVERF'] = cn
+                if _norm_cliente_token(cn) == 'DEWAVERF':
+                    alias_cliente['RFDEWAVE'] = cn
+                if _norm_cliente_token(cn) == 'GALVANOTECNICA':
+                    alias_cliente['GALVANOTECNICA'] = cn
 
-                if current:
-                    lines.append(current.rstrip())
-                    current = token.lstrip()
-                else:
-                    # Token eccezionalmente lungo: lo divide carattere per carattere
-                    # per garantire che non esca mai dal foglio.
-                    piece = ''
-                    for ch in token:
-                        test = piece + ch
-                        if piece and c.stringWidth(test, font, size) > max_width:
-                            lines.append(piece)
-                            piece = ch
-                        else:
-                            piece = test
-                    current = piece
+            def _cliente_riconosciuto(raw_cliente, codice_entrata=None):
+                raw = (raw_cliente or '').strip()
+                raw_up = raw.upper()
+                if raw and raw_up not in ('NONE', 'NULL', 'NAT', 'NAN', 'SENZA CLIENTE'):
+                    nraw = _norm_cliente_token(raw)
+                    if nraw in alias_cliente:
+                        return alias_cliente[nraw], True, nraw
+                    # Se il campo cliente è valorizzato ma non corrisponde agli utenti,
+                    # lo mostriamo comunque come da verificare.
+                    return raw_up, False, nraw
 
-            if current:
-                lines.append(current.rstrip())
+                codice = (codice_entrata or '').strip().upper()
+                if codice.startswith('ENT-'):
+                    parts = codice.split('-')
+                    if len(parts) >= 4:
+                        token = _norm_cliente_token(parts[2])
+                        if token in alias_cliente:
+                            return alias_cliente[token], True, token
+                        if token in ('RFDEWAVE', 'DEWAVERF') and 'RF-DE WAVE' in clienti_validi:
+                            return 'RF-DE WAVE', True, token
+                return 'SENZA CLIENTE', False, ''
 
-            for text_line in lines[:max_lines]:
-                c.drawString(x, y, text_line)
-                y -= size + 8
-            return y
+            cliente_corrente = current_cliente()
+            filters = [_is_active_expr()]
+            if cliente_corrente:
+                filters.append(_cliente_key_expr(Articolo.cliente) == cliente_corrente.upper())
 
-        if not selected_rows:
-            c.setFont('Helvetica-Bold', 24)
-            c.drawCentredString(width / 2, height / 2, 'Nessun cartello selezionato')
-            c.showPage()
-            c.save()
-            bio.seek(0)
-            return bio
-
-        total = len(selected_rows)
-
-        for idx, r in enumerate(selected_rows, start=1):
-            rid = getattr(r, 'id_articolo', None)
-
-            cliente = (
-                _safe_text(form.get(f'cartello_cliente_{rid}'))
-                or _safe_text(getattr(r, 'cliente', ''))
-                or _safe_text(form.get('picking_cliente'))
+            rows = (
+                db.query(Articolo)
+                .filter(*filters)
+                .order_by(Articolo.id_articolo.desc())
+                .limit(1000)
+                .all()
             )
-            ditta = (
-                _safe_text(form.get(f'cartello_ditta_{rid}'))
-                or _safe_text(getattr(r, 'fornitore', ''))
-                or _safe_text(form.get('fornitore'))
-            )
-            marca_pezzi = (
-                _safe_text(form.get(f'codice_buono_{rid}'))
-                or _safe_text(getattr(r, 'codice_articolo', ''))
-            )
-            descrizione = (
-                _safe_text(form.get(f'descrizione_buono_{rid}'))
-                or _safe_text(getattr(r, 'descrizione', ''))
-            )
-            protocollo = _safe_text(getattr(r, 'protocollo', '')) or _safe_text(form.get('protocollo'))
-            arrivo = _safe_text(getattr(r, 'n_arrivo', ''))
-            n_pallet = _safe_text(form.get(f'cartello_n_pallet_{rid}')) or str(idx)
-            posizione = _safe_text(form.get(f'cartello_posizione_{rid}')) or _safe_text(getattr(r, 'posizione', ''))
-            destinazione = _safe_text(form.get(f'cartello_destinazione_{rid}'))
-            n_pezzi = _safe_text(form.get(f'q_{rid}')) or _safe_text(getattr(r, 'pezzo', ''))
 
-            titolo_cliente = cliente.upper() if cliente else 'FINCANTIERI'
-            titolo = f"{titolo_cliente} PICKING"
+            problemi = []
+            for a in rows:
+                nome, ok, norm = _cliente_riconosciuto(getattr(a, 'cliente', None), getattr(a, 'codice_entrata', None))
+                raw = (getattr(a, 'cliente', '') or '').strip()
+                if (not ok) or nome in ('SENZA CLIENTE', 'CLIENTE DA VERIFICARE'):
+                    problemi.append({
+                        'id': getattr(a, 'id_articolo', ''),
+                        'cliente_raw': raw or '-',
+                        'cliente_letto': nome,
+                        'normalizzato': norm or '-',
+                        'codice_entrata': getattr(a, 'codice_entrata', '') or '-',
+                        'n_arrivo': getattr(a, 'n_arrivo', '') or '-',
+                        'ddt': getattr(a, 'n_ddt_ingresso', '') or '-',
+                        'codice': getattr(a, 'codice_articolo', '') or '-',
+                        'descrizione': (getattr(a, 'descrizione', '') or '-')[:120],
+                        'colli': getattr(a, 'n_colli', '') or 0,
+                    })
 
+            html = """
+            {% extends 'base.html' %}
+            {% block content %}
+            <div class="container-fluid py-3">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <h4 class="mb-0">Righe cliente da verificare</h4>
+                        <div class="text-muted small">Queste sono le righe che generano la voce SENZA CLIENTE / CLIENTE DA VERIFICARE nella dashboard.</div>
+                    </div>
+                    <a href="{{ url_for('home') }}" class="btn btn-outline-secondary btn-sm">Torna alla dashboard</a>
+                </div>
+                <div class="alert alert-info">
+                    Se qui vedi un cliente valorizzato, significa che il nome nel database non coincide perfettamente con l'elenco utenti/clienti. Puoi aprire la riga e correggere il campo Cliente.
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped align-middle">
+                        <thead>
+                            <tr>
+                                <th>ID</th><th>Cliente nel DB</th><th>Cliente letto</th><th>Normalizzato</th><th>N. Arrivo</th><th>DDT</th><th>Codice</th><th>Descrizione</th><th class="text-end">Colli</th><th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for r in problemi %}
+                            <tr>
+                                <td>{{ r.id }}</td>
+                                <td>{{ r.cliente_raw }}</td>
+                                <td>{{ r.cliente_letto }}</td>
+                                <td><code>{{ r.normalizzato }}</code></td>
+                                <td>{{ r.n_arrivo }}</td>
+                                <td>{{ r.ddt }}</td>
+                                <td>{{ r.codice }}</td>
+                                <td>{{ r.descrizione }}</td>
+                                <td class="text-end">{{ r.colli }}</td>
+                                <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('giacenze', id=r.id) }}">Apri</a></td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="10" class="text-center text-muted py-3">Nessuna riga da verificare.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endblock %}
+            """
+            return render_template_string(html, problemi=problemi)
+        except Exception as e:
             try:
-                logo_path = globals().get('LOGO_PATH')
-                if logo_path and _os.path.exists(logo_path):
-                    img = ImageReader(logo_path)
-                    c.drawImage(img, width / 2 - 80, height - 95, width=160, height=55,
-                                preserveAspectRatio=True, mask='auto')
+                scrivi_log_errore('Errore righe cliente da verificare dashboard', e)
+            except Exception:
+                pass
+            return f"<h1>Errore</h1><p>{e}</p><a href='/home'>Torna alla dashboard</a>", 500
+        finally:
+            try:
+                db.close()
             except Exception:
                 pass
 
-            y = height - 155
-            c.setFont('Helvetica-Bold', 30)
-            c.drawCentredString(width / 2, y, titolo[:34])
-            y -= 62
-
-            def line(label, value='', size=31, bold_value=True, max_lines=2, value_below=False):
-                nonlocal y
-                label = _safe_text(label)
-                value = _safe_text(value)
-                c.setFont('Helvetica-Bold', size)
-                c.drawString(35, y, label)
-
-                if not value:
-                    y -= 58
-                    return
-
-                if value_below:
-                    # Il valore parte dalla riga successiva e sfrutta tutta la larghezza.
-                    value_y = y - size - 10
-                    y_after = draw_wrapped(
-                        value, 35, value_y,
-                        max_width=width - 70,
-                        size=size,
-                        bold=bold_value,
-                        max_lines=max_lines
-                    )
-                    y = y_after - 12
-                else:
-                    x_val = 35 + c.stringWidth(label, 'Helvetica-Bold', size) + 8
-                    y_after = draw_wrapped(
-                        value, x_val, y,
-                        max_width=width - x_val - 35,
-                        size=size,
-                        bold=bold_value,
-                        max_lines=max_lines
-                    )
-                    y = min(y - 58, y_after - 12)
-
-            line('DITTA :', ditta, 31, True, 2)
-            line('N.BUONO:', bn, 31, True, 1)
-            # I marca-pezzi vanno sotto l'etichetta e a capo dopo i trattini:
-            # in questo modo non vengono mai tagliati sul bordo destro del cartello.
-            line('MARCA PEZZI:', marca_pezzi, 26, True, 4, value_below=True)
-            line('DESCRIZIONE:', descrizione, 24, False, 2)
-            line('PROTOCOLLO:', protocollo, 26, False, 2)
-            line('ARRIVO ', arrivo, 31, False, 1)
-            line('N.PALLET:', n_pallet, 31, True, 1)
-            line('N. PEZZI:', n_pezzi, 31, True, 1)
-
-            if posizione:
-                line('POSIZIONE:', posizione, 24, True, 34, 1)
-            if destinazione:
-                line('DESTINAZIONE:', destinazione, 24, True, 30, 1)
-
-            c.setFont('Helvetica-Bold', 18)
-            c.drawCentredString(width / 2, 45, f'CARTELLO {idx} DI {total}')
-
-            c.showPage()
-
-        c.save()
-        bio.seek(0)
-        return bio
-
-    def _extract_ids_from_request(req_data):
-        """Legge gli ID selezionati anche quando arrivano da più pagine.
-
-        Accetta sia:
-        - ids ripetuti: ids=1&ids=2&ids=3
-        - ids come stringa: ids=1,2,3
-        - selected_ids_all: 1,2,3  (campo robusto aggiunto da giacenze.html)
-        """
-        raw_values = []
-        try:
-            # Campo definitivo inviato da giacenze.html per selezioni su più pagine.
-            ids_all = (req_data.get('ids_all') or '').strip()
-            if ids_all:
-                raw_values.append(ids_all)
-        except Exception:
-            pass
-        try:
-            all_ids = (req_data.get('selected_ids_all') or '').strip()
-            if all_ids:
-                raw_values.append(all_ids)
-        except Exception:
-            pass
-        try:
-            raw_values.extend(req_data.getlist('ids'))
-        except Exception:
-            v = req_data.get('ids') if hasattr(req_data, 'get') else ''
-            if v:
-                raw_values.append(v)
-
-        ids = []
-        seen = set()
-        for raw in raw_values:
-            for part in re.split(r'[,;\s]+', str(raw or '')):
-                part = part.strip()
-                if part.isdigit() and part not in seen:
-                    seen.add(part)
-                    ids.append(int(part))
-        return ids
-
-    @app.route('/buono/preview', methods=['POST'])
+    @app_obj.route('/dashboard/cerca', endpoint='dashboard_ricerca_globale')
     @login_required
-    def buono_preview():
-        if session.get('role') != 'admin':
-            flash('Accesso negato.', 'danger')
-            return redirect(url_for('giacenze'))
-
-        ids = _extract_ids_from_request(request.form)
-
-        if not ids:
-            flash("Seleziona almeno un articolo per creare il buono.", "warning")
-            return redirect(url_for('giacenze'))
+    def dashboard_ricerca_globale():
+        query_value = (request.args.get('q') or '').strip()
+        if not query_value:
+            return redirect(url_for('home'))
 
         db = SessionLocal()
         try:
-            rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-            if not rows:
-                flash("⚠️ Nessun articolo trovato per gli ID selezionati. Torna alle Giacenze e ripeti la selezione.", "warning")
-                return redirect(url_for('giacenze'))
-            if len(rows) != len(ids):
-                flash(f"⚠️ Attenzione: selezionati {len(ids)} ID ma trovati {len(rows)} articoli. Verifica eventuali righe eliminate o filtri attivi.", "warning")
-            if len(ids) > 50:
-                flash(f"ℹ️ Buono multipagina: {len(ids)} articoli selezionati. Controlla il numero righe nell'anteprima prima di salvare.", "info")
-            ordine_ids = {idv: idx for idx, idv in enumerate(ids)}
-            rows.sort(key=lambda r: ordine_ids.get(getattr(r, 'id_articolo', 0), 999999))
+            like_value = f"%{query_value}%"
+            filters = [
+                or_(
+                    Articolo.codice_articolo.ilike(like_value),
+                    Articolo.lotto.ilike(like_value),
+                    Articolo.n_arrivo.ilike(like_value),
+                    Articolo.protocollo.ilike(like_value),
+                    Articolo.serial_number.ilike(like_value),
+                    Articolo.cliente.ilike(like_value),
+                    Articolo.n_ddt_ingresso.ilike(like_value),
+                    Articolo.n_ddt_uscita.ilike(like_value),
+                    Articolo.buono_n.ilike(like_value),
+                    Articolo.descrizione.ilike(like_value),
+                )
+            ]
+            cliente_corrente = ''
+            try:
+                role_value = (session.get('role') or getattr(current_user, 'role', '') or '').strip().lower()
+                if role_value == 'client':
+                    cliente_corrente = (getattr(current_user, 'id', '') or session.get('user') or '').strip().upper()
+            except Exception:
+                cliente_corrente = ''
+            if cliente_corrente:
+                filters.append(func.upper(func.coalesce(Articolo.cliente, '')) == cliente_corrente)
 
-            protocolli_trovati = set()
-            for r in rows:
-                if r.protocollo and str(r.protocollo).strip():
-                    protocolli_trovati.add(str(r.protocollo).strip())
-            protocollo_auto = ", ".join(sorted(protocolli_trovati))
+            rows = (
+                db.query(Articolo)
+                .filter(*filters)
+                .order_by(Articolo.id_articolo.desc())
+                .limit(200)
+                .all()
+            )
 
-            commessa_auto = next((r.commessa for r in rows if r.commessa), "")
-            fornitore_auto = next((r.fornitore for r in rows if r.fornitore), "")
-            buono_n_esistente = next((r.buono_n for r in rows if r.buono_n), "")
-            buono_n_auto = buono_n_esistente or _next_buono_number(db)
-            ordine_auto = next((r.ordine for r in rows if r.ordine), "")
+            if len(rows) == 1:
+                return redirect(url_for('giacenze', id=rows[0].id_articolo))
 
-            is_galvano = _tutte_righe_galvano(rows)
-            picking_cliente_auto = _join_unique([getattr(r, 'cliente', '') for r in rows], 120)
-            picking_n_arrivo_auto = _join_unique([getattr(r, 'n_arrivo', '') for r in rows], 500)
-            picking_colli_auto = _sum_int_attr(rows, 'n_colli') or len(rows)
-
-            meta = {
-                "buono_n": buono_n_auto,
-                "buono_n_auto": buono_n_auto,
-                "buono_n_esistente": buono_n_esistente,
-                "data_em": datetime.today().strftime("%d/%m/%Y"),
-                "commessa": commessa_auto,
-                "fornitore": fornitore_auto,
-                "protocollo": protocollo_auto,
-                "ordine": ordine_auto,
-                "picking_cliente": picking_cliente_auto,
-                "picking_descrizione": "PICKING+FILMATURA+PALLETIZZAZIONE",
-                "picking_richiesta_di": "",
-                "picking_seriali": buono_n_auto,
-                "picking_n_arrivo": picking_n_arrivo_auto,
-                "picking_colli": picking_colli_auto,
-                "cartello_ditta": fornitore_auto,
-                "cartello_n_pallet": "",
-                "cartello_n_pezzi": _sum_pezzi_rows(rows),
-                "cartello_marca_pezzi": "",
-            }
-
-            return render_template('buono_preview.html', rows=rows, meta=meta, ids=",".join(map(str, ids)), is_galvano=is_galvano)
+            html = """
+            {% extends 'base.html' %}
+            {% block content %}
+            <div class="container-fluid py-3">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <h4 class="mb-0"><i class="bi bi-search"></i> Ricerca globale</h4>
+                        <div class="text-muted">Risultati per: <b>{{ query_value }}</b></div>
+                    </div>
+                    <a href="{{ url_for('home') }}" class="btn btn-outline-secondary btn-sm">Dashboard</a>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped align-middle">
+                        <thead>
+                            <tr>
+                                <th>ID</th><th>Cliente</th><th>Codice</th><th>Descrizione</th>
+                                <th>Lotto</th><th>N. Arrivo</th><th>Protocollo</th><th>Seriale</th><th>Buono</th><th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for r in rows %}
+                            <tr>
+                                <td>{{ r.id_articolo }}</td>
+                                <td>{{ r.cliente or '-' }}</td>
+                                <td>{{ r.codice_articolo or '-' }}</td>
+                                <td>{{ (r.descrizione or '-')[:100] }}</td>
+                                <td>{{ r.lotto or '-' }}</td>
+                                <td>{{ r.n_arrivo or '-' }}</td>
+                                <td>{{ r.protocollo or '-' }}</td>
+                                <td>{{ r.serial_number or '-' }}</td>
+                                <td>{{ r.buono_n or '-' }}</td>
+                                <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('giacenze', id=r.id_articolo) }}">Apri</a></td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="10" class="text-center text-muted py-4">Nessun risultato.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endblock %}
+            """
+            return render_template_string(html, rows=rows, query_value=query_value)
         finally:
             db.close()
 
-    @app.route('/buono/finalize_and_get_pdf', methods=['POST'])
+
+    @app_obj.route('/home', endpoint='home')
     @login_required
-    def buono_finalize_and_get_pdf():
-        """Valida e salva il Buono; il controllo pezzi vale solo per i due clienti Fincantieri."""
+    def home():
         db = SessionLocal()
-
-        class BuonoValidationError(Exception):
-            pass
-
         try:
-            req_data = request.form
-            ids = _extract_ids_from_request(req_data)
-            if not ids:
-                raise BuonoValidationError("Nessuna riga selezionata per il Buono.")
+            today_obj = date.today()
+            today_iso = today_obj.strftime('%Y-%m-%d')
+            today_it = today_obj.strftime('%d/%m/%Y')
+            cutoff_90_iso = (today_obj - timedelta(days=90)).strftime('%Y-%m-%d')
+            cliente_corrente = current_cliente()
 
-            rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-            if len(rows) != len(ids):
-                raise BuonoValidationError(
-                    "Una o più righe non sono più disponibili. Aggiorna le Giacenze e ripeti la selezione."
-                )
+            def _cliente_filter(model=Articolo):
+                if cliente_corrente:
+                    return [_cliente_key_expr(model.cliente) == cliente_corrente.upper()]
+                return []
 
-            ordine_ids = {idv: idx for idx, idv in enumerate(ids)}
-            rows.sort(key=lambda r: ordine_ids.get(getattr(r, 'id_articolo', 0), 999999))
+            active_filter = [_is_active_expr()] + _cliente_filter(Articolo)
+            all_filter = _cliente_filter(Articolo)
 
-            action = (req_data.get('action') or 'preview').strip().lower()
-            buono_mode = (req_data.get('buono_mode') or 'auto').strip().lower()
-            # Il numero mostrato nell'anteprima viene inviato dal form e deve essere
-            # usato identico nel PDF, nel Picking e nella giacenza.
-            # Prima, in modalità automatica, veniva calcolato una seconda volta qui:
-            # il PDF leggeva il numero del form (es. 407/26), mentre il database
-            # riceveva il nuovo numero ricalcolato (es. 408/26).
-            bn = (req_data.get('buono_n') or '').strip()
-            if not bn:
-                bn = _next_buono_number(db)
-
-            if action == 'cartello':
-                pdf_bio = _generate_cartello_fincantieri_pdf(req_data, rows, bn)
-                safe_bn = (bn or "senza_numero").replace("/", "-").replace("\\", "-")
-                return send_file(
-                    pdf_bio,
-                    as_attachment=False,
-                    download_name=f'Cartello_Fincantieri_{safe_bn}.pdf',
-                    mimetype='application/pdf'
-                )
-
-            # Anteprima: nessuna modifica al database.
-            if action != 'save':
-                pdf_bio = _generate_buono_pdf(req_data, rows)
-                safe_bn = (bn or "senza_numero").replace("/", "-").replace("\\", "-")
-                return send_file(
-                    pdf_bio,
-                    as_attachment=False,
-                    download_name=f'Buono_{safe_bn}.pdf',
-                    mimetype='application/pdf'
-                )
-
-            # -----------------------------------------------------------------
-            # VALIDAZIONE COMPLETA PRIMA DI MODIFICARE QUALSIASI RIGA
-            # -----------------------------------------------------------------
-            # REGOLA DEFINITIVA:
-            # il controllo quantità viene deciso da una sola funzione,
-            # così non esistono regole duplicate o incoerenti.
-            prepared = []
-
-            for r in rows:
-                rid = r.id_articolo
-                old_cod = (r.codice_articolo or '').strip()
-                old_desc = (r.descrizione or '').strip()
-                codice_scelto = (req_data.get(f"codice_buono_{rid}") or old_cod).strip()
-                descr_scelta = (req_data.get(f"descrizione_buono_{rid}") or old_desc).strip()
-                q_raw = (req_data.get(f"q_{rid}") or '').strip()
-
-                # Controllo concorrenza: il codice deve essere ancora uguale a quello
-                # mostrato nell'anteprima. Il controllo disponibilità pezzi è disattivato.
-                old_cod_form = (req_data.get(f"original_codice_{rid}") or old_cod).strip()
-                old_pezzi_form = _num_float(req_data.get(f"original_pezzi_{rid}"))
-                if _norm_for_match(old_cod_form) != _norm_for_match(old_cod):
-                    raise BuonoValidationError(
-                        f"La riga ID {rid} è stata modificata da un altro utente. "
-                        "Aggiorna le Giacenze e ripeti il Buono."
-                    )
-
-                # ============================================================
-                # CONTROLLO PEZZI SOLO PER FINCANTIERI / FINCANTIERI ARMATORE
-                # ============================================================
-                cliente_riga = getattr(r, "cliente", "")
-                pezzo_originale_db = getattr(r, "pezzo", None)
-                pezzo_originale_vuoto = (
-                    pezzo_originale_db is None
-                    or str(pezzo_originale_db).strip() == ""
-                )
-                pezzi_originali = _num_float(pezzo_originale_db)
-                controlla_pezzi = _cliente_richiede_controllo_pezzi(cliente_riga)
-                is_galvano_riga = _cliente_galvano(cliente_riga)
-                is_marine_interiors_riga = _cliente_marine_interiors(cliente_riga)
-                peso_originale = _num_float(getattr(r, "peso", None))
-                peso_scelto = peso_originale
-                colli_originali_db = getattr(r, "n_colli", None)
-                colli_scelti = colli_originali_db
-
-                if is_galvano_riga:
-                    lotto_originale = str(getattr(r, "lotto", "") or "").strip()
-                    lotto = _lotto_etichetta(lotto_originale)
-                    lotto_non_presente = _lotto_assente(lotto_originale)
-                    if not old_cod:
-                        raise BuonoValidationError(f"GALVANO TECNICA - Codice articolo mancante sulla riga ID {rid}.")
-                    if not old_desc:
-                        raise BuonoValidationError(f"GALVANO TECNICA - Descrizione mancante sulla riga ID {rid}.")
-                    # Il lotto può essere realmente assente. Valori come NON PRESENTE,
-                    # N.P., ASSENTE o SENZA LOTTO sono ammessi e non bloccano il Buono.
-                    if not q_raw:
-                        raise BuonoValidationError(f"Inserisci i pezzi da prelevare per il lotto {lotto}.")
-                    pezzi_scelti = _num_float(q_raw)
-                    if pezzi_scelti <= 0:
-                        raise BuonoValidationError(f"I pezzi da prelevare per il lotto {lotto} devono essere maggiori di zero.")
-                    if pezzi_scelti > pezzi_originali + 0.000001:
-                        raise BuonoValidationError(
-                            f"GALVANO TECNICA - Pezzi insufficienti per il lotto {lotto}: "
-                            f"richiesti {_fmt_num_clean(pezzi_scelti)}, disponibili {_fmt_num_clean(pezzi_originali)}."
-                        )
-                    # Galvano Tecnica: i colli sono facoltativi.
-                    # Se in Giacenze il campo è vuoto e l'operatore lo lascia vuoto,
-                    # anche il Buono e il database devono restare vuoti.
-                    colli_raw = str(req_data.get(f"colli_buono_{rid}") or "").strip()
-                    if colli_raw:
-                        try:
-                            colli_scelti = int(float(colli_raw.replace(",", ".")))
-                        except (TypeError, ValueError):
-                            raise BuonoValidationError(f"Inserisci un numero di colli valido per il lotto {lotto}, oppure lascia il campo vuoto.")
-                        if colli_scelti <= 0:
-                            raise BuonoValidationError(f"I colli per il lotto {lotto} devono essere maggiori di zero, oppure il campo deve restare vuoto.")
-                    else:
-                        colli_scelti = None
-
-                    peso_raw = (req_data.get(f"peso_buono_{rid}") or "").strip()
-                    if not peso_raw:
-                        raise BuonoValidationError(f"Inserisci il peso da prelevare per il lotto {lotto}.")
-                    peso_scelto = _num_float(peso_raw)
-                    if peso_scelto <= 0:
-                        raise BuonoValidationError(f"Il peso da prelevare per il lotto {lotto} deve essere maggiore di zero.")
-                    if peso_scelto > peso_originale + 0.000001:
-                        raise BuonoValidationError(
-                            f"GALVANO TECNICA - Peso insufficiente per il lotto {lotto}: "
-                            f"richiesti {_fmt_num_clean(peso_scelto)} kg, disponibili {_fmt_num_clean(peso_originale)} kg."
-                        )
-                    pezzi_totali = abs(pezzi_scelti - pezzi_originali) <= 0.000001
-                    peso_totale = abs(peso_scelto - peso_originale) <= 0.000001
-                    if pezzi_totali != peso_totale:
-                        raise BuonoValidationError(
-                            f"GALVANO TECNICA - Dati incoerenti per il lotto {lotto}. "
-                            "Lo scarico totale deve comprendere sia tutti i pezzi sia tutto il peso; "
-                            "lo scarico parziale deve lasciare un residuo sia di pezzi sia di peso."
-                        )
-                    if req_data.get(f"lotto_verificato_{rid}") != "1":
-                        if lotto_non_presente:
-                            msg_verifica = (
-                                "GALVANO TECNICA - Devi confermare che il materiale è stato "
-                                "controllato e che il lotto non è presente."
-                            )
-                        else:
-                            msg_verifica = (
-                                f"GALVANO TECNICA - Devi confermare il controllo fisico del lotto {lotto}."
-                            )
-                        raise BuonoValidationError(msg_verifica)
-
-                elif controlla_pezzi:
-                    if abs(old_pezzi_form - pezzi_originali) > 0.000001:
-                        raise BuonoValidationError(
-                            f"La disponibilità della riga ID {rid} è cambiata da "
-                            f"{_fmt_num_clean(old_pezzi_form)} a {_fmt_num_clean(pezzi_originali)} pezzi. "
-                            "Aggiorna le Giacenze e ripeti il Buono."
-                        )
-
-                    if pezzi_originali <= 0:
-                        raise BuonoValidationError(
-                            "CAMY AI - PRELIEVO BLOCCATO\n\n"
-                            f"Marca pezzo: {codice_scelto or old_cod or 'non indicato'}\n"
-                            "Disponibilità: 0 pezzi.\n\n"
-                            "Il materiale risulta esaurito o già prelevato. Il Buono non è stato creato."
-                        )
-
-                    if not q_raw:
-                        raise BuonoValidationError(
-                            f"Inserisci la quantità da prelevare per il marca pezzo {codice_scelto or old_cod}."
-                        )
-
-                    pezzi_scelti = _num_float(q_raw)
-                    if pezzi_scelti <= 0:
-                        raise BuonoValidationError(
-                            f"La quantità del marca pezzo {codice_scelto or old_cod} deve essere maggiore di zero."
-                        )
-
-                    if pezzi_scelti > pezzi_originali:
-                        raise BuonoValidationError(
-                            "CAMY AI - GIACENZA INSUFFICIENTE\n\n"
-                            f"Marca pezzo: {codice_scelto or old_cod}\n"
-                            f"Richiesti: {_fmt_num_clean(pezzi_scelti)} pezzi\n"
-                            f"Disponibili: {_fmt_num_clean(pezzi_originali)} pezzi\n\n"
-                            "Riduci la quantità e riprova. Il Buono non è stato creato."
-                        )
-                else:
-                    # Tutti gli altri clienti: nessun blocco sulla disponibilità.
-                    pezzi_scelti = _num_float(q_raw) if q_raw else pezzi_originali
-                    if pezzi_scelti < 0:
-                        pezzi_scelti = pezzi_originali
-
-                print(
-                    f"[BUONO PEZZI] ID={rid} cliente={cliente_riga!r} "
-                    f"controllo={controlla_pezzi} disponibili={pezzi_originali} "
-                    f"scelti={pezzi_scelti}"
-                )
-
-                if not codice_scelto:
-                    raise BuonoValidationError(
-                        f"Il codice/marca pezzo della riga ID {rid} è vuoto."
-                    )
-                # I marca-pezzi scelti devono esistere davvero nella riga originale.
-                original_parts = [p for p in (_split_multi_value(old_cod) or [old_cod]) if not _is_package_token(p)]
-                original_norms = {_norm_for_match(p) for p in original_parts if _norm_for_match(p)}
-                selected_parts = [p for p in (_split_multi_value(codice_scelto) or [codice_scelto]) if not _is_package_token(p)]
-                selected_norms = [_norm_for_match(p) for p in selected_parts if _norm_for_match(p)]
-
-                if selected_norms and original_norms:
-                    # Il codice può essere composto da più marca-pezzi consecutivi, ad esempio
-                    # CB052CF-CB053CF, mentre la riga originale contiene anche CB051CF prima.
-                    # In questo caso il blocco completo selezionato è comunque presente nella
-                    # stringa originale e non deve essere segnalato come mancante.
-                    original_full_norm = _norm_for_match(old_cod)
-                    mancanti = []
-                    for parte in selected_parts:
-                        parte_norm = _norm_for_match(parte)
-                        if not parte_norm:
-                            continue
-                        presente = (
-                            parte_norm in original_norms
-                            or parte_norm in original_full_norm
-                        )
-                        if not presente:
-                            mancanti.append(parte)
-
-                    if mancanti:
-                        raise BuonoValidationError(
-                            "CAMY AI - MARCA PEZZO NON DISPONIBILE\n\n"
-                            f"Riga ID: {rid}\n"
-                            f"Non presente nella giacenza: {', '.join(mancanti)}\n\n"
-                            "Controlla il codice richiesto. Il Buono non è stato creato."
-                        )
-
-                # Nel magazzino lo stesso marca-pezzo può comparire più volte:
-                # - nella stessa cassa/package, quando rappresenta più pezzi uguali;
-                # - su casse/package o ID differenti.
-                # Non viene quindi applicato alcun blocco per codici ripetuti.
-                # Restano attivi i controlli su disponibilità, quantità e presenza
-                # reale del codice nella riga selezionata.
-
-                prepared.append({
-                    'row': r,
-                    'old_cod': old_cod,
-                    'old_desc': old_desc,
-                    'codice_scelto': codice_scelto,
-                    'descr_scelta': descr_scelta,
-                    'note_inserite': req_data.get(f"note_{rid}"),
-                    'note_originale': r.note,
-                    'pezzi_originali': pezzi_originali,
-                    'pezzi_scelti': pezzi_scelti,
-                    'pezzi_residui': max(0.0, pezzi_originali - pezzi_scelti),
-                    'controlla_pezzi': controlla_pezzi,
-                    'is_galvano': is_galvano_riga,
-                    'is_marine_interiors': is_marine_interiors_riga,
-                    'pezzo_originale_db': pezzo_originale_db,
-                    'pezzo_originale_vuoto': pezzo_originale_vuoto,
-                    'peso_originale': peso_originale,
-                    'peso_scelto': peso_scelto,
-                    'peso_residuo': max(0.0, peso_originale - peso_scelto),
-                    'colli_scelti': colli_scelti,
-                    'colli_originali_db': colli_originali_db,
-                })
-
-            scarico_parziale_eseguito = False
-
-            # -----------------------------------------------------------------
-            # APPLICAZIONE DELLE MODIFICHE DOPO CHE TUTTE LE RIGHE SONO VALIDE
-            # -----------------------------------------------------------------
-            for item in prepared:
-                r = item['row']
-                old_cod = item['old_cod']
-                old_desc = item['old_desc']
-                codice_scelto = item['codice_scelto']
-                descr_scelta = item['descr_scelta']
-                note_inserite = item['note_inserite']
-                note_originale = item['note_originale']
-                pezzi_originali = item['pezzi_originali']
-                pezzi_scelti = item['pezzi_scelti']
-                pezzi_residui = item['pezzi_residui']
-                is_galvano_riga = item.get('is_galvano', False)
-                is_marine_interiors_riga = item.get('is_marine_interiors', False)
-                pezzo_originale_db = item.get('pezzo_originale_db', getattr(r, 'pezzo', None))
-                pezzo_originale_vuoto = item.get('pezzo_originale_vuoto', False)
-                peso_originale = item.get('peso_originale', _num_float(getattr(r, 'peso', None)))
-                peso_scelto = item.get('peso_scelto', peso_originale)
-                peso_residuo = item.get('peso_residuo', max(0.0, peso_originale - peso_scelto))
-                colli_scelti = item.get('colli_scelti')
-                colli_originali_db = item.get('colli_originali_db', getattr(r, 'n_colli', None))
-
-                cod_parziale = bool(_norm_for_match(codice_scelto) != _norm_for_match(old_cod))
-                desc_parziale = bool(descr_scelta and _norm_for_match(descr_scelta) != _norm_for_match(old_desc))
-                qta_parziale = pezzi_originali > 0 and pezzi_scelti < pezzi_originali
-                peso_parziale = is_galvano_riga and peso_originale > 0 and peso_scelto < peso_originale
-
-                if cod_parziale or desc_parziale or qta_parziale or peso_parziale:
-                    scarico_parziale_eseguito = True
-                    r.buono_n = ""
-
-                    riga_buono = Articolo()
-                    for col in Articolo.__table__.columns:
-                        if col.name != 'id_articolo':
-                            setattr(riga_buono, col.name, getattr(r, col.name))
-
-                    riga_buono.codice_articolo = _normalizza_codice_articolo(codice_scelto)
-                    riga_buono.descrizione = descr_scelta or old_desc
-                    riga_buono.buono_n = bn
-                    if is_marine_interiors_riga and pezzo_originale_vuoto:
-                        riga_buono.pezzo = None
-                        r.pezzo = None
-                    else:
-                        riga_buono.pezzo = _piece_value_for_db(pezzi_scelti)
-                        r.pezzo = _piece_value_for_db(pezzi_residui)
-
-                    if is_galvano_riga:
-                        # Per Galvano il peso è quello digitato dall'operatore: nessun calcolo proporzionale.
-                        riga_buono.peso = _round_db_number(peso_scelto)
-                        r.peso = _round_db_number(peso_residuo)
-                        for campo in ('m2', 'm3'):
-                            residuo_val, scelto_val = _split_quantita(
-                                pezzi_originali, pezzi_scelti, getattr(r, campo, None)
-                            )
-                            setattr(riga_buono, campo, _round_db_number(scelto_val))
-                            setattr(r, campo, _round_db_number(residuo_val))
-                        # Galvano: il Buono usa il valore digitato; se vuoto resta vuoto.
-                        # La riga residua conserva esattamente i colli originari della Giacenza.
-                        riga_buono.n_colli = colli_scelti
-                        r.n_colli = colli_originali_db
-                    else:
-                        for campo in ('peso', 'm2', 'm3'):
-                            residuo_val, scelto_val = _split_quantita(
-                                pezzi_originali, pezzi_scelti, getattr(r, campo, None)
-                            )
-                            setattr(riga_buono, campo, _round_db_number(scelto_val))
-                            setattr(r, campo, _round_db_number(residuo_val))
-                        # Regola aziendale standard: una riga rappresenta un collo.
-                        riga_buono.n_colli = 1
-                        r.n_colli = 1
-                    riga_buono.note = (note_inserite or '').strip()
-                    db.add(riga_buono)
-
-                    if cod_parziale:
-                        # Ricostruzione deterministica: PACKAGE una sola volta,
-                        # solo i marca-pezzi residui e separatore sempre '-'.
-                        r.codice_articolo = _ricostruisci_codice_residuo(
-                            old_cod, codice_scelto
-                        )
-                    else:
-                        r.codice_articolo = _normalizza_codice_articolo(old_cod)
-
-                    if desc_parziale:
-                        descr_residua = _clean_residual_cell(old_desc, descr_scelta)
-                        descr_residua = _preserve_package_context(
-                            descr_residua, old_desc, descr_scelta
-                        )
-                        r.descrizione = descr_residua if descr_residua else old_desc
-                    else:
-                        r.descrizione = old_desc
-
-                    r.note = note_originale
-                else:
-                    r.buono_n = bn
-                    if note_inserite is not None:
-                        r.note = note_inserite
-                    if is_marine_interiors_riga and pezzo_originale_vuoto:
-                        r.pezzo = None
-                    elif is_marine_interiors_riga:
-                        r.pezzo = pezzo_originale_db
-                    else:
-                        r.pezzo = _piece_value_for_db(pezzi_scelti)
-                    if is_galvano_riga:
-                        r.peso = _round_db_number(peso_scelto)
-                        r.n_colli = colli_scelti
-                    else:
-                        r.n_colli = 1
-
-            # Genera il PDF prima del commit: se il PDF fallisce, il DB resta invariato.
-            db.flush()
-            pdf_bio = _generate_buono_pdf(req_data, rows)
-            db.commit()
-
-            # Picking separato: un eventuale errore non annulla il Buono già salvato.
-            picking_msg = ""
-            picking_created = False
-            try:
-                if req_data.get('picking_enable') == '1':
-                    fresh_rows = db.query(Articolo).filter(Articolo.id_articolo.in_(ids)).all()
-                    picking_created, picking_msg = _create_picking_from_buono_form(
-                        db, req_data, fresh_rows, bn
-                    )
-                    db.commit()
-            except Exception as e_pick:
-                db.rollback()
-                picking_msg = "Picking non creato automaticamente: controllare la sezione Picking/Lavorazioni."
+            def _scalar(query, default=0):
                 try:
-                    scrivi_log_errore("Errore creazione picking da buono", e_pick)
+                    v = query.scalar()
+                    return default if v is None else v
+                except Exception:
+                    return default
+
+            def _count_articoli(extra_filters=None):
+                q = db.query(func.count(Articolo.id_articolo))
+                filters = list(extra_filters or [])
+                if filters:
+                    q = q.filter(*filters)
+                return int(_scalar(q, 0) or 0)
+
+            def _sum_articoli(column, extra_filters=None):
+                q = db.query(func.coalesce(func.sum(column), 0))
+                filters = list(extra_filters or [])
+                if filters:
+                    q = q.filter(*filters)
+                try:
+                    return float(q.scalar() or 0)
+                except Exception:
+                    return 0.0
+
+            def _examples(extra_filters, attr, max_items=5):
+                try:
+                    col = getattr(Articolo, attr)
+                    rows_ex = (
+                        db.query(col)
+                        .filter(*(extra_filters or []))
+                        .filter(col != None, col != '')
+                        .limit(max_items)
+                        .all()
+                    )
+                    out = []
+                    for (val,) in rows_ex:
+                        val = (str(val or '')).strip()
+                        if val and val not in out:
+                            out.append(val)
+                    return out[:max_items]
+                except Exception:
+                    return []
+
+            def _add_alert(alerts, level, title, count, message, examples=None, url=None):
+                try:
+                    count = int(count or 0)
+                except Exception:
+                    count = 0
+                if count > 0:
+                    alerts.append({
+                        'level': level,
+                        'title': title,
+                        'count': count,
+                        'message': message,
+                        'examples': examples or [],
+                        'url': url or url_for('giacenze')
+                    })
+
+            dashboard = {
+                'tot_giacenza': _count_articoli(active_filter),
+                'tot_m2': round(_sum_articoli(Articolo.m2, active_filter), 2),
+                'tot_peso': round(_sum_articoli(Articolo.peso, active_filter), 2),
+                'tot_colli': int(_sum_articoli(Articolo.n_colli, active_filter)),
+                'entrate_oggi': _count_articoli(all_filter + [
+                    or_(Articolo.data_ingresso == today_iso, Articolo.data_ingresso == today_it)
+                ]),
+                'uscite_oggi': _count_articoli(all_filter + [
+                    or_(Articolo.data_uscita == today_iso, Articolo.data_uscita == today_it)
+                ]),
+                'doganali': _count_articoli(active_filter + [
+                    func.upper(func.coalesce(Articolo.stato, '')).like('%DOGANA%')
+                ]),
+                'buoni_aperti': 0,
+                'buoni_creati': 0,
+                'buoni_usciti': 0,
+            }
+
+            def _norm_buono_prelievo(value):
+                """Normalizza N. Buono di Prelievo per conteggi distinti."""
+                s = (value or '').strip()
+                if not s or s.upper() in ('NONE', 'NULL', 'NAT', 'NAN', '-'):
+                    return ''
+                return s.upper()
+
+            def _has_uscita_buono(data_uscita, n_ddt_uscita):
+                du = (str(data_uscita or '').strip()).upper()
+                nd = (str(n_ddt_uscita or '').strip()).upper()
+                return bool((du and du not in ('NONE', 'NULL', 'NAT', 'NAN')) or (nd and nd not in ('NONE', 'NULL', 'NAT', 'NAN', '-')))
+
+            def _calcola_buoni_prelievo_dashboard():
+                """Conta i Buoni di Prelievo dalla tabella Articoli, non dai Buoni QR di carico.
+
+                Creati = buono_n distinto valorizzato.
+                Usciti = buono_n distinto con DDT/Data uscita valorizzati.
+                Aperti = creati - usciti.
+                """
+                stats = {}
+                try:
+                    q = db.query(
+                        Articolo.cliente,
+                        Articolo.codice_entrata,
+                        Articolo.buono_n,
+                        Articolo.data_uscita,
+                        Articolo.n_ddt_uscita,
+                    ).filter(*(all_filter + [Articolo.buono_n != None, Articolo.buono_n != '']))
+                    for cli_raw, cod_ent, buono_raw, data_usc, ddt_usc in q.all():
+                        bkey = _norm_buono_prelievo(buono_raw)
+                        if not bkey:
+                            continue
+                        try:
+                            nome_cli = _cliente_dashboard(cli_raw, cod_ent)
+                        except Exception:
+                            nome_cli = (cli_raw or 'CLIENTE DA VERIFICARE').strip().upper()
+                        rec = stats.setdefault(nome_cli, {})
+                        item = rec.setdefault(bkey, {'uscito': False})
+                        if _has_uscita_buono(data_usc, ddt_usc):
+                            item['uscito'] = True
+                except Exception:
+                    return {}, {'buoni_creati': 0, 'buoni_usciti': 0, 'buoni_aperti': 0}
+
+                by_cliente = {}
+                totale_creati = totale_usciti = 0
+                for nome_cli, buoni in stats.items():
+                    creati = len(buoni)
+                    usciti = sum(1 for v in buoni.values() if v.get('uscito'))
+                    aperti = max(0, creati - usciti)
+                    by_cliente[nome_cli] = {
+                        'buoni_creati': creati,
+                        'buoni_usciti': usciti,
+                        'buoni_aperti': aperti,
+                    }
+                    totale_creati += creati
+                    totale_usciti += usciti
+
+                totale = {
+                    'buoni_creati': totale_creati,
+                    'buoni_usciti': totale_usciti,
+                    'buoni_aperti': max(0, totale_creati - totale_usciti),
+                }
+                return by_cliente, totale
+
+            buoni_by_cliente_global = {}
+            try:
+                # Conteggio corretto dei Buoni di Prelievo creati dalla schermata Buono.
+                buoni_by_cliente_global, buoni_totali = _calcola_buoni_prelievo_dashboard()
+                dashboard['buoni_creati'] = int(buoni_totali.get('buoni_creati', 0) or 0)
+                dashboard['buoni_usciti'] = int(buoni_totali.get('buoni_usciti', 0) or 0)
+                dashboard['buoni_aperti'] = int(buoni_totali.get('buoni_aperti', 0) or 0)
+            except Exception:
+                pass
+
+            movimenti = []
+
+            def _add_movimenti_ingresso():
+                q = db.query(
+                    Articolo.data_ingresso, Articolo.cliente, Articolo.codice_articolo,
+                    Articolo.descrizione, Articolo.n_arrivo, Articolo.n_ddt_ingresso,
+                    Articolo.created_by, Articolo.updated_by
+                ).filter(*(all_filter + [Articolo.data_ingresso != None, Articolo.data_ingresso != '']))
+                q = q.order_by(Articolo.id_articolo.desc()).limit(20)
+                for d_in_raw, cli, cod, desc, arr, ddt, created_by, updated_by in q.all():
+                    d_in = to_date_db(d_in_raw)
+                    if not d_in:
+                        continue
+                    movimenti.append({
+                        'data_sort': d_in,
+                        'data': d_in.strftime('%d/%m/%Y'),
+                        'tipo': 'Entrata',
+                        'cliente': cli or '',
+                        'codice': cod or '',
+                        'descrizione': (desc or '')[:60],
+                        'n_arrivo': arr or '',
+                        'ddt': ddt or '',
+                        'operatore': created_by or updated_by or '',
+                    })
+
+            def _add_movimenti_uscita():
+                q = db.query(
+                    Articolo.data_uscita, Articolo.cliente, Articolo.codice_articolo,
+                    Articolo.descrizione, Articolo.n_arrivo, Articolo.n_ddt_uscita,
+                    Articolo.updated_by, Articolo.created_by
+                ).filter(*(all_filter + [Articolo.data_uscita != None, Articolo.data_uscita != '']))
+                q = q.order_by(Articolo.id_articolo.desc()).limit(20)
+                for d_out_raw, cli, cod, desc, arr, ddt, updated_by, created_by in q.all():
+                    d_out = to_date_db(d_out_raw)
+                    if not d_out:
+                        continue
+                    movimenti.append({
+                        'data_sort': d_out,
+                        'data': d_out.strftime('%d/%m/%Y'),
+                        'tipo': 'Uscita',
+                        'cliente': cli or '',
+                        'codice': cod or '',
+                        'descrizione': (desc or '')[:60],
+                        'n_arrivo': arr or '',
+                        'ddt': ddt or '',
+                        'operatore': updated_by or created_by or '',
+                    })
+
+            try:
+                _add_movimenti_ingresso()
+                _add_movimenti_uscita()
+            except Exception:
+                movimenti = []
+
+            ultimi_movimenti = sorted(
+                movimenti,
+                key=lambda x: x.get('data_sort') or date.min,
+                reverse=True
+            )[:10]
+
+            dashboard_alerts = []
+
+            uscite_candidate_filter = all_filter + [
+                Articolo.data_uscita != None,
+                Articolo.data_uscita != '',
+                or_(Articolo.mezzi_in_uscita == None, Articolo.mezzi_in_uscita == ''),
+                Articolo.n_ddt_uscita != None,
+                Articolo.n_ddt_uscita != '',
+            ]
+            uscite_senza_mezzo_count = 0
+            uscite_senza_mezzo_examples = []
+            try:
+                candidate_ddt = db.query(Articolo.n_ddt_uscita).filter(*uscite_candidate_filter).limit(500).all()
+                seen = set()
+                for (n_ddt,) in candidate_ddt:
+                    n = (n_ddt or '').strip()
+                    if re.match(r'^\d{1,5}/\d{2}$', n):
+                        uscite_senza_mezzo_count += 1
+                        if n not in seen and len(uscite_senza_mezzo_examples) < 5:
+                            seen.add(n)
+                            uscite_senza_mezzo_examples.append(n)
+            except Exception:
+                pass
+            _add_alert(
+                dashboard_alerts, 'danger', 'DDT gestionale senza mezzo',
+                uscite_senza_mezzo_count,
+                'DDT creati dal gestionale senza Motrice / Bilico / Furgone compilato.',
+                uscite_senza_mezzo_examples,
+                url_for('giacenze', solo_uscite='1', mezzo_uscita='')
+            )
+
+            # Alert operativi essenziali: nessun controllo sulle posizioni.
+            try:
+                negativi_filter = active_filter + [Articolo.n_colli < 0]
+                _add_alert(
+                    dashboard_alerts, 'danger', 'Colli negativi',
+                    _count_articoli(negativi_filter),
+                    'Righe in giacenza con numero colli negativo.',
+                    _examples(negativi_filter, 'id_articolo'),
+                    url_for('dashboard_ricerca_globale', q='-')
+                )
+            except Exception:
+                pass
+
+            try:
+                ddt_attivo_filter = active_filter + [
+                    Articolo.n_ddt_uscita != None,
+                    Articolo.n_ddt_uscita != ''
+                ]
+                _add_alert(
+                    dashboard_alerts, 'danger', 'Articoli attivi con DDT uscita',
+                    _count_articoli(ddt_attivo_filter),
+                    'Righe ancora considerate in giacenza ma con DDT di uscita compilato.',
+                    _examples(ddt_attivo_filter, 'n_ddt_uscita'),
+                    url_for('giacenze', solo_in_giacenza='1')
+                )
+            except Exception:
+                pass
+
+            if int(dashboard.get('buoni_aperti') or 0) > 0:
+                _add_alert(
+                    dashboard_alerts, 'warning', 'Buoni aperti',
+                    dashboard.get('buoni_aperti'),
+                    'Buoni di prelievo creati ma non ancora completati con uscita.',
+                    [],
+                    url_for('giacenze', buono_n='')
+                )
+
+            level_order = {'danger': 0, 'warning': 1, 'info': 2}
+            dashboard_alerts = sorted(dashboard_alerts, key=lambda x: (level_order.get(x.get('level'), 9), -int(x.get('count') or 0)))
+
+            # Riepilogo giacenze diviso per cliente.
+            # Query semplice e indipendente dall'anagrafica utenti:
+            # mostra tutti i clienti realmente presenti nelle righe attive.
+            dashboard_clienti = []
+            try:
+                cliente_expr = func.upper(
+                    func.trim(
+                        func.coalesce(Articolo.cliente, '')
+                    )
+                )
+
+                rows_clienti = (
+                    db.query(
+                        cliente_expr.label('cliente'),
+                        func.count(Articolo.id_articolo).label('righe'),
+                        func.coalesce(func.sum(Articolo.n_colli), 0).label('colli'),
+                        func.coalesce(func.sum(Articolo.m2), 0).label('m2'),
+                        func.coalesce(func.sum(Articolo.peso), 0).label('peso'),
+                    )
+                    .filter(*active_filter)
+                    .group_by(cliente_expr)
+                    .order_by(cliente_expr.asc())
+                    .all()
+                )
+
+                for cliente_val, righe_val, colli_val, m2_val, peso_val in rows_clienti:
+                    nome_cliente = str(cliente_val or '').strip().upper()
+                    if not nome_cliente or nome_cliente in ('NONE', 'NULL', 'NAT', 'NAN'):
+                        nome_cliente = 'CLIENTE DA VERIFICARE'
+
+                    dati_buoni = {}
+                    try:
+                        # Ricerca tollerante alle differenze di maiuscole/spazi.
+                        for key_buono, value_buono in (buoni_by_cliente_global or {}).items():
+                            if str(key_buono or '').strip().upper() == nome_cliente:
+                                dati_buoni = value_buono or {}
+                                break
+                    except Exception:
+                        dati_buoni = {}
+
+                    dashboard_clienti.append({
+                        'cliente': nome_cliente,
+                        'righe': int(righe_val or 0),
+                        'colli': int(colli_val or 0),
+                        'm2': round(float(m2_val or 0), 2),
+                        'peso': round(float(peso_val or 0), 2),
+                        'buoni_aperti': int(dati_buoni.get('buoni_aperti', 0) or 0),
+                        'buoni_creati': int(dati_buoni.get('buoni_creati', 0) or 0),
+                        'buoni_usciti': int(dati_buoni.get('buoni_usciti', 0) or 0),
+                        'da_verificare': nome_cliente == 'CLIENTE DA VERIFICARE',
+                    })
+
+                # Ordine alfabetico, lasciando l'eventuale voce da verificare in fondo.
+                dashboard_clienti.sort(
+                    key=lambda row: (
+                        row.get('cliente') == 'CLIENTE DA VERIFICARE',
+                        row.get('cliente') or ''
+                    )
+                )
+
+                # Mantiene il totale colli coerente con la tabella per cliente.
+                dashboard['tot_colli'] = int(
+                    sum(int(row.get('colli') or 0) for row in dashboard_clienti)
+                )
+
+            except Exception as clienti_error:
+                try:
+                    app_obj.logger.error(
+                        f"[DASHBOARD] errore riepilogo giacenze per cliente: {clienti_error}"
+                    )
                 except Exception:
                     pass
+                dashboard_clienti = []
 
-            if picking_msg:
-                flash(picking_msg, "success" if picking_created else "warning")
-
-            if scarico_parziale_eseguito:
-                flash(
-                    "Scarico parziale salvato: i pezzi sono stati scalati, i marca-pezzi del Buono "
-                    "sono stati rimossi dal residuo e PACKAGE/PALLET/CASSA sono rimasti in giacenza.",
-                    "success"
-                )
-            else:
-                flash("Buono salvato correttamente.", "success")
-
-            safe_bn = (bn or "senza_numero").replace("/", "-").replace("\\", "-")
-            return send_file(
-                pdf_bio,
-                as_attachment=True,
-                download_name=f'Buono_{safe_bn}.pdf',
-                mimetype='application/pdf'
-            )
-
-        except BuonoValidationError as e:
-            db.rollback()
-            return str(e), 409, {'Content-Type': 'text/plain; charset=utf-8'}
-        except Exception as e:
-            db.rollback()
+            backup_status = {
+                'exists': False,
+                'today': False,
+                'date': '',
+                'time': '',
+                'size_mb': 0,
+                'filename': '',
+            }
             try:
-                scrivi_log_errore("Errore Buono di Prelievo", e)
+                backup_dir = Path(MEDIA_DIR) / 'backups'
+                files_backup = sorted(
+                    backup_dir.glob('backup_camar_*.zip'),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True
+                )
+                if files_backup:
+                    latest = files_backup[0]
+                    dt_backup = datetime.fromtimestamp(latest.stat().st_mtime)
+                    backup_status.update({
+                        'exists': True,
+                        'today': dt_backup.date() == today_obj,
+                        'date': dt_backup.strftime('%d/%m/%Y'),
+                        'time': dt_backup.strftime('%H:%M'),
+                        'size_mb': round(latest.stat().st_size / (1024 * 1024), 2),
+                        'filename': latest.name,
+                    })
             except Exception:
                 pass
-            print(f"ERRORE BUONO: {e}")
-            return "Errore durante la creazione del Buono. Nessuna modifica è stata salvata.", 500, {
-                'Content-Type': 'text/plain; charset=utf-8'
-            }
+
+            return render_template(
+                'dashboard_home.html',
+                dashboard=dashboard,
+                dashboard_clienti=dashboard_clienti,
+                dashboard_alerts=dashboard_alerts,
+                ultimi_movimenti=ultimi_movimenti,
+                backup_status=backup_status,
+                today=today_obj,
+                tot_articoli=dashboard['tot_giacenza'],
+                tot_m2=dashboard['tot_m2'],
+                logo_url=logo_url() if 'logo_url' in globals() else ''
+            )
+        except Exception as e:
+            try:
+                scrivi_log_errore('Errore caricamento Home dashboard', e)
+            except Exception:
+                pass
+            return f"<h1>Errore Caricamento Home</h1><p>{e}</p><a href='/logout'>Logout</a>", 500
         finally:
-            db.close()
+            try:
+                db.close()
+            except Exception:
+                pass
