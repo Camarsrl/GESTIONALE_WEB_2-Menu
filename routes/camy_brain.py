@@ -148,6 +148,19 @@ def decide_camy_intent(message):
     if _has_any(low, ["statistiche", "grafici", "andamento mensile", "riepilogo annuale", "movimenti per cliente"]):
         return {"action": "statistiche_magazzino", "target": target, "confidence": 0.98, "raw": raw}
 
+    # Controlli operativi di sicurezza (sola lettura)
+    if _has_any(low, ["controlla buono", "verifica buono", "controllo buono", "buono corretto", "buono pronto"]):
+        return {"action": "controlla_buono", "target": target, "confidence": 0.99, "raw": raw}
+
+    if _has_any(low, ["controlla entrata", "verifica entrata", "controllo entrata", "entrata corretta", "verifica arrivo"]):
+        return {"action": "controlla_entrata", "target": target, "confidence": 0.99, "raw": raw}
+
+    if _has_any(low, ["controlla spedizione", "verifica spedizione", "controllo spedizione", "posso spedire", "spedizione pronta"]):
+        return {"action": "controlla_spedizione", "target": target, "confidence": 0.99, "raw": raw}
+
+    if _has_any(low, ["trova anomalie", "controllo integrita", "controllo integrità", "verifica magazzino", "controlla magazzino", "problemi magazzino"]):
+        return {"action": "trova_anomalie", "target": target, "confidence": 0.99, "raw": raw}
+
     # Cosa manca / alert operativi
     if _has_any(low, [
         "cosa manca", "manca da fare", "attivita aperte", "attività aperte",
@@ -218,6 +231,10 @@ def camy_brain_help():
         "• Apri picking 2058114-ENTALPIA<br>"
         "• Mostrami i trasporti di oggi<br>"
         "• Come siamo messi oggi?<br>"
+        "• Controlla buono 407/26<br>"
+        "• Controlla entrata 200/26<br>"
+        "• Controlla spedizione buono 407/26<br>"
+        "• Trova anomalie nel magazzino<br>"
         "• Cosa manca da fare oggi?<br>"
         "• Quali protocolli mancano di Fincantieri?<br>"
         "• Mostrami gli articoli Fincantieri senza protocollo<br>"
