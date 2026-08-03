@@ -8,7 +8,7 @@ Correzioni:
 - conteggio giacenze attive più robusto su data_uscita vuota/None/NaT
 """
 
-HOME_HTML = '\n{% extends \'base.html\' %}\n{% block content %}\n<style>\n.home-kpi-card{\n    border:0;\n    border-radius:16px;\n    box-shadow:0 4px 14px rgba(0,0,0,.07);\n    height:100%;\n}\n.home-kpi-icon{\n    width:42px;\n    height:42px;\n    border-radius:12px;\n    display:flex;\n    align-items:center;\n    justify-content:center;\n    background:#eef5ff;\n    color:#0d6efd;\n    font-size:20px;\n}\n.home-kpi-value{\n    font-size:26px;\n    font-weight:700;\n    line-height:1.1;\n}\n.home-section-card{\n    border:0;\n    border-radius:16px;\n    box-shadow:0 4px 14px rgba(0,0,0,.07);\n}\n.home-movement-table td,\n.home-movement-table th{\n    vertical-align:middle;\n    font-size:13px;\n}\n\n.home-alert-card{\n    border:0;\n    border-radius:16px;\n    box-shadow:0 4px 14px rgba(0,0,0,.07);\n}\n.home-alert-item{\n    border-left:5px solid #ffc107;\n    background:#fff8e1;\n    border-radius:10px;\n    padding:10px 12px;\n    margin-bottom:8px;\n}\n.home-alert-item.danger{\n    border-left-color:#dc3545;\n    background:#fff1f1;\n}\n.home-alert-item.warning{\n    border-left-color:#ffc107;\n    background:#fff8e1;\n}\n.home-alert-item.info{\n    border-left-color:#0d6efd;\n    background:#eef5ff;\n}\n.home-client-table th,\n.home-client-table td{\n    font-size:13px;\n    vertical-align:middle;\n}\n.home-client-table tfoot td{\n    font-weight:700;\n    background:#f8f9fa;\n}\n</style>\n\n<div class="container-fluid py-3">\n    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">\n        <div class="d-flex align-items-center gap-3">\n            {% if logo_url %}<img src="{{ logo_url }}" style="height:50px;width:auto;">{% endif %}\n            <div>\n                <h3 class="m-0">Dashboard Gestionale</h3>\n                <div class="text-muted small">Riepilogo operativo aggiornato al {{ today.strftime(\'%d/%m/%Y\') if today else \'\' }}</div>\n            </div>\n        </div>\n        <div class="d-flex flex-wrap gap-2">\n            <a class="btn btn-primary btn-sm" href="{{ url_for(\'giacenze\') }}"><i class="bi bi-grid-3x3-gap-fill"></i> Giacenze</a>\n            {% if session.get(\'role\') == \'admin\' %}\n            <a class="btn btn-success btn-sm" href="{{ url_for(\'nuovo_articolo\') }}"><i class="bi bi-plus-circle"></i> Nuovo articolo</a>\n            {% endif %}\n            {% if can_use_buoni_qr() %}\n            <a class="btn btn-outline-primary btn-sm" href="{{ url_for(\'scan_entrata\') }}"><i class="bi bi-upc-scan"></i> Scan entrata</a>\n            {% endif %}\n        </div>\n    </div>\n\n    <div class="row g-3 mb-3">\n        <div class="col-md-6 col-xl-3">\n            <div class="card home-kpi-card p-3">\n                <div class="d-flex justify-content-between align-items-start">\n                    <div>\n                        <div class="text-muted small">Articoli in giacenza</div>\n                        <div class="home-kpi-value">{{ dashboard.tot_giacenza }}</div>\n                    </div>\n                    <div class="home-kpi-icon"><i class="bi bi-box-seam"></i></div>\n                </div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-3">\n            <div class="card home-kpi-card p-3">\n                <div class="d-flex justify-content-between align-items-start">\n                    <div>\n                        <div class="text-muted small">M² occupati</div>\n                        <div class="home-kpi-value">{{ dashboard.tot_m2|it_num(2) }}</div>\n                    </div>\n                    <div class="home-kpi-icon"><i class="bi bi-rulers"></i></div>\n                </div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-3">\n            <div class="card home-kpi-card p-3">\n                <div class="d-flex justify-content-between align-items-start">\n                    <div>\n                        <div class="text-muted small">Entrate oggi</div>\n                        <div class="home-kpi-value">{{ dashboard.entrate_oggi }}</div>\n                    </div>\n                    <div class="home-kpi-icon"><i class="bi bi-arrow-down-circle"></i></div>\n                </div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-3">\n            <div class="card home-kpi-card p-3">\n                <div class="d-flex justify-content-between align-items-start">\n                    <div>\n                        <div class="text-muted small">Uscite oggi</div>\n                        <div class="home-kpi-value">{{ dashboard.uscite_oggi }}</div>\n                    </div>\n                    <div class="home-kpi-icon"><i class="bi bi-arrow-up-circle"></i></div>\n                </div>\n            </div>\n        </div>\n    </div>\n\n    <div class="row g-3 mb-3">\n        <div class="col-md-6 col-xl-2">\n            <div class="card home-kpi-card p-3">\n                <div class="text-muted small">Articoli doganali</div>\n                <div class="home-kpi-value">{{ dashboard.doganali }}</div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-2">\n            <div class="card home-kpi-card p-3">\n                <div class="text-muted small">Buoni aperti</div>\n                <div class="home-kpi-value">{{ dashboard.buoni_aperti }}</div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-2">\n            <div class="card home-kpi-card p-3">\n                <div class="text-muted small">Buoni creati</div>\n                <div class="home-kpi-value">{{ dashboard.buoni_creati }}</div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-2">\n            <div class="card home-kpi-card p-3">\n                <div class="text-muted small">Buoni usciti</div>\n                <div class="home-kpi-value">{{ dashboard.buoni_usciti }}</div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-2">\n            <div class="card home-kpi-card p-3">\n                <div class="text-muted small">Peso in giacenza</div>\n                <div class="home-kpi-value">{{ dashboard.tot_peso|it_num(2) }}</div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-2">\n            <div class="card home-kpi-card p-3">\n                <div class="text-muted small">Colli in giacenza</div>\n                <div class="home-kpi-value">{{ dashboard.tot_colli }}</div>\n            </div>\n        </div>\n    </div>\n\n    {% if dashboard_alerts %}\n    <div class="card home-alert-card p-3 mb-3">\n        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">\n            <h5 class="m-0"><i class="bi bi-bell-fill text-warning"></i> Alert automatici</h5>\n            <span class="badge bg-warning text-dark">{{ dashboard_alerts|length }} segnalazioni</span>\n        </div>\n        <div class="row g-2">\n            {% for alert in dashboard_alerts %}\n            <div class="col-lg-6 col-xxl-4">\n                <div class="home-alert-item {{ alert.level }}">\n                    <div class="d-flex justify-content-between gap-2">\n                        <strong>{{ alert.title }}</strong>\n                        <span class="badge {% if alert.level == \'danger\' %}bg-danger{% elif alert.level == \'warning\' %}bg-warning text-dark{% else %}bg-primary{% endif %}">{{ alert.count }}</span>\n                    </div>\n                    <div class="small text-muted mt-1">{{ alert.message }}</div>\n                    {% if alert.examples %}\n                    <div class="small mt-1"><strong>Esempi:</strong> {{ alert.examples|join(\', \') }}</div>\n                    {% endif %}\n                </div>\n            </div>\n            {% endfor %}\n        </div>\n    </div>\n    {% endif %}\n\n    <div class="card home-section-card p-3 mb-3">\n        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">\n            <h5 class="m-0"><i class="bi bi-people-fill text-primary"></i> Giacenza per cliente</h5>\n            <span class="badge bg-primary">{{ dashboard_clienti|length }} clienti</span>\n        </div>\n        <div class="table-responsive">\n            <table class="table table-sm table-striped home-client-table mb-0">\n                <thead>\n                    <tr>\n                        <th>Cliente</th>\n                        <th class="text-end">Righe</th>\n                        <th class="text-end">Colli</th>\n                        <th class="text-end">M²</th>\n                        <th class="text-end">Peso kg</th>\n                        <th class="text-end">Buoni aperti</th>\n                        <th class="text-end">Buoni creati</th>\n                        <th class="text-end">Buoni usciti</th>\n                    </tr>\n                </thead>\n                <tbody>\n                    {% for r in dashboard_clienti %}\n                    <tr>\n                        <td>{{ r.cliente }}</td>\n                        <td class="text-end">{{ r.righe }}</td>\n                        <td class="text-end">{{ r.colli }}</td>\n                        <td class="text-end">{{ r.m2|it_num(2) }}</td>\n                        <td class="text-end">{{ r.peso|it_num(2) }}</td>\n                        <td class="text-end">{{ r.buoni_aperti }}</td>\n                        <td class="text-end">{{ r.buoni_creati }}</td>\n                        <td class="text-end">{{ r.buoni_usciti }}</td>\n                    </tr>\n                    {% else %}\n                    <tr><td colspan="9" class="text-muted text-center py-3">Nessuna giacenza attiva.</td></tr>\n                    {% endfor %}\n                </tbody>\n                <tfoot>\n                    <tr>\n                        <td>Totale</td>\n                        <td class="text-end">{{ dashboard.tot_giacenza }}</td>\n                        <td class="text-end">{{ dashboard.tot_colli }}</td>\n                        <td class="text-end">{{ dashboard.tot_m2|it_num(2) }}</td>\n                        <td class="text-end">{{ dashboard.tot_peso|it_num(2) }}</td>\n                        <td class="text-end">{{ dashboard.buoni_aperti }}</td>\n                        <td class="text-end">{{ dashboard.buoni_creati }}</td>\n                        <td class="text-end">{{ dashboard.buoni_usciti }}</td>\n                    </tr>\n                </tfoot>\n            </table>\n        </div>\n        <div class="text-muted small mt-2">\n            I colli sono calcolati come nella tabella Giacenze: somma del campo Colli sulle righe ancora in giacenza. Per GALVANO TECNICA non viene contato 1 collo per ogni riga articolo.\n        </div>\n    </div>\n\n    <div class="row g-3">\n        <div class="col-xl-3">\n            <div class="card home-section-card p-3 mb-3">\n                <h6 class="mb-3">Menu rapido</h6>\n                <div class="d-grid gap-2">\n                    <a class="btn btn-primary" href="{{ url_for(\'giacenze\') }}"><i class="bi bi-grid-3x3-gap-fill"></i> Visualizza Giacenze</a>\n                    {% if session.get(\'role\') == \'admin\' %}\n                    <a class="btn btn-success" href="{{ url_for(\'nuovo_articolo\') }}"><i class="bi bi-plus-circle"></i> Nuovo Articolo</a>\n                    <a class="btn btn-outline-secondary" href="{{ url_for(\'labels_form\') }}"><i class="bi bi-tag"></i> Stampa Etichette</a>\n                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for(\'import_excel\') }}"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</a>\n                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for(\'export_excel\') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel Totale</a>\n                    {% endif %}\n                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for(\'export_client\') }}"><i class="bi bi-people"></i> Export per Cliente</a>\n                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for(\'calcola_costi\') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>\n                    {% if can_use_buoni_qr() %}\n                    <a class="btn btn-outline-primary btn-sm" href="{{ url_for(\'scan_entrata\') }}"><i class="bi bi-upc-scan"></i> Scan / Ricerca Entrata</a>\n                    {% endif %}\n                </div>\n            </div>\n\n            <div class="card home-section-card p-3">\n                <h6 class="mb-2"><i class="bi bi-upc-scan"></i> Ricerca veloce entrata</h6>\n                <form action="{{ url_for(\'go_scan_entrata\') }}" method="post" class="d-flex gap-2">\n                    <input name="codice_entrata" class="form-control" placeholder="Scansiona o incolla codice..." autocomplete="off">\n                    <button class="btn btn-primary">Apri</button>\n                </form>\n            </div>\n        </div>\n\n        <div class="col-xl-9">\n            <div class="card home-section-card p-3">\n                <div class="d-flex justify-content-between align-items-center mb-2">\n                    <h5 class="m-0">Ultimi movimenti</h5>\n                    <a href="{{ url_for(\'giacenze\') }}" class="btn btn-outline-secondary btn-sm">Apri giacenze</a>\n                </div>\n                <div class="table-responsive">\n                    <table class="table table-sm table-striped home-movement-table">\n                        <thead>\n                            <tr>\n                                <th>Data</th>\n                                <th>Tipo</th>\n                                <th>Cliente</th>\n                                <th>Codice</th>\n                                <th>Descrizione</th>\n                                <th>N. Arrivo</th>\n                                <th>DDT</th>\n                            </tr>\n                        </thead>\n                        <tbody>\n                            {% for m in ultimi_movimenti %}\n                            <tr>\n                                <td>{{ m.data }}</td>\n                                <td>\n                                    {% if m.tipo == \'Entrata\' %}\n                                    <span class="badge bg-success">Entrata</span>\n                                    {% else %}\n                                    <span class="badge bg-danger">Uscita</span>\n                                    {% endif %}\n                                </td>\n                                <td>{{ m.cliente }}</td>\n                                <td>{{ m.codice }}</td>\n                                <td>{{ m.descrizione }}</td>\n                                <td>{{ m.n_arrivo }}</td>\n                                <td>{{ m.ddt }}</td>\n                            </tr>\n                            {% else %}\n                            <tr><td colspan="7" class="text-muted text-center py-3">Nessun movimento recente.</td></tr>\n                            {% endfor %}\n                        </tbody>\n                    </table>\n                </div>\n            </div>\n        </div>\n    </div>\n</div>\n{% endblock %}\n'
+HOME_HTML = '\n{% extends \'base.html\' %}\n{% block content %}\n<style>\n.home-kpi-card{\n    border:0;\n    border-radius:16px;\n    box-shadow:0 4px 14px rgba(0,0,0,.07);\n    height:100%;\n}\n.home-kpi-icon{\n    width:42px;\n    height:42px;\n    border-radius:12px;\n    display:flex;\n    align-items:center;\n    justify-content:center;\n    background:#eef5ff;\n    color:#0d6efd;\n    font-size:20px;\n}\n.home-kpi-value{\n    font-size:26px;\n    font-weight:700;\n    line-height:1.1;\n}\n.home-section-card{\n    border:0;\n    border-radius:16px;\n    box-shadow:0 4px 14px rgba(0,0,0,.07);\n}\n.home-movement-table td,\n.home-movement-table th{\n    vertical-align:middle;\n    font-size:13px;\n}\n\n.home-alert-card{\n    border:0;\n    border-radius:16px;\n    box-shadow:0 4px 14px rgba(0,0,0,.07);\n}\n.home-alert-item{\n    border-left:5px solid #ffc107;\n    background:#fff8e1;\n    border-radius:10px;\n    padding:10px 12px;\n    margin-bottom:8px;\n}\n.home-alert-item.danger{\n    border-left-color:#dc3545;\n    background:#fff1f1;\n}\n.home-alert-item.warning{\n    border-left-color:#ffc107;\n    background:#fff8e1;\n}\n.home-alert-item.info{\n    border-left-color:#0d6efd;\n    background:#eef5ff;\n}\n.home-client-table th,\n.home-client-table td{\n    font-size:13px;\n    vertical-align:middle;\n}\n.home-client-table tfoot td{\n    font-weight:700;\n    background:#f8f9fa;\n}\n\n.home-tools-card{\n    border:0;\n    border-radius:16px;\n    box-shadow:0 4px 14px rgba(0,0,0,.07);\n    height:100%;\n}\n.home-camy-box{\n    background:linear-gradient(135deg,#eef8ff,#f7fbff);\n    border:1px solid #cfe8ff;\n    border-radius:14px;\n    padding:14px;\n}\n.home-backup-ok{color:#198754;font-weight:700}\n.home-backup-warn{color:#dc3545;font-weight:700}\n.home-global-search{\n    border:1px solid #d8e7f7;\n    border-radius:16px;\n    background:#fff;\n    box-shadow:0 4px 14px rgba(0,0,0,.06);\n    padding:14px;\n}\n.home-alert-link{\n    color:inherit;\n    text-decoration:none;\n    display:block;\n    height:100%;\n}\n.home-alert-link:hover .home-alert-item{\n    transform:translateY(-1px);\n    box-shadow:0 5px 14px rgba(0,0,0,.08);\n}\n.home-alert-item{transition:.15s ease}\n</style>\n\n<div class="container-fluid py-3">\n    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">\n        <div class="d-flex align-items-center gap-3">\n            {% if logo_url %}<img src="{{ logo_url }}" style="height:50px;width:auto;">{% endif %}\n            <div>\n                <h3 class="m-0">Dashboard Gestionale</h3>\n                <div class="text-muted small">Riepilogo operativo aggiornato al {{ today.strftime(\'%d/%m/%Y\') if today else \'\' }}</div>\n            </div>\n        </div>\n        <div class="d-flex flex-wrap gap-2">\n            <a class="btn btn-primary btn-sm" href="{{ url_for(\'giacenze\') }}"><i class="bi bi-grid-3x3-gap-fill"></i> Giacenze</a>\n            {% if session.get(\'role\') == \'admin\' %}\n            <a class="btn btn-success btn-sm" href="{{ url_for(\'nuovo_articolo\') }}"><i class="bi bi-plus-circle"></i> Nuovo articolo</a>\n            {% endif %}\n            {% if can_use_buoni_qr() %}\n            <a class="btn btn-outline-primary btn-sm" href="{{ url_for(\'scan_entrata\') }}"><i class="bi bi-upc-scan"></i> Scan entrata</a>\n            {% endif %}\n        </div>\n    </div>\n\n    <div class="home-global-search mb-3">\n        <form method="get" action="{{ url_for(\'dashboard_ricerca_globale\') }}" class="row g-2 align-items-center">\n            <div class="col-lg-9">\n                <div class="input-group">\n                    <span class="input-group-text"><i class="bi bi-search"></i></span>\n                    <input name="q" class="form-control" placeholder="Cerca codice, lotto, N. arrivo, protocollo, seriale, cliente o DDT..." autocomplete="off">\n                </div>\n            </div>\n            <div class="col-lg-3 d-grid">\n                <button class="btn btn-primary"><i class="bi bi-search"></i> Ricerca globale</button>\n            </div>\n        </form>\n    </div>\n\n    {% if session.get(\'role\') == \'admin\' %}\n    <div class="row g-3 mb-3">\n        <div class="col-lg-8">\n            <div class="card home-tools-card p-3">\n                <div class="home-camy-box">\n                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">\n                        <div>\n                            <h5 class="mb-1"><i class="bi bi-robot text-primary"></i> CAMY operativa</h5>\n                            <div class="small text-muted mb-2">Controlli rapidi senza modificare il database.</div>\n                            {% if dashboard.buoni_aperti %}\n                            <div>⚠️ Buoni aperti: <b>{{ dashboard.buoni_aperti }}</b></div>\n                            {% else %}\n                            <div>✅ Nessun Buono aperto.</div>\n                            {% endif %}\n                            {% if dashboard_alerts %}\n                            <div>⚠️ Segnalazioni operative: <b>{{ dashboard_alerts|length }}</b></div>\n                            {% else %}\n                            <div>✅ Nessuna anomalia operativa rilevata.</div>\n                            {% endif %}\n                        </div>\n                        <div class="d-grid gap-2">\n                            <a class="btn btn-primary btn-sm" href="/camy-ai?prefill=Trova%20anomalie%20nel%20magazzino">\n                                <i class="bi bi-shield-check"></i> Controlla magazzino\n                            </a>\n                            <a class="btn btn-outline-primary btn-sm" href="/camy-ai">\n                                Apri CAMY\n                            </a>\n                        </div>\n                    </div>\n                </div>\n            </div>\n        </div>\n        <div class="col-lg-4">\n            <div class="card home-tools-card p-3">\n                <div class="d-flex justify-content-between align-items-start">\n                    <div>\n                        <h5 class="mb-1"><i class="bi bi-database-check text-primary"></i> Ultimo backup</h5>\n                        {% if backup_status.exists %}\n                            <div class="{% if backup_status.today %}home-backup-ok{% else %}home-backup-warn{% endif %}">\n                                {% if backup_status.today %}● OK{% else %}● DA CONTROLLARE{% endif %}\n                            </div>\n                            <div class="mt-1">{{ backup_status.date }}</div>\n                            <div class="small text-muted">{{ backup_status.time }} · {{ backup_status.size_mb }} MB</div>\n                        {% else %}\n                            <div class="home-backup-warn">● NESSUN BACKUP TROVATO</div>\n                        {% endif %}\n                    </div>\n                    <a class="btn btn-outline-primary btn-sm" href="/admin/backups">Apri backup</a>\n                </div>\n            </div>\n        </div>\n    </div>\n    {% endif %}\n\n    <div class="row g-3 mb-3">\n        <div class="col-md-6 col-xl-3">\n            <div class="card home-kpi-card p-3">\n                <div class="d-flex justify-content-between align-items-start">\n                    <div>\n                        <div class="text-muted small">Articoli in giacenza</div>\n                        <div class="home-kpi-value">{{ dashboard.tot_giacenza }}</div>\n                    </div>\n                    <div class="home-kpi-icon"><i class="bi bi-box-seam"></i></div>\n                </div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-3">\n            <div class="card home-kpi-card p-3">\n                <div class="d-flex justify-content-between align-items-start">\n                    <div>\n                        <div class="text-muted small">M² occupati</div>\n                        <div class="home-kpi-value">{{ dashboard.tot_m2|it_num(2) }}</div>\n                    </div>\n                    <div class="home-kpi-icon"><i class="bi bi-rulers"></i></div>\n                </div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-3">\n            <div class="card home-kpi-card p-3">\n                <div class="d-flex justify-content-between align-items-start">\n                    <div>\n                        <div class="text-muted small">Entrate oggi</div>\n                        <div class="home-kpi-value">{{ dashboard.entrate_oggi }}</div>\n                    </div>\n                    <div class="home-kpi-icon"><i class="bi bi-arrow-down-circle"></i></div>\n                </div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-3">\n            <div class="card home-kpi-card p-3">\n                <div class="d-flex justify-content-between align-items-start">\n                    <div>\n                        <div class="text-muted small">Uscite oggi</div>\n                        <div class="home-kpi-value">{{ dashboard.uscite_oggi }}</div>\n                    </div>\n                    <div class="home-kpi-icon"><i class="bi bi-arrow-up-circle"></i></div>\n                </div>\n            </div>\n        </div>\n    </div>\n\n    <div class="row g-3 mb-3">\n        <div class="col-md-6 col-xl-2">\n            <div class="card home-kpi-card p-3">\n                <div class="text-muted small">Articoli doganali</div>\n                <div class="home-kpi-value">{{ dashboard.doganali }}</div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-2">\n            <div class="card home-kpi-card p-3">\n                <div class="text-muted small">Buoni aperti</div>\n                <div class="home-kpi-value">{{ dashboard.buoni_aperti }}</div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-2">\n            <div class="card home-kpi-card p-3">\n                <div class="text-muted small">Buoni creati</div>\n                <div class="home-kpi-value">{{ dashboard.buoni_creati }}</div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-2">\n            <div class="card home-kpi-card p-3">\n                <div class="text-muted small">Buoni usciti</div>\n                <div class="home-kpi-value">{{ dashboard.buoni_usciti }}</div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-2">\n            <div class="card home-kpi-card p-3">\n                <div class="text-muted small">Peso in giacenza</div>\n                <div class="home-kpi-value">{{ dashboard.tot_peso|it_num(2) }}</div>\n            </div>\n        </div>\n        <div class="col-md-6 col-xl-2">\n            <div class="card home-kpi-card p-3">\n                <div class="text-muted small">Colli in giacenza</div>\n                <div class="home-kpi-value">{{ dashboard.tot_colli }}</div>\n            </div>\n        </div>\n    </div>\n\n    {% if dashboard_alerts %}\n    <div class="card home-alert-card p-3 mb-3">\n        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">\n            <h5 class="m-0"><i class="bi bi-bell-fill text-warning"></i> Alert automatici</h5>\n            <span class="badge bg-warning text-dark">{{ dashboard_alerts|length }} segnalazioni</span>\n        </div>\n        <div class="row g-2">\n            {% for alert in dashboard_alerts %}\n            <div class="col-lg-6 col-xxl-4">\n                <a class="home-alert-link" href="{{ alert.url or url_for(\'giacenze\') }}">\n                    <div class="home-alert-item {{ alert.level }}">\n                        <div class="d-flex justify-content-between gap-2">\n                            <strong>{{ alert.title }}</strong>\n                            <span class="badge {% if alert.level == \'danger\' %}bg-danger{% elif alert.level == \'warning\' %}bg-warning text-dark{% else %}bg-primary{% endif %}">{{ alert.count }}</span>\n                        </div>\n                        <div class="small text-muted mt-1">{{ alert.message }}</div>\n                        {% if alert.examples %}\n                        <div class="small mt-1"><strong>Esempi:</strong> {{ alert.examples|join(\', \') }}</div>\n                        {% endif %}\n                        <div class="small text-primary mt-1"><i class="bi bi-box-arrow-up-right"></i> Apri elenco</div>\n                    </div>\n                </a>\n            </div>\n            {% endfor %}\n        </div>\n    </div>\n    {% endif %}\n\n    <div class="card home-section-card p-3 mb-3">\n        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">\n            <h5 class="m-0"><i class="bi bi-people-fill text-primary"></i> Giacenza per cliente</h5>\n            <span class="badge bg-primary">{{ dashboard_clienti|length }} clienti</span>\n        </div>\n        <div class="table-responsive">\n            <table class="table table-sm table-striped home-client-table mb-0">\n                <thead>\n                    <tr>\n                        <th>Cliente</th>\n                        <th class="text-end">Righe</th>\n                        <th class="text-end">Colli</th>\n                        <th class="text-end">M²</th>\n                        <th class="text-end">Peso kg</th>\n                        <th class="text-end">Buoni aperti</th>\n                        <th class="text-end">Buoni creati</th>\n                        <th class="text-end">Buoni usciti</th>\n                    </tr>\n                </thead>\n                <tbody>\n                    {% for r in dashboard_clienti %}\n                    <tr>\n                        <td>{{ r.cliente }}</td>\n                        <td class="text-end">{{ r.righe }}</td>\n                        <td class="text-end">{{ r.colli }}</td>\n                        <td class="text-end">{{ r.m2|it_num(2) }}</td>\n                        <td class="text-end">{{ r.peso|it_num(2) }}</td>\n                        <td class="text-end">{{ r.buoni_aperti }}</td>\n                        <td class="text-end">{{ r.buoni_creati }}</td>\n                        <td class="text-end">{{ r.buoni_usciti }}</td>\n                    </tr>\n                    {% else %}\n                    <tr><td colspan="9" class="text-muted text-center py-3">Nessuna giacenza attiva.</td></tr>\n                    {% endfor %}\n                </tbody>\n                <tfoot>\n                    <tr>\n                        <td>Totale</td>\n                        <td class="text-end">{{ dashboard.tot_giacenza }}</td>\n                        <td class="text-end">{{ dashboard.tot_colli }}</td>\n                        <td class="text-end">{{ dashboard.tot_m2|it_num(2) }}</td>\n                        <td class="text-end">{{ dashboard.tot_peso|it_num(2) }}</td>\n                        <td class="text-end">{{ dashboard.buoni_aperti }}</td>\n                        <td class="text-end">{{ dashboard.buoni_creati }}</td>\n                        <td class="text-end">{{ dashboard.buoni_usciti }}</td>\n                    </tr>\n                </tfoot>\n            </table>\n        </div>\n        <div class="text-muted small mt-2">\n            I colli sono calcolati come nella tabella Giacenze: somma del campo Colli sulle righe ancora in giacenza. Per GALVANO TECNICA non viene contato 1 collo per ogni riga articolo.\n        </div>\n    </div>\n\n    <div class="row g-3">\n        <div class="col-xl-3">\n            <div class="card home-section-card p-3 mb-3">\n                <h6 class="mb-3">Menu rapido</h6>\n                <div class="d-grid gap-2">\n                    <a class="btn btn-primary" href="{{ url_for(\'giacenze\') }}"><i class="bi bi-grid-3x3-gap-fill"></i> Visualizza Giacenze</a>\n                    {% if session.get(\'role\') == \'admin\' %}\n                    <a class="btn btn-success" href="{{ url_for(\'nuovo_articolo\') }}"><i class="bi bi-plus-circle"></i> Nuovo Articolo</a>\n                    <a class="btn btn-outline-secondary" href="{{ url_for(\'labels_form\') }}"><i class="bi bi-tag"></i> Stampa Etichette</a>\n                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for(\'import_excel\') }}"><i class="bi bi-file-earmark-arrow-up"></i> Import Excel</a>\n                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for(\'export_excel\') }}"><i class="bi bi-file-earmark-arrow-down"></i> Export Excel Totale</a>\n                    {% endif %}\n                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for(\'export_client\') }}"><i class="bi bi-people"></i> Export per Cliente</a>\n                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for(\'calcola_costi\') }}"><i class="bi bi-calculator"></i> Calcola Giacenze Mensili</a>\n                    {% if can_use_buoni_qr() %}\n                    <a class="btn btn-outline-primary btn-sm" href="{{ url_for(\'scan_entrata\') }}"><i class="bi bi-upc-scan"></i> Scan / Ricerca Entrata</a>\n                    {% endif %}\n                </div>\n            </div>\n\n            <div class="card home-section-card p-3">\n                <h6 class="mb-2"><i class="bi bi-upc-scan"></i> Ricerca veloce entrata</h6>\n                <form action="{{ url_for(\'go_scan_entrata\') }}" method="post" class="d-flex gap-2">\n                    <input name="codice_entrata" class="form-control" placeholder="Scansiona o incolla codice..." autocomplete="off">\n                    <button class="btn btn-primary">Apri</button>\n                </form>\n            </div>\n        </div>\n\n        <div class="col-xl-9">\n            <div class="card home-section-card p-3">\n                <div class="d-flex justify-content-between align-items-center mb-2">\n                    <h5 class="m-0">Ultimi movimenti</h5>\n                    <a href="{{ url_for(\'giacenze\') }}" class="btn btn-outline-secondary btn-sm">Apri giacenze</a>\n                </div>\n                <div class="table-responsive">\n                    <table class="table table-sm table-striped home-movement-table">\n                        <thead>\n                            <tr>\n                                <th>Data</th>\n                                <th>Tipo</th>\n                                <th>Cliente</th>\n                                <th>Codice</th>\n                                <th>Descrizione</th>\n                                <th>N. Arrivo</th>\n                                <th>DDT</th>\n                                <th>Operatore</th>\n                            </tr>\n                        </thead>\n                        <tbody>\n                            {% for m in ultimi_movimenti %}\n                            <tr>\n                                <td>{{ m.data }}</td>\n                                <td>\n                                    {% if m.tipo == \'Entrata\' %}\n                                    <span class="badge bg-success">Entrata</span>\n                                    {% else %}\n                                    <span class="badge bg-danger">Uscita</span>\n                                    {% endif %}\n                                </td>\n                                <td>{{ m.cliente }}</td>\n                                <td>{{ m.codice }}</td>\n                                <td>{{ m.descrizione }}</td>\n                                <td>{{ m.n_arrivo }}</td>\n                                <td>{{ m.ddt }}</td>\n                                <td>{{ m.operatore or \'-\' }}</td>\n                            </tr>\n                            {% else %}\n                            <tr><td colspan="8" class="text-muted text-center py-3">Nessun movimento recente.</td></tr>\n                            {% endfor %}\n                        </tbody>\n                    </table>\n                </div>\n            </div>\n        </div>\n    </div>\n</div>\n{% endblock %}\n'
 
 
 def register_dashboard_home_routes(app_obj, deps):
@@ -16,8 +16,9 @@ def register_dashboard_home_routes(app_obj, deps):
     globals()["app"] = app_obj
 
     import re
-    from datetime import date, timedelta
-    from flask import render_template_string
+    from pathlib import Path
+    from datetime import date, timedelta, datetime
+    from flask import render_template_string, request, redirect, url_for
     from flask_login import login_required
     from sqlalchemy import func, or_, case
 
@@ -172,6 +173,92 @@ def register_dashboard_home_routes(app_obj, deps):
             except Exception:
                 pass
 
+    @app_obj.route('/dashboard/cerca', endpoint='dashboard_ricerca_globale')
+    @login_required
+    def dashboard_ricerca_globale():
+        query_value = (request.args.get('q') or '').strip()
+        if not query_value:
+            return redirect(url_for('home'))
+
+        db = SessionLocal()
+        try:
+            like_value = f"%{query_value}%"
+            filters = [
+                or_(
+                    Articolo.codice_articolo.ilike(like_value),
+                    Articolo.lotto.ilike(like_value),
+                    Articolo.n_arrivo.ilike(like_value),
+                    Articolo.protocollo.ilike(like_value),
+                    Articolo.serial_number.ilike(like_value),
+                    Articolo.cliente.ilike(like_value),
+                    Articolo.n_ddt_ingresso.ilike(like_value),
+                    Articolo.n_ddt_uscita.ilike(like_value),
+                    Articolo.buono_n.ilike(like_value),
+                    Articolo.descrizione.ilike(like_value),
+                )
+            ]
+            cliente_corrente = current_cliente()
+            if cliente_corrente:
+                filters.append(_cliente_key_expr(Articolo.cliente) == cliente_corrente.upper())
+
+            rows = (
+                db.query(Articolo)
+                .filter(*filters)
+                .order_by(Articolo.id_articolo.desc())
+                .limit(200)
+                .all()
+            )
+
+            if len(rows) == 1:
+                return redirect(url_for('giacenze', id=rows[0].id_articolo))
+
+            html = """
+            {% extends 'base.html' %}
+            {% block content %}
+            <div class="container-fluid py-3">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <h4 class="mb-0"><i class="bi bi-search"></i> Ricerca globale</h4>
+                        <div class="text-muted">Risultati per: <b>{{ query_value }}</b></div>
+                    </div>
+                    <a href="{{ url_for('home') }}" class="btn btn-outline-secondary btn-sm">Dashboard</a>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped align-middle">
+                        <thead>
+                            <tr>
+                                <th>ID</th><th>Cliente</th><th>Codice</th><th>Descrizione</th>
+                                <th>Lotto</th><th>N. Arrivo</th><th>Protocollo</th><th>Seriale</th><th>Buono</th><th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for r in rows %}
+                            <tr>
+                                <td>{{ r.id_articolo }}</td>
+                                <td>{{ r.cliente or '-' }}</td>
+                                <td>{{ r.codice_articolo or '-' }}</td>
+                                <td>{{ (r.descrizione or '-')[:100] }}</td>
+                                <td>{{ r.lotto or '-' }}</td>
+                                <td>{{ r.n_arrivo or '-' }}</td>
+                                <td>{{ r.protocollo or '-' }}</td>
+                                <td>{{ r.serial_number or '-' }}</td>
+                                <td>{{ r.buono_n or '-' }}</td>
+                                <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('giacenze', id=r.id_articolo) }}">Apri</a></td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="10" class="text-center text-muted py-4">Nessun risultato.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endblock %}
+            """
+            return render_template_string(html, rows=rows, query_value=query_value)
+        finally:
+            db.close()
+
+
     @app_obj.route('/home', endpoint='home')
     @login_required
     def home():
@@ -234,7 +321,7 @@ def register_dashboard_home_routes(app_obj, deps):
                 except Exception:
                     return []
 
-            def _add_alert(alerts, level, title, count, message, examples=None):
+            def _add_alert(alerts, level, title, count, message, examples=None, url=None):
                 try:
                     count = int(count or 0)
                 except Exception:
@@ -245,7 +332,8 @@ def register_dashboard_home_routes(app_obj, deps):
                         'title': title,
                         'count': count,
                         'message': message,
-                        'examples': examples or []
+                        'examples': examples or [],
+                        'url': url or url_for('giacenze')
                     })
 
             dashboard = {
@@ -346,10 +434,11 @@ def register_dashboard_home_routes(app_obj, deps):
             def _add_movimenti_ingresso():
                 q = db.query(
                     Articolo.data_ingresso, Articolo.cliente, Articolo.codice_articolo,
-                    Articolo.descrizione, Articolo.n_arrivo, Articolo.n_ddt_ingresso
+                    Articolo.descrizione, Articolo.n_arrivo, Articolo.n_ddt_ingresso,
+                    Articolo.created_by, Articolo.updated_by
                 ).filter(*(all_filter + [Articolo.data_ingresso != None, Articolo.data_ingresso != '']))
                 q = q.order_by(Articolo.id_articolo.desc()).limit(20)
-                for d_in_raw, cli, cod, desc, arr, ddt in q.all():
+                for d_in_raw, cli, cod, desc, arr, ddt, created_by, updated_by in q.all():
                     d_in = to_date_db(d_in_raw)
                     if not d_in:
                         continue
@@ -362,15 +451,17 @@ def register_dashboard_home_routes(app_obj, deps):
                         'descrizione': (desc or '')[:60],
                         'n_arrivo': arr or '',
                         'ddt': ddt or '',
+                        'operatore': created_by or updated_by or '',
                     })
 
             def _add_movimenti_uscita():
                 q = db.query(
                     Articolo.data_uscita, Articolo.cliente, Articolo.codice_articolo,
-                    Articolo.descrizione, Articolo.n_arrivo, Articolo.n_ddt_uscita
+                    Articolo.descrizione, Articolo.n_arrivo, Articolo.n_ddt_uscita,
+                    Articolo.updated_by, Articolo.created_by
                 ).filter(*(all_filter + [Articolo.data_uscita != None, Articolo.data_uscita != '']))
                 q = q.order_by(Articolo.id_articolo.desc()).limit(20)
-                for d_out_raw, cli, cod, desc, arr, ddt in q.all():
+                for d_out_raw, cli, cod, desc, arr, ddt, updated_by, created_by in q.all():
                     d_out = to_date_db(d_out_raw)
                     if not d_out:
                         continue
@@ -383,6 +474,7 @@ def register_dashboard_home_routes(app_obj, deps):
                         'descrizione': (desc or '')[:60],
                         'n_arrivo': arr or '',
                         'ddt': ddt or '',
+                        'operatore': updated_by or created_by or '',
                     })
 
             try:
@@ -398,40 +490,6 @@ def register_dashboard_home_routes(app_obj, deps):
             )[:10]
 
             dashboard_alerts = []
-
-            try:
-                senza_foto_filter = active_filter + [~Articolo.attachments.any(Attachment.kind == 'photo')]
-                senza_pdf_filter = active_filter + [~Articolo.attachments.any(Attachment.kind == 'doc')]
-                _add_alert(dashboard_alerts, 'warning', 'Foto mancante', _count_articoli(senza_foto_filter), 'Articoli in giacenza senza foto arrivo.', _examples(senza_foto_filter, 'n_arrivo'))
-                _add_alert(dashboard_alerts, 'warning', 'Documento PDF mancante', _count_articoli(senza_pdf_filter), 'Articoli in giacenza senza documento arrivo PDF.', _examples(senza_pdf_filter, 'n_arrivo'))
-            except Exception:
-                pass
-
-            def _duplicate_summary(attr, extra_filters=None, exclude_clienti=None):
-                exclude_clienti = {c.upper() for c in (exclude_clienti or [])}
-                col = getattr(Articolo, attr)
-                filters = list(extra_filters or [])
-                filters += [col != None, col != '']
-                if exclude_clienti:
-                    filters.append(~_cliente_key_expr(Articolo.cliente).in_(list(exclude_clienti)))
-                try:
-                    rows_dup = (
-                        db.query(col, func.count(Articolo.id_articolo).label('cnt'))
-                        .filter(*filters)
-                        .group_by(col)
-                        .having(func.count(Articolo.id_articolo) > 1)
-                        .order_by(func.count(Articolo.id_articolo).desc())
-                        .limit(50)
-                        .all()
-                    )
-                    total_groups = len(rows_dup)
-                    examples = [str(v or '').strip() for v, c in rows_dup[:5] if str(v or '').strip()]
-                    return total_groups, examples
-                except Exception:
-                    return 0, []
-
-            dup_arrivi_count, dup_arrivi_examples = _duplicate_summary('n_arrivo', active_filter)
-            _add_alert(dashboard_alerts, 'warning', 'N. arrivo duplicato', dup_arrivi_count, 'Ci sono numeri arrivo ripetuti tra gli articoli ancora in giacenza.', dup_arrivi_examples)
 
             uscite_candidate_filter = all_filter + [
                 Articolo.data_uscita != None,
@@ -454,14 +512,50 @@ def register_dashboard_home_routes(app_obj, deps):
                             uscite_senza_mezzo_examples.append(n)
             except Exception:
                 pass
-            _add_alert(dashboard_alerts, 'danger', 'DDT gestionale senza mezzo', uscite_senza_mezzo_count, 'DDT creati dal gestionale senza Motrice / Bilico / Furgone compilato.', uscite_senza_mezzo_examples)
+            _add_alert(
+                dashboard_alerts, 'danger', 'DDT gestionale senza mezzo',
+                uscite_senza_mezzo_count,
+                'DDT creati dal gestionale senza Motrice / Bilico / Furgone compilato.',
+                uscite_senza_mezzo_examples,
+                url_for('giacenze', solo_uscite='1', mezzo_uscita='')
+            )
 
-            vecchie_filter = active_filter + [
-                Articolo.data_ingresso != None,
-                Articolo.data_ingresso != '',
-                Articolo.data_ingresso <= cutoff_90_iso
-            ]
-            _add_alert(dashboard_alerts, 'info', 'Giacenze oltre 90 giorni', _count_articoli(vecchie_filter), 'Articoli ancora in giacenza da almeno 90 giorni.', _examples(vecchie_filter, 'n_arrivo'))
+            # Alert operativi essenziali: nessun controllo sulle posizioni.
+            try:
+                negativi_filter = active_filter + [Articolo.n_colli < 0]
+                _add_alert(
+                    dashboard_alerts, 'danger', 'Colli negativi',
+                    _count_articoli(negativi_filter),
+                    'Righe in giacenza con numero colli negativo.',
+                    _examples(negativi_filter, 'id_articolo'),
+                    url_for('dashboard_ricerca_globale', q='-')
+                )
+            except Exception:
+                pass
+
+            try:
+                ddt_attivo_filter = active_filter + [
+                    Articolo.n_ddt_uscita != None,
+                    Articolo.n_ddt_uscita != ''
+                ]
+                _add_alert(
+                    dashboard_alerts, 'danger', 'Articoli attivi con DDT uscita',
+                    _count_articoli(ddt_attivo_filter),
+                    'Righe ancora considerate in giacenza ma con DDT di uscita compilato.',
+                    _examples(ddt_attivo_filter, 'n_ddt_uscita'),
+                    url_for('giacenze', solo_in_giacenza='1')
+                )
+            except Exception:
+                pass
+
+            if int(dashboard.get('buoni_aperti') or 0) > 0:
+                _add_alert(
+                    dashboard_alerts, 'warning', 'Buoni aperti',
+                    dashboard.get('buoni_aperti'),
+                    'Buoni di prelievo creati ma non ancora completati con uscita.',
+                    [],
+                    url_for('giacenze', buono_n='')
+                )
 
             level_order = {'danger': 0, 'warning': 1, 'info': 2}
             dashboard_alerts = sorted(dashboard_alerts, key=lambda x: (level_order.get(x.get('level'), 9), -int(x.get('count') or 0)))
@@ -601,12 +695,42 @@ def register_dashboard_home_routes(app_obj, deps):
             except Exception:
                 dashboard_clienti = []
 
+            backup_status = {
+                'exists': False,
+                'today': False,
+                'date': '',
+                'time': '',
+                'size_mb': 0,
+                'filename': '',
+            }
+            try:
+                backup_dir = Path(MEDIA_DIR) / 'backups'
+                files_backup = sorted(
+                    backup_dir.glob('backup_camar_*.zip'),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True
+                )
+                if files_backup:
+                    latest = files_backup[0]
+                    dt_backup = datetime.fromtimestamp(latest.stat().st_mtime)
+                    backup_status.update({
+                        'exists': True,
+                        'today': dt_backup.date() == today_obj,
+                        'date': dt_backup.strftime('%d/%m/%Y'),
+                        'time': dt_backup.strftime('%H:%M'),
+                        'size_mb': round(latest.stat().st_size / (1024 * 1024), 2),
+                        'filename': latest.name,
+                    })
+            except Exception:
+                pass
+
             return render_template_string(
                 HOME_HTML,
                 dashboard=dashboard,
                 dashboard_clienti=dashboard_clienti,
                 dashboard_alerts=dashboard_alerts,
                 ultimi_movimenti=ultimi_movimenti,
+                backup_status=backup_status,
                 today=today_obj,
                 tot_articoli=dashboard['tot_giacenza'],
                 tot_m2=dashboard['tot_m2'],
