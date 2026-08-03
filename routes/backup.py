@@ -19,7 +19,12 @@ def register_backup_routes(app_obj, deps):
     import tempfile
     import shutil
     from pathlib import Path
-    from datetime import datetime
+    from datetime import datetime, date
+    from decimal import Decimal
+    import json
+    import subprocess
+    from sqlalchemy import MetaData, inspect as sa_inspect, select, text
+    from sqlalchemy.sql.sqltypes import Date, DateTime, Time, Boolean, Integer, Float, Numeric
 
     # ========================================================
     #  BACKUP (DB + JSON + Media) - crea ZIP in /media/backups
@@ -27,15 +32,114 @@ def register_backup_routes(app_obj, deps):
     BACKUP_DIR = MEDIA_DIR / "backups"
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
-    def create_backup_zip(include_media: bool = True) -> Path:
-        """Crea un backup ZIP e ritorna il path.
+    def _db_dialect():
+        try:
+            return str(engine.dialect.name or "").lower()
+        except Exception:
+            return ""
 
-        Versione anti-timeout Render:
-        - evita file duplicati nello ZIP;
-        - non inserisce mai la cartella backups dentro un nuovo backup;
-        - mantiene il percorso relativo dei media, evitando nomi duplicati;
-        - per default il backup manuale /backup è LEGGERO, cioè DB/config senza foto/PDF.
-        """
+    def _safe_db_label():
+        try:
+            url = engine.url
+            return f"{url.drivername}://{url.host or 'locale'}/{url.database or ''}"
+        except Exception:
+            return _db_dialect() or "sconosciuto"
+
+    def _json_value(value):
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if isinstance(value, Decimal):
+            return str(value)
+        if isinstance(value, (bytes, bytearray, memoryview)):
+            import base64
+            return {"__bytes_base64__": base64.b64encode(bytes(value)).decode("ascii")}
+        return str(value)
+
+    def _export_database_json(destination: Path):
+        inspector = sa_inspect(engine)
+        table_names = sorted(
+            name for name in inspector.get_table_names()
+            if name and not name.startswith("pg_") and name != "alembic_version"
+        )
+        if not table_names:
+            raise RuntimeError("Il database non contiene tabelle esportabili.")
+
+        metadata = MetaData()
+        metadata.reflect(bind=engine, only=table_names)
+        payload = {
+            "format": "CAMAR_DATABASE_EXPORT_V2",
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "dialect": _db_dialect(),
+            "database": _safe_db_label(),
+            "tables": [],
+        }
+        total_rows = 0
+        with engine.connect() as conn:
+            for table_name in table_names:
+                table = metadata.tables.get(table_name)
+                if table is None:
+                    continue
+                rows = [
+                    {key: _json_value(value) for key, value in row.items()}
+                    for row in conn.execute(select(table)).mappings()
+                ]
+                total_rows += len(rows)
+                payload["tables"].append({
+                    "name": table_name,
+                    "columns": [
+                        {
+                            "name": column.name,
+                            "type": column.type.__class__.__name__,
+                            "primary_key": bool(column.primary_key),
+                            "nullable": bool(column.nullable),
+                        }
+                        for column in table.columns
+                    ],
+                    "row_count": len(rows),
+                    "rows": rows,
+                })
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        if not destination.exists() or destination.stat().st_size < 100:
+            raise RuntimeError("L'esportazione JSON del database risulta vuota.")
+        return {"tables": len(payload["tables"]), "rows": total_rows}
+
+    def _try_pg_dump(destination: Path):
+        if _db_dialect() != "postgresql":
+            return False, "Database non PostgreSQL"
+        pg_dump = shutil.which("pg_dump")
+        if not pg_dump:
+            return False, "pg_dump non installato; presente comunque database_export.json"
+        db_url = str(os.environ.get("DATABASE_URL") or "").strip()
+        if db_url.startswith("postgres://"):
+            db_url = "postgresql://" + db_url[len("postgres://"):]
+        if not db_url:
+            try:
+                db_url = engine.url.render_as_string(hide_password=False)
+            except Exception:
+                db_url = ""
+        if not db_url:
+            return False, "DATABASE_URL non disponibile"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        cmd = [pg_dump, "--dbname", db_url, "--format=p", "--no-owner", "--no-privileges", "--clean", "--if-exists", "--file", str(destination)]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=240, check=False)
+            if result.returncode != 0:
+                destination.unlink(missing_ok=True)
+                return False, (result.stderr or result.stdout or "errore pg_dump").strip()[-1000:]
+            if not destination.exists() or destination.stat().st_size < 100:
+                destination.unlink(missing_ok=True)
+                return False, "pg_dump ha prodotto un file vuoto"
+            return True, "OK"
+        except Exception as exc:
+            destination.unlink(missing_ok=True)
+            return False, str(exc)
+
+    def create_backup_zip(include_media: bool = False) -> Path:
+        """Crea un backup reale. Se il database non viene esportato, non crea lo ZIP."""
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         out = BACKUP_DIR / f"backup_camar_{ts}.zip"
         added = set()
@@ -47,95 +151,79 @@ def register_backup_routes(app_obj, deps):
             except Exception:
                 return False
 
-        def _unique_arcname(arcname: str) -> str:
-            arcname = str(arcname or "").replace("\\", "/").lstrip("/")
-            base = arcname
-            if arcname not in added:
-                return arcname
-            stem = Path(base).stem
-            suffix = Path(base).suffix
-            parent = str(Path(base).parent).replace(".", "")
-            i = 2
-            while True:
-                candidate = f"{parent}/{stem}_{i}{suffix}" if parent else f"{stem}_{i}{suffix}"
-                candidate = candidate.replace("\\", "/").lstrip("/")
-                if candidate not in added:
-                    return candidate
-                i += 1
-
-        def _safe_add(zf, p: Path, arcname: str, compress_type=None):
-            try:
-                p = Path(p)
-                if not p.exists() or not p.is_file():
-                    return False
-
-                # Mai includere backup vecchi o il file ZIP in costruzione.
-                if _is_inside(p, BACKUP_DIR) or p.resolve() == out.resolve():
-                    return False
-
-                arcname = _unique_arcname(arcname)
-                added.add(arcname)
-
-                if compress_type is None:
-                    compress_type = zipfile.ZIP_STORED if p.stat().st_size > 3 * 1024 * 1024 else zipfile.ZIP_DEFLATED
-
-                zf.write(p, arcname=arcname, compress_type=compress_type)
-                return True
-            except Exception as e:
-                print(f"[WARN] backup skip {p}: {e}")
+        def _safe_add(zf, p: Path, arcname: str, required=False):
+            p = Path(p)
+            if not p.exists() or not p.is_file():
+                if required:
+                    raise RuntimeError(f"File obbligatorio assente: {p}")
                 return False
+            if _is_inside(p, BACKUP_DIR) or p.resolve() == out.resolve():
+                return False
+            arcname = str(arcname).replace("\\", "/").lstrip("/")
+            if arcname in added:
+                return False
+            added.add(arcname)
+            compress_type = zipfile.ZIP_STORED if p.stat().st_size > 3 * 1024 * 1024 else zipfile.ZIP_DEFLATED
+            zf.write(p, arcname=arcname, compress_type=compress_type)
+            return True
 
-        with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
-            # DB locale, se presente. Su Render con Postgres spesso non esiste: in quel caso lo salto.
-            for db_path in [MEDIA_DIR / "magazzino.db", APP_DIR / "magazzino.db"]:
-                _safe_add(zf, db_path, "magazzino.db")
+        try:
+            with tempfile.TemporaryDirectory(prefix="camar_backup_") as tmp:
+                tmp = Path(tmp)
+                db_json = tmp / "database_export.json"
+                stats = _export_database_json(db_json)
+                pg_sql = tmp / "database_postgresql.sql"
+                pg_ok, pg_msg = _try_pg_dump(pg_sql)
 
-            # Config / JSON: prima disco persistente, poi repo. Stesso arcname ma senza duplicare.
-            for name in ["mappe_excel.json", "destinatari_saved.json", "progressivi_ddt.json", "utenti_gestionale.json"]:
-                if not _safe_add(zf, MEDIA_DIR / name, f"config/{name}"):
-                    _safe_add(zf, APP_DIR / name, f"config/{name}")
-                _safe_add(zf, APP_DIR / "config" / name, f"config/{name}")
+                with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+                    _safe_add(zf, db_json, "database/database_export.json", required=True)
+                    if pg_ok:
+                        _safe_add(zf, pg_sql, "database/database_postgresql.sql")
 
-            try:
-                rubrica = _rubrica_email_path()
-                _safe_add(zf, Path(rubrica), "config/rubrica_email.json")
-            except Exception:
-                pass
+                    for db_path in [MEDIA_DIR / "magazzino.db", APP_DIR / "magazzino.db"]:
+                        if _safe_add(zf, db_path, "database/magazzino.db"):
+                            break
 
-            # Metadati utili per capire da dove arriva il backup.
-            try:
-                info = (
-                    f"Backup creato: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
-                    f"MEDIA_DIR: {MEDIA_DIR}\n"
-                    f"APP_DIR: {APP_DIR}\n"
-                    f"include_media: {include_media}\n"
-                    f"file_inclusi: {len(added)}\n"
-                )
-                zf.writestr("backup_info.txt", info)
-            except Exception:
-                pass
+                    for name in ["mappe_excel.json", "destinatari_saved.json", "progressivi_ddt.json", "utenti_gestionale.json"]:
+                        for candidate in [MEDIA_DIR / name, APP_DIR / name, APP_DIR / "config" / name]:
+                            if _safe_add(zf, candidate, f"config/{name}"):
+                                break
+                    try:
+                        _safe_add(zf, Path(_rubrica_email_path()), "config/rubrica_email.json")
+                    except Exception:
+                        pass
 
-            # Media opzionali: mantiene sottocartelle e non appiattisce i nomi.
-            # Usare /backup?media=1 solo quando serve davvero il backup completo con PDF/foto.
-            if include_media:
-                for folder, arcroot in [(DOCS_DIR, "media/docs"), (PHOTOS_DIR, "media/photos")]:
-                    folder = Path(folder)
-                    if not folder.exists():
-                        continue
-                    for p in folder.rglob("*"):
-                        if not p.is_file():
-                            continue
-                        # salta file temporanei/cache
-                        name_low = p.name.lower()
-                        if name_low.endswith((".tmp", ".part", ".bak")) or "__pycache__" in str(p):
-                            continue
-                        try:
-                            rel = p.relative_to(folder).as_posix()
-                        except Exception:
-                            rel = p.name
-                        _safe_add(zf, p, f"{arcroot}/{rel}")
+                    if include_media:
+                        for folder, arcroot in [(DOCS_DIR, "media/docs"), (PHOTOS_DIR, "media/photos")]:
+                            folder = Path(folder)
+                            if not folder.exists():
+                                continue
+                            for p in folder.rglob("*"):
+                                if not p.is_file():
+                                    continue
+                                low = p.name.lower()
+                                if low.endswith((".tmp", ".part", ".bak")) or "__pycache__" in str(p):
+                                    continue
+                                _safe_add(zf, p, f"{arcroot}/{p.relative_to(folder).as_posix()}")
 
-        return out
+                    info = (
+                        f"Backup CAMAR creato: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+                        f"Database: {_safe_db_label()}\n"
+                        f"File DB obbligatorio: database/database_export.json\n"
+                        f"Tabelle esportate: {stats['tables']}\n"
+                        f"Righe esportate: {stats['rows']}\n"
+                        f"Dump PostgreSQL SQL presente: {'SI' if pg_ok else 'NO'}\n"
+                        f"Esito pg_dump: {pg_msg}\n"
+                        f"PDF/foto inclusi: {'SI' if include_media else 'NO'}\n"
+                        f"File inclusi: {len(added)}\n"
+                    )
+                    zf.writestr("backup_info.txt", info)
+            if not out.exists() or out.stat().st_size < 200:
+                raise RuntimeError("Il file ZIP del backup non è stato creato correttamente.")
+            return out
+        except Exception:
+            out.unlink(missing_ok=True)
+            raise
 
 
     _AUTO_BACKUP_LAST_CHECK = {"ts": 0}
@@ -224,62 +312,106 @@ def register_backup_routes(app_obj, deps):
             })
         return out
 
-    def restore_from_backup_zip(zip_filename: str, restore_media: bool = False):
-        """
-        Ripristino sicuro:
-        - valida che il file stia dentro BACKUP_DIR
-        - crea una copia di emergenza del DB attuale
-        - estrae lo zip in temp
-        - ripristina magazzino.db + JSON
-        - opzionale: ripristina cartelle docs/photos
-        """
-        # ✅ sicurezza: niente path traversal
-        zip_path = (BACKUP_DIR / zip_filename).resolve()
-        if not str(zip_path).startswith(str(BACKUP_DIR.resolve())):
-            raise Exception("Backup non valido (path non consentito).")
-        if not zip_path.exists():
-            raise Exception("Backup non trovato.")
+    def _decode_value(value, column):
+        if isinstance(value, dict) and "__bytes_base64__" in value:
+            import base64
+            return base64.b64decode(value["__bytes_base64__"])
+        if value is None:
+            return None
+        try:
+            if isinstance(column.type, DateTime):
+                return datetime.fromisoformat(str(value))
+            if isinstance(column.type, Date):
+                return date.fromisoformat(str(value)[:10])
+            if isinstance(column.type, Time):
+                return datetime.fromisoformat(f"2000-01-01T{value}").time()
+            if isinstance(column.type, Boolean):
+                return value if isinstance(value, bool) else str(value).lower() in ("1", "true", "yes", "si", "sì")
+            if isinstance(column.type, Integer):
+                return int(value)
+            if isinstance(column.type, (Float, Numeric)):
+                return float(value)
+        except Exception:
+            return value
+        return value
 
-        db_path = _get_db_path()
-        MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    def _restore_database_json(export_file: Path):
+        payload = json.loads(export_file.read_text(encoding="utf-8"))
+        if payload.get("format") != "CAMAR_DATABASE_EXPORT_V2":
+            raise RuntimeError("Formato database_export.json non riconosciuto.")
+        if str(os.environ.get("ENABLE_DATABASE_RESTORE", "0")).lower() not in ("1", "true", "yes", "si", "sì"):
+            raise RuntimeError("Ripristino database disabilitato per sicurezza. Imposta ENABLE_DATABASE_RESTORE=1 su Render solo durante il ripristino.")
 
-        # ✅ copia emergenza DB attuale
-        if db_path.exists():
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            emergency = db_path.with_suffix(f".pre_restore_{ts}.bak")
-            shutil.copy2(db_path, emergency)
+        metadata = MetaData()
+        metadata.reflect(bind=engine)
+        exported = {item.get("name"): item for item in payload.get("tables", [])}
+        available = [name for name in exported if name in metadata.tables]
+        if not available:
+            raise RuntimeError("Nessuna tabella del backup corrisponde al database attuale.")
 
-        # ✅ estrai in temp e ripristina
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-
-            with zipfile.ZipFile(zip_path, "r") as z:
-                z.extractall(tmpdir)
-
-            # --- ripristina DB ---
-            extracted_db = tmpdir / "magazzino.db"
-            if extracted_db.exists():
-                shutil.copy2(extracted_db, db_path)
+        with engine.begin() as conn:
+            if _db_dialect() == "postgresql":
+                quoted = ", ".join(engine.dialect.identifier_preparer.quote(name) for name in available)
+                conn.execute(text(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE"))
             else:
-                raise Exception("Nel backup non c'è magazzino.db")
+                for table in reversed(metadata.sorted_tables):
+                    if table.name in available:
+                        conn.execute(table.delete())
+            for table in metadata.sorted_tables:
+                item = exported.get(table.name)
+                if not item:
+                    continue
+                rows = []
+                for raw_row in item.get("rows", []):
+                    converted = {}
+                    for key, value in raw_row.items():
+                        if key in table.c:
+                            converted[key] = _decode_value(value, table.c[key])
+                    rows.append(converted)
+                if rows:
+                    conn.execute(table.insert(), rows)
 
-            # --- ripristina JSON (se presenti) ---
-            for json_name in ["mappe_excel.json", "destinatari_saved.json", "rubrica_email.json"]:
-                src = tmpdir / json_name
+    def _safe_extract(zf, destination: Path):
+        destination = destination.resolve()
+        for member in zf.infolist():
+            target = (destination / member.filename).resolve()
+            if not str(target).startswith(str(destination)):
+                raise RuntimeError("Backup non valido: percorso ZIP non consentito.")
+        zf.extractall(destination)
+
+    def restore_from_backup_zip(zip_filename: str, restore_media: bool = False):
+        zip_path = (BACKUP_DIR / zip_filename).resolve()
+        if not str(zip_path).startswith(str(BACKUP_DIR.resolve())) or not zip_path.exists():
+            raise RuntimeError("Backup non trovato o percorso non valido.")
+
+        emergency = create_backup_zip(include_media=restore_media)
+        app.logger.warning(f"[RESTORE] backup di emergenza creato: {emergency.name}")
+
+        with tempfile.TemporaryDirectory(prefix="camar_restore_") as tmpdir:
+            tmpdir = Path(tmpdir)
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                _safe_extract(zf, tmpdir)
+
+            db_export = tmpdir / "database" / "database_export.json"
+            if not db_export.exists():
+                db_export = tmpdir / "database_export.json"
+            if not db_export.exists():
+                raise RuntimeError("Nel backup manca database/database_export.json.")
+            _restore_database_json(db_export)
+
+            config_dir = tmpdir / "config"
+            for name in ["mappe_excel.json", "destinatari_saved.json", "progressivi_ddt.json", "utenti_gestionale.json", "rubrica_email.json"]:
+                src = config_dir / name
                 if src.exists():
-                    shutil.copy2(src, MEDIA_DIR / json_name)
+                    shutil.copy2(src, MEDIA_DIR / name)
 
-            # --- ripristina media (opzionale) ---
             if restore_media:
-                for folder in ["docs", "photos"]:
-                    src_folder = tmpdir / folder
-                    dst_folder = MEDIA_DIR / folder
-                    if src_folder.exists():
-                        if dst_folder.exists():
-                            shutil.rmtree(dst_folder)
-                        shutil.copytree(src_folder, dst_folder)
-
+                for src, dst in [(tmpdir / "media" / "docs", DOCS_DIR), (tmpdir / "media" / "photos", PHOTOS_DIR)]:
+                    if src.exists():
+                        Path(dst).mkdir(parents=True, exist_ok=True)
+                        shutil.copytree(src, dst, dirs_exist_ok=True)
         return True
+
 
     # ==========================================================
     # TEMPLATE ADMIN BACKUPS (gestito dentro al file Python)
@@ -293,16 +425,15 @@ def register_backup_routes(app_obj, deps):
       <h3><i class="bi bi-hdd-stack"></i> Backup & Ripristino</h3>
 
       <div class="alert alert-info">
-        I backup sono salvati su disco persistente Render:<br>
-        <b>/var/data/app/backups</b>
+        Ogni backup contiene obbligatoriamente tutte le tabelle PostgreSQL nel file <b>database/database_export.json</b>.<br>Se l'esportazione DB fallisce, il download viene bloccato.<br><br>I backup sono salvati su disco persistente Render:<br><b>/var/data/app/backups</b>
       </div>
 
       <div class="mb-3 d-flex gap-2 flex-wrap">
         <a class="btn btn-primary" href="{{ url_for('backup_download') }}">
-          <i class="bi bi-download"></i> Crea backup leggero
+          <i class="bi bi-download"></i> Backup DB + configurazioni
         </a>
         <a class="btn btn-outline-primary" href="{{ url_for('backup_download') }}?media=1">
-          <i class="bi bi-file-zip"></i> Crea backup completo PDF/Foto
+          <i class="bi bi-file-zip"></i> Backup completo DB + PDF/Foto
         </a>
       </div>
 
