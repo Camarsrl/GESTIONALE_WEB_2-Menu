@@ -1,34 +1,38 @@
 # -*- coding: utf-8 -*-
+"""Compatibilità con il vecchio storico a una riga per campo.
+
+Il modello principale e la visualizzazione sono ora definiti in gestionale_web_full.py.
+Questa funzione resta disponibile per eventuali moduli esterni che la importano.
+"""
 from datetime import datetime
-from sqlalchemy import Column, Integer, Text
-from sqlalchemy.orm import declarative_base
+from sqlalchemy import text
 
-BaseStorico = declarative_base()
 
-class StoricoModifica(BaseStorico):
-    __tablename__ = "storico_modifiche"
+def salva_storico(db, articolo_id, utente, campo, vecchio, nuovo, commit=False):
+    """Salva una variazione nella tabella storico_modifiche.
 
-    id = Column(Integer, primary_key=True)
-    articolo_id = Column(Integer)
-    utente = Column(Text)
-    campo = Column(Text)
-    valore_vecchio = Column(Text)
-    valore_nuovo = Column(Text)
-    data_modifica = Column(Text)
-
-def salva_storico(db, articolo_id, utente, campo, vecchio, nuovo):
+    Per impostazione predefinita non esegue commit, così la registrazione resta nella
+    stessa transazione dell'operazione principale. Impostare commit=True solo quando
+    la funzione viene chiamata fuori da una transazione già gestita.
+    """
     try:
-        rec = StoricoModifica(
-            articolo_id=articolo_id,
-            utente=utente,
-            campo=campo,
-            valore_vecchio=str(vecchio or ""),
-            valore_nuovo=str(nuovo or ""),
-            data_modifica=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        )
-        db.add(rec)
-        db.commit()
+        db.execute(text("""
+            INSERT INTO storico_modifiche
+            (articolo_id, utente, campo, valore_vecchio, valore_nuovo, data_modifica)
+            VALUES
+            (:articolo_id, :utente, :campo, :vecchio, :nuovo, :data_modifica)
+        """), {
+            'articolo_id': int(articolo_id),
+            'utente': str(utente or 'SISTEMA'),
+            'campo': str(campo or ''),
+            'vecchio': '' if vecchio is None else str(vecchio),
+            'nuovo': '' if nuovo is None else str(nuovo),
+            'data_modifica': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        })
+        if commit:
+            db.commit()
         return True
     except Exception:
-        db.rollback()
+        if commit:
+            db.rollback()
         return False
