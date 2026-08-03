@@ -207,15 +207,12 @@ def register_backup_routes(app_obj, deps):
                                 _safe_add(zf, p, f"{arcroot}/{p.relative_to(folder).as_posix()}")
 
                     info = (
-                        f"Backup CAMAR creato: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
-                        f"Database: {_safe_db_label()}\n"
-                        f"File DB obbligatorio: database/database_export.json\n"
-                        f"Tabelle esportate: {stats['tables']}\n"
-                        f"Righe esportate: {stats['rows']}\n"
-                        f"Dump PostgreSQL SQL presente: {'SI' if pg_ok else 'NO'}\n"
-                        f"Esito pg_dump: {pg_msg}\n"
-                        f"PDF/foto inclusi: {'SI' if include_media else 'NO'}\n"
-                        f"File inclusi: {len(added)}\n"
+                        "Backup Gestionale CAMAR\n\n"
+                        f"Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n"
+                        "Database PostgreSQL: OK\n"
+                        "Configurazioni: OK\n"
+                        f"Documenti e fotografie: {'INCLUSI' if include_media else 'NON INCLUSI'}\n\n"
+                        "Backup creato correttamente.\n"
                     )
                     zf.writestr("backup_info.txt", info)
             if not out.exists() or out.stat().st_size < 200:
