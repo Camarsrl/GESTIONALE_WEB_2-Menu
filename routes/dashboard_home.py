@@ -426,6 +426,14 @@ def register_dashboard_home_routes(app_obj, deps):
                 return by_cliente, totale
 
             buoni_by_cliente_global = {}
+            # Valori iniziali obbligatori: se il calcolo Buoni fallisce,
+            # il riepilogo clienti deve comunque essere mostrato.
+            buoni_by_cliente_global = {}
+            buoni_totali = {
+                'buoni_creati': 0,
+                'buoni_usciti': 0,
+                'buoni_aperti': 0,
+            }
             try:
                 # Conteggio corretto dei Buoni di Prelievo creati dalla schermata Buono.
                 buoni_by_cliente_global, buoni_totali = _calcola_buoni_prelievo_dashboard()
@@ -597,14 +605,11 @@ def register_dashboard_home_routes(app_obj, deps):
                         nome_cliente = 'CLIENTE DA VERIFICARE'
 
                     dati_buoni = {}
-                    try:
-                        # Ricerca tollerante alle differenze di maiuscole/spazi.
-                        for key_buono, value_buono in (buoni_by_cliente_global or {}).items():
-                            if str(key_buono or '').strip().upper() == nome_cliente:
-                                dati_buoni = value_buono or {}
-                                break
-                    except Exception:
-                        dati_buoni = {}
+                    # Ricerca tollerante alle differenze di maiuscole/spazi.
+                    for key_buono, value_buono in (buoni_by_cliente_global or {}).items():
+                        if str(key_buono or '').strip().upper() == nome_cliente:
+                            dati_buoni = value_buono or {}
+                            break
 
                     dashboard_clienti.append({
                         'cliente': nome_cliente,
@@ -638,7 +643,78 @@ def register_dashboard_home_routes(app_obj, deps):
                     )
                 except Exception:
                     pass
+
+                # Fallback definitivo: legge le righe attive e raggruppa in Python.
+                # È più lento della query SQL, ma impedisce che la tabella resti vuota.
                 dashboard_clienti = []
+                try:
+                    righe_attive = (
+                        db.query(
+                            Articolo.cliente,
+                            Articolo.n_colli,
+                            Articolo.m2,
+                            Articolo.peso,
+                        )
+                        .filter(*active_filter)
+                        .all()
+                    )
+                    gruppi = {}
+                    for cli, colli_val, m2_val, peso_val in righe_attive:
+                        nome_cliente = str(cli or '').strip().upper()
+                        if not nome_cliente or nome_cliente in ('NONE', 'NULL', 'NAT', 'NAN'):
+                            nome_cliente = 'CLIENTE DA VERIFICARE'
+                        rec = gruppi.setdefault(nome_cliente, {
+                            'cliente': nome_cliente,
+                            'righe': 0,
+                            'colli': 0,
+                            'm2': 0.0,
+                            'peso': 0.0,
+                            'buoni_aperti': 0,
+                            'buoni_creati': 0,
+                            'buoni_usciti': 0,
+                            'da_verificare': nome_cliente == 'CLIENTE DA VERIFICARE',
+                        })
+                        rec['righe'] += 1
+                        try:
+                            rec['colli'] += int(colli_val or 0)
+                        except Exception:
+                            pass
+                        try:
+                            rec['m2'] += float(m2_val or 0)
+                        except Exception:
+                            pass
+                        try:
+                            rec['peso'] += float(peso_val or 0)
+                        except Exception:
+                            pass
+
+                    for nome_cliente, rec in gruppi.items():
+                        dati_buoni = {}
+                        for key_buono, value_buono in (buoni_by_cliente_global or {}).items():
+                            if str(key_buono or '').strip().upper() == nome_cliente:
+                                dati_buoni = value_buono or {}
+                                break
+                        rec['m2'] = round(rec['m2'], 2)
+                        rec['peso'] = round(rec['peso'], 2)
+                        rec['buoni_aperti'] = int(dati_buoni.get('buoni_aperti', 0) or 0)
+                        rec['buoni_creati'] = int(dati_buoni.get('buoni_creati', 0) or 0)
+                        rec['buoni_usciti'] = int(dati_buoni.get('buoni_usciti', 0) or 0)
+                        dashboard_clienti.append(rec)
+
+                    dashboard_clienti.sort(
+                        key=lambda row: (
+                            row.get('cliente') == 'CLIENTE DA VERIFICARE',
+                            row.get('cliente') or ''
+                        )
+                    )
+                except Exception as fallback_error:
+                    try:
+                        app_obj.logger.error(
+                            f"[DASHBOARD] fallback clienti fallito: {fallback_error}"
+                        )
+                    except Exception:
+                        pass
+                    dashboard_clienti = []
 
             backup_status = {
                 'exists': False,
