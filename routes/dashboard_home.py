@@ -440,8 +440,18 @@ def register_dashboard_home_routes(app_obj, deps):
                 dashboard['buoni_creati'] = int(buoni_totali.get('buoni_creati', 0) or 0)
                 dashboard['buoni_usciti'] = int(buoni_totali.get('buoni_usciti', 0) or 0)
                 dashboard['buoni_aperti'] = int(buoni_totali.get('buoni_aperti', 0) or 0)
-            except Exception:
-                pass
+            except Exception as buoni_error:
+                # Su PostgreSQL, dopo una query fallita è obbligatorio eseguire rollback;
+                # altrimenti tutte le query successive (compreso il riepilogo clienti)
+                # falliscono con "current transaction is aborted".
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                try:
+                    app_obj.logger.warning(f"[DASHBOARD] calcolo buoni non disponibile: {buoni_error}")
+                except Exception:
+                    pass
 
             movimenti = []
 
@@ -494,8 +504,16 @@ def register_dashboard_home_routes(app_obj, deps):
             try:
                 _add_movimenti_ingresso()
                 _add_movimenti_uscita()
-            except Exception:
+            except Exception as movimenti_error:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
                 movimenti = []
+                try:
+                    app_obj.logger.warning(f"[DASHBOARD] ultimi movimenti non disponibili: {movimenti_error}")
+                except Exception:
+                    pass
 
             ultimi_movimenti = sorted(
                 movimenti,
@@ -574,6 +592,13 @@ def register_dashboard_home_routes(app_obj, deps):
             level_order = {'danger': 0, 'warning': 1, 'info': 2}
             dashboard_alerts = sorted(dashboard_alerts, key=lambda x: (level_order.get(x.get('level'), 9), -int(x.get('count') or 0)))
 
+            # Ripristina una sessione SQL pulita prima del riepilogo clienti.
+            # È fondamentale su PostgreSQL se un alert precedente ha generato un errore.
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
             # Riepilogo giacenze diviso per cliente.
             # Query semplice e indipendente dall'anagrafica utenti:
             # mostra tutti i clienti realmente presenti nelle righe attive.
@@ -637,6 +662,10 @@ def register_dashboard_home_routes(app_obj, deps):
                 )
 
             except Exception as clienti_error:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
                 try:
                     app_obj.logger.error(
                         f"[DASHBOARD] errore riepilogo giacenze per cliente: {clienti_error}"
