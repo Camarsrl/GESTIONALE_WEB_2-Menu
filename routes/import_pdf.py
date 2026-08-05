@@ -14,7 +14,7 @@ Il file principale resta più leggero e le route mantengono gli stessi endpoint.
 def register_import_pdf_routes(app_obj, deps):
     globals().update(deps)
     globals()["app"] = app_obj
-    print("[OK] IMPORT PDF GALVANO - PARSER DDT ATOTECH RIGHE DISTINTE - VERSIONE 4")
+    print("[OK] IMPORT PDF - SALVATAGGIO PEZZI ROBUSTO - VERSIONE 5")
 
     # --- HELPER ESTRAZIONE PDF (Necessario per Import PDF) ---
 
@@ -946,12 +946,51 @@ def register_import_pdf_routes(app_obj, deps):
                 data_ingresso=request.form.get('data_ingresso'),
                 cliente=cliente_pdf_import
             )
+            def _first_form_list(*names):
+                """Restituisce la prima lista realmente inviata dal template.
+
+                Mantiene compatibilità con le diverse versioni della pagina Import PDF,
+                nelle quali i campi Peso/Q.tà e Pezzi hanno avuto nomi differenti.
+                """
+                for name in names:
+                    values = request.form.getlist(name)
+                    if values:
+                        return values, name
+                return [], ''
+
             codici = request.form.getlist('codice[]')
             descrizioni = request.form.getlist('descrizione[]')
             colli_list = request.form.getlist('colli[]')
-            qta_list = request.form.getlist('pezzi[]')  # peso / quantità
+
+            # Peso / quantità del documento.
+            qta_list, qta_source = _first_form_list(
+                'peso_qta[]',
+                'peso[]',
+                'qta[]',
+                'quantita[]',
+                'pezzi[]',          # nome storico: nella vecchia pagina indicava Peso/Q.tà
+            )
+
             um_list = request.form.getlist('um[]')
-            pezzi_articolo_list = request.form.getlist('pezzi_articolo[]')  # pezzi (separati dal peso)
+
+            # Pezzi articolo reali da salvare nel campo Articolo.pezzo.
+            pezzi_articolo_list, pezzi_source = _first_form_list(
+                'pezzi_articolo[]',
+                'pezzo[]',
+                'pezzi_riga[]',
+                'quantita_pezzi[]',
+                'pz[]',
+            )
+
+            # Compatibilità con una pagina in cui:
+            # - peso[] contiene il peso;
+            # - pezzi[] contiene invece i pezzi.
+            if not pezzi_articolo_list and qta_source != 'pezzi[]':
+                legacy_pezzi = request.form.getlist('pezzi[]')
+                if legacy_pezzi:
+                    pezzi_articolo_list = legacy_pezzi
+                    pezzi_source = 'pezzi[]'
+
             lotto_list = request.form.getlist('lotto[]')
             serial_list = request.form.getlist('serial_number[]')
 
@@ -1041,23 +1080,58 @@ def register_import_pdf_routes(app_obj, deps):
                 sr = serial_list[i] if i < len(serial_list) else ""
                 art.serial_number = (sr or "").strip()
 
-                # Quantità/Peso: il campo 'pezzi[]' in tabella è usato come Peso/Q.tà.
+                # Quantità/Peso del documento.
                 qta = qta_list[i] if i < len(qta_list) else ""
                 um = (um_list[i] if i < len(um_list) else "").strip().upper()
 
-                # Pezzi articolo (separato): es. da codice 1689615-0025-1-000 -> 1
+                # Pezzi articolo reali.
                 pz_art = pezzi_articolo_list[i] if i < len(pezzi_articolo_list) else ""
-                pz_art = str(pz_art).strip()
+                pz_art = str(pz_art or "").strip()
 
-                if um == "KG":
-                    # qta = peso in Kg
-                    art.peso = to_float_eu(qta)
-                    # Per Galvano i colli sono anche i pezzi.
-                    art.pezzo = str(colli_val) if is_galvano else pz_art
-                else:
-                    # qta = pezzi/quantità (non Kg)
-                    art.pezzo = str(pz_art or qta).strip()
+                def _format_pezzi_value(value):
+                    """Salva i pezzi senza trasformare 4 in 4.0."""
+                    raw = str(value or "").strip()
+                    if not raw:
+                        return ""
+                    try:
+                        number = float(raw.replace(",", "."))
+                        if number.is_integer():
+                            return str(int(number))
+                        return str(number).replace(".", ",")
+                    except Exception:
+                        return raw
+
+                # Fallback robusti:
+                # 1) Galvano: i colli del DDT corrispondono ai pezzi/fustini;
+                # 2) unità PZ/NR/UN/PCS: la quantità è utilizzabile come pezzi;
+                # 3) se il parser ha valorizzato i colli ma il template non ha inviato
+                #    il campo Pezzi, per Galvano non deve mai essere salvato vuoto.
+                if not pz_art:
+                    if is_galvano and colli_val > 0:
+                        pz_art = str(colli_val)
+                    elif um in {"PZ", "PZS", "PCS", "NR", "N", "UN"} and str(qta).strip():
+                        pz_art = str(qta).strip()
+
+                if um in {"KG", "KGS"}:
+                    # qta = peso in Kg; i pezzi restano un campo separato.
                     art.peso = to_float_eu(qta) if str(qta).strip() else None
+                    art.pezzo = _format_pezzi_value(pz_art)
+                else:
+                    # qta può rappresentare una quantità; usa prima il campo Pezzi
+                    # esplicito e solo in sua assenza la quantità del documento.
+                    valore_pezzi = pz_art or qta
+                    art.pezzo = _format_pezzi_value(valore_pezzi)
+                    # Non inventa il peso per unità PZ/NR/UN.
+                    art.peso = (
+                        to_float_eu(qta)
+                        if um not in {"PZ", "PZS", "PCS", "NR", "N", "UN"}
+                        and str(qta).strip()
+                        else None
+                    )
+
+                # Controllo finale Galvano: evita definitivamente righe salvate senza pezzi.
+                if is_galvano and not str(art.pezzo or "").strip():
+                    art.pezzo = str(colli_val) if colli_val > 0 else "1"
 
                 db.add(art)
                 c += 1
