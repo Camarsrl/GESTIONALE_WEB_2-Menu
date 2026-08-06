@@ -3712,11 +3712,12 @@ BULK_EDIT_HTML = """
                             <input type="number" step="0.01" name="{{ field_name }}" id="in_{{ field_name }}"
                                    class="form-control form-control-sm" disabled
                                    {% if field_name == 'pezzo' %}
-                                   placeholder="Vuoto = mantiene i pezzi esistenti"
+                                   placeholder="Vuoto = cancella il valore Pezzi"
                                    {% endif %}>
                             {% if field_name == 'pezzo' %}
-                            <div class="form-text small">
-                                Se lasci vuoto, i pezzi già presenti non vengono modificati.
+                            <div class="form-text small text-danger">
+                                Attiva la spunta e lascia vuoto per cancellare lo 0 o il valore Pezzi.
+                                Se non vuoi modificare i pezzi, non attivare la spunta.
                             </div>
                             {% endif %}
 
@@ -8046,12 +8047,13 @@ def bulk_edit():
                 val = request.form.get(field_name)
                 raw_val = str(val or "").strip()
 
-                # SICUREZZA PEZZI:
-                # anche se la spunta "Pezzi" viene attivata per errore,
-                # un campo lasciato vuoto NON deve cancellare i pezzi già presenti.
-                # I pezzi vengono aggiornati soltanto quando è stato digitato
-                # esplicitamente un valore.
+                # PEZZI:
+                # se la spunta Pezzi è attiva e il campo viene lasciato vuoto,
+                # il valore deve essere realmente svuotato nel database.
+                # Se invece la spunta non è attiva, il campo non entra in updates
+                # e resta invariato.
                 if field_name == 'pezzo' and raw_val == "":
+                    updates[field_name] = ""
                     continue
 
                 if field_name in ['n_colli', 'pezzo']:
