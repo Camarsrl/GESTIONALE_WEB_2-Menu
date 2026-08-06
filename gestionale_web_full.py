@@ -3709,7 +3709,16 @@ BULK_EDIT_HTML = """
                             <input type="date" name="{{ field_name }}" id="in_{{ field_name }}" class="form-control form-control-sm" disabled>
 
                         {% elif field_name in ['pezzo','n_colli','lunghezza','larghezza','altezza','peso'] %}
-                            <input type="number" step="0.01" name="{{ field_name }}" id="in_{{ field_name }}" class="form-control form-control-sm" disabled>
+                            <input type="number" step="0.01" name="{{ field_name }}" id="in_{{ field_name }}"
+                                   class="form-control form-control-sm" disabled
+                                   {% if field_name == 'pezzo' %}
+                                   placeholder="Vuoto = mantiene i pezzi esistenti"
+                                   {% endif %}>
+                            {% if field_name == 'pezzo' %}
+                            <div class="form-text small">
+                                Se lasci vuoto, i pezzi già presenti non vengono modificati.
+                            </div>
+                            {% endif %}
 
                         {% else %}
                             <input type="text" name="{{ field_name }}" id="in_{{ field_name }}" class="form-control form-control-sm" disabled>
@@ -8035,15 +8044,24 @@ def bulk_edit():
                     continue
 
                 val = request.form.get(field_name)
+                raw_val = str(val or "").strip()
+
+                # SICUREZZA PEZZI:
+                # anche se la spunta "Pezzi" viene attivata per errore,
+                # un campo lasciato vuoto NON deve cancellare i pezzi già presenti.
+                # I pezzi vengono aggiornati soltanto quando è stato digitato
+                # esplicitamente un valore.
+                if field_name == 'pezzo' and raw_val == "":
+                    continue
 
                 if field_name in ['n_colli', 'pezzo']:
-                    val = to_int_eu(val)
+                    val = to_int_eu(raw_val)
                 elif field_name in ['lunghezza', 'larghezza', 'altezza', 'peso']:
-                    val = to_float_eu(val)
+                    val = to_float_eu(raw_val)
                 elif 'data' in field_name:
-                    val = parse_date_ui(val) if val else None
+                    val = parse_date_ui(raw_val) if raw_val else None
                 else:
-                    val = (val or "").strip()
+                    val = raw_val
 
                 updates[field_name] = val
 
@@ -8108,8 +8126,10 @@ def bulk_edit():
                     count_uploaded += 1
 
             db.commit()
+            campi_aggiornati = ", ".join(updates.keys()) if updates else "nessun campo"
             flash(
-                f"Aggiornati {len(articoli)} articoli e caricati {count_uploaded} file (copiati su ciascun articolo).",
+                f"Aggiornati {len(articoli)} articoli. Campi modificati: {campi_aggiornati}. "
+                f"Caricati {count_uploaded} file (copiati su ciascun articolo).",
                 "success"
             )
             return redirect(return_url)
